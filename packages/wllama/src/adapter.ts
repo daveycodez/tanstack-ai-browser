@@ -66,6 +66,13 @@ export type WllamaTextConfig = {
    * it can, and on the CPU elsewhere.
    */
   gpu?: boolean
+  /**
+   * Speculative decoding (guessing the next few tokens from the conversation
+   * so far and checking them in one pass). By default on where it writes the
+   * same text and faster: WebGPU on Imagination PowerVR GPUs (Pixel 10).
+   * `true` turns it on everywhere, `false` off.
+   */
+  speculative?: boolean
   /** wllama's and llama.cpp's logs, in the console. */
   debug?: boolean
 }
@@ -261,6 +268,9 @@ export class WllamaTextAdapter<
       ...(config.compat && { compat: config.compat }),
       ...(config.threads && { threads: config.threads }),
       ...(config.gpu !== undefined && { gpu: config.gpu }),
+      ...(config.speculative !== undefined && {
+        speculative: config.speculative
+      }),
       ...(config.debug && { debug: true })
     })
   }

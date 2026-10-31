@@ -1,4 +1,5 @@
 diff --git a/ggml/src/ggml-webgpu/ggml-webgpu-shader-lib.hpp b/ggml/src/ggml-webgpu/ggml-webgpu-shader-lib.hpp
+index e01a417..b0e541b 100644
 --- a/ggml/src/ggml-webgpu/ggml-webgpu-shader-lib.hpp
 +++ b/ggml/src/ggml-webgpu/ggml-webgpu-shader-lib.hpp
 @@ -51,6 +51,18 @@
@@ -20,7 +21,45 @@ diff --git a/ggml/src/ggml-webgpu/ggml-webgpu-shader-lib.hpp b/ggml/src/ggml-web
  #define WEBGPU_MUL_MAT_VEC_FLOAT_OUTPUTS_PER_WG    4
  #define WEBGPU_MUL_MAT_VEC_LEGACY_Q_OUTPUTS_PER_WG 4
  #define WEBGPU_MUL_MAT_VEC_K_Q_OUTPUTS_PER_WG      4
-@@ -1278,6 +1290,14 @@ class ggml_webgpu_shader_lib {
+@@ -280,9 +292,11 @@ struct ggml_webgpu_rms_norm_mul_pipeline_key {
+     bool inplace;      // rn_src == dst
+     bool overlap;      // mul_src == dst
+     bool src_overlap;  // rn_src binding overlaps mul_src binding
++    bool staged;       // PowerVR: the output also written into the mat-vec staging buffer
+ 
+     bool operator==(const ggml_webgpu_rms_norm_mul_pipeline_key & other) const {
+-        return inplace == other.inplace && overlap == other.overlap && src_overlap == other.src_overlap;
++        return inplace == other.inplace && overlap == other.overlap && src_overlap == other.src_overlap &&
++               staged == other.staged;
+     }
+ };
+ 
+@@ -292,6 +306,7 @@ struct ggml_webgpu_rms_norm_mul_pipeline_key_hash {
+         ggml_webgpu_hash_combine(seed, key.inplace);
+         ggml_webgpu_hash_combine(seed, key.overlap);
+         ggml_webgpu_hash_combine(seed, key.src_overlap);
++        ggml_webgpu_hash_combine(seed, key.staged);
+         return seed;
+     }
+ };
+@@ -1222,6 +1237,16 @@ inline bool ggml_webgpu_can_use_mmvq(const ggml_tensor * src0,
+     return false;
+ }
+ 
++// What mul_mat_vec_pvr.wgsl fuses in (see ggml_webgpu_mul_mat_vec_pvr_fused).
++struct ggml_webgpu_mul_mat_vec_pvr_fusion {
++    bool add        = false;  // dst = the product + another tensor
++    bool add_in_dst = false;  // ... which is dst itself
++    bool glu        = false;  // dst = SwiGLU of the products with src0 (the gate) and src0b
++    bool stage_out  = false;  // dst also written into a staging buffer, the next product's src1
++
++    int key() const { return (add ? 1 : 0) + (add_in_dst ? 2 : 0) + (glu ? 4 : 0) + (stage_out ? 8 : 0); }
++};
++
+ class ggml_webgpu_shader_lib {
+     wgpu::Device           device;
+     pre_wgsl::Preprocessor preprocessor;
+@@ -1278,6 +1303,14 @@ class ggml_webgpu_shader_lib {
          mul_mat_vec_pipelines;   // fast mat-vec (n==1)
      std::unordered_map<ggml_webgpu_mul_mat_pipeline_key, webgpu_pipeline, ggml_webgpu_mul_mat_pipeline_key_hash>
          mul_mat_fast_pipelines;  // fast mat-mat (reg-tile or subgroup)
@@ -35,14 +74,152 @@ diff --git a/ggml/src/ggml-webgpu/ggml-webgpu-shader-lib.hpp b/ggml/src/ggml-web
      std::unordered_map<ggml_webgpu_quantize_q8_pipeline_key, webgpu_pipeline, ggml_webgpu_quantize_q8_pipeline_key_hash>
          quantize_q8_pipelines;
      std::unordered_map<ggml_webgpu_mul_mat_id_gather_pipeline_key,
-@@ -2171,6 +2191,200 @@ class ggml_webgpu_shader_lib {
+@@ -2171,6 +2204,392 @@ class ggml_webgpu_shader_lib {
          return mul_mat_vec_pipelines[key];
      }
  
-+    // PowerVR mat-vec (see mul_mat_vec_pvr.wgsl) for ncol columns; src0_ro binds the weights read-only
-+    webgpu_pipeline get_mul_mat_vec_pvr_pipeline(ggml_type src0_type, bool src0_ro, uint32_t ncol = 1) {
-+        const int key = ((int) src0_type * 2 + (src0_ro ? 1 : 0)) * 16 + (int) ncol;
-+        auto      it  = mul_mat_vec_pvr_pipelines.find(key);
++    // The body of mul_mat_vec_pvr.wgsl's main(), written out for each of the
++    // ncol columns and rb rows of a thread (see there): plain variables
++    // rather than indexed arrays, and per column the one-column arithmetic.
++    static std::string ggml_webgpu_mul_mat_vec_pvr_body(bool                                       q4,
++                                                         uint32_t                                   ncol,
++                                                         uint32_t                                   rb,
++                                                         bool                                       subgroups,
++                                                         uint32_t                                   tpr,
++                                                         const ggml_webgpu_mul_mat_vec_pvr_fusion & fuse) {
++        std::ostringstream w;
++        // line with {i} replaced by row index i and {c} by column index c
++        auto sub = [](std::string l, uint32_t i, uint32_t c) {
++            for (const auto & [key, val] : { std::pair<std::string, uint32_t>{ "{c}", c }, { "{i}", i } }) {
++                for (size_t pos; (pos = l.find(key)) != std::string::npos;) {
++                    l.replace(pos, key.size(), std::to_string(val));
++                }
++            }
++            return l;
++        };
++        // line once, or for each row, or for each row and column
++        auto emit = [&](const std::string & line, bool per_row, bool per_col) {
++            for (uint32_t i = 0; i < (per_row ? rb : 1); i++) {
++                for (uint32_t c = 0; c < (per_col ? ncol : 1); c++) {
++                    w << sub(line, i, c) << "\n";
++                }
++            }
++        };
++        auto rows      = [&](const std::string & line) { emit(line, true, false); };
++        auto rows_cols = [&](const std::string & line) { emit(line, true, true); };
++        // with GLU, each product (a: src0, the gate, b: src0b) has its own sums
++        const std::vector<std::string> prods =
++            fuse.glu ? std::vector<std::string>{ "a", "b" } : std::vector<std::string>{ "a" };
++        rows("    let row{i} = row_first + {i}u;");
++        rows("    let row_block{i} = params.offset_src0 + min(row{i}, params.m - 1u) * params.stride_01;");
++        if (fuse.glu) {
++            rows("    let row_block_b{i} = params.stride_02 + min(row{i}, params.m - 1u) * params.stride_01;");
++        }
++        for (const std::string & v : prods) {
++            rows_cols("    var " + v + "{i}_{c} = 0.0;");
++        }
++        w << "    for (var b = t / LPB; b < nb; b += BLOCKS_PER_ITER) {\n";
++        w << "        let xb = x0 + b * 64u;\n";
++        for (const std::string & v : prods) {
++            const std::string sfx = v == "a" ? "" : "_b";
++            const std::string rbk = v == "a" ? "row_block" : "row_block_b";
++            w << "        {\n";
++            if (q4) {
++                // the lane's first word against every column, then its second
++                w << "            let xo0 = xb + (lane >> 1u) * 16u + (lane & 1u) * 4u;\n";
++                w << "            let xo1 = xb + ((lane + 4u) >> 1u) * 16u + ((lane + 4u) & 1u) * 4u;\n";
++                rows("            let w0_{i} = q4k_unpack" + sfx + "((" + rbk + "{i} + b) * 9u, lane);");
++                emit("            let r{i}_{c} = q4k_col(w0_{i}, xo0 + {c}u * xs);", true, true);
++                rows("            let w1_{i} = q4k_unpack" + sfx + "((" + rbk + "{i} + b) * 9u, lane + 4u);");
++                rows_cols("            " + v + "{i}_{c} += r{i}_{c} + q4k_col(w1_{i}, xo1 + {c}u * xs);");
++            } else {
++                w << "            let xo = xb + 32u * (lane >> 2u) + 2u * (lane & 3u);\n";
++                rows("            let w0_{i} = q6k_unpack" + sfx + "((" + rbk + "{i} + b) * 210u, lane);");
++                rows_cols("            " + v + "{i}_{c} += q6k_col(w0_{i}, xo + {c}u * xs);");
++            }
++            w << "        }\n";
++        }
++        w << "    }\n";
++        // the value stored for row i, column c
++        std::string out = "a{i}_{c}";
++        if (fuse.glu) {
++            out = "(a{i}_{c} / (1.0 + exp(-a{i}_{c})) * b{i}_{c})";  // as glu.wgsl's SwiGLU
++        }
++        const std::string at = "{c}u * params.m + row{i}";
++        std::string       store;
++        if (fuse.add_in_dst) {
++            store = "let o = params.offset_dst + " + at + "; dst[o] = " + out + " + dst[o];";
++        } else if (fuse.add) {
++            store = "dst[params.offset_dst + " + at + "] = " + out + " + addv[params.stride_12 + " + at + "];";
++        } else if (fuse.stage_out) {
++            store = "let v = " + out + "; dst[params.offset_dst + " + at + "] = v; staged_out[" + at + "] = v;";
++        } else {
++            store = "dst[params.offset_dst + " + at + "] = " + out + ";";
++        }
++        // the stores of the rows in range (columns past n are not stored)
++        auto store_rows = [&]() {
++            for (uint32_t i = 0; i < rb; i++) {
++                w << sub("        if (row{i} < params.m) {", i, 0) << "\n";
++                for (uint32_t c = 0; c < ncol; c++) {
++                    w << sub("            if ({c}u < params.n) { " + store + " }", i, c) << "\n";
++                }
++                w << "        }\n";
++            }
++        };
++        if (subgroups) {
++            for (const std::string & v : prods) {
++                for (uint32_t s = tpr / 2; s > 0; s >>= 1) {
++                    rows_cols("    " + v + "{i}_{c} += subgroupShuffleXor(" + v + "{i}_{c}, " + std::to_string(s) + "u);");
++                }
++            }
++            w << "    if (t == 0u) {\n";
++            store_rows();
++            w << "    }\n";
++        } else {
++            // the sums of product p, row i, column c at ((p * rb + i) * ncol + c) * WG_SIZE
++            auto slot = [&](size_t p) {
++                return "((" + std::to_string(p * rb) + "u + {i}u) * " + std::to_string(ncol) + "u + {c}u) * WG_SIZE";
++            };
++            for (size_t p = 0; p < prods.size(); p++) {
++                rows_cols("    partial_sums[" + slot(p) + " + li] = " + prods[p] + "{i}_{c};");
++            }
++            w << "    workgroupBarrier();\n";
++            w << "    for (var s = TPR / 2u; s > 0u; s >>= 1u) {\n";
++            w << "        if (t < s) {\n";
++            for (size_t p = 0; p < prods.size(); p++) {
++                rows_cols("            partial_sums[" + slot(p) + " + li] += partial_sums[" + slot(p) + " + li + s];");
++            }
++            w << "        }\n";
++            w << "        workgroupBarrier();\n";
++            w << "    }\n";
++            w << "    if (t == 0u) {\n";
++            for (size_t p = 0; p < prods.size(); p++) {
++                rows_cols("        " + prods[p] + "{i}_{c} = partial_sums[" + slot(p) + " + li];");
++            }
++            store_rows();
++            w << "    }\n";
++        }
++        return w.str();
++    }
++
++    // rows per thread of mul_mat_vec_pvr.wgsl: two for a Q4_K product on one
++    // column (fewer loads of the vector), one otherwise
++    static uint32_t ggml_webgpu_mul_mat_vec_pvr_rb(ggml_type src0_type,
++                                                   uint32_t  ncol,
++                                                   const ggml_webgpu_mul_mat_vec_pvr_fusion & fuse) {
++        return src0_type == GGML_TYPE_Q4_K && ncol == 1 && !fuse.glu ? 2 : 1;
++    }
++
++    // PowerVR mat-vec (see mul_mat_vec_pvr.wgsl) for ncol columns; src0_ro binds the weights read-only,
++    // subgroups adds up a row's lanes with shuffles, fuse is what it fuses in
++    webgpu_pipeline get_mul_mat_vec_pvr_pipeline(ggml_type                      src0_type,
++                                                 bool                           src0_ro,
++                                                 uint32_t                       ncol      = 1,
++                                                 bool                           subgroups = false,
++                                                 const ggml_webgpu_mul_mat_vec_pvr_fusion & fuse      = {}) {
++        const int key = ((((int) src0_type * 2 + (src0_ro ? 1 : 0)) * 32 + (int) ncol) * 2 + (subgroups ? 1 : 0)) * 16 +
++                        fuse.key();
++        auto it = mul_mat_vec_pvr_pipelines.find(key);
 +        if (it != mul_mat_vec_pvr_pipelines.end()) {
 +            return it->second;
 +        }
@@ -67,20 +244,74 @@ diff --git a/ggml/src/ggml-webgpu/ggml-webgpu-shader-lib.hpp b/ggml/src/ggml-web
 +            defines.push_back("SRC0_RO");
 +            variant += "_ro";
 +        }
++        const uint32_t tpr = WEBGPU_MUL_MAT_VEC_PVR_WG_SIZE / rows_per_wg;
++        const uint32_t rb  = ggml_webgpu_mul_mat_vec_pvr_rb(src0_type, ncol, fuse);
++        rows_per_wg *= rb;
 +        defines.push_back("WG_SIZE=" + std::to_string(WEBGPU_MUL_MAT_VEC_PVR_WG_SIZE) + "u");
 +        defines.push_back("ROWS_PER_WG=" + std::to_string(rows_per_wg) + "u");
-+        defines.push_back("NCOL=" + std::to_string(ncol) + "u");
++        defines.push_back("RB=" + std::to_string(rb) + "u");
++        // the workgroup memory holds the sums of every row, column and product of a thread
++        defines.push_back("NCOL=" + std::to_string((fuse.glu ? 2 : 1) * rb * ncol) + "u");
 +        if (ncol > 1) {
 +            variant += "_ncol" + std::to_string(ncol);
 +        }
++        if (subgroups) {
++            defines.push_back("USE_SUBGROUPS");
++            variant += "_sg";
++        }
++        if (fuse.add && !fuse.add_in_dst) {
++            defines.push_back("ADD");
++            variant += "_add";
++        }
++        if (fuse.add_in_dst) {
++            variant += "_add_in_dst";
++        }
++        if (fuse.glu) {
++            defines.push_back("GLU");
++            variant += "_swiglu";
++        }
++        if (fuse.stage_out) {
++            defines.push_back("STAGE_OUT");
++            variant += "_stage";
++        }
++        // the bindings after dst, in order, then the parameters
++        uint32_t binding = 3;
++        if (fuse.add && !fuse.add_in_dst) {
++            defines.push_back("ADD_BINDING=" + std::to_string(binding++));
++        }
++        if (fuse.glu) {
++            defines.push_back("SRC0B_BINDING=" + std::to_string(binding++));
++        }
++        if (fuse.stage_out) {
++            defines.push_back("STAGE_BINDING=" + std::to_string(binding++));
++        }
++        defines.push_back("PARAMS_BINDING=" + std::to_string(binding));
 +
-+        auto processed            = preprocessor.preprocess(wgsl_mul_mat_vec_pvr, defines);
-+        auto decisions            = std::make_shared<ggml_webgpu_mul_mat_vec_shader_decisions>();
-+        decisions->wg_size        = WEBGPU_MUL_MAT_VEC_PVR_WG_SIZE;
-+        decisions->outputs_per_wg = rows_per_wg;
-+        decisions->vec_size       = 1;
-+        webgpu_pipeline pipeline  = ggml_webgpu_create_pipeline(device, processed, variant);
-+        pipeline.context          = decisions;
++        auto processed = preprocessor.preprocess(wgsl_mul_mat_vec_pvr, defines);
++        if (fuse.glu) {
++            // the weight-reading helpers again, reading src0b
++            const auto b = processed.find("// HELPERS_BEGIN");
++            const auto e = processed.find("// HELPERS_END");
++            GGML_ASSERT(b != std::string::npos && e != std::string::npos);
++            std::string helpers = processed.substr(b, e - b);
++            for (const auto & [from, to] : std::vector<std::pair<std::string, std::string>>{
++                     { "src0[", "src0b[" }, { "ld(", "ld_b(" }, { "q4k_unpack(", "q4k_unpack_b(" }, { "q6k_unpack(", "q6k_unpack_b(" } }) {
++                for (size_t pos = 0; (pos = helpers.find(from, pos)) != std::string::npos; pos += to.size()) {
++                    helpers.replace(pos, from.size(), to);
++                }
++            }
++            processed.insert(e, helpers);
++        }
++        const auto body_at = processed.rfind("MAIN_BODY");
++        GGML_ASSERT(body_at != std::string::npos);
++        processed.replace(body_at, sizeof("MAIN_BODY") - 1,
++                          ggml_webgpu_mul_mat_vec_pvr_body(src0_type == GGML_TYPE_Q4_K, ncol, rb, subgroups, tpr, fuse));
++        auto decisions                 = std::make_shared<ggml_webgpu_mul_mat_vec_shader_decisions>();
++        decisions->wg_size             = WEBGPU_MUL_MAT_VEC_PVR_WG_SIZE;
++        decisions->outputs_per_wg      = rows_per_wg;
++        decisions->vec_size            = 1;
++        webgpu_pipeline pipeline       = ggml_webgpu_create_pipeline(device, processed, variant);
++        pipeline.context               = decisions;
 +        mul_mat_vec_pvr_pipelines[key] = pipeline;
 +        return pipeline;
 +    }
@@ -236,7 +467,34 @@ diff --git a/ggml/src/ggml-webgpu/ggml-webgpu-shader-lib.hpp b/ggml/src/ggml-web
      webgpu_pipeline get_mul_mat_fast_pipeline(const ggml_webgpu_shader_lib_context & context, bool src_overlap) {
          ggml_webgpu_mul_mat_pipeline_key key = {};
          key.src0_type                        = context.src0->type;
+@@ -2704,11 +3123,14 @@ class ggml_webgpu_shader_lib {
+         return unary_pipelines[key];
+     }
+ 
+-    webgpu_pipeline get_rms_norm_mul_pipeline(const ggml_webgpu_shader_lib_context & context, bool src_overlap) {
++    webgpu_pipeline get_rms_norm_mul_pipeline(const ggml_webgpu_shader_lib_context & context,
++                                              bool                                   src_overlap,
++                                              bool                                   staged = false) {
+         ggml_webgpu_rms_norm_mul_pipeline_key key = {};
+         key.inplace                               = ggml_webgpu_tensor_equal(context.src0, context.dst);
+         key.overlap                               = ggml_webgpu_tensor_equal(context.src1, context.dst);
+         key.src_overlap                           = src_overlap;
++        key.staged                                = staged && !key.inplace && !key.overlap && !src_overlap;
+ 
+         auto it = rms_norm_mul_pipelines.find(key);
+         if (it != rms_norm_mul_pipelines.end()) {
+@@ -2728,6 +3150,9 @@ class ggml_webgpu_shader_lib {
+         } else if (key.src_overlap) {
+             defines.push_back("SRC_OVERLAP");
+             variant += "_src_overlap";
++        } else if (key.staged) {
++            defines.push_back("STAGED");
++            variant += "_staged";
+         }
+ 
+         defines.push_back(std::string("WG_SIZE=") + std::to_string(context.max_wg_size));
 diff --git a/ggml/src/ggml-webgpu/ggml-webgpu.cpp b/ggml/src/ggml-webgpu/ggml-webgpu.cpp
+index 555b888..ce80f75 100644
 --- a/ggml/src/ggml-webgpu/ggml-webgpu.cpp
 +++ b/ggml/src/ggml-webgpu/ggml-webgpu.cpp
 @@ -93,6 +93,9 @@ static inline uint32_t ggml_webgpu_u32_from_f32(float value) {
@@ -315,18 +573,22 @@ diff --git a/ggml/src/ggml-webgpu/ggml-webgpu.cpp b/ggml/src/ggml-webgpu/ggml-we
  // All the base objects needed to run operations on a WebGPU device
  struct webgpu_context_struct {
      // Points to global instances owned by ggml_backend_webgpu_reg_context
-@@ -258,6 +299,20 @@ struct webgpu_context_struct {
+@@ -258,6 +299,24 @@ struct webgpu_context_struct {
  
      size_t memset_bytes_per_thread;
  
 +    // PowerVR matrix products: a buffer of its own for src1, so that it can be
 +    // bound read-only (see ggml_webgpu_mul_mat_pvr)
-+    wgpu::Buffer pvr_staging_buf;
-+    size_t       pvr_staging_size = 0;
++    // (two, so that an op can write the next product's src1 while it reads its own)
++    wgpu::Buffer pvr_staging_buf[2];
++    size_t       pvr_staging_size[2] = { 0, 0 };
++    int          pvr_staged_idx      = 0;  // the one that holds pvr_staged_src1
 +    // the src1 the staging buffer holds, while no other op ran since: products
 +    // with the same src1 back to back (FFN gate and up) skip the copy
 +    const ggml_tensor * pvr_staged_src1 = nullptr;
 +    bool                pvr_staged_f16  = false;  // ... packed as f16 (for mul_mat_pvr_gemm.wgsl)
++    // the op just encoded wrote pvr_staged_src1 itself (its output, also into the staging buffer)
++    bool                pvr_staged_by_op = false;
 +    // PowerVR prompt batches: the weights dequantized to f16, in a texture
 +    // (see mul_mat_pvr_dequant.wgsl)
 +    wgpu::Texture     pvr_dequant_tex;
@@ -336,13 +598,15 @@ diff --git a/ggml/src/ggml-webgpu/ggml-webgpu.cpp b/ggml/src/ggml-webgpu/ggml-we
  #ifdef GGML_WEBGPU_GPU_PROFILE
      // Profiling: per-shader GPU time in ms
      std::unordered_map<std::string, double> shader_gpu_time_ms;
-@@ -286,6 +341,15 @@ struct webgpu_context_struct {
+@@ -286,6 +345,17 @@ struct webgpu_context_struct {
              this->set_rows_host_error_buf.Destroy();
              this->set_rows_host_error_buf = nullptr;
          }
-+        if (this->pvr_staging_buf) {
-+            this->pvr_staging_buf.Destroy();
-+            this->pvr_staging_buf = nullptr;
++        for (wgpu::Buffer & buf : this->pvr_staging_buf) {
++            if (buf) {
++                buf.Destroy();
++                buf = nullptr;
++            }
 +        }
 +        if (this->pvr_dequant_tex) {
 +            this->pvr_dequant_view = nullptr;
@@ -352,7 +616,7 @@ diff --git a/ggml/src/ggml-webgpu/ggml-webgpu.cpp b/ggml/src/ggml-webgpu/ggml-we
          if (this->set_rows_dev_error_buf) {
              this->set_rows_dev_error_buf.Destroy();
              this->set_rows_dev_error_buf = nullptr;
-@@ -531,6 +595,7 @@ static void ggml_backend_webgpu_wait_queue(webgpu_global_context & ctx) {
+@@ -531,6 +601,7 @@ static void ggml_backend_webgpu_wait_queue(webgpu_global_context & ctx) {
  
      ggml_backend_webgpu_check_wait_status(wait_status, callback_status, wgpu::QueueWorkDoneStatus::Success,
                                            "Queue wait", "Queue work", callback_message.c_str());
@@ -360,7 +624,7 @@ diff --git a/ggml/src/ggml-webgpu/ggml-webgpu.cpp b/ggml/src/ggml-webgpu/ggml-we
  }
  
  static void ggml_backend_webgpu_map_buffer(webgpu_global_context & ctx,
-@@ -561,6 +626,9 @@ static void ggml_backend_webgpu_submit_commands(webgpu_context &          ctx,
+@@ -561,6 +632,9 @@ static void ggml_backend_webgpu_submit_commands(webgpu_context &          ctx,
          num_inflight_batches = 0;
      }
  
@@ -370,7 +634,7 @@ diff --git a/ggml/src/ggml-webgpu/ggml-webgpu.cpp b/ggml/src/ggml-webgpu/ggml-we
      ctx->global_ctx->queue.Submit(1, &commands);
      num_inflight_batches++;
  }
-@@ -607,9 +675,16 @@ static webgpu_encoded_op ggml_backend_webgpu_build_multi(webgpu_context &
+@@ -607,9 +681,16 @@ static webgpu_encoded_op ggml_backend_webgpu_build_multi(webgpu_context &
          param_offsets.push_back(param_offset);
      }
  
@@ -389,7 +653,7 @@ diff --git a/ggml/src/ggml-webgpu/ggml-webgpu.cpp b/ggml/src/ggml-webgpu/ggml-we
      }
  
  #ifdef GGML_WEBGPU_GPU_PROFILE
-@@ -703,6 +778,8 @@ static void ggml_backend_webgpu_buffer_memset(webgpu_global_context & ctx,
+@@ -703,6 +784,8 @@ static void ggml_backend_webgpu_buffer_memset(webgpu_global_context & ctx,
  
      wgpu::CommandBuffer              command  = encoder.Finish();
      std::vector<wgpu::CommandBuffer> commands = { command };
@@ -398,7 +662,7 @@ diff --git a/ggml/src/ggml-webgpu/ggml-webgpu.cpp b/ggml/src/ggml-webgpu/ggml-we
      ctx->queue.Submit(commands.size(), commands.data());
  }
  
-@@ -1629,10 +1706,259 @@ static void ggml_webgpu_quantize_q8_dispatch(webgpu_context &
+@@ -1629,10 +1712,458 @@ static void ggml_webgpu_quantize_q8_dispatch(webgpu_context &
      });
  }
  
@@ -418,6 +682,12 @@ diff --git a/ggml/src/ggml-webgpu/ggml-webgpu.cpp b/ggml/src/ggml-webgpu/ggml-we
 +// texture rows holding m x k dequantized weights (8 per texel)
 +static uint32_t ggml_webgpu_pvr_dequant_rows(uint64_t m, uint64_t k) {
 +    return (uint32_t) CEIL_DIV(m * (k / 8), WEBGPU_MUL_MAT_PVR_TEX_W);
++}
++
++// mul_mat_vec_pvr.wgsl adds up a row's lanes (up to 8, neighbours) with subgroup shuffles
++static bool ggml_webgpu_mul_mat_vec_pvr_subgroups(const webgpu_global_context & global_ctx) {
++    const webgpu_capabilities & caps = global_ctx->capabilities;
++    return caps.supports_subgroups && caps.min_subgroup_size >= 8 && (caps.min_subgroup_size & (caps.min_subgroup_size - 1)) == 0;
 +}
 +
 +static bool ggml_webgpu_mul_mat_pvr_use_gemm(webgpu_context & ctx, const ggml_tensor * src0, const ggml_tensor * src1) {
@@ -464,6 +734,24 @@ diff --git a/ggml/src/ggml-webgpu/ggml-webgpu.cpp b/ggml/src/ggml-webgpu/ggml-we
 +    }
 +}
 +
++// Whether the staging buffer holds src1 (f32, or f16 for the GEMM) already.
++static bool ggml_webgpu_pvr_is_staged(webgpu_context & ctx, const ggml_tensor * src1, bool f16) {
++    const ggml_tensor * staged = ctx->pvr_staged_src1;
++    return staged != nullptr && ctx->pvr_staged_f16 == f16 &&
++           ggml_webgpu_tensor_buf(staged).Get() == ggml_webgpu_tensor_buf(src1).Get() &&
++           ggml_webgpu_tensor_offset(staged) == ggml_webgpu_tensor_offset(src1) && staged->ne[0] == src1->ne[0] &&
++           staged->ne[1] == src1->ne[1] && (src1->ne[1] == 1 || staged->nb[1] == src1->nb[1]);
++}
++
++// Switches to the other staging buffer, of at least size bytes, for writing
++// the next src1 (the current one may still be read by the op writing it).
++static void ggml_webgpu_pvr_stage_next(webgpu_context & ctx, size_t size) {
++    const int next = ctx->pvr_staged_idx ^ 1;
++    ggml_webgpu_pvr_scratch(ctx, ctx->pvr_staging_buf[next], ctx->pvr_staging_size[next], size, "pvr_staging_buf");
++    ctx->pvr_staged_idx  = next;
++    ctx->pvr_staged_src1 = nullptr;
++}
++
 +// Matrix products on PowerVR: copy src1 into the staging buffer (f32, or f16
 +// for mul_mat_pvr_gemm.wgsl), then multiply from read-only bindings.
 +// glu_other: SwiGLU fused in (mul_mat_pvr_gemm.wgsl, GLU), dst then being
@@ -480,20 +768,16 @@ diff --git a/ggml/src/ggml-webgpu/ggml-webgpu.cpp b/ggml/src/ggml-webgpu/ggml-we
 +    const uint32_t n            = (uint32_t) src1->ne[1];
 +    const bool     gemm         = ggml_webgpu_mul_mat_pvr_use_gemm(ctx, src0, src1);
 +    const size_t   staged_bytes = ROUNDUP_POW2((size_t) k * n * (gemm ? sizeof(ggml_fp16_t) : sizeof(float)), 16);
-+    if (!ctx->pvr_staging_buf || ctx->pvr_staging_size < staged_bytes) {
-+        ctx->pvr_staged_src1 = nullptr;
-+        ggml_webgpu_pvr_scratch(ctx, ctx->pvr_staging_buf, ctx->pvr_staging_size, staged_bytes, "pvr_staging_buf");
-+    }
 +
 +    std::vector<webgpu_dispatch_desc> dispatches;
 +
-+    const ggml_tensor * staged = ctx->pvr_staged_src1;
-+    const bool reuse_staged = staged != nullptr && ctx->pvr_staged_f16 == gemm &&
-+                              ggml_webgpu_tensor_buf(staged).Get() == ggml_webgpu_tensor_buf(src1).Get() &&
-+                              ggml_webgpu_tensor_offset(staged) == ggml_webgpu_tensor_offset(src1) &&
-+                              staged->ne[0] == src1->ne[0] && staged->ne[1] == src1->ne[1] && staged->nb[1] == src1->nb[1];
++    const bool reuse_staged = ggml_webgpu_pvr_is_staged(ctx, src1, gemm);
++    if (!reuse_staged) {
++        ggml_webgpu_pvr_stage_next(ctx, staged_bytes);
++    }
 +    ctx->pvr_staged_src1 = src1;
 +    ctx->pvr_staged_f16  = gemm;
++    wgpu::Buffer & staging_buf = ctx->pvr_staging_buf[ctx->pvr_staged_idx];
 +
 +    // 1. copy src1 into the staging buffer
 +    if (!reuse_staged) {
@@ -506,7 +790,7 @@ diff --git a/ggml/src/ggml-webgpu/ggml-webgpu.cpp b/ggml/src/ggml-webgpu/ggml-we
 +        };
 +        std::vector<wgpu::BindGroupEntry> stage_entries = {
 +            ggml_webgpu_make_tensor_bind_group_entry(ctx, 0, src1),
-+            ggml_webgpu_make_bind_group_entry(1, ctx->pvr_staging_buf, 0, staged_bytes),
++            ggml_webgpu_make_bind_group_entry(1, staging_buf, 0, staged_bytes),
 +        };
 +        // the f16 copy converts a pair of values per thread
 +        const uint32_t per_column = gemm ? k / 2 : k;
@@ -553,7 +837,7 @@ diff --git a/ggml/src/ggml-webgpu/ggml-webgpu.cpp b/ggml/src/ggml-webgpu/ggml-we
 +        compute_2d_workgroups(CEIL_DIV(m, WEBGPU_MUL_MAT_PVR_GEMM_ROWS) * CEIL_DIV(n, WEBGPU_MUL_MAT_PVR_GEMM_COLS),
 +                              ctx->global_ctx->capabilities.limits.maxComputeWorkgroupsPerDimension, wg_x, wg_y);
 +        std::vector<wgpu::BindGroupEntry> gemm_entries = {
-+            tex_entry, ggml_webgpu_make_bind_group_entry(1, ctx->pvr_staging_buf, 0, staged_bytes),
++            tex_entry, ggml_webgpu_make_bind_group_entry(1, staging_buf, 0, staged_bytes),
 +            ggml_webgpu_make_tensor_bind_group_entry(ctx, 2, dst)
 +        };
 +        uint32_t offset_glu = 0;
@@ -574,9 +858,10 @@ diff --git a/ggml/src/ggml-webgpu/ggml-webgpu.cpp b/ggml/src/ggml-webgpu/ggml-we
 +    webgpu_pipeline pipeline;
 +    uint32_t        total_wg;
 +    if (n <= WEBGPU_MUL_MAT_VEC_PVR_MAX_COLS) {
-+        // one column, or a few (the end of a prompt) read against the weights once
-+        const uint32_t ncol = n == 1 ? 1 : n <= 2 ? 2 : n <= 4 ? 4 : 8;
-+        pipeline        = ctx->shader_lib->get_mul_mat_vec_pvr_pipeline(src0->type, src0_ro, ncol);
++        // one column, or a few (a speculative batch, the end of a prompt) read against the weights once
++        const uint32_t ncol = n;
++        pipeline        = ctx->shader_lib->get_mul_mat_vec_pvr_pipeline(src0->type, src0_ro, ncol,
++                                                                       ggml_webgpu_mul_mat_vec_pvr_subgroups(ctx->global_ctx));
 +        auto * decisions = static_cast<ggml_webgpu_mul_mat_vec_shader_decisions *>(pipeline.context.get());
 +        total_wg         = CEIL_DIV(m, decisions->outputs_per_wg);
 +    } else {
@@ -602,7 +887,7 @@ diff --git a/ggml/src/ggml-webgpu/ggml-webgpu.cpp b/ggml/src/ggml-webgpu/ggml-we
 +                                     1u };
 +    std::vector<wgpu::BindGroupEntry> entries = {
 +        ggml_webgpu_make_tensor_bind_group_entry(ctx, 0, src0),
-+        ggml_webgpu_make_bind_group_entry(1, ctx->pvr_staging_buf, 0, staged_bytes),
++        ggml_webgpu_make_bind_group_entry(1, staging_buf, 0, staged_bytes),
 +        ggml_webgpu_make_tensor_bind_group_entry(ctx, 2, dst),
 +    };
 +    uint32_t wg_x = 1;
@@ -613,6 +898,184 @@ diff --git a/ggml/src/ggml-webgpu/ggml-webgpu.cpp b/ggml/src/ggml-webgpu/ggml-we
 +    });
 +
 +    return ggml_backend_webgpu_build_multi(ctx, dispatches);
++}
++
++// Whether the PowerVR mat-vec (mul_mat_vec_pvr.wgsl) takes this product.
++static bool ggml_webgpu_mul_mat_vec_pvr_applies(webgpu_context &    ctx,
++                                                const ggml_tensor * src0,
++                                                const ggml_tensor * src1,
++                                                const ggml_tensor * dst) {
++    return ggml_webgpu_can_use_mul_mat_pvr(ctx, src0, src1, dst) && src1->ne[1] <= WEBGPU_MUL_MAT_VEC_PVR_MAX_COLS &&
++           !ggml_webgpu_mul_mat_pvr_use_gemm(ctx, src0, src1) && ggml_webgpu_tensor_buf(src0).Get() != ggml_webgpu_tensor_buf(dst).Get();
++}
++
++// The PowerVR mat-vec with the next op(s) fused in, to save dispatches (each
++// costs tens of microseconds there): fuse.add, dst = product + add (the
++// residual, after the attention, conv or FFN output); fuse.glu, dst =
++// SwiGLU(product with src0, product with src0b), the FFN's gate and up,
++// with fuse.stage_out also writing dst into the other staging buffer for
++// the down product. Each column's arithmetic is the separate ops'.
++static webgpu_encoded_op ggml_webgpu_mul_mat_vec_pvr_fused(webgpu_context &                                      ctx,
++                                                           ggml_tensor *                                         src0,
++                                                           ggml_tensor *                                         src0b,
++                                                           ggml_tensor *                                         src1,
++                                                           ggml_tensor *                                         add,
++                                                           ggml_tensor *                                         dst,
++                                                           const ggml_webgpu_mul_mat_vec_pvr_fusion & fuse) {
++    const uint32_t k            = (uint32_t) src0->ne[0];
++    const uint32_t m            = (uint32_t) dst->ne[0];
++    const uint32_t n            = (uint32_t) src1->ne[1];
++    const size_t   staged_bytes = ROUNDUP_POW2((size_t) k * n * sizeof(float), 16);
++
++    std::vector<webgpu_dispatch_desc> dispatches;
++    if (!ggml_webgpu_pvr_is_staged(ctx, src1, false)) {
++        ggml_webgpu_pvr_stage_next(ctx, staged_bytes);
++        wgpu::Buffer & staging_buf = ctx->pvr_staging_buf[ctx->pvr_staged_idx];
++        dispatches.push_back({
++            ctx->shader_lib->get_mul_mat_pvr_stage_pipeline(false),
++            { (uint32_t) (ggml_webgpu_tensor_misalignment(ctx, src1) / ggml_type_size(src1->type)), k,
++              (uint32_t) (src1->nb[1] / ggml_type_size(src1->type)), n },
++            { ggml_webgpu_make_tensor_bind_group_entry(ctx, 0, src1),
++              ggml_webgpu_make_bind_group_entry(1, staging_buf, 0, staged_bytes) },
++            { CEIL_DIV(k, WEBGPU_MUL_MAT_PVR_STAGE_WG_SIZE), n }
++        });
++    }
++    ctx->pvr_staged_src1 = src1;
++    ctx->pvr_staged_f16  = false;
++    const int src1_idx   = ctx->pvr_staged_idx;
++
++    webgpu_pipeline pipeline = ctx->shader_lib->get_mul_mat_vec_pvr_pipeline(
++        src0->type, true, n, ggml_webgpu_mul_mat_vec_pvr_subgroups(ctx->global_ctx), fuse);
++    auto * decisions = static_cast<ggml_webgpu_mul_mat_vec_shader_decisions *>(pipeline.context.get());
++
++    std::vector<uint32_t> params = {
++        (uint32_t) (ggml_webgpu_tensor_misalignment(ctx, src0) / ggml_type_size(src0->type)),
++        0u,
++        (uint32_t) (ggml_webgpu_tensor_misalignment(ctx, dst) / ggml_type_size(dst->type)),
++        m,
++        n,
++        k,
++        (uint32_t) (src0->nb[1] / ggml_type_size(src0->type)),
++        k,
++        // stride_02: src0b's offset (GLU)
++        src0b ? (uint32_t) (ggml_webgpu_tensor_misalignment(ctx, src0b) / ggml_type_size(src0b->type)) : 0u,
++        // stride_12: add's offset (ADD)
++        add && !fuse.add_in_dst ? (uint32_t) (ggml_webgpu_tensor_misalignment(ctx, add) / ggml_type_size(add->type)) : 0u,
++        0u,
++        0u,
++        1u,
++        1u,
++        1u,
++        1u
++    };
++    std::vector<wgpu::BindGroupEntry> entries = {
++        ggml_webgpu_make_tensor_bind_group_entry(ctx, 0, src0),
++        ggml_webgpu_make_bind_group_entry(1, ctx->pvr_staging_buf[src1_idx], 0, staged_bytes),
++        ggml_webgpu_make_tensor_bind_group_entry(ctx, 2, dst),
++    };
++    // the fused-in bindings follow dst in this order (see mul_mat_vec_pvr.wgsl)
++    if (fuse.add && !fuse.add_in_dst) {
++        entries.push_back(ggml_webgpu_make_tensor_bind_group_entry(ctx, entries.size(), add));
++    }
++    if (fuse.glu) {
++        entries.push_back(ggml_webgpu_make_tensor_bind_group_entry(ctx, entries.size(), src0b));
++    }
++    if (fuse.stage_out) {
++        // dst, packed, becomes the staged src1 of the next product
++        const size_t out_bytes = ROUNDUP_POW2((size_t) m * n * sizeof(float), 16);
++        ggml_webgpu_pvr_stage_next(ctx, out_bytes);
++        entries.push_back(ggml_webgpu_make_bind_group_entry(entries.size(), ctx->pvr_staging_buf[ctx->pvr_staged_idx], 0, out_bytes));
++        ctx->pvr_staged_src1  = dst;
++        ctx->pvr_staged_f16   = false;
++        ctx->pvr_staged_by_op = true;
++    }
++    uint32_t wg_x = 1;
++    uint32_t wg_y = 1;
++    compute_2d_workgroups(CEIL_DIV(m, decisions->outputs_per_wg),
++                          ctx->global_ctx->capabilities.limits.maxComputeWorkgroupsPerDimension, wg_x, wg_y);
++    dispatches.push_back({ pipeline, std::move(params), std::move(entries), { wg_x, wg_y } });
++    return ggml_backend_webgpu_build_multi(ctx, dispatches);
++}
++
++// A product (PowerVR mat-vec) followed by an ADD of it and another tensor
++// of its shape: returns the other tensor, or nullptr when they can't fuse.
++// in_dst: the other tensor is the ADD's output itself (computed in place).
++static ggml_tensor * ggml_webgpu_mul_mat_pvr_add_operand(webgpu_context &           ctx,
++                                                         const struct ggml_cgraph * cgraph,
++                                                         int                        node_idx,
++                                                         bool &                     in_dst) {
++    if (!ggml_webgpu_is_pvr(ctx->global_ctx) || !ggml_can_fuse(cgraph, node_idx, { GGML_OP_MUL_MAT, GGML_OP_ADD })) {
++        return nullptr;
++    }
++    ggml_tensor * mm  = cgraph->nodes[node_idx];
++    ggml_tensor * add = cgraph->nodes[node_idx + 1];
++    if (!ggml_webgpu_mul_mat_vec_pvr_applies(ctx, mm->src[0], mm->src[1], mm)) {
++        return nullptr;
++    }
++    ggml_tensor * other = add->src[0] == mm ? add->src[1] : add->src[0];
++    if ((add->src[0] != mm && add->src[1] != mm) || other == mm) {
++        return nullptr;
++    }
++    if (other->type != GGML_TYPE_F32 || add->type != GGML_TYPE_F32 || !ggml_are_same_shape(other, mm) ||
++        !ggml_are_same_shape(add, mm) || !ggml_is_contiguous(other) || !ggml_is_contiguous(add) ||
++        ggml_webgpu_tensor_buf(mm->src[0]).Get() == ggml_webgpu_tensor_buf(add).Get()) {
++        return nullptr;
++    }
++    in_dst = false;
++    if (ggml_webgpu_tensor_binding_overlap(ctx->global_ctx, other, add)) {
++        // computed in place: read the operand through dst's binding
++        if (ggml_webgpu_tensor_buf(other).Get() != ggml_webgpu_tensor_buf(add).Get() ||
++            ggml_webgpu_tensor_offset(other) != ggml_webgpu_tensor_offset(add)) {
++            return nullptr;
++        }
++        in_dst = true;
++    }
++    return other;
++}
++
++// The FFN's gate and up products (PowerVR mat-vecs of one src1) followed by
++// the SwiGLU of the two: returns the GLU node's index offset (2), and sets
++// gate and up, or returns 0 when they can't fuse.
++static int ggml_webgpu_mul_mat_pvr_glu_nodes(webgpu_context &           ctx,
++                                             const struct ggml_cgraph * cgraph,
++                                             int                        node_idx,
++                                             ggml_tensor *&             gate,
++                                             ggml_tensor *&             up) {
++    if (!ggml_webgpu_is_pvr(ctx->global_ctx)) {
++        return 0;
++    }
++    const enum ggml_op ops[3]  = { GGML_OP_MUL_MAT, GGML_OP_MUL_MAT, GGML_OP_GLU };
++    const int          out_idx = node_idx + 2;
++    // the two products are only read by the GLU
++    if (!ggml_can_fuse_subgraph(cgraph, node_idx, 3, ops, &out_idx, 1)) {
++        return 0;
++    }
++    ggml_tensor * mm0 = cgraph->nodes[node_idx];
++    ggml_tensor * mm1 = cgraph->nodes[node_idx + 1];
++    ggml_tensor * glu = cgraph->nodes[node_idx + 2];
++    if (ggml_get_glu_op(glu) != GGML_GLU_OP_SWIGLU || glu->src[1] == nullptr || ggml_get_op_params_i32(glu, 1) != 0) {
++        return 0;
++    }
++    if (!((glu->src[0] == mm0 && glu->src[1] == mm1) || (glu->src[0] == mm1 && glu->src[1] == mm0))) {
++        return 0;
++    }
++    gate = glu->src[0];
++    up   = glu->src[1];
++    if (mm0->src[1] != mm1->src[1] && !(ggml_webgpu_tensor_buf(mm0->src[1]).Get() == ggml_webgpu_tensor_buf(mm1->src[1]).Get() &&
++                                        ggml_webgpu_tensor_offset(mm0->src[1]) == ggml_webgpu_tensor_offset(mm1->src[1]) &&
++                                        ggml_are_same_shape(mm0->src[1], mm1->src[1]) && mm0->src[1]->nb[1] == mm1->src[1]->nb[1])) {
++        return 0;
++    }
++    if (gate->src[0]->type != up->src[0]->type || !ggml_are_same_shape(gate->src[0], up->src[0]) ||
++        gate->src[0]->nb[1] != up->src[0]->nb[1] || !ggml_webgpu_mul_mat_vec_pvr_applies(ctx, gate->src[0], gate->src[1], gate) ||
++        !ggml_webgpu_mul_mat_vec_pvr_applies(ctx, up->src[0], up->src[1], up)) {
++        return 0;
++    }
++    if (glu->type != GGML_TYPE_F32 || !ggml_are_same_shape(glu, gate) || !ggml_is_contiguous(glu) ||
++        ggml_webgpu_tensor_buf(gate->src[0]).Get() == ggml_webgpu_tensor_buf(glu).Get()) {
++        return 0;
++    }
++    return 2;
 +}
 +
 +// A prompt batch's FFN on PowerVR: the gate or up product followed by the
@@ -658,7 +1121,7 @@ diff --git a/ggml/src/ggml-webgpu/ggml-webgpu.cpp b/ggml/src/ggml-webgpu/ggml-we
      // Determine if this is a mat-vec operation
      bool use_mat_vec = (dst->ne[1] <= 4);
  
-@@ -2280,6 +2606,159 @@ static webgpu_encoded_op ggml_webgpu_flash_attn_vec(webgpu_context &          ct
+@@ -2280,6 +2811,165 @@ static webgpu_encoded_op ggml_webgpu_flash_attn_vec(webgpu_context &          ct
      return ggml_backend_webgpu_build_multi(ctx, dispatches);
  }
  
@@ -690,6 +1153,12 @@ diff --git a/ggml/src/ggml-webgpu/ggml-webgpu.cpp b/ggml/src/ggml-webgpu/ggml-we
 +        return false;
 +    }
 +    if (Q->nb[0] != sizeof(float)) {
++        return false;
++    }
++    // K and V bound read_write (when one shares dst's buffer) must not overlap
++    const WGPUBuffer dst_buf = ggml_webgpu_tensor_buf(dst).Get();
++    if ((ggml_webgpu_tensor_buf(K).Get() == dst_buf || ggml_webgpu_tensor_buf(V).Get() == dst_buf) &&
++        ggml_webgpu_tensor_binding_overlap(ctx->global_ctx, K, V)) {
 +        return false;
 +    }
 +    // K and V are read through vec4<f16>
@@ -739,8 +1208,8 @@ diff --git a/ggml/src/ggml-webgpu/ggml-webgpu.cpp b/ggml/src/ggml-webgpu/ggml-we
 +        entries.push_back(ggml_webgpu_make_tensor_bind_group_entry(ctx, 3, mask));
 +    }
 +    entries.push_back(ggml_webgpu_make_tensor_bind_group_entry(ctx, mask != nullptr ? 4 : 3, dst));
-+    // a workgroup per head and query token
-+    return ggml_backend_webgpu_build(ctx, pipeline, params, entries, (uint32_t) Q->ne[2], (uint32_t) Q->ne[1]);
++    // a workgroup per query token and head
++    return ggml_backend_webgpu_build(ctx, pipeline, params, entries, (uint32_t) Q->ne[1], (uint32_t) Q->ne[2]);
 +}
 +
 +// Several query rows (prompt batches) on PowerVR: flash_attn_pvr_mq.wgsl,
@@ -818,12 +1287,12 @@ diff --git a/ggml/src/ggml-webgpu/ggml-webgpu.cpp b/ggml/src/ggml-webgpu/ggml-we
  static webgpu_encoded_op ggml_webgpu_flash_attn(webgpu_context & ctx,
                                                  ggml_tensor *    Q,
                                                  ggml_tensor *    K,
-@@ -2287,6 +2766,15 @@ static webgpu_encoded_op ggml_webgpu_flash_attn(webgpu_context & ctx,
+@@ -2287,6 +2977,15 @@ static webgpu_encoded_op ggml_webgpu_flash_attn(webgpu_context & ctx,
                                                  ggml_tensor *    mask,
                                                  ggml_tensor *    sinks,
                                                  ggml_tensor *    dst) {
 +    if (ggml_webgpu_can_use_flash_attn_pvr(ctx, Q, K, V, mask, sinks, dst)) {
-+        // a few query tokens (the end of a prompt) run faster as one-token problems
++        // a few query tokens (a speculative batch, the end of a prompt) run faster as one-token problems
 +        if (Q->ne[1] <= WEBGPU_FLASH_ATTN_PVR_VEC_MAX_ROWS) {
 +            return ggml_webgpu_flash_attn_pvr(ctx, Q, K, V, mask, dst);
 +        }
@@ -834,32 +1303,68 @@ diff --git a/ggml/src/ggml-webgpu/ggml-webgpu.cpp b/ggml/src/ggml-webgpu/ggml-we
      ggml_webgpu_flash_attn_op op = ggml_webgpu_flash_attn_prepare(ctx, Q, K, V, mask, sinks, dst);
      if (ggml_webgpu_flash_attn_use_vec_path(ctx->global_ctx, Q, K, V)) {
          return ggml_webgpu_flash_attn_vec(ctx, Q, K, V, mask, sinks, dst, std::move(op));
-@@ -2670,6 +3158,10 @@ static std::optional<webgpu_encoded_op> ggml_webgpu_rms_norm_mul(webgpu_context
+@@ -2670,9 +3369,19 @@ static std::optional<webgpu_encoded_op> ggml_webgpu_rms_norm_mul(webgpu_context
      shader_lib_ctx.src1                           = mul_src;
      shader_lib_ctx.dst                            = dst;
      shader_lib_ctx.max_wg_size = ctx->global_ctx->capabilities.limits.maxComputeInvocationsPerWorkgroup;
+-
+-    const bool      src_overlap = ggml_webgpu_tensor_binding_overlap(ctx->global_ctx, rn_src, mul_src);
+-    webgpu_pipeline pipeline    = ctx->shader_lib->get_rms_norm_mul_pipeline(shader_lib_ctx, src_overlap);
 +    if (ggml_webgpu_is_pvr(ctx->global_ctx)) {
 +        // a workgroup per row: PowerVR runs rows of a model's widths faster with fewer threads
 +        shader_lib_ctx.max_wg_size = std::min(shader_lib_ctx.max_wg_size, WEBGPU_PVR_RMS_NORM_MUL_WG_SIZE);
 +    }
- 
-     const bool      src_overlap = ggml_webgpu_tensor_binding_overlap(ctx->global_ctx, rn_src, mul_src);
-     webgpu_pipeline pipeline    = ctx->shader_lib->get_rms_norm_mul_pipeline(shader_lib_ctx, src_overlap);
-@@ -3398,6 +3890,10 @@ static std::optional<webgpu_encoded_op> ggml_webgpu_encode(webgpu_context ctx,
-     ggml_tensor * src1 = node->src[1];
-     ggml_tensor * src2 = node->src[2];
- 
-+    if (node->op != GGML_OP_MUL_MAT && !ggml_op_is_empty(node->op)) {
-+        ctx->pvr_staged_src1 = nullptr;  // another op may write over the staged src1
-+    }
 +
-     switch (node->op) {
-             // no-ops
-         case GGML_OP_NONE:
-@@ -3417,6 +3913,15 @@ static std::optional<webgpu_encoded_op> ggml_webgpu_encode(webgpu_context ctx,
++    const bool src_overlap = ggml_webgpu_tensor_binding_overlap(ctx->global_ctx, rn_src, mul_src);
++    // PowerVR: a norm's output on a few tokens is a mat-vec's src1, so write
++    // it into the staging buffer as well, which saves that copy's dispatch
++    const bool staged = ggml_webgpu_is_pvr(ctx->global_ctx) && !src_overlap && dst->type == GGML_TYPE_F32 &&
++                        dst->ne[1] <= WEBGPU_MUL_MAT_VEC_PVR_MAX_COLS && dst->ne[2] == 1 && dst->ne[3] == 1 &&
++                        ggml_is_contiguous(dst) && !ggml_webgpu_tensor_equal(rn_src, dst) &&
++                        !ggml_webgpu_tensor_equal(mul_src, dst);
++    webgpu_pipeline pipeline = ctx->shader_lib->get_rms_norm_mul_pipeline(shader_lib_ctx, src_overlap, staged);
+     auto *          decisions   = static_cast<ggml_webgpu_rms_norm_mul_shader_decisions *>(pipeline.context.get());
+ 
+     if (decisions->src_overlap) {
+@@ -2698,6 +3407,14 @@ static std::optional<webgpu_encoded_op> ggml_webgpu_rms_norm_mul(webgpu_context
+         entries.push_back(ggml_webgpu_make_tensor_bind_group_entry(ctx, 1, mul_src));
+         entries.push_back(ggml_webgpu_make_tensor_bind_group_entry(ctx, 2, dst));
+     }
++    if (staged) {
++        const size_t bytes = ROUNDUP_POW2(ggml_nbytes(dst), 16);
++        ggml_webgpu_pvr_stage_next(ctx, bytes);
++        entries.push_back(ggml_webgpu_make_bind_group_entry(3, ctx->pvr_staging_buf[ctx->pvr_staged_idx], 0, bytes));
++        ctx->pvr_staged_src1  = dst;
++        ctx->pvr_staged_f16   = false;
++        ctx->pvr_staged_by_op = true;
++    }
+ 
+     uint32_t wg_x;
+     uint32_t wg_y;
+@@ -3417,6 +4134,35 @@ static std::optional<webgpu_encoded_op> ggml_webgpu_encode(webgpu_context ctx,
          case GGML_OP_GET_ROWS:
              return ggml_webgpu_get_rows(ctx, src0, src1, node);
          case GGML_OP_MUL_MAT:
++            {
++                ggml_tensor * gate = nullptr;
++                ggml_tensor * up   = nullptr;
++                if (const int glu_at = ggml_webgpu_mul_mat_pvr_glu_nodes(ctx, cgraph, node_idx, gate, up)) {
++                    num_encoded_ops = glu_at + 1;
++                    ggml_webgpu_mul_mat_vec_pvr_fusion fuse;
++                    fuse.glu       = true;
++                    fuse.stage_out = true;
++                    return ggml_webgpu_mul_mat_vec_pvr_fused(ctx, gate->src[0], up->src[0], gate->src[1], nullptr,
++                                                             nodes[node_idx + glu_at], fuse);
++                }
++                bool in_dst = false;
++                if (ggml_tensor * other = ggml_webgpu_mul_mat_pvr_add_operand(ctx, cgraph, node_idx, in_dst)) {
++                    num_encoded_ops = 2;
++                    ggml_webgpu_mul_mat_vec_pvr_fusion fuse;
++                    fuse.add        = true;
++                    fuse.add_in_dst = in_dst;
++                    return ggml_webgpu_mul_mat_vec_pvr_fused(ctx, src0, nullptr, src1, other, nodes[node_idx + 1], fuse);
++                }
++            }
 +            if (ggml_webgpu_can_fuse_mul_mat_pvr_swiglu(ctx, cgraph, node_idx)) {
 +                num_encoded_ops   = 2;
 +                ggml_tensor * glu = nodes[node_idx + 1];
@@ -872,7 +1377,7 @@ diff --git a/ggml/src/ggml-webgpu/ggml-webgpu.cpp b/ggml/src/ggml-webgpu/ggml-we
              return ggml_webgpu_mul_mat(ctx, src0, src1, node);
          case GGML_OP_MUL_MAT_ID:
              return ggml_webgpu_mul_mat_id(ctx, src0, src1, src2, node);
-@@ -3586,6 +4091,7 @@ static ggml_status ggml_backend_webgpu_graph_compute(ggml_backend_t backend, str
+@@ -3586,11 +4332,13 @@ static ggml_status ggml_backend_webgpu_graph_compute(ggml_backend_t backend, str
      if (ctx->batch_compute_passes) {
          ctx->active_compute_pass = ctx->active_command_encoder.BeginComputePass();
      }
@@ -880,7 +1385,33 @@ diff --git a/ggml/src/ggml-webgpu/ggml-webgpu.cpp b/ggml/src/ggml-webgpu/ggml-we
  
      while (node_idx < cgraph->n_nodes) {
          if (cgraph->nodes[node_idx]->op == GGML_OP_SET_ROWS) {
-@@ -3718,6 +4224,7 @@ static void ggml_backend_webgpu_set_tensor_async(ggml_backend_t backend,
+             contains_set_rows = true;
+         }
++        ctx->pvr_staged_by_op = false;
+         if (auto cmd = ggml_webgpu_encode(ctx, cgraph, node_idx, num_encoded_ops)) {
+             commands.push_back(*cmd);
+             num_batched_kernels += cmd.value().num_kernels;
+@@ -3627,6 +4375,19 @@ static ggml_status ggml_backend_webgpu_graph_compute(ggml_backend_t backend, str
+ #endif
+         }
+ 
++        // an op that wrote where the staged src1 sat (that tensor's memory
++        // now holds another) makes the staged copy stale
++        if (ctx->pvr_staged_src1 != nullptr && !ctx->pvr_staged_by_op) {
++            for (int i = node_idx; i < node_idx + num_encoded_ops && i < cgraph->n_nodes; i++) {
++                const ggml_tensor * t = cgraph->nodes[i];
++                if (!ggml_op_is_empty(t->op) && t != ctx->pvr_staged_src1 &&
++                    ggml_webgpu_tensor_binding_overlap(ctx->global_ctx, t, ctx->pvr_staged_src1)) {
++                    ctx->pvr_staged_src1 = nullptr;
++                    break;
++                }
++            }
++        }
++
+         node_idx += num_encoded_ops;
+         num_encoded_ops = 1;
+     }
+@@ -3718,6 +4479,7 @@ static void ggml_backend_webgpu_set_tensor_async(ggml_backend_t backend,
      size_t total_offset = ggml_webgpu_tensor_offset(tensor) + offset;
  
      // Write aligned portion
@@ -888,7 +1419,7 @@ diff --git a/ggml/src/ggml-webgpu/ggml-webgpu.cpp b/ggml/src/ggml-webgpu/ggml-we
      buf_ctx->global_ctx->queue.WriteBuffer(buf_ctx->buffer, total_offset, data, (size / 4) * 4);
  
      if (size % 4 != 0) {
-@@ -3738,6 +4245,12 @@ static void ggml_backend_webgpu_set_tensor_async(ggml_backend_t backend,
+@@ -3738,6 +4500,12 @@ static void ggml_backend_webgpu_set_tensor_async(ggml_backend_t backend,
  
  static void ggml_backend_webgpu_synchronize(ggml_backend_t backend) {
      ggml_backend_webgpu_context * backend_ctx = (ggml_backend_webgpu_context *) backend->context;
@@ -901,7 +1432,7 @@ diff --git a/ggml/src/ggml-webgpu/ggml-webgpu.cpp b/ggml/src/ggml-webgpu/ggml-we
      ggml_backend_webgpu_wait_queue(backend_ctx->webgpu_ctx->global_ctx);
  }
  
-@@ -3767,6 +4280,9 @@ static ggml_backend_i ggml_backend_webgpu_i = {
+@@ -3767,6 +4535,9 @@ static ggml_backend_i ggml_backend_webgpu_i = {
  static void ggml_backend_webgpu_buffer_free_buffer(ggml_backend_buffer_t buffer) {
      ggml_backend_webgpu_buffer_context * ctx = static_cast<ggml_backend_webgpu_buffer_context *>(buffer->context);
      if (ctx != nullptr && ctx->buffer != nullptr) {
@@ -911,7 +1442,7 @@ diff --git a/ggml/src/ggml-webgpu/ggml-webgpu.cpp b/ggml/src/ggml-webgpu/ggml-we
          ctx->buffer.Destroy();
          delete ctx;
      }
-@@ -3838,6 +4354,7 @@ static void ggml_backend_webgpu_buffer_set_tensor(ggml_backend_buffer_t buffer,
+@@ -3838,6 +4609,7 @@ static void ggml_backend_webgpu_buffer_set_tensor(ggml_backend_buffer_t buffer,
      }
  
      if (size > 0) {
@@ -919,7 +1450,7 @@ diff --git a/ggml/src/ggml-webgpu/ggml-webgpu.cpp b/ggml/src/ggml-webgpu/ggml-we
          buf_ctx->global_ctx->queue.WriteBuffer(buf_ctx->buffer, total_offset, data, (size / 4) * 4);
      }
  
-@@ -3887,6 +4404,24 @@ static void ggml_backend_webgpu_buffer_get_tensor(ggml_backend_buffer_t buffer,
+@@ -3887,6 +4659,24 @@ static void ggml_backend_webgpu_buffer_get_tensor(ggml_backend_buffer_t buffer,
  
      std::lock_guard<std::recursive_mutex> lock(buf_ctx->global_ctx->mutex);
  
@@ -944,7 +1475,7 @@ diff --git a/ggml/src/ggml-webgpu/ggml-webgpu.cpp b/ggml/src/ggml-webgpu/ggml-we
      if (buf_ctx->global_ctx->get_tensor_staging_buf == nullptr ||
          buf_ctx->global_ctx->get_tensor_staging_buf.GetSize() < final_size) {
          // Create a new staging buffer if it doesn't exist or is too small
-@@ -3904,16 +4439,27 @@ static void ggml_backend_webgpu_buffer_get_tensor(ggml_backend_buffer_t buffer,
+@@ -3904,16 +4694,27 @@ static void ggml_backend_webgpu_buffer_get_tensor(ggml_backend_buffer_t buffer,
      wgpu::CommandBuffer commands = encoder.Finish();
  
      // Submit the command buffer to the queue
@@ -972,7 +1503,7 @@ diff --git a/ggml/src/ggml-webgpu/ggml-webgpu.cpp b/ggml/src/ggml-webgpu/ggml-we
      buf_ctx->global_ctx->get_tensor_staging_buf.Unmap();
      WEBGPU_CPU_PROFILE_TOTAL_END(get_tensor, buf_ctx->global_ctx);
  }
-@@ -4194,6 +4740,10 @@ static void create_webgpu_device(ggml_backend_webgpu_reg_context * ctx) {
+@@ -4194,6 +4995,10 @@ static void create_webgpu_device(ggml_backend_webgpu_reg_context * ctx) {
      ctx->webgpu_global_ctx->command_submit_batch_size = ggml_backend_webgpu_get_command_submit_batch_size();
      ctx->webgpu_global_ctx->max_inflight_batches      = ggml_backend_webgpu_get_max_inflight_batches();
      ctx->webgpu_global_ctx->vendor                    = info.vendor;
@@ -983,7 +1514,7 @@ diff --git a/ggml/src/ggml-webgpu/ggml-webgpu.cpp b/ggml/src/ggml-webgpu/ggml-we
      // The subgroup shaders also use @builtin(subgroup_id), a later WGSL
      // language feature than subgroups: browsers with subgroups but not
      // subgroup_id (Chrome 141, for one) fail to compile them.
-@@ -4326,6 +4876,27 @@ static webgpu_context initialize_webgpu_context(ggml_backend_dev_t dev) {
+@@ -4326,6 +5131,38 @@ static webgpu_context initialize_webgpu_context(ggml_backend_dev_t dev) {
      ggml_webgpu_create_buffer(webgpu_ctx->global_ctx->device, webgpu_ctx->set_rows_host_error_buf,
                                WEBGPU_SET_ROWS_ERROR_BUF_SIZE_BYTES,
                                wgpu::BufferUsage::CopyDst | wgpu::BufferUsage::MapRead, "set_rows_host_error_buf");
@@ -997,9 +1528,20 @@ diff --git a/ggml/src/ggml-webgpu/ggml-webgpu.cpp b/ggml/src/ggml-webgpu/ggml-we
 +        for (int glu = 0; glu < 3; glu++) {
 +            webgpu_ctx->shader_lib->get_mul_mat_pvr_gemm_pipeline(glu);
 +        }
++        // The same for speculative batches (2 to 8 tokens) and the fused products.
++        const bool sg = ggml_webgpu_mul_mat_vec_pvr_subgroups(webgpu_ctx->global_ctx);
++        ggml_webgpu_mul_mat_vec_pvr_fusion add;
++        add.add = true;
++        ggml_webgpu_mul_mat_vec_pvr_fusion glu;
++        glu.glu       = true;
++        glu.stage_out = true;
 +        for (ggml_type type : { GGML_TYPE_Q4_K, GGML_TYPE_Q6_K }) {
-+            for (uint32_t ncol : { 4u, 8u }) {
-+                webgpu_ctx->shader_lib->get_mul_mat_vec_pvr_pipeline(type, true, ncol);
++            for (uint32_t ncol = 1; ncol <= WEBGPU_MUL_MAT_VEC_PVR_MAX_COLS; ncol++) {
++                webgpu_ctx->shader_lib->get_mul_mat_vec_pvr_pipeline(type, true, ncol, sg);
++                webgpu_ctx->shader_lib->get_mul_mat_vec_pvr_pipeline(type, true, ncol, sg, add);
++                if (type == GGML_TYPE_Q4_K) {
++                    webgpu_ctx->shader_lib->get_mul_mat_vec_pvr_pipeline(type, true, ncol, sg, glu);
++                }
 +            }
 +        }
 +        if (webgpu_ctx->global_ctx->capabilities.supports_subgroups &&
@@ -1013,12 +1555,13 @@ diff --git a/ggml/src/ggml-webgpu/ggml-webgpu.cpp b/ggml/src/ggml-webgpu/ggml-we
      webgpu_ctx->batch_compute_passes = false;
 diff --git a/ggml/src/ggml-webgpu/wgsl-shaders/flash_attn_pvr.wgsl b/ggml/src/ggml-webgpu/wgsl-shaders/flash_attn_pvr.wgsl
 new file mode 100644
+index 0000000..4793e48
 --- /dev/null
 +++ b/ggml/src/ggml-webgpu/wgsl-shaders/flash_attn_pvr.wgsl
-@@ -0,0 +1,128 @@
+@@ -0,0 +1,130 @@
 +// Flash attention for one query token, or a few, on Imagination PowerVR GPUs
 +// (f32 Q, f16 K/V). The generic vector path takes milliseconds per call
-+// there. One workgroup per query head and token: each thread walks every
++// there. One workgroup per query token and head: each thread walks every
 +// WG_SIZE-th KV position with its own running max, sum and output, then the
 +// threads merge them.
 +// K and V are bound read-only when they live in another buffer than dst (the
@@ -1073,8 +1616,10 @@ new file mode 100644
 +fn main(@builtin(workgroup_id) wg_id: vec3<u32>,
 +        @builtin(num_workgroups) num_wg: vec3<u32>,
 +        @builtin(local_invocation_index) lid: u32) {
-+    let h = wg_id.x;
-+    let row = wg_id.y;  // query token
++    // the query tokens of a head are neighbouring workgroups (the rows of a
++    // speculative batch), which run at once and share K and V through the cache
++    let row = wg_id.x;  // query token
++    let h = wg_id.y;
 +    let kvh = h / params.head_ratio;
 +
 +    var qv: array<vec4<f32>, D4>;
@@ -1137,7 +1682,7 @@ new file mode 100644
 +            acc += sh_o[t * D4 + c];
 +        }
 +        let r = acc / l_all;
-+        let d = params.offset_dst + (row * num_wg.x + h) * HEAD_DIM + 4u * c;
++        let d = params.offset_dst + (row * num_wg.y + h) * HEAD_DIM + 4u * c;
 +        dst[d] = r.x;
 +        dst[d + 1u] = r.y;
 +        dst[d + 2u] = r.z;
@@ -1146,6 +1691,7 @@ new file mode 100644
 +}
 diff --git a/ggml/src/ggml-webgpu/wgsl-shaders/flash_attn_pvr_mq.wgsl b/ggml/src/ggml-webgpu/wgsl-shaders/flash_attn_pvr_mq.wgsl
 new file mode 100644
+index 0000000..b0492c1
 --- /dev/null
 +++ b/ggml/src/ggml-webgpu/wgsl-shaders/flash_attn_pvr_mq.wgsl
 @@ -0,0 +1,176 @@
@@ -1327,6 +1873,7 @@ new file mode 100644
 +}
 diff --git a/ggml/src/ggml-webgpu/wgsl-shaders/mul_mat_pvr.wgsl b/ggml/src/ggml-webgpu/wgsl-shaders/mul_mat_pvr.wgsl
 new file mode 100644
+index 0000000..9a9eaa8
 --- /dev/null
 +++ b/ggml/src/ggml-webgpu/wgsl-shaders/mul_mat_pvr.wgsl
 @@ -0,0 +1,215 @@
@@ -1547,6 +2094,7 @@ new file mode 100644
 +}
 diff --git a/ggml/src/ggml-webgpu/wgsl-shaders/mul_mat_pvr_dequant.wgsl b/ggml/src/ggml-webgpu/wgsl-shaders/mul_mat_pvr_dequant.wgsl
 new file mode 100644
+index 0000000..7ec354b
 --- /dev/null
 +++ b/ggml/src/ggml-webgpu/wgsl-shaders/mul_mat_pvr_dequant.wgsl
 @@ -0,0 +1,109 @@
@@ -1661,6 +2209,7 @@ new file mode 100644
 +}
 diff --git a/ggml/src/ggml-webgpu/wgsl-shaders/mul_mat_pvr_gemm.wgsl b/ggml/src/ggml-webgpu/wgsl-shaders/mul_mat_pvr_gemm.wgsl
 new file mode 100644
+index 0000000..eb35a21
 --- /dev/null
 +++ b/ggml/src/ggml-webgpu/wgsl-shaders/mul_mat_pvr_gemm.wgsl
 @@ -0,0 +1,416 @@
@@ -2082,6 +2631,7 @@ new file mode 100644
 +}
 diff --git a/ggml/src/ggml-webgpu/wgsl-shaders/mul_mat_pvr_stage.wgsl b/ggml/src/ggml-webgpu/wgsl-shaders/mul_mat_pvr_stage.wgsl
 new file mode 100644
+index 0000000..62517a6
 --- /dev/null
 +++ b/ggml/src/ggml-webgpu/wgsl-shaders/mul_mat_pvr_stage.wgsl
 @@ -0,0 +1,34 @@
@@ -2121,12 +2671,13 @@ new file mode 100644
 +}
 diff --git a/ggml/src/ggml-webgpu/wgsl-shaders/mul_mat_vec_pvr.wgsl b/ggml/src/ggml-webgpu/wgsl-shaders/mul_mat_vec_pvr.wgsl
 new file mode 100644
+index 0000000..629f36c
 --- /dev/null
 +++ b/ggml/src/ggml-webgpu/wgsl-shaders/mul_mat_vec_pvr.wgsl
-@@ -0,0 +1,233 @@
+@@ -0,0 +1,230 @@
 +// Mat-vec for Imagination PowerVR GPUs (Q4_K, Q6_K): one column, or NCOL
-+// columns at once for the few tokens at the end of a prompt (the weights,
-+// which bound the time, are read once for all of them).
++// columns at once (the tokens of a speculative batch, or the few at the end
++// of a prompt), the weights, which bound the time, being read once for all.
 +//
 +// On these GPUs, reading through a read_write storage binding is several
 +// times slower than through a read-only one, so the weights are bound
@@ -2134,6 +2685,19 @@ new file mode 100644
 +// vector is read from a read-only copy (mul_mat_pvr_stage.wgsl). Each
 +// group of TPR threads handles one row, and neighbouring lanes load
 +// neighbouring 16-byte words of a block.
++//
++// The body of main() is written out per column by the shader library
++// (ggml_webgpu_mul_mat_vec_pvr_body), in place of the marker below: these
++// GPUs run indexed arrays from slow memory, and a column's arithmetic must
++// not depend on NCOL. Each column of a several-column product is bit for
++// bit the one-column product of that column, so that a speculative batch
++// scores its tokens exactly as decoding them one at a time does. With
++// subgroups, the TPR lanes of a row add up their sums with shuffles, in the
++// order of the workgroup-memory tree used otherwise.
++
++#ifdef USE_SUBGROUPS
++enable subgroups;
++#endif
 +
 +struct MulMatParams {
 +    offset_src0: u32,
@@ -2168,11 +2732,34 @@ new file mode 100644
 +#endif
 +@group(0) @binding(1) var<storage, read> src1: array<vec4<f32>>;
 +@group(0) @binding(2) var<storage, read_write> dst: array<f32>;
-+@group(0) @binding(3) var<uniform> params: MulMatParams;
++@group(0) @binding(PARAMS_BINDING) var<uniform> params: MulMatParams;
 +
-+const TPR = WG_SIZE / ROWS_PER_WG;
++// Fused in (see ggml_webgpu_mul_mat_vec_pvr_fused), bound after dst in this order, then params:
++// ADD: dst = the product + addv (at params.stride_12; ADD_IN_DST: dst itself)
++#ifdef ADD
++@group(0) @binding(ADD_BINDING) var<storage, read_write> addv: array<f32>;
++#endif
++// GLU: dst = SwiGLU of the products with src0 (the gate) and src0b (at params.stride_02)
++#ifdef GLU
++#ifdef Q4_K
++@group(0) @binding(SRC0B_BINDING) var<storage, SRC0_ACCESS> src0b: array<vec4<u32>>;
++#endif
++#ifdef Q6_K
++@group(0) @binding(SRC0B_BINDING) var<storage, SRC0_ACCESS> src0b: array<u32>;
++#endif
++#endif
++// STAGE_OUT: dst also written packed into staged_out, the next product's src1
++#ifdef STAGE_OUT
++@group(0) @binding(STAGE_BINDING) var<storage, read_write> staged_out: array<f32>;
++#endif
 +
++// RB rows per thread (consecutive): each value of the vector it loads serves RB rows
++const TPR = WG_SIZE * RB / ROWS_PER_WG;
++const_assert TPR * ROWS_PER_WG == WG_SIZE * RB;
++
++#ifndef USE_SUBGROUPS
 +var<workgroup> partial_sums: array<f32, WG_SIZE * NCOL>;
++#endif
 +
 +#ifdef Q4_K
 +// 144-byte blocks = 9 vec4<u32>: [0] = d, dmin, scales[12]; [1..8] = qs.
@@ -2187,7 +2774,13 @@ new file mode 100644
 +    sc: vec4<f32>,
 +};
 +
-+fn q4k_unpack(bb: u32, p: u32, A: u32, B: u32, C: u32, dm: vec2<f32>) -> Q4Piece {
++// HELPERS_BEGIN (the shader library copies these for src0b)
++fn q4k_unpack(bb: u32, p: u32) -> Q4Piece {
++    let hdr = src0[bb];
++    let dm = unpack2x16float(hdr.x);
++    let A = hdr.y;
++    let B = hdr.z;
++    let C = hdr.w;
 +    let q = src0[bb + 1u + p];
 +    let jj = p >> 1u;
 +    // scales and mins of sub-blocks 2jj (low nibbles) and 2jj + 1 (high nibbles)
@@ -2217,9 +2810,9 @@ new file mode 100644
 +                   vec4<f32>(dm.x * 255.0 * f32(sc1), dm.y * f32(m1), dm.x * 255.0 * f32(sc2), dm.y * f32(m2)));
 +}
 +
-+// the piece against one column; xb is the column's block start
-+fn q4k_col(w: Q4Piece, xb: u32, p: u32) -> f32 {
-+    let xo = xb + (p >> 1u) * 16u + (p & 1u) * 4u;
++// HELPERS_END
++// the piece against one column; xo is where the word's values start in the column
++fn q4k_col(w: Q4Piece, xo: u32) -> f32 {
 +    let xl0 = src1[xo];
 +    let xl1 = src1[xo + 1u];
 +    let xl2 = src1[xo + 2u];
@@ -2234,35 +2827,12 @@ new file mode 100644
 +    return w.sc.x * dot(sl, one) + w.sc.z * dot(sh, one) - w.sc.y * dot(xl0 + xl1 + xl2 + xl3, one) -
 +           w.sc.w * dot(xh0 + xh1 + xh2 + xh3, one);
 +}
-+
-+// block b of a row against the NCOL columns (xb: column 0's block start, xs: elements / 4 between columns)
-+fn block_dot(row_block: u32, b: u32, xb: u32, xs: u32, pg: u32) -> array<f32, NCOL> {
-+    let bb = (row_block + b) * 9u;
-+    let hdr = src0[bb];
-+    let dm = unpack2x16float(hdr.x);
-+    let w0 = q4k_unpack(bb, pg, hdr.y, hdr.z, hdr.w, dm);
-+    let w1 = q4k_unpack(bb, pg + 4u, hdr.y, hdr.z, hdr.w, dm);
-+    var r: array<f32, NCOL>;
-+    for (var c = 0u; c < NCOL; c++) {
-+        let x = xb + c * xs;
-+        r[c] = q4k_col(w0, x, pg) + q4k_col(w1, x, pg + 4u);
-+    }
-+    return r;
-+}
 +#endif
 +
 +#ifdef Q6_K
 +// 210-byte blocks: ql[128], qh[64], scales[16] (i8), d (f16). Blocks are only
 +// 2-byte aligned. 8 lanes share a block, each handling 32 values.
 +const LPB = 8u;
-+
-+// the 32-bit word at a 2-byte aligned byte offset
-+fn ld(byte: u32) -> u32 {
-+    let i = byte >> 2u;
-+    let lo = src0[i];
-+    let hi = src0[i + 1u];
-+    return select((lo >> 16u) | (hi << 16u), lo, (byte & 2u) == 0u);
-+}
 +
 +fn sbyte(w: u32, i: u32) -> f32 {
 +    return f32(bitcast<i32>(w << (24u - 8u * i)) >> 24u);
@@ -2273,9 +2843,22 @@ new file mode 100644
 +    return dot(unpack4x8unorm(q), x) * 255.0 - 32.0 * (x.x + x.y + x.z + x.w);
 +}
 +
-+// block b of a row against the NCOL columns (xb: column 0's block start, xs: elements / 4 between columns)
-+fn block_dot(row_block: u32, b: u32, xb: u32, xs: u32, p: u32) -> array<f32, NCOL> {
-+    let base = (row_block + b) * 210u;
++// a lane's 32 values of a block (8 words of 4) and their 4 scales
++struct Q6Piece {
++    qa0: u32, qa1: u32, qb0: u32, qb1: u32, qc0: u32, qc1: u32, qd0: u32, qd1: u32,
++    s: vec4<f32>,
++};
++
++// HELPERS_BEGIN
++// the 32-bit word at a 2-byte aligned byte offset
++fn ld(byte: u32) -> u32 {
++    let i = byte >> 2u;
++    let lo = src0[i];
++    let hi = src0[i + 1u];
++    return select((lo >> 16u) | (hi << 16u), lo, (byte & 2u) == 0u);
++}
++
++fn q6k_unpack(base: u32, p: u32) -> Q6Piece {
 +    let n = p >> 2u;
 +    let l0 = 8u * (p & 3u);
 +    let a0 = ld(base + 64u * n + l0);
@@ -2288,31 +2871,24 @@ new file mode 100644
 +    let scw1 = ld(base + 196u + 8u * n);
 +    let od = l0 >> 4u;
 +    let d = unpack2x16float(ld(base + 208u) & 0xFFFFu).x;
-+    let s0 = d * sbyte(scw0, od);
-+    let s1 = d * sbyte(scw0, 2u + od);
-+    let s2 = d * sbyte(scw1, od);
-+    let s3 = d * sbyte(scw1, 2u + od);
-+    let qa0 = (a0 & 0x0F0F0F0Fu) | ((h0 << 4u) & 0x30303030u);
-+    let qa1 = (a1 & 0x0F0F0F0Fu) | ((h1 << 4u) & 0x30303030u);
-+    let qb0 = (b0 & 0x0F0F0F0Fu) | ((h0 << 2u) & 0x30303030u);
-+    let qb1 = (b1 & 0x0F0F0F0Fu) | ((h1 << 2u) & 0x30303030u);
-+    let qc0 = ((a0 >> 4u) & 0x0F0F0F0Fu) | (h0 & 0x30303030u);
-+    let qc1 = ((a1 >> 4u) & 0x0F0F0F0Fu) | (h1 & 0x30303030u);
-+    let qd0 = ((b0 >> 4u) & 0x0F0F0F0Fu) | ((h0 >> 2u) & 0x30303030u);
-+    let qd1 = ((b1 >> 4u) & 0x0F0F0F0Fu) | ((h1 >> 2u) & 0x30303030u);
-+    var r: array<f32, NCOL>;
-+    for (var c = 0u; c < NCOL; c++) {
-+        let x0 = xb + c * xs + 32u * n + (l0 >> 2u);
-+        r[c] = s0 * (grp(qa0, src1[x0]) + grp(qa1, src1[x0 + 1u])) + s1 * (grp(qb0, src1[x0 + 8u]) + grp(qb1, src1[x0 + 9u])) +
-+               s2 * (grp(qc0, src1[x0 + 16u]) + grp(qc1, src1[x0 + 17u])) +
-+               s3 * (grp(qd0, src1[x0 + 24u]) + grp(qd1, src1[x0 + 25u]));
-+    }
-+    return r;
++    return Q6Piece((a0 & 0x0F0F0F0Fu) | ((h0 << 4u) & 0x30303030u), (a1 & 0x0F0F0F0Fu) | ((h1 << 4u) & 0x30303030u),
++                   (b0 & 0x0F0F0F0Fu) | ((h0 << 2u) & 0x30303030u), (b1 & 0x0F0F0F0Fu) | ((h1 << 2u) & 0x30303030u),
++                   ((a0 >> 4u) & 0x0F0F0F0Fu) | (h0 & 0x30303030u), ((a1 >> 4u) & 0x0F0F0F0Fu) | (h1 & 0x30303030u),
++                   ((b0 >> 4u) & 0x0F0F0F0Fu) | ((h0 >> 2u) & 0x30303030u), ((b1 >> 4u) & 0x0F0F0F0Fu) | ((h1 >> 2u) & 0x30303030u),
++                   vec4<f32>(d * sbyte(scw0, od), d * sbyte(scw0, 2u + od), d * sbyte(scw1, od), d * sbyte(scw1, 2u + od)));
++}
++// HELPERS_END
++
++// the piece against one column; x0 is where the lane's values start in the column
++fn q6k_col(q: Q6Piece, x0: u32) -> f32 {
++    return q.s.x * (grp(q.qa0, src1[x0]) + grp(q.qa1, src1[x0 + 1u])) + q.s.y * (grp(q.qb0, src1[x0 + 8u]) + grp(q.qb1, src1[x0 + 9u])) +
++           q.s.z * (grp(q.qc0, src1[x0 + 16u]) + grp(q.qc1, src1[x0 + 17u])) + q.s.w * (grp(q.qd0, src1[x0 + 24u]) + grp(q.qd1, src1[x0 + 25u]));
 +}
 +#endif
 +
 +const BLOCKS_PER_ITER = TPR / LPB;
 +const_assert BLOCKS_PER_ITER > 0u;
++const_assert BLOCKS_PER_ITER * LPB == TPR;
 +
 +@compute @workgroup_size(WG_SIZE)
 +fn main(@builtin(local_invocation_index) li: u32,
@@ -2320,40 +2896,44 @@ new file mode 100644
 +        @builtin(num_workgroups) num_wg: vec3<u32>) {
 +    let wg_linear = wg_id.y * num_wg.x + wg_id.x;
 +    let t = li % TPR;
-+    let row = wg_linear * ROWS_PER_WG + li / TPR;
++    // the thread's first row (rows past the end compute on the last row and store nothing)
++    let row_first = wg_linear * ROWS_PER_WG + (li / TPR) * RB;
 +    let nb = params.k / 256u;
-+    // rows past the end compute on the last row and store nothing
-+    let row_block = params.offset_src0 + min(row, params.m - 1u) * params.stride_01;
 +    let x0 = params.offset_src1 / 4u;
 +    let xs = params.k / 4u;  // between columns of the staged src1
 +    let lane = t % LPB;
 +
-+    var acc: array<f32, NCOL>;
-+    for (var b = t / LPB; b < nb; b += BLOCKS_PER_ITER) {
-+        let r = block_dot(row_block, b, x0 + b * 64u, xs, lane);
-+        for (var c = 0u; c < NCOL; c++) {
-+            acc[c] += r[c];
-+        }
-+    }
-+
-+    for (var c = 0u; c < NCOL; c++) {
-+        partial_sums[c * WG_SIZE + li] = acc[c];
-+    }
-+    workgroupBarrier();
-+    for (var s = TPR / 2u; s > 0u; s >>= 1u) {
-+        if (t < s) {
-+            for (var c = 0u; c < NCOL; c++) {
-+                partial_sums[c * WG_SIZE + li] += partial_sums[c * WG_SIZE + li + s];
-+            }
-+        }
-+        workgroupBarrier();
-+    }
-+    if (t == 0u && row < params.m) {
-+        // columns past n (NCOL rounds n up) are not stored
-+        for (var c = 0u; c < NCOL; c++) {
-+            if (c < params.n) {
-+                dst[params.offset_dst + c * params.m + row] = partial_sums[c * WG_SIZE + li];
-+            }
-+        }
-+    }
++MAIN_BODY
 +}
+diff --git a/ggml/src/ggml-webgpu/wgsl-shaders/rms_norm_mul.wgsl b/ggml/src/ggml-webgpu/wgsl-shaders/rms_norm_mul.wgsl
+index 46a2080..b0b2887 100644
+--- a/ggml/src/ggml-webgpu/wgsl-shaders/rms_norm_mul.wgsl
++++ b/ggml/src/ggml-webgpu/wgsl-shaders/rms_norm_mul.wgsl
+@@ -54,12 +54,27 @@ var<storage, read_write> mul_src: array<f32>;
+ @group(0) @binding(2)
+ var<storage, read_write> dst: array<f32>;
+ 
++#ifdef STAGED
++// PowerVR: the output also packed into the staging buffer, the next mat-vec's src1
++@group(0) @binding(3)
++var<storage, read_write> staged: array<f32>;
++
++@group(0) @binding(4)
++var<uniform> params: Params;
++
++fn update(rn_src_offset: u32, dst_offset: u32, scale: f32, mul_src_offset: u32) {
++    let v = scale * rn_src[rn_src_offset] * mul_src[mul_src_offset];
++    dst[dst_offset] = v;
++    staged[dst_offset - params.offset_dst] = v;
++}
++#else
+ @group(0) @binding(3)
+ var<uniform> params: Params;
+ 
+ fn update(rn_src_offset: u32, dst_offset: u32, scale: f32, mul_src_offset: u32) {
+     dst[dst_offset] = scale * rn_src[rn_src_offset] * mul_src[mul_src_offset];
+ }
++#endif
+ 
+ #endif
+ 

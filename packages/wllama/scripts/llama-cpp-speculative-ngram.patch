@@ -1,0 +1,164 @@
+diff --git a/common/common.h b/common/common.h
+index a0d960c..0ce36d1 100644
+--- a/common/common.h
++++ b/common/common.h
+@@ -369,6 +369,8 @@ struct common_params_speculative_ngram_map {
+     uint16_t size_n   = 12; // ngram size for lookup
+     uint16_t size_m   = 48; // mgram size for speculative tokens
+     uint16_t min_hits = 1;  // minimum hits at ngram/mgram lookup for mgram to be proposed
++    uint16_t size_n_min = 0; // ngram-simple: if > 0, look up n-grams down to this size when longer ones have no match,
++                             // drafting at most 2^(n-1) tokens after an n-gram
+ };
+ 
+ struct common_params_speculative_ngram_cache {
+@@ -405,7 +407,24 @@ struct common_params_speculative {
+             return t == COMMON_SPECULATIVE_TYPE_DRAFT_MTP || t == COMMON_SPECULATIVE_TYPE_DRAFT_EAGLE3 || t == COMMON_SPECULATIVE_TYPE_DRAFT_DFLASH || t == COMMON_SPECULATIVE_TYPE_DRAFT_DSPARK;
+         });
+ 
+-        return needs_rs_seq ? draft.n_max : 0u;
++        if (needs_rs_seq) {
++            return draft.n_max;
++        }
++        // the other drafters too: recurrent models (LFM2) then roll a rejected draft back
++        // from snapshots kept on the device, rather than saving and restoring a checkpoint
++        uint32_t n = 0;
++        for (auto t : types) {
++            switch (t) {
++                case COMMON_SPECULATIVE_TYPE_DRAFT_SIMPLE:  n = std::max<uint32_t>(n, draft.n_max); break;
++                case COMMON_SPECULATIVE_TYPE_NGRAM_SIMPLE:  n = std::max<uint32_t>(n, ngram_simple.size_m); break;
++                case COMMON_SPECULATIVE_TYPE_NGRAM_MAP_K:   n = std::max<uint32_t>(n, ngram_map_k.size_m); break;
++                case COMMON_SPECULATIVE_TYPE_NGRAM_MAP_K4V: n = std::max<uint32_t>(n, ngram_map_k4v.size_m); break;
++                case COMMON_SPECULATIVE_TYPE_NGRAM_MOD:     n = std::max<uint32_t>(n, ngram_mod.n_max); break;
++                case COMMON_SPECULATIVE_TYPE_NGRAM_CACHE:   n = std::max<uint32_t>(n, 8); break;
++                default: break;
++            }
++        }
++        return n;
+     }
+ };
+ 
+diff --git a/common/ngram-map.cpp b/common/ngram-map.cpp
+index d1cb451..b7b0c06 100644
+--- a/common/ngram-map.cpp
++++ b/common/ngram-map.cpp
+@@ -54,6 +54,35 @@ llama_tokens common_ngram_simple_draft(
+     //
+     const size_t cur_len = tokens.size();
+ 
++    if (config.size_ngram_min > 0 && config.size_ngram_min < config.size_ngram) {
++        // the longest n-gram (size_ngram down to size_ngram_min) that ends with the sampled token
++        // and occurred before: draft the tokens that followed its most recent occurrence, at most
++        // 2^(n-1) of them (shorter matches predict less, and checking a token costs time)
++        const size_t n_tot = cur_len + 1; // the history and the sampled token
++        auto at = [&](size_t i) { return i < cur_len ? tokens[i] : sampled; };
++        llama_tokens draft;
++        for (size_t n = config.size_ngram; n >= config.size_ngram_min; --n) {
++            if (n_tot <= n) {
++                continue;
++            }
++            for (size_t j = n_tot - n; j-- > 0;) {
++                size_t k = 0;
++                while (k < n && at(j + k) == at(n_tot - n + k)) {
++                    k++;
++                }
++                if (k == n) {
++                    const size_t len = std::min((size_t) config.size_mgram, (size_t) 1 << std::min<size_t>(n - 1, 16));
++                    const size_t end = std::min(j + n + len, n_tot);
++                    for (size_t i = j + n; i < end; i++) {
++                        draft.push_back(at(i));
++                    }
++                    return draft;
++                }
++            }
++        }
++        return draft;
++    }
++
+     const size_t n_draft_min = config.size_ngram; // size of n-gram to lookup in token history
+     const size_t n_draft_max = config.size_mgram; // the m-gram following the found n-gram is used for draft
+ 
+diff --git a/common/ngram-map.h b/common/ngram-map.h
+index 97608ef..0149e99 100644
+--- a/common/ngram-map.h
++++ b/common/ngram-map.h
+@@ -24,6 +24,7 @@
+ struct common_ngram_simple_config {
+     uint16_t   size_ngram;      // size of n-grams to lookup in self-mode
+     uint16_t   size_mgram;      // size of m-grams to draft in self-mode
++    uint16_t   size_ngram_min = 0; // if > 0: n-grams down to this size are looked up when longer ones have no match
+ };
+ 
+ // Searches for a n-gram in the history and checks whether a draft sequence should be generated.
+diff --git a/common/speculative.cpp b/common/speculative.cpp
+index 4305ac6..ef8c9aa 100644
+--- a/common/speculative.cpp
++++ b/common/speculative.cpp
+@@ -1949,8 +1949,10 @@ struct common_speculative_impl_ngram_simple : public common_speculative_impl {
+                 this->params.size_n, this->params.size_m, this->params.min_hits);
+     }
+ 
+-    void begin(llama_seq_id /*seq_id*/, const llama_tokens & /*prompt*/) override {
+-        // noop
++    void begin(llama_seq_id seq_id, const llama_tokens & /*prompt*/) override {
++        if (seq_id < (llama_seq_id) backoffs.size()) {
++            backoffs[seq_id] = {};
++        }
+     }
+ 
+     bool process(const common_batch & /*batch*/) override {
+@@ -1958,6 +1960,14 @@ struct common_speculative_impl_ngram_simple : public common_speculative_impl {
+         return true;
+     }
+ 
++    // with shorter n-grams (size_ngram_min), drafts that keep failing back off:
++    // after the second rejected in a row, skip 1, 2, 4 .. 16 drafts
++    struct backoff {
++        int fails = 0;
++        int skip  = 0;
++    };
++    std::vector<backoff> backoffs = std::vector<backoff>(n_seq);
++
+     void draft(common_speculative_draft_params_vec & dparams) override {
+         assert(dparams.size() == n_seq);
+ 
+@@ -1967,12 +1977,26 @@ struct common_speculative_impl_ngram_simple : public common_speculative_impl {
+                 continue;
+             }
+ 
++            if (config.size_ngram_min > 0 && backoffs[seq_id].skip > 0) {
++                backoffs[seq_id].skip--;
++                dp.result->clear();
++                continue;
++            }
++
+             *dp.result = common_ngram_simple_draft(config, *dp.prompt, dp.id_last);
+         }
+     }
+ 
+-    void accept(llama_seq_id /*seq_id*/, uint16_t /*n_accepted*/, bool /*is_other*/) override {
+-        // noop
++    void accept(llama_seq_id seq_id, uint16_t n_accepted, bool is_other) override {
++        if (is_other || config.size_ngram_min == 0 || seq_id >= (llama_seq_id) backoffs.size()) {
++            return;
++        }
++        auto & b = backoffs[seq_id];
++        if (n_accepted > 0) {
++            b.fails = 0;
++        } else if (++b.fails >= 2) {
++            b.skip = 1 << std::min(b.fails - 2, 4);
++        }
+     }
+ };
+ 
+@@ -2852,8 +2876,9 @@ common_speculative * common_speculative_init(common_params_speculative & params,
+                 uint16_t mgram_size_value = ngram_map.size_value;
+ 
+                 auto config_simple = common_ngram_simple_config {
+-                    /* .size_ngram = */ ngram_size_key,
+-                    /* .size_mgram = */ mgram_size_value
++                    /* .size_ngram     = */ ngram_size_key,
++                    /* .size_mgram     = */ mgram_size_value,
++                    /* .size_ngram_min = */ config.params.ngram_simple.size_n_min,
+                 };
+                 auto state = std::make_unique<common_speculative_impl_ngram_simple>(
+                     /* .params = */ config.params,

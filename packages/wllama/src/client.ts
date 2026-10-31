@@ -75,6 +75,17 @@ export type RuntimeOptions = {
    * (Firefox, which has no JSPI, and browsers without WebGPU).
    */
   gpu?: boolean
+  /**
+   * Speculative decoding: guesses of the next few tokens, taken from the
+   * conversation so far (n-grams), checked in one pass, so text that repeats
+   * the prompt (code edits, summaries, tool results) is written several
+   * tokens at a time. By default on where it gives the same text as without
+   * it and is faster: WebGPU on Imagination PowerVR GPUs (the Pixel 10's),
+   * whose kernels score a batch of tokens exactly as one at a time. `true`
+   * turns it on everywhere (elsewhere the text may differ slightly, as a
+   * batch is computed in another order), `false` off.
+   */
+  speculative?: boolean
   /** wllama's and llama.cpp's logs, in the console. */
   debug?: boolean
 }
@@ -354,6 +365,34 @@ async function restoreState(model: WllamaTextModel, wllama: Wllama) {
   }
 }
 
+/**
+ * llama.cpp's n-gram speculative decoding (ngram-simple): the longest of the
+ * last 4 tokens to 1 token that occurred before drafts what followed it, at
+ * most 2^(n-1) tokens after an n-gram and 7 in all. Checking a token in the
+ * batch costs about a quarter of a pass on the Pixel, so short matches,
+ * which guess worse, draft fewer.
+ */
+const SPECULATIVE = {
+  spec_type: "ngram-simple",
+  spec_ngram_size_n: 4,
+  spec_ngram_size_n_min: 1,
+  spec_ngram_size_m: 7
+}
+
+/** Whether to decode speculatively (see `RuntimeOptions.speculative`). */
+async function useSpeculative() {
+  if (options.speculative !== undefined) return options.speculative
+  if (options.gpu === false || needsCompat() || !("gpu" in navigator)) {
+    return false
+  }
+  try {
+    const adapter = await navigator.gpu.requestAdapter()
+    return adapter?.info.vendor === "img-tec"
+  } catch {
+    return false
+  }
+}
+
 async function startLoad(
   model: WllamaTextModel,
   wllama: Wllama,
@@ -364,7 +403,13 @@ async function startLoad(
   const meta = modelMeta(model)
   const compat = needsCompat() ? await compatBuild() : null
   if (compat) useCompat(wllama, compat)
-  state = { model, build: `${BUILD_ID} ${compat?.wasm ?? mainWasmUrl()}` }
+  const speculative = await useSpeculative()
+  // Saved slot states only restore into the same build and setup (speculative
+  // decoding keeps extra recurrent-state snapshots).
+  state = {
+    model,
+    build: `${BUILD_ID} ${compat?.wasm ?? mainWasmUrl()}${speculative ? " speculative" : ""}`
+  }
   // A model already in storage loads from it, without the network.
   const saved = await wllama.modelManager.getModels()
   const cached = saved.some((m) => m.url === url)
@@ -381,6 +426,7 @@ async function startLoad(
     // nothing for models without such layers.
     swa_full: true,
     ...(options.threads && { n_threads: options.threads }),
+    ...(speculative && SPECULATIVE),
     signal,
     progressCallback: ({ loaded: bytes, total }) => {
       if (cached) return

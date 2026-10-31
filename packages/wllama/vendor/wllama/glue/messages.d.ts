@@ -65,6 +65,11 @@ export interface GlueMsgLoadReq {
     spec_draft_p_min?: number | undefined;
     spec_draft_threads?: number | undefined;
     spec_draft_threads_batch?: number | undefined;
+    spec_type?: string | undefined;
+    spec_ngram_size_n?: number | undefined;
+    spec_ngram_size_n_min?: number | undefined;
+    spec_ngram_size_m?: number | undefined;
+    spec_ngram_min_hits?: number | undefined;
     kv_overrides_keys?: string[] | undefined;
     kv_overrides_vals?: string[] | undefined;
     reasoning_budget_tokens?: number | undefined;

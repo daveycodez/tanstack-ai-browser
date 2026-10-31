@@ -51,9 +51,26 @@
 #   workgroups are 128 threads instead of 1024; small buffers (the recurrent
 #   state) are read back whole once per checkpoint; redundant queue waits are
 #   skipped (the scheduler waits ~20 times per token and each costs ms on
-#   Android); and command buffers are smaller. 350M Q4_K_M on the Pixel:
-#   prompt 40 -> 700 tokens/s (810 for 3,000 tokens), generation 2.5 -> 25.
+#   Android); and command buffers are smaller. Generation: the mat-vec takes
+#   1 to 8 tokens at once, each token's arithmetic exactly the one-token
+#   product's (so a speculative batch gives the text decoding one token at a
+#   time gives), written out per token and summed with subgroup shuffles; the
+#   FFN's gate, up and SwiGLU, a product and the residual add after it, and a
+#   norm and the copy of its output for the next product each run as one
+#   dispatch (about 30% fewer per token). 350M Q4_K_M on the Pixel: prompt 40
+#   -> 700 tokens/s (810 for 3,000 tokens), generation 2.5 -> 26 tokens/s, and
+#   up to 62 with speculative decoding where the reply repeats the prompt.
 #   Other GPUs run the code as before.
+# - Speculative decoding without a draft model (llama-server's n-gram
+#   drafters) as load options (wllama-speculative.patch: spec_type and
+#   spec_ngram_*), and in llama.cpp's ngram-simple, shorter n-grams down to
+#   spec_ngram_size_n_min when longer ones have no match, drafting at most
+#   2^(n-1) tokens after an n-gram, and skipping 1, 2, 4 .. 16 drafts after
+#   the second rejected in a row (llama-cpp-speculative-ngram.patch). The
+#   same patch keeps recurrent-state snapshots for every drafter, not just
+#   those with a draft model, so LFM2 and LFM3 roll a rejected draft back on
+#   the device instead of saving and restoring a checkpoint per draft. The
+#   client turns it on for WebGPU on PowerVR, where it writes the same text.
 # - Context checkpoints at user messages: wllama tokenizes chat prompts
 #   before the chat session looks for messages in them
 #   (wllama-message-spans.patch), and llama.cpp knows where LFM2's messages
@@ -90,6 +107,7 @@ git -C "$WORK/wllama" apply "$HERE/wllama-llama-cpp-sync.patch"
 git -C "$WORK/wllama" apply "$HERE/wllama-fast-load.patch"
 git -C "$WORK/wllama" apply "$HERE/wllama-slot-state.patch"
 git -C "$WORK/wllama" apply "$HERE/wllama-message-spans.patch"
+git -C "$WORK/wllama" apply "$HERE/wllama-speculative.patch"
 LLAMA="$WORK/wllama/llama.cpp"
 git -C "$LLAMA" init -q
 git -C "$LLAMA" fetch -q --depth 1 https://github.com/ggml-org/llama.cpp.git "$LLAMA_CPP_COMMIT"
@@ -99,6 +117,8 @@ git -C "$LLAMA" apply "$HERE/llama-cpp-wasm64.patch"
 # Tensors loaded in file order, so wllama's reads are sequential.
 git -C "$LLAMA" apply "$HERE/llama-cpp-load-in-file-order.patch"
 git -C "$LLAMA" apply "$HERE/llama-cpp-lfm2-message-spans.patch"
+# n-gram speculative decoding: shorter n-grams, and rollback from snapshots.
+git -C "$LLAMA" apply "$HERE/llama-cpp-speculative-ngram.patch"
 # Subgroup shaders only where the browser also has WGSL's subgroup_id.
 git -C "$LLAMA" apply "$HERE/llama-cpp-webgpu-subgroup-id.patch"
 # PowerVR (img-tec) shaders and fixes.
