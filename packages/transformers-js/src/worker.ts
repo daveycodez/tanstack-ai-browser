@@ -28,9 +28,11 @@ import { checkpointsToDrop } from "./checkpoints.js"
 import { embedRows } from "./disk-embedding.js"
 import {
   chunkLargeMatMulNBits,
+  foldScanTransposes,
+  moveScansToCpu,
   readQuantizedEmbedding,
-  scanBodyNodeNames,
   scoreLastTokenOnly,
+  sinkTransposesThroughConcat,
   trimRotaryTables
 } from "./onnx-graph.js"
 import type { QuantizedEmbedding } from "./onnx-graph.js"
@@ -144,8 +146,9 @@ type Ort = {
  * the context the model is loaded for, scores computed for the last token
  * only, and on the CPU, large multiplies split (see CPU_MATMUL_BYTES). A
  * 4-bit embedding session is replaced by a lookup on disk
- * (diskEmbeddingSession). On the GPU, the bodies of Scan loops stay on the
- * CPU (withCpuNodes).
+ * (diskEmbeddingSession). On the GPU, Transposes around Scan loops are
+ * folded into the loops' axes or cancelled, and the loops and the float32
+ * work around them stay on the CPU (withCpuNodes).
  */
 function editModels(ort: Ort) {
   const session = ort.InferenceSession
@@ -171,11 +174,17 @@ function editModels(ort: Ort) {
       ? chunkLargeMatMulNBits(edited, CPU_MATMUL_BYTES)
       : null
     if (chunked) edited = chunked
-    const cpuNodes = scanBodyNodeNames(edited)
+    const folded = foldScanTransposes(edited)
+    if (folded) edited = folded
+    const sunk = sinkTransposesThroughConcat(edited)
+    if (sunk) edited = sunk
+    const placed = moveScansToCpu(edited)
+    if (placed) edited = placed.model
+    const cpuNodes = placed?.cpuNodeNames ?? []
     if (DEBUG && (trimmed || lastOnly || chunked || cpuNodes.length > 0)) {
       ctx.postMessage({
         type: "log",
-        text: `[model]${trimmed ? ` rotary tables cut to ${modelEdits.positions.toLocaleString("en-US")} positions;` : ""}${lastOnly ? " scores for the last token only;" : ""}${chunked ? " large matrix multiplies split for the CPU;" : ""}${cpuNodes.length > 0 ? ` ${cpuNodes.length} Scan body nodes on the CPU` : ""}`
+        text: `[model]${trimmed ? ` rotary tables cut to ${modelEdits.positions.toLocaleString("en-US")} positions;` : ""}${lastOnly ? " scores for the last token only;" : ""}${chunked ? " large matrix multiplies split for the CPU;" : ""}${folded ? " Transposes folded into Scan axes;" : ""}${sunk ? " Transposes moved below Concats;" : ""}${cpuNodes.length > 0 ? ` ${cpuNodes.length} nodes of Scan loops on the CPU` : ""}`
       })
     }
     const [options, ...more] = rest
@@ -184,12 +193,12 @@ function editModels(ort: Ort) {
 }
 
 /**
- * Session options with `names` kept on the CPU by the WebGPU provider. The
- * nodes in a Scan's body: ONNX Runtime runs the Scan itself on the CPU, and
- * with the body on the GPU every step of the loop uploaded the state (1 MB
- * per Qwen3.5 layer) and read it back: 82 GB of buffers for a 2,048-token
- * prompt, read at 36 tokens/s on a Mac. With the body on the CPU: 1.9 GB,
- * at 340 tokens/s.
+ * Session options with `names` kept on the CPU by the WebGPU provider: the
+ * nodes of Scan loops, and the float32 work around them (moveScansToCpu).
+ * ONNX Runtime runs the Scan itself on the CPU, and with the body on the GPU
+ * every step of the loop uploaded the state (1 MB per Qwen3.5 layer) and
+ * read it back: 82 GB of buffers for a 2,048-token prompt, read at 36
+ * tokens/s on a Mac. With the body on the CPU: 1.9 GB, at 340 tokens/s.
  */
 function withCpuNodes(options: unknown, names: Array<string>) {
   const session = options as
