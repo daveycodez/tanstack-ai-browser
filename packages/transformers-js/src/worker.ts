@@ -896,14 +896,21 @@ async function downloadFile(
       } catch (error) {
         if (error instanceof HttpError) throw error
         // Go on from what's on disk (a new handle if this one was closed).
+        let reopen = ""
         try {
           written = await onDisk()
-        } catch {
+        } catch (reopenError) {
           // Reopening failed too: counted as a failed try.
+          reopen = `, couldn't reopen the file: ${errorMessage(reopenError)}`
         }
         attempt = written > start ? 1 : attempt + 1
         if (attempt > DOWNLOAD_ATTEMPTS) throw error
-        logSpeed(`interrupted (${errorMessage(error)}), try ${attempt}`)
+        const { usage = 0, quota = 0 } = await navigator.storage
+          .estimate()
+          .catch(() => ({ usage: 0, quota: 0 }))
+        logSpeed(
+          `interrupted (${errorMessage(error)}${reopen}; storage ${Math.round(usage / 1e6)} of ${Math.round(quota / 1e6)} MB used), try ${attempt}`
+        )
         await new Promise((resolve) => setTimeout(resolve, 1000 * 2 ** attempt))
       }
     }
@@ -1083,7 +1090,10 @@ async function loadRuntime(
       "This model needs WebGPU, which this browser doesn't have, and it has no weights for running on the CPU. Pick another model."
     )
   }
-  void removeOtherWeights(modelId, dtype, weights)
+  // Before the download, not alongside it: twice on an iPhone, Safari
+  // closed the file being downloaded ~170 MB in, both times while the other
+  // dtype's 1.2 GB file was being removed, and no retry got it back.
+  await removeOtherWeights(modelId, dtype, weights)
   const cached = await isDownloaded(modelId, weights)
   ctx.postMessage({ type: "progress", modelId, progress: 0, cached })
   // Whole percents only; the download stream reports every chunk.
@@ -1178,7 +1188,8 @@ function load(modelId: string, dtype: WeightsDtype) {
     // The kept caches belong to the previous model.
     await discardSaved()
     await previous?.then((r) => r.model.dispose()).catch(() => undefined)
-    void removeOldCopies(modelId)
+    // (Finished before any download: see removeOtherWeights.)
+    await removeOldCopies(modelId)
     return loadRuntime(modelId, dtype)
   })()
   current = { modelId, dtype, runtime }
