@@ -57,12 +57,24 @@ export interface LoadModelParams {
     spec_ngram_size_n?: number;
     /**
      * ngram-simple: shorter n-grams, down to this size, are looked up when
-     * longer ones have no match, drafting at most 2^(n-1) tokens after an n-gram.
+     * longer ones have no match, and the number of tokens drafted is chosen by
+     * cost: how likely each is right (learnt as generation goes on, by the
+     * length of the match) against how long a pass of that many tokens takes
+     * (measured as it goes); none when no draft pays.
      */
     spec_ngram_size_n_min?: number;
     /** Most tokens drafted at once. */
     spec_ngram_size_m?: number;
     spec_ngram_min_hits?: number;
+    /**
+     * Read back each output's `logits_topk` largest logits instead of all of
+     * them when a request's sampling keeps fewer anyway (top-k below this, after
+     * only repeat penalties and logit biases that lower logits; no grammar,
+     * reasoning budget or probabilities), and sample from those: the same
+     * tokens are sampled. Other requests read every logit. Faster where the
+     * device finds them quicker than the CPU sorts them (WebGPU on PowerVR).
+     */
+    logits_topk?: number;
     kv_overrides?: Record<string, string>;
     reasoning_budget_tokens?: number;
     reasoning_budget_message?: string;

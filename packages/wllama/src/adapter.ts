@@ -73,6 +73,12 @@ export type WllamaTextConfig = {
    * `true` turns it on everywhere, `false` off.
    */
   speculative?: boolean
+  /**
+   * Sampling from the logits' top 128, found on the GPU, when the sampling
+   * settings allow it (the same tokens are sampled). By default on where it
+   * is faster: WebGPU on Imagination PowerVR GPUs (Pixel 10). `false` off.
+   */
+  gpuTopK?: boolean
   /** wllama's and llama.cpp's logs, in the console. */
   debug?: boolean
 }
@@ -271,6 +277,7 @@ export class WllamaTextAdapter<
       ...(config.speculative !== undefined && {
         speculative: config.speculative
       }),
+      ...(config.gpuTopK !== undefined && { gpuTopK: config.gpuTopK }),
       ...(config.debug && { debug: true })
     })
   }
