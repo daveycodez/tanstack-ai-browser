@@ -10,6 +10,7 @@ import type { ComponentType } from "react"
 import { useStickToBottomContext } from "use-stick-to-bottom"
 
 import type { chatOptions } from "#/chat/options"
+import { threadMessages } from "#/chat/persistence"
 import {
   Conversation,
   ConversationContent,
@@ -31,8 +32,15 @@ export function ChatLayout({
 }: LayoutProps<typeof chatOptions>) {
   const { messages, isHydrating, isLoading, queue } = useChatContext()
   const { threadId } = useThread()
+  // Whether the session has saved messages to load, known at once (the
+  // database is open by now): a new session shows its welcome while the
+  // chat client still checks storage, instead of a transcript skeleton.
+  const hasSaved = useMemo(
+    () => threadMessages(threadId).length > 0,
+    [threadId]
+  )
 
-  if (messages.length === 0 && !isHydrating) {
+  if (messages.length === 0 && (!isHydrating || !hasSaved)) {
     return <EmptyState Input={Input} />
   }
 
