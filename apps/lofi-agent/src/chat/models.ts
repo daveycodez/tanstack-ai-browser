@@ -108,14 +108,13 @@ const IOS_CONTEXT = 8192
 /** `{ contextLength }` on iOS, nothing elsewhere (the model's own). */
 const iosContext = () => (isIos() ? { contextLength: IOS_CONTEXT } : {})
 
+/** A model's name in the picker: its Hugging Face repo name, as written. */
+const repoName = (model: string) => model.slice(model.indexOf("/") + 1)
+
 /** A Transformers.js model of the package's list, in the picker. */
-const local = (
-  id: ModelId,
-  name: string,
-  model: TransformersJsListedModel
-) => ({
+const local = (id: ModelId, model: TransformersJsListedModel) => ({
   id,
-  name,
+  name: repoName(model),
   icon: model.includes("gemma") ? "/icons/gemma.svg" : "/icons/liquid.svg",
   adapter: transformersJsText(model, {
     debug: import.meta.env.DEV,
@@ -133,9 +132,9 @@ const local = (
  * A GGUF model of the wllama package's list, in the picker. llama.cpp runs
  * it on the CPU, so it needs no WebGPU.
  */
-const gguf = (id: ModelId, name: string, model: WllamaTextModel) => ({
+const gguf = (id: ModelId, model: WllamaTextModel) => ({
   id,
-  name,
+  name: repoName(model),
   icon: "/icons/liquid.svg",
   adapter: wllamaText(model, iosContext()),
   status: wllamaModelStatus(model) as ModelStatusStore | null,
@@ -148,9 +147,9 @@ const gguf = (id: ModelId, name: string, model: WllamaTextModel) => ({
  * WebGPU: it reads prompts on the GPU, about three times as fast as the CPU
  * on a Pixel 10 Pro.
  */
-const webgl = (id: ModelId, name: string, model: WebGlTextModel) => ({
+const webgl = (id: ModelId, model: WebGlTextModel) => ({
   id,
-  name,
+  name: repoName(model),
   icon: "/icons/liquid.svg",
   adapter: webglText(model, iosContext()),
   status: webglModelStatus(model) as ModelStatusStore | null,
@@ -184,52 +183,28 @@ export const MODELS = [
     needsWebGpu: false,
     reasoning: undefined
   },
-  local("gemma-4-e4b", "Gemma 4 E4B", "onnx-community/gemma-4-E4B-it-ONNX"),
-  local("lfm3", "LFM3 1.7B", "onnx-community/LFM3-1.7B-ONNX"),
-  local("lfm3-web", "LFM3 1.7B Web", "daveycodez/LFM3-1.7B-Web"),
-  local("lfm2.5", "LFM2.5 1.2B", "LiquidAI/LFM2.5-1.2B-Instruct-ONNX"),
-  local(
-    "lfm2.5-thinking",
-    "LFM2.5 1.2B Thinking",
-    "LiquidAI/LFM2.5-1.2B-Thinking-ONNX"
-  ),
-  local("lfm2.5-web", "LFM2.5 1.2B Web", "daveycodez/LFM2.5-1.2B-Web"),
-  local(
-    "lfm2.5-thinking-web",
-    "LFM2.5 1.2B Thinking Web",
-    "daveycodez/LFM2.5-1.2B-Thinking-Web"
-  ),
-  local("lfm2-tool", "LFM2 1.2B Tool", "onnx-community/LFM2-1.2B-Tool-ONNX"),
-  local("lfm2.5-350m", "LFM2.5 350M", "LiquidAI/LFM2.5-350M-ONNX"),
-  gguf("lfm3-gguf", "LFM3 1.7B GGUF", "LiquidAI/LFM3-1.7B-GGUF"),
-  gguf("lfm3-web-gguf", "LFM3 1.7B Web GGUF", "daveycodez/LFM3-1.7B-Web-GGUF"),
-  gguf("lfm2.5-gguf", "LFM2.5 1.2B GGUF", "LiquidAI/LFM2.5-1.2B-Instruct-GGUF"),
-  gguf(
-    "lfm2.5-thinking-gguf",
-    "LFM2.5 1.2B Thinking GGUF",
-    "LiquidAI/LFM2.5-1.2B-Thinking-GGUF"
-  ),
-  gguf("lfm2.5-350m-gguf", "LFM2.5 350M GGUF", "LiquidAI/LFM2.5-350M-GGUF"),
-  webgl("lfm3-onnx-webgl", "LFM3 1.7B WebGL", "onnx-community/LFM3-1.7B-ONNX"),
-  webgl("lfm3-web-webgl", "LFM3 1.7B Web WebGL", "daveycodez/LFM3-1.7B-Web"),
-  webgl("lfm3-webgl", "LFM3 1.7B GGUF WebGL", "LiquidAI/LFM3-1.7B-GGUF"),
-  webgl(
-    "lfm2.5-webgl",
-    "LFM2.5 1.2B WebGL",
-    "LiquidAI/LFM2.5-1.2B-Instruct-ONNX"
-  ),
-  webgl(
-    "lfm2.5-thinking-webgl",
-    "LFM2.5 1.2B Thinking WebGL",
-    "LiquidAI/LFM2.5-1.2B-Thinking-ONNX"
-  ),
-  webgl("lfm2.5-web-webgl", "LFM2.5 1.2B Web WebGL", "daveycodez/LFM2.5-1.2B-Web"),
-  webgl(
-    "lfm2.5-thinking-web-webgl",
-    "LFM2.5 1.2B Thinking Web WebGL",
-    "daveycodez/LFM2.5-1.2B-Thinking-Web"
-  ),
-  webgl("lfm2.5-350m-webgl", "LFM2.5 350M WebGL", "LiquidAI/LFM2.5-350M-ONNX")
+  local("gemma-4-e4b", "onnx-community/gemma-4-E4B-it-ONNX"),
+  local("lfm3", "onnx-community/LFM3-1.7B-ONNX"),
+  local("lfm3-web", "daveycodez/LFM3-1.7B-Web"),
+  local("lfm2.5", "LiquidAI/LFM2.5-1.2B-Instruct-ONNX"),
+  local("lfm2.5-thinking", "LiquidAI/LFM2.5-1.2B-Thinking-ONNX"),
+  local("lfm2.5-web", "daveycodez/LFM2.5-1.2B-Web"),
+  local("lfm2.5-thinking-web", "daveycodez/LFM2.5-1.2B-Thinking-Web"),
+  local("lfm2-tool", "onnx-community/LFM2-1.2B-Tool-ONNX"),
+  local("lfm2.5-350m", "LiquidAI/LFM2.5-350M-ONNX"),
+  gguf("lfm3-gguf", "LiquidAI/LFM3-1.7B-GGUF"),
+  gguf("lfm3-web-gguf", "daveycodez/LFM3-1.7B-Web-GGUF"),
+  gguf("lfm2.5-gguf", "LiquidAI/LFM2.5-1.2B-Instruct-GGUF"),
+  gguf("lfm2.5-thinking-gguf", "LiquidAI/LFM2.5-1.2B-Thinking-GGUF"),
+  gguf("lfm2.5-350m-gguf", "LiquidAI/LFM2.5-350M-GGUF"),
+  webgl("lfm3-onnx-webgl", "onnx-community/LFM3-1.7B-ONNX"),
+  webgl("lfm3-web-webgl", "daveycodez/LFM3-1.7B-Web"),
+  webgl("lfm3-webgl", "LiquidAI/LFM3-1.7B-GGUF"),
+  webgl("lfm2.5-webgl", "LiquidAI/LFM2.5-1.2B-Instruct-ONNX"),
+  webgl("lfm2.5-thinking-webgl", "LiquidAI/LFM2.5-1.2B-Thinking-ONNX"),
+  webgl("lfm2.5-web-webgl", "daveycodez/LFM2.5-1.2B-Web"),
+  webgl("lfm2.5-thinking-web-webgl", "daveycodez/LFM2.5-1.2B-Thinking-Web"),
+  webgl("lfm2.5-350m-webgl", "LiquidAI/LFM2.5-350M-ONNX")
 ] satisfies Array<{
   id: ModelId
   name: string
