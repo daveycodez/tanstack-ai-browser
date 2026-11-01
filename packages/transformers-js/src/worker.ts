@@ -19,6 +19,11 @@ import type {
   WorkerResponse
 } from "./protocol.js"
 import { pooledSize, SparePool } from "./buffer-pool.js"
+import {
+  MIN_PROMPT_STEP,
+  nextPromptStep,
+  promptStepEnd
+} from "./prompt-steps.js"
 import { checkpointsToDrop } from "./checkpoints.js"
 import { embedRows } from "./disk-embedding.js"
 import {
@@ -533,7 +538,14 @@ function endGpuStep() {
   if (gpu.device) sparePools.get(gpu.device)?.endStep()
 }
 
-/** Destroys every spare buffer: a reply is done. */
+/**
+ * Destroys every spare buffer: a reply is done, or the next step's buffers
+ * are of other sizes. Prompt steps make buffers in proportion to their
+ * tokens, so the spares of a 512-token step don't fit a 724-token one:
+ * kept, they sat beside its buffers until it ended, and the last step's
+ * stayed through the reply's first token (Qwen3.5-2B, 2,048-token prompt:
+ * GPU buffers peaked at 1,506 MB, against 1,397 with them dropped).
+ */
 function dropSpareBuffers() {
   if (gpu.device) sparePools.get(gpu.device)?.clear()
 }
@@ -1648,32 +1660,8 @@ const MIN_REPLY_TOKENS = 32
 /** A chat past the context limit: shown as is, without GPU diagnostics. */
 class ContextLimitError extends Error {}
 
-/**
- * How long one step of reading a prompt should take. WebKit crashes its GPU
- * process when a command buffer hasn't finished 3 s after it was sent, and
- * ONNX Runtime sends a whole step's work at once (microsoft/onnxruntime#33753),
- * so every step must finish well inside that: an 868-token step crashed an
- * iPhone, and 256-token steps late in a 7,600-token prompt took ~2.6 s there.
- * A Mac reads 256 tokens in ~0.1 s. So steps are sized from how fast the
- * last one went.
- */
-const PROMPT_STEP_MS = 1500
-/** Tokens in a step before any has been timed, which an iPhone handles. */
-const FIRST_PROMPT_STEP = 256
-const MIN_PROMPT_STEP = 32
-const MAX_PROMPT_STEP = 1024
 /** Tokens per ms of the last prompt step, carried over to the next prompt. */
 let promptRate: number | null = null
-
-/** Tokens for the next prompt step; `previous` is null for a prompt's first. */
-function nextPromptStep(previous: number | null) {
-  if (promptRate === null) return FIRST_PROMPT_STEP
-  const fit = Math.round(promptRate * PROMPT_STEP_MS)
-  // At most double from one step to the next, and start a prompt at no more
-  // than twice the untimed size: one fast step can be a fluke.
-  const cap = Math.min((previous ?? FIRST_PROMPT_STEP) * 2, MAX_PROMPT_STEP)
-  return Math.max(MIN_PROMPT_STEP, Math.min(fit, cap))
-}
 
 /** Transformers.js's names for a model output's place in the cache. */
 const cacheName = (output: string) =>
@@ -2362,12 +2350,15 @@ async function readPrompt(
   const end = length - 1
   let cache = start
   let step: number | null = null
+  let lastSize = 0
   for (let at = from; at < end && !stopping.interrupted;) {
-    step = nextPromptStep(step)
-    let stop = Math.min(at + step, end)
-    const next = stops.find((s) => s > at && s < stop)
-    if (next !== undefined) stop = next
+    step = nextPromptStep(step, promptRate)
+    const stop = promptStepEnd(at, step, end, stops)
     const size = stop - at
+    // A step of another size takes buffers of other sizes: the last step's
+    // spares would only sit beside them until it ends (see dropSpareBuffers).
+    if (size !== lastSize) dropSpareBuffers()
+    lastSize = size
     const began = performance.now()
     const outputs = await model.forward({
       input_ids: inputIds.slice(null, [at, stop]),
@@ -2394,6 +2385,9 @@ async function readPrompt(
     )
     at = stop
   }
+  // Nor does a reply's first token take a prompt step's buffers.
+  dropSpareBuffers()
+  logMemory("prompt read, spare buffers dropped")
   return cache
 }
 
