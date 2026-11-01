@@ -1,0 +1,15 @@
+venv/
+dl/
+downloads/
+out/
+final/
+upload/
+models/
+node_modules/
+__pycache__/
+*.onnx
+*.onnx_data
+*.onnx_data_*
+*.npy
+*.bin
+*.log
