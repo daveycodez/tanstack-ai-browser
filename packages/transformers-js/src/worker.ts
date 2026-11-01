@@ -736,7 +736,12 @@ const weightsFile = (modelId: string, name: string) => {
     url: `https://huggingface.co/${repo}/resolve/${revision}/onnx/${name}`,
     file,
     /** Written once the download is complete. */
-    done: `${file}.done`
+    done: `${file}.done`,
+    /**
+     * The version (ETag) of a download in progress, so it resumes only
+     * from the same version of the file.
+     */
+    etag: `${file}.etag`
   }
 }
 
@@ -863,9 +868,33 @@ class HttpError extends Error {}
  * with a growing wait, and asks only for the bytes still missing. A file an
  * earlier visit left half-done is continued the same way.
  */
+/** A small text file's contents, or "" if there's none. */
+async function readText(dir: FileSystemDirectoryHandle, name: string) {
+  try {
+    return await (await (await dir.getFileHandle(name)).getFile()).text()
+  } catch {
+    return ""
+  }
+}
+
+async function writeText(
+  dir: FileSystemDirectoryHandle,
+  name: string,
+  text: string
+) {
+  const handle = await openSync(await dir.getFileHandle(name, { create: true }))
+  try {
+    handle.truncate(0)
+    handle.write(new TextEncoder().encode(text), { at: 0 })
+    handle.flush()
+  } finally {
+    handle.close()
+  }
+}
+
 async function downloadFile(
   modelId: string,
-  { name, size }: WeightsFile,
+  { name, size: listedSize }: WeightsFile,
   onWritten: (bytes: number) => void,
   dir: FileSystemDirectoryHandle
 ) {
@@ -898,6 +927,9 @@ async function downloadFile(
       return handle.getSize()
     }
   }
+  // The listed size, until the server sends the file and says its own: a
+  // model followed at main can change between listing and download.
+  let size = listedSize
   let written = handle.getSize()
   if (size && written > size) {
     handle.truncate(0)
@@ -919,22 +951,48 @@ async function downloadFile(
     // Failures in a row with no bytes gained: a retry that made progress
     // starts the count over.
     let attempt = 1
+    // The version on disk, for resuming only from the same version: with
+    // If-Range, a server sends the rest if the file is unchanged and the
+    // whole new file if it changed.
+    let etag = written > 0 ? await readText(dir, files.etag) : ""
     while (!size || written < size) {
       const start = written
       try {
-        const res = await fetchWithoutReferrer(
-          files.url,
-          written > 0 ? { headers: { Range: `bytes=${written}-` } } : {}
-        )
+        const headers: Record<string, string> = {}
+        if (written > 0) {
+          headers.Range = `bytes=${written}-`
+          if (etag) headers["If-Range"] = etag
+        }
+        const res = await fetchWithoutReferrer(files.url, { headers })
         if (!res.ok || !res.body) {
           throw new HttpError(
             `Couldn't download the model (HTTP ${res.status}).`
           )
         }
-        // A server that ignores the range sends the whole file again.
         if (written > 0 && res.status !== 206) {
+          // The whole file: the server ignores ranges, or the file changed.
           handle.truncate(0)
           written = 0
+        } else if (written > 0) {
+          // A range starting anywhere else would put its bytes in the
+          // wrong place: start over instead.
+          const range = /^bytes (\d+)-/.exec(
+            res.headers.get("Content-Range") ?? ""
+          )
+          if (range && Number(range[1]) !== written) {
+            void res.body.cancel().catch(() => undefined)
+            handle.truncate(0)
+            written = 0
+            etag = ""
+            continue
+          }
+        }
+        if (written === 0) {
+          // A download from the start: this version's ETag and size.
+          etag = res.headers.get("ETag") ?? ""
+          await writeText(dir, files.etag, etag)
+          const length = Number(res.headers.get("Content-Length"))
+          if (length > 0) size = length
         }
         const reader = res.body.getReader()
         try {
@@ -982,6 +1040,7 @@ async function downloadFile(
     handle.close()
   }
   await dir.getFileHandle(files.done, { create: true })
+  await dir.removeEntry(files.etag).catch(() => undefined)
 }
 
 /**
@@ -1035,12 +1094,17 @@ async function removeOldCopies(modelId: string) {
     await cache.delete(weightsFile(modelId, "model_q4f16.onnx_data").url)
     const { repo } = parseModelId(modelId)
     const current = filePrefix(modelId)
+    const repoPrefix = repoFilePrefix(repo)
     const dir = await navigator.storage.getDirectory()
     for await (const name of (
       dir as unknown as { keys: () => AsyncIterable<string> }
     ).keys()) {
+      // Files of another pinned version ("repo.<commit>.name"); at main,
+      // the model's files are "repo.name".
+      const pinned = /^[0-9a-f]{12}\./.test(name.slice(repoPrefix.length))
       const otherVersion =
-        name.startsWith(repoFilePrefix(repo)) && !name.startsWith(current)
+        name.startsWith(repoPrefix) &&
+        (current === repoPrefix ? pinned : !name.startsWith(current))
       if (name.startsWith("lfm3-1.7b-") || otherVersion) {
         await dir.removeEntry(name)
       }
@@ -1063,8 +1127,8 @@ async function removeOtherWeights(
     const prefix = filePrefix(modelId)
     const keep = new Set([`${prefix}weights.${dtype}.json`])
     for (const { name } of weights) {
-      keep.add(weightsFile(modelId, name).file)
-      keep.add(weightsFile(modelId, name).done)
+      const files = weightsFile(modelId, name)
+      keep.add(files.file).add(files.done).add(files.etag)
     }
     const dir = await navigator.storage.getDirectory()
     const other: Array<string> = []

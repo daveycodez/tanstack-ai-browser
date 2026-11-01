@@ -19,12 +19,8 @@ export type Sampling = {
 export type WllamaModelMeta = {
   /** The Hugging Face repository the GGUF file is in. */
   name: string
-  /** The commit the file is pinned to, so browsers fetch that version. */
-  revision: string
   /** The GGUF file in the repository. */
   file: string
-  /** The file's size in bytes. */
-  bytes: number
   supports: {
     input: ReadonlyArray<"text">
     output: ReadonlyArray<"text">
@@ -91,9 +87,7 @@ const LFM2_5_THINKING_SAMPLING = {
  */
 const LFM3_1_7B = {
   name: "LiquidAI/LFM3-1.7B-GGUF",
-  revision: "bad5729bba61d076fff20d2548e62526665af215",
   file: "LFM3-1.7B-Q4_K_M.gguf",
-  bytes: 1_099_627_808,
   supports: TOOLS_AND_THINKING,
   size: "1.7b",
   reasoning: THINKING_SWITCH,
@@ -110,9 +104,7 @@ const LFM3_1_7B = {
  */
 const LFM3_1_7B_WEB = {
   name: "daveycodez/LFM3-1.7B-Web-GGUF",
-  revision: "217bd08b3eadcfedc9a71c0cd1f987ba33a8622a",
   file: "LFM3-1.7B-Web-Q4_K.gguf",
-  bytes: 911_948_864,
   supports: TOOLS_AND_THINKING,
   size: "1.7b",
   reasoning: THINKING_SWITCH,
@@ -122,9 +114,7 @@ const LFM3_1_7B_WEB = {
 /** Liquid AI's LFM2.5 1.2B Instruct, from its official GGUF repository. */
 const LFM2_5_1_2B = {
   name: "LiquidAI/LFM2.5-1.2B-Instruct-GGUF",
-  revision: "8ed288026e23958ad9dfa92d53ed773a8eee7125",
   file: "LFM2.5-1.2B-Instruct-Q4_K_M.gguf",
-  bytes: 730_895_168,
   supports: TOOLS,
   size: "1.2b",
   sampling: LFM2_5_SAMPLING
@@ -133,9 +123,7 @@ const LFM2_5_1_2B = {
 /** LFM2.5 1.2B Thinking: thinks before every answer. */
 const LFM2_5_1_2B_THINKING = {
   name: "LiquidAI/LFM2.5-1.2B-Thinking-GGUF",
-  revision: "b71945805f7d4d87dabd73e26098d44bcad6c35f",
   file: "LFM2.5-1.2B-Thinking-Q4_K_M.gguf",
-  bytes: 730_899_072,
   supports: TOOLS_AND_THINKING,
   size: "1.2b",
   reasoning: ALWAYS_THINKS,
@@ -148,9 +136,7 @@ const LFM2_5_1_2B_THINKING = {
  */
 const LFM2_5_350M = {
   name: "LiquidAI/LFM2.5-350M-GGUF",
-  revision: "657e078c94084481950a2d555a941481f715536b",
   file: "LFM2.5-350M-Q4_K_M.gguf",
-  bytes: 229_312_224,
   supports: TOOLS,
   size: "350m",
   sampling: LFM2_5_SAMPLING
@@ -202,8 +188,8 @@ export const WLLAMA_MODEL_REASONING: Readonly<Record<string, ModelReasoning>> =
 export const modelMeta = (model: WllamaTextModel): WllamaModelMeta =>
   WLLAMA_MODEL_META[model]
 
-/** Where a model's GGUF file downloads from: its pinned commit on Hugging Face. */
+/** Where a model's GGUF file downloads from: its latest version (main) on Hugging Face. */
 export const modelUrl = (model: WllamaTextModel) => {
-  const { name, revision, file } = modelMeta(model)
-  return `https://huggingface.co/${name}/resolve/${revision}/${file}`
+  const { name, file } = modelMeta(model)
+  return `https://huggingface.co/${name}/resolve/main/${file}`
 }

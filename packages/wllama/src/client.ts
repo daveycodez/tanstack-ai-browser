@@ -438,6 +438,13 @@ async function startLoad(
   // A model already in storage loads from it, without the network.
   const saved = await wllama.modelManager.getModels()
   const cached = saved.some((m) => m.url === url)
+  // Copies earlier versions of this package saved at a pinned commit.
+  const base = `https://huggingface.co/${meta.name}/resolve/`
+  for (const old of saved) {
+    if (old.url !== url && old.url.startsWith(base) && old.url.endsWith(`/${meta.file}`)) {
+      void old.remove().catch(() => undefined)
+    }
+  }
   status.set({ state: "loading", progress: 0, cached })
   if (!cached) keepDownloads()
   await wllama.loadModelFromUrl(url, {
@@ -457,10 +464,11 @@ async function startLoad(
     signal,
     progressCallback: ({ loaded: bytes, total }) => {
       if (cached) return
-      const totalBytes = total || meta.bytes
+      // (0 until the server says the file's size.)
+      const totalBytes = total
       status.set({
         state: "loading",
-        progress: Math.min(bytes / totalBytes, 1),
+        progress: totalBytes ? Math.min(bytes / totalBytes, 1) : 0,
         cached: false,
         loadedBytes: bytes,
         totalBytes

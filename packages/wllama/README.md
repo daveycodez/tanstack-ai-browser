@@ -53,7 +53,7 @@ const nextConfig: NextConfig = {
 
 ## Models
 
-`WLLAMA_TEXT_MODELS` lists the models this package knows, and `WLLAMA_MODEL_META` has each one's details: Hugging Face repository, pinned revision, GGUF file and its size, capabilities, reasoning levels and the sampling from its card. They're Liquid AI's official GGUF builds, plus LFM3 Web, a leaner LFM3.
+`WLLAMA_TEXT_MODELS` lists the models this package knows, and `WLLAMA_MODEL_META` has each one's details: Hugging Face repository, GGUF file, capabilities, reasoning levels and the sampling from its card. They're Liquid AI's official GGUF builds, plus LFM3 Web, a leaner LFM3.
 
 | Model                                | Reasoning                       | File            |
 | ------------------------------------ | ------------------------------- | --------------- |

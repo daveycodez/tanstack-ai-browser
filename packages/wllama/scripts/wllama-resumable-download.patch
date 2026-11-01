@@ -1,5 +1,5 @@
 diff --git a/src/workers-code/opfs-utils.js b/src/workers-code/opfs-utils.js
-index 5fbc792..c9feb58 100644
+index 5fbc792..2e2a118 100644
 --- a/src/workers-code/opfs-utils.js
 +++ b/src/workers-code/opfs-utils.js
 @@ -1,14 +1,19 @@
@@ -24,7 +24,7 @@ index 5fbc792..c9feb58 100644
  async function writeFile(buf) {
    accessHandle.write(buf);
  }
-@@ -102,26 +107,74 @@ onmessage = async (e) => {
+@@ -102,26 +107,95 @@ onmessage = async (e) => {
        assertNonNull(options.aborted);
        abortController = new AbortController();
        if (options.aborted) abortController.abort();
@@ -43,6 +43,9 @@ index 5fbc792..c9feb58 100644
        let loaded = 0;
 +      let total = NaN;
 +      let etag = '';
++      // The ETag as the server sent it, for If-Range: a resume gets the rest
++      // only of the same version, and the whole file if it changed.
++      let version = '';
        const throttledProgress = throttled(resProgress, 100);
 -      while (true) {
 -        const { done, value } = await reader.read();
@@ -57,7 +60,10 @@ index 5fbc792..c9feb58 100644
 +        const start = loaded;
 +        try {
 +          const headers = new Headers(options.headers || {});
-+          if (loaded > 0) headers.set('Range', 'bytes=' + loaded + '-');
++          if (loaded > 0) {
++            headers.set('Range', 'bytes=' + loaded + '-');
++            if (version) headers.set('If-Range', version);
++          }
 +          const response = await fetch(url, {
 +            ...options,
 +            headers,
@@ -67,11 +73,26 @@ index 5fbc792..c9feb58 100644
 +            throw new HttpError('HTTP ' + response.status + ' for ' + url);
 +          }
 +          if (loaded > 0 && response.status !== 206) {
-+            // The server sent the whole file instead of the rest.
++            // The server sent the whole file instead of the rest (it ignores
++            // ranges, or the file changed).
 +            accessHandle.truncate(0);
 +            loaded = 0;
++          } else if (loaded > 0) {
++            // A range that starts anywhere else would put its bytes in the
++            // wrong place: start over instead. (Checked when Content-Range
++            // is readable, as it is cross-origin only if the server exposes it.)
++            const range = /^bytes (\d+)-/.exec(
++              response.headers.get('content-range') || ''
++            );
++            if (range && Number(range[1]) !== loaded) {
++              response.body.cancel().catch(() => {});
++              accessHandle.truncate(0);
++              loaded = 0;
++              continue;
++            }
 +          }
 +          if (loaded === 0) {
++            version = response.headers.get('etag') || '';
 +            total = parseInt(response.headers.get('content-length'), 10);
 +            etag = (response.headers.get('etag') || '').replace(
 +              /[^A-Za-z0-9]/g,

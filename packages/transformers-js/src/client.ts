@@ -3,7 +3,7 @@
  * runs the model off the main thread so the page stays smooth. One worker,
  * and one model in it at a time: loading another frees the previous one.
  */
-import { modelMeta, runtimeModelId } from "./model-meta.js"
+import { modelMeta } from "./model-meta.js"
 import { createStore } from "./store.js"
 import type { Store } from "./store.js"
 import type {
@@ -39,7 +39,7 @@ const statuses = new Map<string, Store<ModelStatus>>()
  * id.
  */
 export function modelStatus(model: string): Store<ModelStatus> {
-  const id = runtimeModelId(model)
+  const id = model
   let status = statuses.get(id)
   if (!status) {
     status = createStore<ModelStatus>({ state: "idle" })
@@ -173,8 +173,9 @@ export function hasWebGpu(): Promise<boolean> {
 
 /**
  * Loads a model (downloading it the first time), replacing any other: a
- * listed model at its pinned revision, or any Hugging Face id. Without
- * WebGPU the worker loads its q4 weights on the CPU instead of `dtype`.
+ * listed model or any Hugging Face id: "owner/repo" for its latest version
+ * (main), "owner/repo@commit" for that one. Without WebGPU the worker loads
+ * its q4 weights on the CPU instead of `dtype`.
  * Chats may hold up to `contextLength` tokens: the model's own context
  * window by default. A different context length loads the model again.
  */
@@ -183,7 +184,7 @@ export function loadModel(
   dtype: WeightsDtype = modelMeta(model)?.dtype ?? "q4f16",
   contextLength?: number
 ): Promise<void> {
-  const modelId = runtimeModelId(model)
+  const modelId = model
   if (loaded?.modelId === modelId && loaded.contextLength === contextLength) {
     return loaded.load.promise
   }

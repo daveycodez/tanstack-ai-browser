@@ -13,8 +13,6 @@ import type { ToolFormat } from "./tool-calls.js"
 export type TransformersJsModelMeta = {
   /** The Hugging Face model id. */
   name: string
-  /** The commit the model's files are pinned to, so browsers fetch that version. */
-  revision?: string
   supports: {
     input: ReadonlyArray<"text">
     output: ReadonlyArray<"text">
@@ -98,7 +96,6 @@ const GEMMA_4_SAMPLING = {
  */
 const GEMMA_4_E4B = {
   name: "onnx-community/gemma-4-E4B-it-ONNX",
-  revision: "2b6d2e26a962f70a33da8f7cd81e1afdd8d9cfb2",
   supports: TOOLS_AND_THINKING,
   size: "4b",
   reasoning: THINKING_SWITCH,
@@ -114,7 +111,6 @@ const GEMMA_4_E4B = {
  */
 const LFM3_1_7B_WEB = {
   name: "daveycodez/LFM3-1.7B-Web",
-  revision: "9cda8fa27706d239b9c58f53a867d398e313b961",
   supports: TOOLS_AND_THINKING,
   size: "1.7b",
   reasoning: THINKING_SWITCH,
@@ -160,7 +156,6 @@ const LFM2_5_1_2B_THINKING = {
  */
 const LFM2_1_2B_TOOL = {
   name: "onnx-community/LFM2-1.2B-Tool-ONNX",
-  revision: "6a719165fdb804a2e312e14bf1491221717a3049",
   supports: TOOLS,
   size: "1.2b",
   toolFormat: "lfm2",
@@ -175,7 +170,6 @@ const LFM2_1_2B_TOOL = {
  */
 const LFM2_5_350M = {
   name: "LiquidAI/LFM2.5-350M-ONNX",
-  revision: "d11593fd9eb408e322667926656598896c2d5ff9",
   supports: TOOLS,
   size: "350m",
   toolFormat: "lfm2",
@@ -190,7 +184,6 @@ const LFM2_5_350M = {
  */
 const LFM2_5_1_2B_WEB = {
   name: "daveycodez/LFM2.5-1.2B-Web",
-  revision: "f8df717df1ee01ccb899484d7f25cddfa78dd49f",
   supports: TOOLS,
   size: "1.2b",
   toolFormat: "lfm2",
@@ -200,7 +193,6 @@ const LFM2_5_1_2B_WEB = {
 
 const LFM2_5_1_2B_THINKING_WEB = {
   name: "daveycodez/LFM2.5-1.2B-Thinking-Web",
-  revision: "db6d0161174b69db3bd4ed789e9a1cb888344f32",
   supports: TOOLS_AND_THINKING,
   size: "1.2b",
   reasoning: ALWAYS_THINKS,
@@ -292,11 +284,3 @@ export const modelReasoning = (model: string): ModelReasoning | undefined =>
   TRANSFORMERS_JS_MODEL_REASONING[model] ??
   (LISTED.has(model) ? undefined : UNLISTED_MODEL_REASONING)
 
-/**
- * The id the runtime loads: a listed model at its pinned revision
- * ("owner/repo@revision"), any other id as given.
- */
-export function runtimeModelId(model: string) {
-  const revision = modelMeta(model)?.revision
-  return revision ? `${model}@${revision}` : model
-}
