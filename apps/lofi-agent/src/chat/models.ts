@@ -156,9 +156,9 @@ const gguf = (id: ModelId, model: WllamaTextModel) => ({
 })
 
 /**
- * LFM3, LFM2.5 and Qwen3.5 on the package's own WebGL 2 engine, for devices without
- * WebGPU: it reads prompts on the GPU, about three times as fast as the CPU
- * on a Pixel 10 Pro.
+ * LFM3, LFM2.5 and Qwen3.5 on the package's own WebGL 2 engine, which runs
+ * with or without WebGPU. Where there's no WebGPU it still reads prompts on
+ * the GPU: about three times as fast as the CPU on a Pixel 10 Pro.
  */
 const webgl = (id: ModelId, model: WebGlTextModel) => ({
   id,
@@ -218,7 +218,10 @@ export const MODELS = [
   webgl("lfm2.5-webgl", "LiquidAI/LFM2.5-1.2B-Instruct-ONNX"),
   webgl("lfm2.5-thinking-webgl", "LiquidAI/LFM2.5-1.2B-Thinking-ONNX"),
   webgl("lfm2.5-web-webgl", "daveycodez/LFM2.5-1.2B-Web-ONNX"),
-  webgl("lfm2.5-thinking-web-webgl", "daveycodez/LFM2.5-1.2B-Thinking-Web-ONNX"),
+  webgl(
+    "lfm2.5-thinking-web-webgl",
+    "daveycodez/LFM2.5-1.2B-Thinking-Web-ONNX"
+  ),
   webgl("lfm2.5-350m-webgl", "LiquidAI/LFM2.5-350M-ONNX"),
   webgl("qwen3.5-2b-webgl", "onnx-community/Qwen3.5-2B-ONNX"),
   webgl("qwen3.5-2b-gguf-webgl", "unsloth/Qwen3.5-2B-GGUF")
@@ -313,19 +316,22 @@ export function effortButtonLabel(id: ModelId, level: ReasoningLevel) {
 }
 
 /**
- * The model to start with, and to fall back on: LFM3 1.7B ONNX on the WebGL
- * engine, which runs with or without WebGPU (iPhone Safari included) and
- * reads prompts fastest there, thinking at high effort (see ./model.ts).
+ * The model to start with, and to fall back on: Liquid AI's QAD Q4_0 GGUF of
+ * LFM3 1.7B on the WebGL engine, which runs with or without WebGPU (iPhone
+ * Safari included), thinking at high effort (see ./model.ts). Of the LFM3
+ * builds it calls tools most like the unquantized model: on 20 test prompts
+ * that need a tool, its first reply token is a tool call on all 20, against
+ * 16 for onnx-community's q4f16 ONNX (packages/webgl/bench/README.md).
  */
-export const DEFAULT_MODEL: ModelId = "lfm3-onnx-webgl"
+export const DEFAULT_MODEL: ModelId = "lfm3-webgl"
 
 /** The model to start with where the WebGL engine can't run but WebGPU can. */
 export const DEFAULT_GPU_MODEL: ModelId = "lfm3-web"
 
 /**
- * The model to start with where there's no WebGPU (Firefox on Android, for
- * one), and models run on the CPU: LFM2 1.2B Tool, which has CPU weights
- * ONNX Runtime's WebAssembly build can run, and is made for tool calls.
+ * The model to start with where neither the WebGL engine nor WebGPU can run,
+ * and models run on the CPU: LFM2 1.2B Tool, which has CPU weights ONNX
+ * Runtime's WebAssembly build can run, and is made for tool calls.
  */
 export const DEFAULT_CPU_MODEL: ModelId = "lfm2-tool"
 
@@ -432,7 +438,7 @@ const canRun = (id: ModelId, isMac: boolean, hasGpu: boolean) =>
   (hasGpu || !modelInfo(id).needsWebGpu)
 
 /**
- * The pick, if this device can run it, else the default: LFM3 ONNX on
+ * The pick, if this device can run it, else the default: LFM3's GGUF on
  * WebGL, else LFM3 Web on WebGPU, else LFM2 1.2B Tool on the CPU.
  */
 export const offered = (
