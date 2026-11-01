@@ -32,7 +32,9 @@ import {
   completeChat,
   configureRuntime,
   contextError,
+  loadedContext,
   loadModel,
+  setContextLength,
   streamChat
 } from "./client.js"
 import type { ChatRequest } from "./client.js"
@@ -44,6 +46,15 @@ import type {
 } from "./model-meta.js"
 
 export type WllamaTextConfig = {
+  /**
+   * Most tokens a chat may hold, prompt and reply together: the model's
+   * whole context window by default (its GGUF's training context), never
+   * more. llama.cpp reserves the attention cache for all of it when the
+   * model loads (LFM3: ~12 KB a token, so 3 GB for its 262,144), so set
+   * less where memory is short: 8,192 on an iPhone. Changing it loads the
+   * model again.
+   */
+  contextLength?: number
   /**
    * Where the main build (`wasm/wllama.wasm`) is served, for bundlers that
    * don't emit it from `new URL(…, import.meta.url)`. Applies to every model.
@@ -260,6 +271,7 @@ export class WllamaTextAdapter<
 
   constructor(config: WllamaTextConfig, model: TModel) {
     super({}, model)
+    setContextLength(model, config.contextLength)
     configureRuntime({
       ...(config.wasmUrl && { wasmUrl: config.wasmUrl }),
       ...(config.relaxedSimdWasmUrl !== undefined && {
@@ -297,7 +309,8 @@ export class WllamaTextAdapter<
       (options.request as RequestInit | undefined)?.signal ??
       undefined
     const model = this.model
-    const { context } = modelMeta(model)
+    // The loaded model's, once it's loaded.
+    let context = 0
     const timestamp = () => Date.now()
 
     yield {
@@ -377,9 +390,10 @@ export class WllamaTextAdapter<
     }
 
     try {
-      await loadModel(model).catch((error: unknown) => {
+      const wllama = await loadModel(model).catch((error: unknown) => {
         throw new Error(`Couldn't load ${model}: ${errorText(error)}`)
       })
+      context = loadedContext(wllama)
       // Time to first token counts from here, the model loaded.
       requested = performance.now()
       const stream = await streamChat(

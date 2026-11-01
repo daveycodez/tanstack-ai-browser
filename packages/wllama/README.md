@@ -53,7 +53,7 @@ const nextConfig: NextConfig = {
 
 ## Models
 
-`WLLAMA_TEXT_MODELS` lists the models this package knows, and `WLLAMA_MODEL_META` has each one's details: Hugging Face repository, pinned revision, GGUF file and its size, context, capabilities, reasoning levels and the sampling from its card. They're Liquid AI's official GGUF builds, plus LFM3 Web, a leaner LFM3.
+`WLLAMA_TEXT_MODELS` lists the models this package knows, and `WLLAMA_MODEL_META` has each one's details: Hugging Face repository, pinned revision, GGUF file and its size, capabilities, reasoning levels and the sampling from its card. They're Liquid AI's official GGUF builds, plus LFM3 Web, a leaner LFM3.
 
 | Model                                | Reasoning                       | File            |
 | ------------------------------------ | ------------------------------- | --------------- |
@@ -72,6 +72,8 @@ LFM3 Web ([daveycodez/LFM3-1.7B-Web-GGUF](https://huggingface.co/daveycodez/LFM3
 **Reasoning:** thinking (llama.cpp's `reasoning_content`) streams as reasoning events. LFM3 thinks by default; `chat({ reasoning: "off" })` turns it off, through its chat template's `enable_thinking` (llama.cpp's `chat_template_kwargs`). LFM2.5 1.2B Thinking always thinks. `chat({ reasoning })` is a type error for the models that don't reason.
 
 **Sampling** goes in `modelOptions` per call (`temperature`, `top_k`, `top_p`, `repeat_penalty`, `max_new_tokens`), over the model card's. Without `max_new_tokens`, a reply may run to the context limit, as llama.cpp's default.
+
+**Context:** `wllamaText(model, { contextLength })` sets how many tokens a chat may hold, prompt and reply together. By default it's the model's whole context window, read from its GGUF (262,144 for LFM3, 128,000 for LFM2.5). Unlike Transformers.js and the WebGL engine, which grow their attention memory as a chat fills it, llama.cpp reserves it for the whole context when the model loads: about 12 KB a token for LFM3, so 3 GB for its full window. Fine on a desktop; on an iPhone set 8,192. Changing it loads the model again.
 
 **Usage** is in each call's `RUN_FINISHED` event, as with any TanStack AI adapter: `promptTokens`, `completionTokens`, `totalTokens`, and `promptTokensDetails.cachedTokens` for the start of the prompt llama.cpp reused from an earlier call. Timings are in `usage.providerUsageDetails` (`WllamaProviderUsageDetails`: `firstTokenMs`, `promptMs`, `decodeMs`, `decodeTokens`).
 

@@ -181,7 +181,7 @@ export function hasWebGpu(): Promise<boolean> {
 export function loadModel(
   model: string,
   dtype: WeightsDtype = modelMeta(model)?.dtype ?? "q4f16",
-  contextLength: number | undefined = modelMeta(model)?.context
+  contextLength?: number
 ): Promise<void> {
   const modelId = runtimeModelId(model)
   if (loaded?.modelId === modelId && loaded.contextLength === contextLength) {

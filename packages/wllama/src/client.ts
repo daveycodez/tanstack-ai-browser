@@ -230,10 +230,34 @@ async function compatBuild() {
 /** The model wllama holds (or is loading), its load, and a way to stop it. */
 let loaded: {
   model: WllamaTextModel
+  contextLength: number | undefined
   wllama: Wllama
   promise: Promise<Wllama>
   abort: AbortController
 } | null = null
+
+/** Each model's contextLength, from its adapter (see setContextLength). */
+const contextLengths = new Map<WllamaTextModel, number>()
+
+/**
+ * Sets the most tokens a chat with `model` may hold, prompt and reply
+ * together; undefined for the model's whole context window (its GGUF's
+ * training context). llama.cpp reserves the attention cache for all of it
+ * when the model loads, so it applies from the next load.
+ */
+export function setContextLength(
+  model: WllamaTextModel,
+  contextLength: number | undefined
+) {
+  if (contextLength === undefined) contextLengths.delete(model)
+  else contextLengths.set(model, contextLength)
+}
+
+/** Tokens a chat may hold with the loaded model, as llama.cpp set it up. */
+export function loadedContext(wllama: Wllama) {
+  const info = wllama.getLoadedContextInfo()
+  return info.n_ctx || info.n_ctx_train
+}
 
 let askedToKeep = false
 /**
@@ -396,7 +420,8 @@ async function useSpeculative() {
 async function startLoad(
   model: WllamaTextModel,
   wllama: Wllama,
-  signal: AbortSignal
+  signal: AbortSignal,
+  contextLength: number | undefined
 ) {
   const status = modelStatus(model)
   const url = modelUrl(model)
@@ -408,7 +433,7 @@ async function startLoad(
   // decoding keeps extra recurrent-state snapshots).
   state = {
     model,
-    build: `${BUILD_ID} ${compat?.wasm ?? mainWasmUrl()}${speculative ? " speculative" : ""}`
+    build: `${BUILD_ID} ${compat?.wasm ?? mainWasmUrl()}${speculative ? " speculative" : ""} n_ctx ${contextLength ?? 0}`
   }
   // A model already in storage loads from it, without the network.
   const saved = await wllama.modelManager.getModels()
@@ -416,8 +441,10 @@ async function startLoad(
   status.set({ state: "loading", progress: 0, cached })
   if (!cached) keepDownloads()
   await wllama.loadModelFromUrl(url, {
-    // wllama's default is 1,024 tokens, less than a system prompt with tools.
-    n_ctx: meta.context,
+    // The caller's, else 0: llama.cpp's "the model's training context"
+    // (wllama's own default is 1,024 tokens, less than a system prompt with
+    // tools). llama.cpp reserves the attention cache for all of it now.
+    n_ctx: contextLength ?? 0,
     // wllama's default otherwise: WebGPU where the browser has it.
     ...(options.gpu === false && { n_gpu_layers: 0 }),
     // The whole context in sliding-window layers' cache (LFM3's), not just
@@ -449,7 +476,10 @@ async function startLoad(
  * promise settles when it's ready to generate.
  */
 export function loadModel(model: WllamaTextModel): Promise<Wllama> {
-  if (loaded?.model === model) return loaded.promise
+  const contextLength = contextLengths.get(model)
+  if (loaded?.model === model && loaded.contextLength === contextLength) {
+    return loaded.promise
+  }
   const previous = loaded
   if (previous) modelStatus(previous.model).set({ state: "idle" })
   const wllama = new Wllama(
@@ -469,9 +499,9 @@ export function loadModel(model: WllamaTextModel): Promise<Wllama> {
       await previous.promise.catch(() => undefined)
       await previous.wllama.exit().catch(() => undefined)
     }
-    return startLoad(model, wllama, abort.signal)
+    return startLoad(model, wllama, abort.signal, contextLength)
   })()
-  const current = { model, wllama, promise, abort }
+  const current = { model, contextLength, wllama, promise, abort }
   loaded = current
   promise.then(
     () => {
@@ -538,6 +568,6 @@ export async function completeChat(
     void saveState(model, wllama, request)
     return response
   } catch (error) {
-    throw contextError(error, modelMeta(model).context)
+    throw contextError(error, loadedContext(wllama))
   }
 }

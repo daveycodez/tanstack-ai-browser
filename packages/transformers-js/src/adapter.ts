@@ -310,7 +310,7 @@ export class TransformersJsTextAdapter<
     }
     this.toolFormat = toolFormat
     // Left out, the worker uses the model's own context window.
-    this.contextLength = config.contextLength ?? modelMeta(model)?.context
+    this.contextLength = config.contextLength
     this.dtype = config.dtype ?? modelMeta(model)?.dtype ?? "q4f16"
     if (config.debug) setDebug(true)
   }

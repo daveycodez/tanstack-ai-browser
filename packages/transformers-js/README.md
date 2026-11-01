@@ -20,7 +20,7 @@ const stream = chat({
 
 ## Models
 
-`TRANSFORMERS_JS_TEXT_MODELS` lists the models this package knows, and `TRANSFORMERS_JS_MODEL_META` has each one's details: Hugging Face id and pinned revision, size, context, capabilities, tool format, reasoning levels and the sampling from its model card. A listed model needs no config.
+`TRANSFORMERS_JS_TEXT_MODELS` lists the models this package knows, and `TRANSFORMERS_JS_MODEL_META` has each one's details: Hugging Face id and pinned revision, size, capabilities, tool format, reasoning levels and the sampling from its model card. A listed model needs no config.
 
 | Model                                 | Reasoning                  | Without WebGPU |
 | ------------------------------------- | -------------------------- | -------------- |

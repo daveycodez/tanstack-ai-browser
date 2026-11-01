@@ -32,8 +32,6 @@ export type WllamaModelMeta = {
   }
   /** Parameter count. */
   size: string
-  /** Tokens a chat can hold, prompt and reply together, in this runtime. */
-  context: number
   /** Reasoning levels for `chat({ reasoning })`, read from the chat template. */
   reasoning?: ModelReasoning
   /** Sampling from the model card, used unless `modelOptions` overrides it. */
@@ -48,13 +46,6 @@ const THINKING_SWITCH = {
   budget: false
 } as const
 const ALWAYS_THINKS = { levels: { high: "true" }, budget: false } as const
-
-/**
- * Tokens a chat may hold, as with the package's other LFM models: the
- * attention cache for 8,192 tokens is 96 MB, little next to the weights,
- * and a full context already takes half a minute to read on a phone.
- */
-const CONTEXT = 8192
 
 const TOOLS_AND_THINKING = {
   input: ["text"],
@@ -105,7 +96,6 @@ const LFM3_1_7B = {
   bytes: 1_099_627_808,
   supports: TOOLS_AND_THINKING,
   size: "1.7b",
-  context: CONTEXT,
   reasoning: THINKING_SWITCH,
   sampling: LFM3_SAMPLING
 } as const satisfies WllamaModelMeta
@@ -125,7 +115,6 @@ const LFM3_1_7B_WEB = {
   bytes: 911_948_864,
   supports: TOOLS_AND_THINKING,
   size: "1.7b",
-  context: CONTEXT,
   reasoning: THINKING_SWITCH,
   sampling: LFM3_SAMPLING
 } as const satisfies WllamaModelMeta
@@ -138,7 +127,6 @@ const LFM2_5_1_2B = {
   bytes: 730_895_168,
   supports: TOOLS,
   size: "1.2b",
-  context: CONTEXT,
   sampling: LFM2_5_SAMPLING
 } as const satisfies WllamaModelMeta
 
@@ -150,7 +138,6 @@ const LFM2_5_1_2B_THINKING = {
   bytes: 730_899_072,
   supports: TOOLS_AND_THINKING,
   size: "1.2b",
-  context: CONTEXT,
   reasoning: ALWAYS_THINKS,
   sampling: LFM2_5_THINKING_SAMPLING
 } as const satisfies WllamaModelMeta
@@ -166,7 +153,6 @@ const LFM2_5_350M = {
   bytes: 229_312_224,
   supports: TOOLS,
   size: "350m",
-  context: CONTEXT,
   sampling: LFM2_5_SAMPLING
 } as const satisfies WllamaModelMeta
 

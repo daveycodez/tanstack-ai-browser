@@ -97,13 +97,16 @@ const isIos = () =>
     (/Macintosh/.test(navigator.userAgent) && navigator.maxTouchPoints > 1))
 
 /**
- * Tokens a Transformers.js chat may hold on iOS. The package defaults to
- * each model's whole context window; iPhone Safari keeps LFM chats to
- * 8,192 (past it, ONNX Runtime moves their attention memory to buffers too
- * large for a tab), and the smaller context also cuts the models' rotary
- * tables when they load.
+ * Tokens a chat may hold on iOS, for every local runtime. The packages
+ * default to each model's whole context window, which an iPhone tab (2 GB)
+ * can't hold: llama.cpp (wllama) reserves the attention cache for all of it
+ * up front (3 GB for LFM3's 262,144), and past 8,192 tokens ONNX Runtime
+ * (Transformers.js) moves LFM attention memory to buffers too large for a
+ * tab. The smaller context also cuts Transformers.js models' rotary tables.
  */
 const IOS_CONTEXT = 8192
+/** `{ contextLength }` on iOS, nothing elsewhere (the model's own). */
+const iosContext = () => (isIos() ? { contextLength: IOS_CONTEXT } : {})
 
 /** A Transformers.js model of the package's list, in the picker. */
 const local = (
@@ -116,7 +119,7 @@ const local = (
   icon: model.includes("gemma") ? "/icons/gemma.svg" : "/icons/liquid.svg",
   adapter: transformersJsText(model, {
     debug: import.meta.env.DEV,
-    ...(isIos() && { contextLength: IOS_CONTEXT })
+    ...iosContext()
   }),
   /** Its download and loading progress. */
   status: modelStatus(model) as ModelStatusStore | null,
@@ -134,7 +137,7 @@ const gguf = (id: ModelId, name: string, model: WllamaTextModel) => ({
   id,
   name,
   icon: "/icons/liquid.svg",
-  adapter: wllamaText(model),
+  adapter: wllamaText(model, iosContext()),
   status: wllamaModelStatus(model) as ModelStatusStore | null,
   needsWebGpu: false,
   reasoning: WLLAMA_MODEL_REASONING[model] as ModelReasoning | undefined
@@ -149,7 +152,7 @@ const webgl = (id: ModelId, name: string, model: WebGlTextModel) => ({
   id,
   name,
   icon: "/icons/liquid.svg",
-  adapter: webglText(model),
+  adapter: webglText(model, iosContext()),
   status: webglModelStatus(model) as ModelStatusStore | null,
   needsWebGpu: false,
   reasoning: WEBGL_MODEL_REASONING[model] as ModelReasoning | undefined
