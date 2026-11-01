@@ -1,6 +1,6 @@
 # Benchmarks and devices
 
-Test on the Mac unless the user asks for a device. Another agent may be driving the Pixel 10 Pro: never touch it, and never use port 9222 (the Pixel's Chrome, forwarded by adb).
+Test on the Mac unless the user asks for a device. Another agent may be driving the Pixel 10 Pro: use it only when the user asks, and follow "Controlling the Pixel" below (port 9222 is the Pixel's Chrome, forwarded by adb).
 
 On the Mac, test in the desktop app's built-in Browser (the `mcp__Claude_Browser__*` tools), never in the user's own browser: no Claude in Chrome, no Safari or Chrome windows of theirs.
 
@@ -60,6 +60,50 @@ The user's iPhone 16 Pro Max is "Dave iPhone", UDID `00008140-000A7D0E227B001C`.
   - Safari there has no WebGPU (Transformers.js runs on the CPU) and no 2 GB limit.
   - Measure its page with `footprint` on the `CoreSimulator` `com.apple.WebKit.WebContent` process.
   - Driving it with the simulator tool: take a screenshot after every action. The first tap after a page change is often lost (tap again), and typed text can arrive late.
+
+## Controlling the Pixel
+
+The user's Pixel 10 Pro (Tensor G5, Imagination PowerVR GPU: WebGPU vendor `img-tec`) is adb serial `57171FDCH00AT3`; adb is `~/Library/Android/sdk/platform-tools/adb`. Only use it when the user asks, and say what you're doing on it.
+
+**Sharing:** other sessions often drive the phone at the same time.
+- Before starting, look at what's already there:
+  - `adb -s 57171FDCH00AT3 reverse --list` and `adb forward --list`;
+  - `curl -s localhost:9222/json/list` (Chrome's open tabs).
+- Add your own port mappings; never remove or change another session's.
+- Open ONE tab of your own and do all your work in it. Never close, reload or navigate other tabs.
+- If another session is running a benchmark, wait for it to finish instead of competing: the results of both would be wrong.
+
+**Connecting (USB):**
+- `adb -s 57171FDCH00AT3 reverse tcp:8790 tcp:8790` makes the Mac's bench server `http://localhost:8790` on the phone. localhost is a secure context, so WebGPU and storage work without a tunnel. Keep the same port between runs, as on the Mac (OPFS).
+- `adb -s 57171FDCH00AT3 forward tcp:9222 localabstract:chrome_devtools_remote` exposes Chrome's DevTools protocol on the Mac's port 9222.
+  - `curl -s localhost:9222/json/list` lists the tabs with their `webSocketDebuggerUrl`.
+  - Drive a tab over that WebSocket (`Page.navigate`, `Runtime.evaluate`, console events), or with playwright-core's `chromium.connectOverCDP("http://localhost:9222")`. playwright-core is not a repo dependency, so install it in a scratch folder.
+- Open a page from the shell: `adb -s 57171FDCH00AT3 shell am start -a android.intent.action.VIEW -d '<url>' com.android.chrome`.
+- **Benchmarks:** the driver page works as on the iPhone. Open `http://localhost:8790/driver.html` once, then write jobs to `$MODELS_DIR/job.json`, and park the phone with `"url":"about:blank"` afterwards.
+
+**Idle check:** run it before and after every measurement. Discard a run if the phone wasn't idle, or if another tab appeared or changed during it.
+- GPU clock: `adb -s 57171FDCH00AT3 shell cat /sys/class/devfreq/34f00000.gpu0/cur_freq`. It reads `396000000` when idle; anything higher means something is using the GPU.
+- Thermal: `adb -s 57171FDCH00AT3 shell dumpsys thermalservice | grep "Thermal Status"`. 0 is cool and 1 is light. Above 1, rest the phone before measuring.
+- Busy renderers: `adb -s 57171FDCH00AT3 shell top -b -n 1 -m 12 | grep -E "chrome|sandbox|privileged"`.
+
+**Heat changes the results:**
+- The CPU throttles hard as the phone warms. LFM2.5 350M on the CPU writes about 65 tokens/s cool and about 31 warm; the GPU holds steady.
+- Compare builds or runtimes only within one session: alternate them run by run (A, B, A, B) and record the thermal status with each result. Never compare against numbers from another day or temperature.
+- Rest the phone a minute or two between long runs.
+
+**Browsers:**
+- In Chrome, wllama runs on WebGPU. On this GPU it uses the package's PowerVR engine, with speculative decoding and GPU top-k on by default.
+- Firefox (`org.mozilla.firefox`) has no JSPI, so wllama runs on the CPU there.
+- Don't run Transformers.js in Chrome on the Pixel unless the user asks: as of November 2026 it crashes the phone.
+
+**PowerVR engine work** (`packages/wllama/scripts/*powervr*`, `*logits-topk*`, `*speculative*`):
+- Greedy text must stay identical with speculative decoding on and off, and against the previous build.
+- Check llama.cpp's `test-backend-ops` against the CPU on the phone before shipping.
+- A full rebuild (`packages/wllama/scripts/build-wasm.sh`) takes 15–20 minutes. Don't edit the patches or the script while one is running.
+
+**Crashes and memory:**
+- `adb -s 57171FDCH00AT3 logcat -d | grep -iE "lowmemorykiller|lmkd|chromium.*crash"` shows tabs Android killed.
+- `adb -s 57171FDCH00AT3 shell dumpsys meminfo com.android.chrome` gives Chrome's memory.
 
 <!-- nx configuration start-->
 <!-- Leave the start & end comments to automatically receive updates. -->
