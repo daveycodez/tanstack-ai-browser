@@ -63,6 +63,8 @@ export type ModelId =
   | "lfm2.5-web-webgl"
   | "lfm2.5-thinking-web-webgl"
   | "lfm2.5-350m-webgl"
+  | "qwen3.5-2b-webgl"
+  | "qwen3.5-2b-gguf-webgl"
   | "built-in"
 
 /** Where the app reaches apfel on this Mac: its default address. */
@@ -154,7 +156,7 @@ const gguf = (id: ModelId, model: WllamaTextModel) => ({
 })
 
 /**
- * LFM3 and LFM2.5 on the package's own WebGL 2 engine, for devices without
+ * LFM3, LFM2.5 and Qwen3.5 on the package's own WebGL 2 engine, for devices without
  * WebGPU: it reads prompts on the GPU, about three times as fast as the CPU
  * on a Pixel 10 Pro.
  */
@@ -217,7 +219,9 @@ export const MODELS = [
   webgl("lfm2.5-thinking-webgl", "LiquidAI/LFM2.5-1.2B-Thinking-ONNX"),
   webgl("lfm2.5-web-webgl", "daveycodez/LFM2.5-1.2B-Web-ONNX"),
   webgl("lfm2.5-thinking-web-webgl", "daveycodez/LFM2.5-1.2B-Thinking-Web-ONNX"),
-  webgl("lfm2.5-350m-webgl", "LiquidAI/LFM2.5-350M-ONNX")
+  webgl("lfm2.5-350m-webgl", "LiquidAI/LFM2.5-350M-ONNX"),
+  webgl("qwen3.5-2b-webgl", "onnx-community/Qwen3.5-2B-ONNX"),
+  webgl("qwen3.5-2b-gguf-webgl", "unsloth/Qwen3.5-2B-GGUF")
 ] satisfies Array<{
   id: ModelId
   name: string
