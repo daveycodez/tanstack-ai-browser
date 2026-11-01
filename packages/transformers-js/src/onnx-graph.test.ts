@@ -3,6 +3,7 @@ import { describe, test } from "node:test"
 import {
   chunkLargeMatMulNBits,
   readQuantizedEmbedding,
+  scanBodyNodeNames,
   scoreLastTokenOnly,
   trimRotaryTables
 } from "./onnx-graph.js"
@@ -408,5 +409,58 @@ describe("readQuantizedEmbedding", () => {
     assert.equal(readQuantizedEmbedding(embeddingModel({ castTo: 10 })), null)
     assert.equal(readQuantizedEmbedding(decoderModel()), null)
     assert.equal(readQuantizedEmbedding(model(10, 64)), null)
+  })
+})
+
+/** A graph attribute (AttributeProto: name 1, g 6, type 20 = GRAPH). */
+const graphAttr = (name: string, nodes: Array<Uint8Array>) =>
+  join(bytes(1, name), bytes(6, join(...nodes.map((n) => bytes(1, n)))), int(20, 5))
+
+/**
+ * Qwen3.5's linear attention, cut down: an If whose prompt branch runs a
+ * Scan, whose body holds a nested graph, and a node outside sharing a name.
+ */
+function scanModel() {
+  const body = [
+    nodeProto("Exp", ["g_in"], ["g_exp"], "scan_body_0/g_exp"),
+    nodeProto("If", ["c"], ["y"], "scan_body_0/inner", [
+      graphAttr("then_branch", [nodeProto("Mul", ["a", "b"], ["y"], "scan_body_0/inner_mul")]),
+      graphAttr("else_branch", [nodeProto("Add", ["a", "b"], ["y"], "")])
+    ]),
+    nodeProto("Identity", ["s"], ["state_out"], "state_out"),
+    nodeProto("Mul", ["s", "s"], ["sq"], "shared")
+  ]
+  const scan = nodeProto("Scan", ["state", "q"], ["state_end", "ys"], "/layers.0/Scan", [
+    graphAttr("body", body),
+    intAttr("num_scan_inputs", 1)
+  ])
+  const branches = nodeProto("If", ["is_decode"], ["out"], "/layers.0/If", [
+    graphAttr("then_branch", [nodeProto("Mul", ["x", "y"], ["out"], "/layers.0/then/Mul")]),
+    graphAttr("else_branch", [scan])
+  ])
+  const graph = join(
+    bytes(1, branches),
+    bytes(1, nodeProto("Mul", ["out", "w"], ["logits"], "shared")),
+    bytes(2, "graph")
+  )
+  return join(int(1, 10), bytes(7, graph))
+}
+
+describe("scanBodyNodeNames", () => {
+  test("collects the nodes inside Scan bodies, nested graphs too", () => {
+    assert.deepEqual(scanBodyNodeNames(scanModel()).sort(), [
+      "scan_body_0/g_exp",
+      "scan_body_0/inner",
+      "scan_body_0/inner_mul",
+      "state_out"
+    ])
+  })
+
+  test("leaves out names nodes outside the bodies use too", () => {
+    assert.ok(!scanBodyNodeNames(scanModel()).includes("shared"))
+  })
+
+  test("nothing for a model without a Scan", () => {
+    assert.deepEqual(scanBodyNodeNames(decoderModel()), [])
   })
 })

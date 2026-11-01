@@ -555,3 +555,54 @@ export function readQuantizedEmbedding(model: Uint8Array): QuantizedEmbedding | 
     ...(zeros?.external && { zeros: zeros.external })
   }
 }
+
+/** A graph's nodes (GraphProto field 1), parsed. */
+const graphNodes = (graph: Uint8Array) =>
+  parse(graph)
+    .filter((f) => f.field === 1 && f.bytes)
+    .map((f) => parse(f.bytes as Uint8Array))
+
+/**
+ * A node's subgraphs, by attribute name: AttributeProto `g` (6) and `graphs`
+ * (11), as If, Loop and Scan hold them.
+ */
+function subgraphs(node: Array<Field>) {
+  const out: Array<{ name: string; graph: Uint8Array }> = []
+  for (const a of node) {
+    if (a.field !== 5 || !a.bytes) continue
+    const attr = parse(a.bytes)
+    const name = firstString(attr, 1)
+    for (const f of attr) {
+      if ((f.field === 6 || f.field === 11) && f.bytes) out.push({ name, graph: f.bytes })
+    }
+  }
+  return out
+}
+
+/**
+ * The names of the nodes inside every Scan's loop body, nested graphs
+ * included, wherever the Scan is (Qwen3.5 has one per linear-attention
+ * layer, in the prompt branch of an If). ONNX Runtime runs Scan itself on
+ * the CPU, so on WebGPU each step of the loop sent the body's state to the
+ * GPU and read it back; keeping the body on the CPU too (the WebGPU
+ * provider's forceCpuNodeNames) avoids that. Names that nodes outside the
+ * bodies use as well are left out, so that nothing else moves.
+ */
+export function scanBodyNodeNames(model: Uint8Array): Array<string> {
+  const graph = parse(model).find((f) => f.field === 7)?.bytes
+  if (!graph) return []
+  const inBody = new Set<string>()
+  const outside = new Set<string>()
+  const walk = (bytes: Uint8Array, body: boolean) => {
+    for (const node of graphNodes(bytes)) {
+      const name = firstString(node, 3)
+      if (name) (body ? inBody : outside).add(name)
+      const scan = firstString(node, 4) === "Scan" && firstString(node, 7) === ""
+      for (const sub of subgraphs(node)) {
+        walk(sub.graph, body || (scan && sub.name === "body"))
+      }
+    }
+  }
+  walk(graph, false)
+  return [...inBody].filter((name) => !outside.has(name))
+}

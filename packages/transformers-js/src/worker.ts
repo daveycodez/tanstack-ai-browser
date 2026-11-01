@@ -24,6 +24,7 @@ import { embedRows } from "./disk-embedding.js"
 import {
   chunkLargeMatMulNBits,
   readQuantizedEmbedding,
+  scanBodyNodeNames,
   scoreLastTokenOnly,
   trimRotaryTables
 } from "./onnx-graph.js"
@@ -138,7 +139,8 @@ type Ort = {
  * the context the model is loaded for, scores computed for the last token
  * only, and on the CPU, large multiplies split (see CPU_MATMUL_BYTES). A
  * 4-bit embedding session is replaced by a lookup on disk
- * (diskEmbeddingSession).
+ * (diskEmbeddingSession). On the GPU, the bodies of Scan loops stay on the
+ * CPU (withCpuNodes).
  */
 function editModels(ort: Ort) {
   const session = ort.InferenceSession
@@ -164,13 +166,39 @@ function editModels(ort: Ort) {
       ? chunkLargeMatMulNBits(edited, CPU_MATMUL_BYTES)
       : null
     if (chunked) edited = chunked
-    if (DEBUG && (trimmed || lastOnly || chunked)) {
+    const cpuNodes = scanBodyNodeNames(edited)
+    if (DEBUG && (trimmed || lastOnly || chunked || cpuNodes.length > 0)) {
       ctx.postMessage({
         type: "log",
-        text: `[model]${trimmed ? ` rotary tables cut to ${modelEdits.positions.toLocaleString("en-US")} positions;` : ""}${lastOnly ? " scores for the last token only;" : ""}${chunked ? " large matrix multiplies split for the CPU" : ""}`
+        text: `[model]${trimmed ? ` rotary tables cut to ${modelEdits.positions.toLocaleString("en-US")} positions;` : ""}${lastOnly ? " scores for the last token only;" : ""}${chunked ? " large matrix multiplies split for the CPU;" : ""}${cpuNodes.length > 0 ? ` ${cpuNodes.length} Scan body nodes on the CPU` : ""}`
       })
     }
-    return create(edited, ...rest)
+    const [options, ...more] = rest
+    return create(edited, withCpuNodes(options, cpuNodes), ...more)
+  }
+}
+
+/**
+ * Session options with `names` kept on the CPU by the WebGPU provider. The
+ * nodes in a Scan's body: ONNX Runtime runs the Scan itself on the CPU, and
+ * with the body on the GPU every step of the loop uploaded the state (1 MB
+ * per Qwen3.5 layer) and read it back: 82 GB of buffers for a 2,048-token
+ * prompt, read at 36 tokens/s on a Mac. With the body on the CPU: 1.9 GB,
+ * at 340 tokens/s.
+ */
+function withCpuNodes(options: unknown, names: Array<string>) {
+  const session = options as
+    | { executionProviders?: Array<string | { name: string }> }
+    | undefined
+  if (names.length === 0 || !session?.executionProviders) return options
+  return {
+    ...session,
+    executionProviders: session.executionProviders.map((provider) => {
+      const entry = typeof provider === "string" ? { name: provider } : provider
+      return entry.name === "webgpu"
+        ? { ...entry, forceCpuNodeNames: names }
+        : provider
+    })
   }
 }
 
