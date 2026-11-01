@@ -110,7 +110,7 @@ const GEMMA_4_E4B = {
  * 1.09 GB), and flash attention in the sliding-window layers.
  */
 const LFM3_1_7B_WEB = {
-  name: "daveycodez/LFM3-1.7B-Web",
+  name: "daveycodez/LFM3-1.7B-Web-ONNX",
   supports: TOOLS_AND_THINKING,
   size: "1.7b",
   reasoning: THINKING_SWITCH,
@@ -183,7 +183,7 @@ const LFM2_5_350M = {
  * prompt otherwise needs 210 MB for them, which crashed iPhone Safari).
  */
 const LFM2_5_1_2B_WEB = {
-  name: "daveycodez/LFM2.5-1.2B-Web",
+  name: "daveycodez/LFM2.5-1.2B-Web-ONNX",
   supports: TOOLS,
   size: "1.2b",
   toolFormat: "lfm2",
@@ -192,7 +192,7 @@ const LFM2_5_1_2B_WEB = {
 } as const satisfies TransformersJsModelMeta
 
 const LFM2_5_1_2B_THINKING_WEB = {
-  name: "daveycodez/LFM2.5-1.2B-Thinking-Web",
+  name: "daveycodez/LFM2.5-1.2B-Thinking-Web-ONNX",
   supports: TOOLS_AND_THINKING,
   size: "1.2b",
   reasoning: ALWAYS_THINKS,

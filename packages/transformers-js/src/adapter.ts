@@ -612,7 +612,7 @@ export class TransformersJsTextAdapter<
  * @example
  * ```ts
  * chat({
- *   adapter: transformersJsText("daveycodez/LFM3-1.7B-Web"),
+ *   adapter: transformersJsText("daveycodez/LFM3-1.7B-Web-ONNX"),
  *   messages,
  *   threadId,
  *   reasoning: "high"

@@ -11,7 +11,7 @@ import { chat } from "@tanstack/ai"
 import { transformersJsText } from "@tanstack-ai-browser/transformers-js"
 
 const stream = chat({
-  adapter: transformersJsText("daveycodez/LFM3-1.7B-Web"),
+  adapter: transformersJsText("daveycodez/LFM3-1.7B-Web-ONNX"),
   messages,
   threadId,
   reasoning: "high"
@@ -22,17 +22,17 @@ const stream = chat({
 
 `TRANSFORMERS_JS_TEXT_MODELS` lists the models this package knows, and `TRANSFORMERS_JS_MODEL_META` has each one's details: Hugging Face id, size, capabilities, tool format, reasoning levels and the sampling from its model card. A listed model needs no config.
 
-| Model                                 | Reasoning                  | Without WebGPU |
-| ------------------------------------- | -------------------------- | -------------- |
-| `onnx-community/gemma-4-E4B-it-ONNX`  | on/off                     | no             |
-| `daveycodez/LFM3-1.7B-Web`            | on/off (`"off"`, `"high"`) | yes            |
-| `onnx-community/LFM3-1.7B-ONNX`       | on/off                     | yes            |
-| `daveycodez/LFM2.5-1.2B-Web`          | none                       | yes            |
-| `daveycodez/LFM2.5-1.2B-Thinking-Web` | always (`"high"`)          | yes            |
-| `LiquidAI/LFM2.5-1.2B-Instruct-ONNX`  | none                       | yes            |
-| `LiquidAI/LFM2.5-1.2B-Thinking-ONNX`  | always                     | yes            |
-| `onnx-community/LFM2-1.2B-Tool-ONNX`  | none                       | yes            |
-| `LiquidAI/LFM2.5-350M-ONNX`           | none                       | yes            |
+| Model                                      | Reasoning                  | Without WebGPU |
+| ------------------------------------------ | -------------------------- | -------------- |
+| `onnx-community/gemma-4-E4B-it-ONNX`       | on/off                     | no             |
+| `daveycodez/LFM3-1.7B-Web-ONNX`            | on/off (`"off"`, `"high"`) | yes            |
+| `onnx-community/LFM3-1.7B-ONNX`            | on/off                     | yes            |
+| `daveycodez/LFM2.5-1.2B-Web-ONNX`          | none                       | yes            |
+| `daveycodez/LFM2.5-1.2B-Thinking-Web-ONNX` | always (`"high"`)          | yes            |
+| `LiquidAI/LFM2.5-1.2B-Instruct-ONNX`       | none                       | yes            |
+| `LiquidAI/LFM2.5-1.2B-Thinking-ONNX`       | always                     | yes            |
+| `onnx-community/LFM2-1.2B-Tool-ONNX`       | none                       | yes            |
+| `LiquidAI/LFM2.5-350M-ONNX`                | none                       | yes            |
 
 Any other Hugging Face ONNX model works too, given how it writes tool calls and thinks: `transformersJsText("owner/model", { toolFormat: "gemma4" })`, with `"lfm2"`, `"lfm3"` or `"gemma4"`. Models download their latest version (the repo's main branch); pin one with `"owner/model@commit"`. Its `q4f16` weights load by default; `dtype: "q4"` loads 4-bit weights with fp32 activations instead. `contextLength` sets how many tokens a chat may hold: the model's whole context window by default (from its config), never more. A smaller one saves memory, since the model's rotary tables are cut to it when it loads, and changing it loads the model again. On an iPhone, set 8,192 for the LFM models: past it, ONNX Runtime's buffer cache moves their attention memory to buffers larger than iPhone Safari allows. Weights split into several files, and builds split into an embedding, a decoder and vision or audio encoders, load as they are.
 
