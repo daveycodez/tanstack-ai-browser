@@ -365,6 +365,9 @@ importers:
       '@tanstack/ai':
         specifier: 1.0.0
         version: 1.0.0(zod@4.6.7)
+      esbuild:
+        specifier: 0.28.2
+        version: 0.28.2
 
   packages/webgl:
     dependencies:

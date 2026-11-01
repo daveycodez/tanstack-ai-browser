@@ -18,6 +18,7 @@ import type {
   WorkerRequest,
   WorkerResponse
 } from "./protocol.js"
+import { chunkLargeMatMulNBits } from "./onnx-graph.js"
 
 /**
  * Diagnostics (memory and cache logs, error stacks) when the page started
@@ -90,10 +91,42 @@ async function importTransformers(device: Device) {
     )
   )
   try {
-    return (await import(/* @vite-ignore */ url)) as TransformersModule
+    const tf = (await import(/* @vite-ignore */ url)) as TransformersModule
+    // The same module instance Transformers.js imported.
+    if (device === "wasm") chunkModels(await import(/* @vite-ignore */ ortModule))
+    return tf
   } finally {
     URL.revokeObjectURL(url)
     URL.revokeObjectURL(ortModule)
+  }
+}
+
+/**
+ * The largest 4-bit matrix multiply, as float32 weights, that a model on the
+ * CPU runs in one piece. ONNX Runtime's WebAssembly build has no 4-bit
+ * kernel: every MatMulNBits call dequantizes its whole weight matrix into a
+ * float32 buffer. LFM3's output layer (2,048 x 128,000) needed 1 GB for it,
+ * on top of the 1.3 GB model, and WebAssembly memory never shrinks: past an
+ * iPhone tab's 2 GB limit. LFM3's layers are 63 MB at most.
+ */
+const CPU_MATMUL_BYTES = 64 * 1024 * 1024
+
+/** Has ONNX Runtime create sessions from models with large multiplies split. */
+function chunkModels(ort: {
+  InferenceSession: { create: (model: unknown, ...rest: Array<unknown>) => unknown }
+}) {
+  const session = ort.InferenceSession
+  const create = session.create.bind(session)
+  session.create = (model, ...rest) => {
+    if (model instanceof Uint8Array) {
+      const chunked = chunkLargeMatMulNBits(model, CPU_MATMUL_BYTES)
+      if (chunked) {
+        if (DEBUG)
+          ctx.postMessage({ type: "log", text: "[model] large matrix multiplies split for the CPU" })
+        return create(chunked, ...rest)
+      }
+    }
+    return create(model, ...rest)
   }
 }
 
@@ -1147,19 +1180,18 @@ async function loadRuntime(
         // past an iPhone's memory limit (on a Mac: 1,672 MB at 1,000 tokens
         // and climbing, against 1,137 MB and flat with bucket).
         executionProviders: [device],
-        // On the GPU, no constant folding: LFM exports read the tied
-        // embedding's 4-bit weights into the output layer through a Reshape,
-        // and folding it copied the whole table into ONNX Runtime's
-        // WebAssembly memory (which never shrinks) and uploaded a second
-        // copy to the GPU. LFM3: 408 MB of WebAssembly memory and 131 MB of
-        // GPU memory, past an iPhone tab's 2 GB limit; LFM2-1.2B-Tool:
-        // 819 MB. Without it: 17 MB, the same replies and speed, and a load
-        // from disk in 1.5 s instead of 21 on a Mac.
-        ...(device === "webgpu" && {
-          extra: {
-            "optimization.disable_specified_optimizers": "ConstantFolding"
-          }
-        })
+        // No constant folding: LFM exports read the tied embedding's 4-bit
+        // weights into the output layer through a Reshape, and folding it
+        // copied the whole table into ONNX Runtime's WebAssembly memory
+        // (which never shrinks) and, on the GPU, uploaded a second copy.
+        // LFM3: 408 MB of WebAssembly memory and 131 MB of GPU memory, past
+        // an iPhone tab's 2 GB limit; LFM2-1.2B-Tool: 819 MB. Without it:
+        // 17 MB, the same replies and speed, and a load from disk in 1.5 s
+        // instead of 21 on a Mac. On the CPU it would also fold the slices
+        // chunkModels adds into copies of the weights.
+        extra: {
+          "optimization.disable_specified_optimizers": "ConstantFolding"
+        }
       }
     })
     return {
