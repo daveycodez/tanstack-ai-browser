@@ -13,6 +13,7 @@ export const THINK_TAGS: ThinkingMarkers = {
 export const THINKING_MARKERS: Record<ToolFormat, ThinkingMarkers> = {
   lfm2: THINK_TAGS,
   lfm3: THINK_TAGS,
+  "qwen3.5": THINK_TAGS,
   // Gemma 4 thinks in a "thought" channel: `<|channel>thought\n…<channel|>`.
   gemma4: { open: "<|channel>thought", close: "<channel|>" }
 }

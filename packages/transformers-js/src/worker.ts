@@ -707,6 +707,13 @@ const weightsPattern = (dtype: WeightsDtype) =>
 type WeightsFile = { name: string; size: number }
 
 /**
+ * A text model's weights: not a multimodal build's vision or audio encoder,
+ * which aren't loaded (see modelClass).
+ */
+const isTextWeights = ({ name }: WeightsFile) =>
+  !/^(?:vision|audio)_encoder_/.test(name)
+
+/**
  * A model id is a Hugging Face repo, optionally pinned to a commit:
  * "owner/repo@revision". Pinning makes browsers fetch that version's files
  * instead of reusing cached ones from an older version.
@@ -757,7 +764,10 @@ async function listWeights(
   const saved = `${filePrefix(modelId)}weights.${dtype}.json`
   try {
     const file = await (await dir.getFileHandle(saved)).getFile()
-    return JSON.parse(await file.text()) as Array<WeightsFile>
+    // (Listings saved before encoders were left out still name them.)
+    return (JSON.parse(await file.text()) as Array<WeightsFile>).filter(
+      isTextWeights
+    )
   } catch {
     // Not listed yet.
   }
@@ -776,7 +786,7 @@ async function listWeights(
   const files = entries
     .filter((e) => e.type === "file")
     .map((e) => ({ name: e.path.replace(/^onnx\//, ""), size: e.size }))
-    .filter((f) => weightsPattern(dtype).test(f.name))
+    .filter((f) => weightsPattern(dtype).test(f.name) && isTextWeights(f))
     .sort((a, b) => a.name.localeCompare(b.name, "en", { numeric: true }))
   if (files.length === 0) {
     throw new Error(`${repo} has no ${dtype} ONNX weights.`)
@@ -1165,9 +1175,12 @@ function endTokens(tokenizer: Tokenizer, model: Model) {
 }
 
 /**
- * The class to load the model with: its own class from the config, which
- * for a multimodal build (`Gemma4ForConditionalGeneration`) loads its vision
- * and audio encoders too. A text-only export of a multimodal family
+ * The class to load the model with. This package runs text only, so a
+ * multimodal build (`Gemma4ForConditionalGeneration`,
+ * `Qwen3_5ForConditionalGeneration`) loads with its family's causal-LM
+ * class, which Transformers.js gives just the embedding and decoder, not
+ * the vision and audio encoders. Otherwise its own class from the config.
+ * A text-only export of a multimodal family
  * (`Gemma4ForCausalLM` with separate `embed_tokens` and
  * `decoder_model_merged` files, no encoders) is loaded the way
  * Transformers.js loads a multimodal model's text part: with the causal-LM
@@ -1182,6 +1195,12 @@ async function modelClass(
 ) {
   const config = await tf.AutoConfig.from_pretrained(repo, { revision })
   const arch = config.architectures?.[0]
+  const textModel = arch?.endsWith("ForConditionalGeneration")
+    ? (tf[arch.replace(/ForConditionalGeneration$/, "ForCausalLM")] as
+        | ModelClass
+        | undefined)
+    : undefined
+  if (textModel) return { Model: textModel, config }
   const split =
     weights.some((w) => w.name.startsWith("embed_tokens")) &&
     weights.some((w) => w.name.startsWith("decoder_model_merged"))

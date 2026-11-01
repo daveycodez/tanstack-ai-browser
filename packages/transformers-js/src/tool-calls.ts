@@ -2,7 +2,7 @@
  * Reading and writing tool calls in the local models' own formats:
  *
  * - LFM2.5: `<|tool_call_start|>[get_weather(city="Tokyo")]<|tool_call_end|>`
- * - LFM3: `<tool_call>\n<function=get_weather>\n<parameter=city>\nTokyo\n</parameter>\n</function>\n</tool_call>`
+ * - LFM3 and Qwen3.5: `<tool_call>\n<function=get_weather>\n<parameter=city>\nTokyo\n</parameter>\n</function>\n</tool_call>`
  * - Gemma 4: `<|tool_call>call:get_weather{city:<|"|>Tokyo<|"|>}<tool_call|>`
  * - Apple's model, when apfel doesn't recognize its call and passes it on as
  *   text: `{"tool_calls": [{"function": "get_weather", "arguments": {…}}]}`
@@ -11,7 +11,7 @@
 export type ParsedToolCall = { name: string; args: Record<string, unknown> }
 
 /** How a model writes tool calls. */
-export type ToolFormat = "lfm2" | "lfm3" | "gemma4"
+export type ToolFormat = "lfm2" | "lfm3" | "qwen3.5" | "gemma4"
 
 const MARKERS = ["<|tool_call_start|>", "<tool_call>", "<|tool_call>"]
 

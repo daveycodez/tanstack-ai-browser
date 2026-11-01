@@ -35,8 +35,9 @@ export type WllamaModelMeta = {
 }
 
 // Reasoning shapes, each level's value being the chat template's
-// `enable_thinking`. LFM3's template takes it (thinking by default);
-// LFM2.5 Thinking always thinks and takes no switch.
+// `enable_thinking`. LFM3's template takes it (thinking by default), and
+// Qwen3.5's (thinking off by default); LFM2.5 Thinking always thinks and
+// takes no switch.
 const THINKING_SWITCH = {
   levels: { off: "false", high: "true" },
   budget: false
@@ -71,6 +72,17 @@ const LFM2_5_THINKING_SAMPLING = {
   temperature: 0.05,
   top_k: 50,
   repeat_penalty: 1.05
+} as const satisfies Sampling
+
+/**
+ * Qwen3.5's generation config: temperature 0.6, top-k 20, top-p 0.95, no
+ * repetition penalty.
+ */
+const QWEN_3_5_SAMPLING = {
+  temperature: 0.6,
+  top_k: 20,
+  top_p: 0.95,
+  repeat_penalty: 1
 } as const satisfies Sampling
 
 // Liquid's models are Q4_K_M: in wllama's WebAssembly build it reads
@@ -142,12 +154,28 @@ const LFM2_5_350M = {
   sampling: LFM2_5_SAMPLING
 } as const satisfies WllamaModelMeta
 
+/**
+ * Qwen3.5 2B, in Unsloth's GGUF build (Qwen publishes none): linear-attention
+ * layers with a full-attention layer every fourth, so the attention cache
+ * stays small. Thinking is off unless turned on. Q4_K_M, as Liquid's: 1.28
+ * GB.
+ */
+const QWEN_3_5_2B = {
+  name: "unsloth/Qwen3.5-2B-GGUF",
+  file: "Qwen3.5-2B-Q4_K_M.gguf",
+  supports: TOOLS_AND_THINKING,
+  size: "2b",
+  reasoning: THINKING_SWITCH,
+  sampling: QWEN_3_5_SAMPLING
+} as const satisfies WllamaModelMeta
+
 export const WLLAMA_TEXT_MODELS = [
   LFM3_1_7B.name,
   LFM3_1_7B_WEB.name,
   LFM2_5_1_2B.name,
   LFM2_5_1_2B_THINKING.name,
-  LFM2_5_350M.name
+  LFM2_5_350M.name,
+  QWEN_3_5_2B.name
 ] as const
 
 /** A model this package lists. */
@@ -161,13 +189,15 @@ export const WLLAMA_MODEL_META: Readonly<
   [LFM3_1_7B_WEB.name]: LFM3_1_7B_WEB,
   [LFM2_5_1_2B.name]: LFM2_5_1_2B,
   [LFM2_5_1_2B_THINKING.name]: LFM2_5_1_2B_THINKING,
-  [LFM2_5_350M.name]: LFM2_5_350M
+  [LFM2_5_350M.name]: LFM2_5_350M,
+  [QWEN_3_5_2B.name]: QWEN_3_5_2B
 }
 
 const WLLAMA_REASONING = {
   [LFM3_1_7B.name]: LFM3_1_7B.reasoning,
   [LFM3_1_7B_WEB.name]: LFM3_1_7B_WEB.reasoning,
-  [LFM2_5_1_2B_THINKING.name]: LFM2_5_1_2B_THINKING.reasoning
+  [LFM2_5_1_2B_THINKING.name]: LFM2_5_1_2B_THINKING.reasoning,
+  [QWEN_3_5_2B.name]: QWEN_3_5_2B.reasoning
 } as const
 
 /** The reasoning levels of each listed model that reasons. */

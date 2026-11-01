@@ -194,6 +194,7 @@ function assistantToolTurn(
 function withThinking(turn: ChatTurn, thinking: string, format: ToolFormat) {
   // Liquid's guide: keep the reasoning of the current tool-use turn.
   if (format === "lfm3") return { ...turn, thinking }
+  if (format === "qwen3.5") return { ...turn, reasoning_content: thinking }
   if (format === "gemma4") return { ...turn, reasoning: thinking }
   return turn
 }

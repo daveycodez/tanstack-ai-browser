@@ -48,11 +48,13 @@ export type ModelId =
   | "lfm2.5-thinking-web"
   | "lfm2-tool"
   | "lfm2.5-350m"
+  | "qwen3.5-2b"
   | "lfm3-gguf"
   | "lfm3-web-gguf"
   | "lfm2.5-gguf"
   | "lfm2.5-thinking-gguf"
   | "lfm2.5-350m-gguf"
+  | "qwen3.5-2b-gguf"
   | "lfm3-webgl"
   | "lfm3-web-webgl"
   | "lfm3-onnx-webgl"
@@ -109,6 +111,14 @@ const IOS_CONTEXT = 8192
 /** `{ contextLength }` on iOS, nothing elsewhere (the model's own). */
 const iosContext = () => (isIos() ? { contextLength: IOS_CONTEXT } : {})
 
+/** A model's maker's logo in /public/icons (LobeHub icons, MIT). */
+const makerIcon = (model: string) =>
+  /gemma/i.test(model)
+    ? "/icons/gemma.svg"
+    : /qwen/i.test(model)
+      ? "/icons/qwen.svg"
+      : "/icons/liquid.svg"
+
 /** A model's name in the picker: its Hugging Face repo name, as written. */
 const repoName = (model: string) => model.slice(model.indexOf("/") + 1)
 
@@ -116,7 +126,7 @@ const repoName = (model: string) => model.slice(model.indexOf("/") + 1)
 const local = (id: ModelId, model: TransformersJsListedModel) => ({
   id,
   name: repoName(model),
-  icon: model.includes("gemma") ? "/icons/gemma.svg" : "/icons/liquid.svg",
+  icon: makerIcon(model),
   adapter: transformersJsText(model, {
     debug: import.meta.env.DEV,
     ...iosContext()
@@ -136,7 +146,7 @@ const local = (id: ModelId, model: TransformersJsListedModel) => ({
 const gguf = (id: ModelId, model: WllamaTextModel) => ({
   id,
   name: repoName(model),
-  icon: "/icons/liquid.svg",
+  icon: makerIcon(model),
   adapter: wllamaText(model, iosContext()),
   status: wllamaModelStatus(model) as ModelStatusStore | null,
   needsWebGpu: false,
@@ -151,7 +161,7 @@ const gguf = (id: ModelId, model: WllamaTextModel) => ({
 const webgl = (id: ModelId, model: WebGlTextModel) => ({
   id,
   name: repoName(model),
-  icon: "/icons/liquid.svg",
+  icon: makerIcon(model),
   adapter: webglText(model, iosContext()),
   status: webglModelStatus(model) as ModelStatusStore | null,
   needsWebGpu: false,
@@ -193,11 +203,13 @@ export const MODELS = [
   local("lfm2.5-thinking-web", "daveycodez/LFM2.5-1.2B-Thinking-Web-ONNX"),
   local("lfm2-tool", "onnx-community/LFM2-1.2B-Tool-ONNX"),
   local("lfm2.5-350m", "LiquidAI/LFM2.5-350M-ONNX"),
+  local("qwen3.5-2b", "onnx-community/Qwen3.5-2B-ONNX"),
   gguf("lfm3-gguf", "LiquidAI/LFM3-1.7B-GGUF"),
   gguf("lfm3-web-gguf", "daveycodez/LFM3-1.7B-Web-GGUF"),
   gguf("lfm2.5-gguf", "LiquidAI/LFM2.5-1.2B-Instruct-GGUF"),
   gguf("lfm2.5-thinking-gguf", "LiquidAI/LFM2.5-1.2B-Thinking-GGUF"),
   gguf("lfm2.5-350m-gguf", "LiquidAI/LFM2.5-350M-GGUF"),
+  gguf("qwen3.5-2b-gguf", "unsloth/Qwen3.5-2B-GGUF"),
   webgl("lfm3-onnx-webgl", "onnx-community/LFM3-1.7B-ONNX"),
   webgl("lfm3-web-webgl", "daveycodez/LFM3-1.7B-Web-ONNX"),
   webgl("lfm3-webgl", "LiquidAI/LFM3-1.7B-GGUF"),

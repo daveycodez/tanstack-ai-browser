@@ -37,8 +37,8 @@ export type TransformersJsModelMeta = {
 
 // Reasoning shapes, each level's value being the chat template's
 // `enable_thinking`. Read from the models' chat templates: LFM3's and
-// Gemma 4's take `enable_thinking`; LFM2.5 Thinking always thinks and takes
-// no switch.
+// Gemma 4's and Qwen3.5's take `enable_thinking`; LFM2.5 Thinking always
+// thinks and takes no switch.
 const THINKING_SWITCH = {
   levels: { off: "false", high: "true" },
   budget: false
@@ -85,6 +85,17 @@ const LFM2_5_THINKING_SAMPLING = {
 const GEMMA_4_SAMPLING = {
   temperature: 1,
   top_k: 64,
+  top_p: 0.95,
+  repetition_penalty: 1
+} as const satisfies Sampling
+
+/**
+ * Qwen3.5's generation config (the card's settings without a presence
+ * penalty, which isn't supported here).
+ */
+const QWEN_3_5_SAMPLING = {
+  temperature: 0.6,
+  top_k: 20,
   top_p: 0.95,
   repetition_penalty: 1
 } as const satisfies Sampling
@@ -178,6 +189,22 @@ const LFM2_5_350M = {
 } as const satisfies TransformersJsModelMeta
 
 /**
+ * Qwen3.5 2B: linear-attention layers with a full-attention layer every
+ * fourth, in onnx-community's build. Its text model only: the embedding and
+ * decoder, 1.38 GB in q4f16 (1.53 GB in q4, for the CPU). Thinking is off
+ * unless turned on.
+ */
+const QWEN_3_5_2B = {
+  name: "onnx-community/Qwen3.5-2B-ONNX",
+  supports: TOOLS_AND_THINKING,
+  size: "2b",
+  reasoning: THINKING_SWITCH,
+  toolFormat: "qwen3.5",
+  sampling: QWEN_3_5_SAMPLING,
+  cpu: true
+} as const satisfies TransformersJsModelMeta
+
+/**
  * LiquidAI's LFM2.5 re-exported with a `num_logits_to_keep` input, so
  * reading a prompt computes logits for its last token only (an 800-token
  * prompt otherwise needs 210 MB for them, which crashed iPhone Safari).
@@ -210,7 +237,8 @@ export const TRANSFORMERS_JS_TEXT_MODELS = [
   LFM2_5_1_2B.name,
   LFM2_5_1_2B_THINKING.name,
   LFM2_1_2B_TOOL.name,
-  LFM2_5_350M.name
+  LFM2_5_350M.name,
+  QWEN_3_5_2B.name
 ] as const
 
 /** A model this package lists. */
@@ -232,7 +260,8 @@ export const TRANSFORMERS_JS_MODEL_META: Readonly<
   [LFM2_5_1_2B.name]: LFM2_5_1_2B,
   [LFM2_5_1_2B_THINKING.name]: LFM2_5_1_2B_THINKING,
   [LFM2_1_2B_TOOL.name]: LFM2_1_2B_TOOL,
-  [LFM2_5_350M.name]: LFM2_5_350M
+  [LFM2_5_350M.name]: LFM2_5_350M,
+  [QWEN_3_5_2B.name]: QWEN_3_5_2B
 }
 
 const TRANSFORMERS_JS_REASONING = {
@@ -240,7 +269,8 @@ const TRANSFORMERS_JS_REASONING = {
   [LFM3_1_7B_WEB.name]: LFM3_1_7B_WEB.reasoning,
   [LFM3_1_7B.name]: LFM3_1_7B.reasoning,
   [LFM2_5_1_2B_THINKING_WEB.name]: LFM2_5_1_2B_THINKING_WEB.reasoning,
-  [LFM2_5_1_2B_THINKING.name]: LFM2_5_1_2B_THINKING.reasoning
+  [LFM2_5_1_2B_THINKING.name]: LFM2_5_1_2B_THINKING.reasoning,
+  [QWEN_3_5_2B.name]: QWEN_3_5_2B.reasoning
 } as const
 
 /** The reasoning levels of each listed model that reasons. */
