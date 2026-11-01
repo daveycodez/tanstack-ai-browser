@@ -12,6 +12,7 @@ import type {
   ChatCompletionResponse
 } from "../vendor/wllama/index.js"
 
+import { claimMemory, releaseMemory, touchMemory } from "./model-memory.js"
 import { modelMeta, modelUrl } from "./model-meta.js"
 import type { WllamaTextModel } from "./model-meta.js"
 import { createStore } from "./store.js"
@@ -235,6 +236,47 @@ let loaded: {
   promise: Promise<Wllama>
   abort: AbortController
 } | null = null
+
+/** This runtime's name in the shared memory registry. */
+const OWNER = "wllama"
+
+/** Models never unloaded to make room for another runtime's (see setKeepLoaded). */
+const keepLoaded = new Set<WllamaTextModel>()
+
+/**
+ * Keeps `model` loaded when another runtime (Transformers.js, WebGL) loads a
+ * model past the memory budget; by default the least recently used goes.
+ */
+export function setKeepLoaded(model: WllamaTextModel, keep: boolean) {
+  if (keep) keepLoaded.add(model)
+  else keepLoaded.delete(model)
+}
+
+/**
+ * Frees the loaded model (stopping its download, if it's downloading).
+ * Another runtime loading a model past the memory budget calls it too.
+ */
+export async function unloadModel() {
+  const current = loaded
+  releaseMemory(OWNER)
+  if (!current) return
+  loaded = null
+  modelStatus(current.model).set({ state: "idle" })
+  current.abort.abort()
+  await current.wllama.exit().catch(() => undefined)
+}
+
+/** A file's size from a one-byte range request, or undefined. */
+async function remoteSize(url: string, signal: AbortSignal) {
+  try {
+    const res = await fetch(url, { headers: { Range: "bytes=0-0" }, signal })
+    void res.body?.cancel().catch(() => undefined)
+    const total = /\/(\d+)$/.exec(res.headers.get("Content-Range") ?? "")?.[1]
+    return total ? Number(total) : undefined
+  } catch {
+    return undefined
+  }
+}
 
 /** Each model's contextLength, from its adapter (see setContextLength). */
 const contextLengths = new Map<WllamaTextModel, number>()
@@ -465,6 +507,17 @@ async function startLoad(
   }
   status.set({ state: "loading", progress: 0, cached })
   if (!cached) keepDownloads()
+  // Room for it first: other runtimes' models past the memory budget are
+  // unloaded. It takes about its file's size, plus the attention cache.
+  const fileBytes =
+    saved.find((m) => m.url === url)?.size ?? (await remoteSize(url, signal))
+  await claimMemory({
+    owner: OWNER,
+    model,
+    bytes: (fileBytes ?? 0) * 1.15,
+    keepLoaded: keepLoaded.has(model),
+    unload: unloadModel
+  })
   await wllama.loadModelFromUrl(url, {
     // The caller's, else 0: llama.cpp's "the model's training context"
     // (wllama's own default is 1,024 tokens, less than a system prompt with
@@ -536,6 +589,7 @@ export function loadModel(model: WllamaTextModel): Promise<Wllama> {
     (error: unknown) => {
       if (loaded !== current) return
       loaded = null
+      releaseMemory(OWNER)
       status.set({ state: "error", message: errorText(error) })
       void wllama.exit().catch(() => undefined)
     }
@@ -567,6 +621,7 @@ export async function streamChat(
   signal?: AbortSignal
 ): Promise<AsyncIterable<ChatCompletionChunk>> {
   const wllama = await loadModel(model)
+  touchMemory(OWNER)
   const chunks = await wllama.createChatCompletion({
     ...request,
     stream: true,
@@ -585,6 +640,7 @@ export async function completeChat(
   signal?: AbortSignal
 ): Promise<ChatCompletionResponse> {
   const wllama = await loadModel(model)
+  touchMemory(OWNER)
   try {
     const response = await wllama.createChatCompletion({
       ...request,

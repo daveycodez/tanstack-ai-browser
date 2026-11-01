@@ -1193,6 +1193,17 @@ async function modelClass(
   return { Model: own ?? tf.AutoModelForCausalLM, config }
 }
 
+/** Resolves when the page answers a "claim" (see claimMemory). */
+let claimed: (() => void) | null = null
+
+/** Asks the page to make room for the model, and waits until it has. */
+function claimMemory(modelId: string, bytes: number) {
+  return new Promise<void>((resolve) => {
+    claimed = resolve
+    ctx.postMessage({ type: "claim", modelId, bytes: Math.round(bytes) })
+  })
+}
+
 let current: {
   modelId: string
   dtype: WeightsDtype
@@ -1252,6 +1263,11 @@ async function loadRuntime(
     })
   })
   ctx.postMessage({ type: "progress", modelId, progress: 0, cached: true })
+  // Room for it first: the page unloads other runtimes' models past the
+  // memory budget. On the GPU it takes about its weights (plus the cache);
+  // on the CPU, ONNX Runtime's working buffers too.
+  const weightBytes = weights.reduce((sum, w) => sum + w.size, 0)
+  await claimMemory(modelId, weightBytes * (device === "wasm" ? 1.3 : 1.15))
   const tf = await importTransformers(device)
   tf.env.fetch = fetchWithoutReferrer
   pickWasmBuild(tf, device)
@@ -2465,7 +2481,10 @@ const errorMessage = (error: unknown) =>
   error instanceof Error ? error.message : String(error)
 
 ctx.onmessage = ({ data }) => {
-  if (data.type === "load") {
+  if (data.type === "claimed") {
+    claimed?.()
+    claimed = null
+  } else if (data.type === "load") {
     load(data.modelId, data.dtype, data.contextLength).catch(() => undefined)
   } else if (data.type === "generate") {
     generate(

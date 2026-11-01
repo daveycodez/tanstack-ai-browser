@@ -20,7 +20,14 @@ export type {
   TransformersJsModelReasoningByName,
   TransformersJsTextModel
 } from "./model-meta.js"
-export { hasWebGpu, loadModel, modelStatus, setDebug } from "./client.js"
+export {
+  hasWebGpu,
+  loadModel,
+  modelStatus,
+  setDebug,
+  unloadModel
+} from "./client.js"
+export { setMemoryBudget } from "./model-memory.js"
 export type { ModelStatus } from "./client.js"
 export type { Sampling } from "./protocol.js"
 export type { Store } from "./store.js"

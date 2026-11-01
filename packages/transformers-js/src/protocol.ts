@@ -93,6 +93,8 @@ export type WorkerRequest =
       thinkingOpen: string
     }
   | { type: "stop"; id: string }
+  /** The page made room for the model (see "claim"): the worker loads it. */
+  | { type: "claimed" }
 
 export type WorkerResponse =
   | {
@@ -106,6 +108,12 @@ export type WorkerResponse =
       totalBytes?: number
     }
   | { type: "ready"; modelId: string }
+  /**
+   * The model takes about `bytes` once loaded: the page makes room for it
+   * (unloading other runtimes' models past the memory budget, see
+   * model-memory.ts) and answers "claimed".
+   */
+  | { type: "claim"; modelId: string; bytes: number }
   | { type: "load-error"; modelId: string; message: string }
   | { type: "token"; id: string; text: string }
   | { type: "done"; id: string; stats: RunTimings }

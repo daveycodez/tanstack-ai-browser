@@ -35,6 +35,7 @@ import {
   loadedContext,
   loadModel,
   setContextLength,
+  setKeepLoaded,
   streamChat
 } from "./client.js"
 import type { ChatRequest } from "./client.js"
@@ -55,6 +56,12 @@ export type WllamaTextConfig = {
    * model again.
    */
   contextLength?: number
+  /**
+   * Keeps the model loaded when another runtime (Transformers.js, WebGL)
+   * loads one past the page's memory budget (see `setMemoryBudget`); by
+   * default the least recently used model is unloaded to make room.
+   */
+  keepLoaded?: boolean
   /**
    * Where the main build (`wasm/wllama.wasm`) is served, for bundlers that
    * don't emit it from `new URL(…, import.meta.url)`. Applies to every model.
@@ -272,6 +279,7 @@ export class WllamaTextAdapter<
   constructor(config: WllamaTextConfig, model: TModel) {
     super({}, model)
     setContextLength(model, config.contextLength)
+    setKeepLoaded(model, config.keepLoaded ?? false)
     configureRuntime({
       ...(config.wasmUrl && { wasmUrl: config.wasmUrl }),
       ...(config.relaxedSimdWasmUrl !== undefined && {

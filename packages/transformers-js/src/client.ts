@@ -3,6 +3,7 @@
  * runs the model off the main thread so the page stays smooth. One worker,
  * and one model in it at a time: loading another frees the previous one.
  */
+import { claimMemory, releaseMemory, touchMemory } from "./model-memory.js"
 import { modelMeta } from "./model-meta.js"
 import { createStore } from "./store.js"
 import type { Store } from "./store.js"
@@ -70,6 +71,21 @@ let loaded: {
 let worker: Worker | null = null
 let debug = false
 
+/** This runtime's name in the shared memory registry. */
+const OWNER = "transformers-js"
+
+/** Models never unloaded to make room for another runtime's (see setKeepLoaded). */
+const keepLoaded = new Set<string>()
+
+/**
+ * Keeps `model` loaded when another runtime (WebGL, wllama) loads a model
+ * past the memory budget; by default the least recently used goes.
+ */
+export function setKeepLoaded(model: string, keep: boolean) {
+  if (keep) keepLoaded.add(model)
+  else keepLoaded.delete(model)
+}
+
 /**
  * Turns on the worker's diagnostics (memory and cache logs, error stacks in
  * the console). Takes effect if called before the worker starts.
@@ -90,6 +106,15 @@ function handleMessage({ data }: MessageEvent<WorkerResponse>) {
         totalBytes: data.totalBytes
       })
     })
+  } else if (data.type === "claim") {
+    const { modelId, bytes } = data
+    void claimMemory({
+      owner: OWNER,
+      model: modelId,
+      bytes,
+      keepLoaded: keepLoaded.has(modelId),
+      unload: unloadModel
+    }).then(() => post({ type: "claimed" }))
   } else if (data.type === "ready") {
     modelStatus(data.modelId).set({ state: "ready" })
     if (loaded?.modelId === data.modelId) loaded.load.resolve()
@@ -98,6 +123,7 @@ function handleMessage({ data }: MessageEvent<WorkerResponse>) {
     if (loaded?.modelId === data.modelId) {
       loaded.load.reject(new Error(data.message))
       loaded = null
+      releaseMemory(OWNER)
     }
   } else if (data.type === "token") {
     generations.get(data.id)?.onToken(data.text)
@@ -212,6 +238,26 @@ export function loadModel(
   return promise
 }
 
+/**
+ * Frees the loaded model, all its GPU and WebAssembly memory with it, by
+ * ending the worker (the next load starts a new one). Another runtime
+ * loading a model past the memory budget calls it too.
+ */
+export function unloadModel() {
+  worker?.terminate()
+  worker = null
+  releaseMemory(OWNER)
+  if (loaded) {
+    modelStatus(loaded.modelId).set({ state: "idle" })
+    loaded.load.reject(new Error("The model was unloaded."))
+    loaded = null
+  }
+  for (const [id, generation] of generations) {
+    generations.delete(id)
+    generation.onEnd("The model was unloaded.")
+  }
+}
+
 /** What a finished generation left: its error, if it failed, and its counts. */
 export type GenerationEnd = { failure?: string; stats?: RunTimings }
 
@@ -249,6 +295,7 @@ export async function* generate(request: {
   })
   const onAbort = () => post({ type: "stop", id })
   signal?.addEventListener("abort", onAbort)
+  touchMemory(OWNER)
   post({
     type: "generate",
     id,

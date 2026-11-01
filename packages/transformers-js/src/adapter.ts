@@ -21,7 +21,7 @@ import type {
   StructuredOutputResult
 } from "@tanstack/ai/adapters"
 
-import { generate, loadModel, setDebug } from "./client.js"
+import { generate, loadModel, setDebug, setKeepLoaded } from "./client.js"
 import { modelMeta, modelReasoning } from "./model-meta.js"
 import type {
   TransformersJsListedModel,
@@ -67,6 +67,12 @@ export type TransformersJsTextConfig = {
   dtype?: WeightsDtype
   /** Memory and cache logs from the worker, in the console. */
   debug?: boolean
+  /**
+   * Keeps the model loaded when another runtime (WebGL, wllama) loads one
+   * past the page's memory budget (see `setMemoryBudget`); by default the
+   * least recently used model is unloaded to make room.
+   */
+  keepLoaded?: boolean
 }
 
 /** The config a model takes: any other model than a listed one names its tool format. */
@@ -313,6 +319,7 @@ export class TransformersJsTextAdapter<
     this.contextLength = config.contextLength
     this.dtype = config.dtype ?? modelMeta(model)?.dtype ?? "q4f16"
     if (config.debug) setDebug(true)
+    setKeepLoaded(model, config.keepLoaded ?? false)
   }
 
   /** Sampling for a call: `modelOptions` over the model card's or the defaults. */
