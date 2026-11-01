@@ -10,6 +10,7 @@ import {
 import type { TransformersJsListedModel } from "@tanstack-ai-browser/transformers-js"
 import {
   modelStatus as wllamaModelStatus,
+  runsOnWebGpu as wllamaRunsOnWebGpu,
   WLLAMA_MODEL_REASONING,
   wllamaText
 } from "@tanstack-ai-browser/wllama"
@@ -296,10 +297,14 @@ export function effortButtonLabel(id: ModelId, level: ReasoningLevel) {
 }
 
 /**
- * The model to start with, and to fall back on: LFM3 Web runs anywhere,
- * iPhone Safari included, thinking at high effort (see ./model.ts).
+ * The model to start with, and to fall back on: LFM3 1.7B ONNX on the WebGL
+ * engine, which runs with or without WebGPU (iPhone Safari included) and
+ * reads prompts fastest there, thinking at high effort (see ./model.ts).
  */
-export const DEFAULT_MODEL: ModelId = "lfm3-web"
+export const DEFAULT_MODEL: ModelId = "lfm3-onnx-webgl"
+
+/** The model to start with where the WebGL engine can't run but WebGPU can. */
+export const DEFAULT_GPU_MODEL: ModelId = "lfm3-web"
 
 /**
  * The model to start with where there's no WebGPU (Firefox on Android, for
@@ -342,6 +347,32 @@ export const useHasWebGpu = () =>
   useSyncExternalStore(webGpu.subscribe, webGpu.get, () => true)
 
 /**
+ * Whether wllama runs its models on WebGPU here (else on the CPU in
+ * WebAssembly). Null until checked, and on the server.
+ */
+const wllamaGpu = createStore<boolean | null>(null)
+if (typeof window !== "undefined") {
+  void wllamaRunsOnWebGpu().then(wllamaGpu.set)
+}
+
+const useWllamaOnWebGpu = () =>
+  useSyncExternalStore(wllamaGpu.subscribe, wllamaGpu.get, () => null)
+
+/**
+ * Which backend a provider's models run on here, for the picker: WebGPU or
+ * Wasm (the CPU, in WebAssembly) for Transformers.js and wllama; nothing for
+ * the others (WebGL says so itself; apfel and the Prompt API aren't ours).
+ */
+export function useBackends(): Partial<Record<string, string>> {
+  const webGpu = useHasWebGpu()
+  const wllama = useWllamaOnWebGpu()
+  return {
+    "transformers-js": webGpu ? "WebGPU" : "Wasm",
+    ...(wllama !== null && { wllama: wllama ? "WebGPU" : "Wasm" })
+  }
+}
+
+/**
  * Whether the WebGL engine runs here: WebGL 2 with float render targets
  * and big enough textures, on an OffscreenCanvas. No until checked, in the
  * browser; hydration reads the server's answer (no), so the page matches.
@@ -381,15 +412,21 @@ const canRun = (id: ModelId, isApple: boolean, hasGpu: boolean) =>
   (hasGpu || !modelInfo(id).needsWebGpu)
 
 /**
- * The pick, if this device can run it, else the default: LFM3 Web, or
- * LFM2 1.2B Tool where there's no WebGPU.
+ * The pick, if this device can run it, else the default: LFM3 ONNX on
+ * WebGL, else LFM3 Web on WebGPU, else LFM2 1.2B Tool on the CPU.
  */
 export const offered = (
   id: ModelId,
   isApple: boolean,
   hasGpu: boolean
 ): ModelId =>
-  canRun(id, isApple, hasGpu) ? id : hasGpu ? DEFAULT_MODEL : DEFAULT_CPU_MODEL
+  canRun(id, isApple, hasGpu)
+    ? id
+    : canRun(DEFAULT_MODEL, isApple, hasGpu)
+      ? DEFAULT_MODEL
+      : hasGpu
+        ? DEFAULT_GPU_MODEL
+        : DEFAULT_CPU_MODEL
 
 /** Models to offer in the picker on this device. */
 export function useModels() {

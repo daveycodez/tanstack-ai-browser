@@ -20,6 +20,7 @@ import {
   effortFor,
   effortOptions,
   PROVIDERS,
+  useBackends,
   useModels
 } from "#/chat/models"
 import type { ModelId } from "#/chat/models"
@@ -142,6 +143,7 @@ function ChatModelSelector() {
   const model = useSelectedModel()
   const effort = useEffort()
   const models = useModels()
+  const backends = useBackends()
   const afm = afmStatus.use()
   // The levels the picked model has, and the one it runs at.
   const efforts = effortOptions(model)
@@ -150,6 +152,7 @@ function ChatModelSelector() {
   // model of is left out.
   const sections = PROVIDERS.map((provider) => ({
     ...provider,
+    detail: backends[provider.id],
     models: models.filter((m) => m.adapter.name === provider.id)
   })).filter((section) => section.models.length > 0)
   // Counts picks, so a slow Apple check can't undo a newer choice.

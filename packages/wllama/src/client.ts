@@ -403,6 +403,24 @@ const SPECULATIVE = {
   spec_ngram_size_m: 7
 }
 
+/**
+ * Whether models run on WebGPU here, as wllama sets them up: where the
+ * browser has a WebGPU adapter and the build can drive it (JSPI in the main
+ * build; the compat build Safari runs), unless `gpu: false`. Elsewhere
+ * (Firefox, which has no JSPI, and browsers without WebGPU) llama.cpp runs
+ * on the CPU in WebAssembly.
+ */
+export async function runsOnWebGpu(): Promise<boolean> {
+  if (options.gpu === false || typeof navigator === "undefined") return false
+  if (!("gpu" in navigator)) return false
+  if (!("Suspending" in WebAssembly) && !needsCompat()) return false
+  try {
+    return (await navigator.gpu.requestAdapter()) !== null
+  } catch {
+    return false
+  }
+}
+
 /** Whether to decode speculatively (see `RuntimeOptions.speculative`). */
 async function useSpeculative() {
   if (options.speculative !== undefined) return options.speculative

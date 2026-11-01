@@ -18,6 +18,8 @@ export type EffortOption = { id: string; name: string }
 export type ModelSection = {
   id: string
   name: string
+  /** Shown muted after the name, such as the backend: "WebGPU" or "Wasm". */
+  detail?: string
   models: Array<ModelOption>
 }
 
@@ -113,7 +115,16 @@ export function ModelSelector({
             >
               {sections.map((section) => (
                 <ListBox.Section key={section.id}>
-                  <Header>{section.name}</Header>
+                  <Header>
+                    {section.name}
+                    {section.detail && (
+                      // Lighter than the name, and faded as the actions
+                      // under a message are until hovered.
+                      <span className="ms-1.5 font-light text-muted opacity-50">
+                        {section.detail}
+                      </span>
+                    )}
+                  </Header>
                   {section.models.map((model) => (
                     <ListBox.Item
                       key={model.id}

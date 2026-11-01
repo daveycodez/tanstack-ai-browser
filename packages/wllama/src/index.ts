@@ -19,6 +19,6 @@ export type {
   WllamaModelReasoningByName,
   WllamaTextModel
 } from "./model-meta.js"
-export { loadModel, modelStatus } from "./client.js"
+export { loadModel, modelStatus, runsOnWebGpu } from "./client.js"
 export type { ModelStatus } from "./client.js"
 export type { Store } from "./store.js"
