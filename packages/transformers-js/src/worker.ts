@@ -513,16 +513,111 @@ function dropSpareBuffers() {
 const spareBytes = () =>
   (gpu.device && sparePools.get(gpu.device)?.bytes) || 0
 
+/*
+ * Weights go to the GPU in pieces. ONNX Runtime uploads each weight from
+ * the weights file through a mapped staging buffer as large as the weight,
+ * copied into place and destroyed: up to 254 MB more GPU memory for a
+ * moment (Qwen3.5's output layer), and depending on the upload order a
+ * load peaked at up to 1,337 MB of GPU buffers against the model's 1,090,
+ * with the mapped copies in the page's memory too. While a model loads,
+ * that staging buffer is a stand-in instead: its mapped range is the
+ * buffer the weight was just read into from disk (loadScratch), and the
+ * copy out of it becomes writeBuffer calls of UPLOAD_CHUNK bytes, which the
+ * GPU process stages a piece at a time. Only while a model loads: a
+ * writeBuffer runs ahead of command buffers recorded before it, which a
+ * weight's fresh buffer doesn't mind, but done during a reply it garbled
+ * the text.
+ */
+const UPLOAD_CHUNK = 8 * 1024 * 1024
+/** GPUBufferUsage.MAP_WRITE | COPY_SRC: ONNX Runtime's upload staging. */
+const UPLOAD_USAGE = 0x2 | 0x4
+
+/**
+ * The buffer weights are read into while a model loads, grown to its
+ * largest tensor and shared by every weights file. ONNX Runtime copies each
+ * slice out (to the GPU, or its own memory) as soon as it gets it. New
+ * buffers per slice left the whole file's worth of them for the garbage
+ * collector, which iPhone Safari seemed to keep around, compressed,
+ * counting against the tab's memory limit.
+ */
+let loadScratch = new ArrayBuffer(0)
+
+/** The weight just read into loadScratch, for the staging buffer that follows. */
+let weightRead: { bytes: number } | null = null
+
+/** Staging stand-ins (see UPLOAD_CHUNK): their device and weight's size. */
+const weightStagings = new WeakMap<
+  object,
+  { device: GPUDevice; bytes: number }
+>()
+
+/**
+ * A stand-in for the staging buffer ONNX Runtime asks for right after
+ * reading a weight, while a model loads; null for any other request.
+ */
+function weightStaging(owner: GPUDevice, descriptor: GPUBufferDescriptor) {
+  const read = weightRead
+  weightRead = null
+  if (
+    !read ||
+    modelEdits === null ||
+    !descriptor.mappedAtCreation ||
+    descriptor.usage !== UPLOAD_USAGE ||
+    descriptor.size < read.bytes ||
+    descriptor.size > loadScratch.byteLength
+  ) {
+    return null
+  }
+  const { size, usage } = descriptor
+  const staging = {
+    size,
+    usage,
+    label: descriptor.label ?? "",
+    mapState: "mapped",
+    getMappedRange: (offset = 0) => {
+      if (offset !== 0) throw new Error("Unexpected weight upload.")
+      return loadScratch
+    },
+    unmap: () => undefined,
+    destroy: () => undefined
+  }
+  weightStagings.set(staging, { device: owner, bytes: read.bytes })
+  return staging as unknown as GPUBuffer
+}
+
+/** Writes a staged weight to its buffer, UPLOAD_CHUNK bytes at a time. */
+function uploadWeight(
+  staged: { device: GPUDevice; bytes: number },
+  destination: GPUBuffer,
+  destinationOffset: number,
+  size: number
+) {
+  // The staging buffer is a multiple of 16 bytes; what's past the weight
+  // was zeros in ONNX Runtime's.
+  new Uint8Array(loadScratch, staged.bytes, size - staged.bytes).fill(0)
+  for (let at = 0; at < size; at += UPLOAD_CHUNK) {
+    staged.device.queue.writeBuffer(
+      destination,
+      destinationOffset + at,
+      loadScratch,
+      at,
+      Math.min(UPLOAD_CHUNK, size - at)
+    )
+  }
+}
+
 function trackGpu() {
   const scope = globalThis as unknown as {
     GPUDevice?: { prototype: GPUDevice }
     GPUBuffer?: { prototype: GPUBuffer }
     GPUAdapter?: { prototype: GPUAdapter }
+    GPUCommandEncoder?: { prototype: GPUCommandEncoder }
   }
   const device = scope.GPUDevice?.prototype
   const buffer = scope.GPUBuffer?.prototype
   const adapter = scope.GPUAdapter?.prototype
-  if (!device || !buffer || !adapter) return
+  const encoder = scope.GPUCommandEncoder?.prototype
+  if (!device || !buffer || !adapter || !encoder) return
   const sizes = new WeakMap<GPUBuffer, number>()
   /** Pooled buffers: their device and pool key. */
   const owners = new WeakMap<GPUBuffer, { device: GPUDevice; key: string }>()
@@ -548,6 +643,8 @@ function trackGpu() {
   }
   const createBuffer = device.createBuffer
   device.createBuffer = function (requested) {
+    const staging = weightStaging(this, requested)
+    if (staging) return staging
     let descriptor = requested
     let key: string | null = null
     if (pooled(descriptor)) {
@@ -576,6 +673,30 @@ function trackGpu() {
     gpu.linePeakBytes = Math.max(gpu.linePeakBytes, gpu.liveBytes)
     return created
   }
+  const copyBufferToBuffer = encoder.copyBufferToBuffer as (
+    ...args: Array<unknown>
+  ) => void
+  encoder.copyBufferToBuffer = function (
+    this: GPUCommandEncoder,
+    ...args: Array<unknown>
+  ) {
+    const staged = weightStagings.get(args[0] as object)
+    if (!staged) return copyBufferToBuffer.apply(this, args)
+    // (source, destination, size?) or (source, sourceOffset, destination,
+    // destinationOffset, size?); ONNX Runtime copies a whole staging buffer.
+    const [destination, destinationOffset, size, sourceOffset] =
+      typeof args[1] === "number"
+        ? [args[2], args[3], args[4], args[1]]
+        : [args[1], 0, args[2], 0]
+    const source = args[0] as GPUBuffer
+    if (sourceOffset !== 0) throw new Error("Unexpected weight upload.")
+    uploadWeight(
+      staged,
+      destination as GPUBuffer,
+      destinationOffset as number,
+      (size as number | undefined) ?? source.size
+    )
+  } as GPUCommandEncoder["copyBufferToBuffer"]
   buffer.destroy = function () {
     // Already a spare: ONNX Runtime destroyed it twice.
     if (spares.has(this)) return
@@ -678,7 +799,13 @@ function countGpuWork() {
   count(buffer, "mapAsync", () => gpu.churn.maps++)
   count(queue, "writeBuffer", (args) => {
     const data = args[2] as ArrayBufferView | ArrayBuffer | undefined
-    gpu.churn.uploadBytes += data?.byteLength ?? 0
+    // A size is in elements of a typed array, else bytes.
+    const size = args[4] as number | undefined
+    const unit =
+      (data as { BYTES_PER_ELEMENT?: number } | undefined)
+        ?.BYTES_PER_ELEMENT ?? 1
+    gpu.churn.uploadBytes +=
+      size === undefined ? (data?.byteLength ?? 0) : size * unit
   })
 }
 
@@ -1144,12 +1271,6 @@ async function openWeights(modelId: string, name: string) {
     await dir.getFileHandle(weightsFile(modelId, name).file)
   )
   const size = handle.getSize()
-  // Every slice is read into the same buffer, grown to the largest tensor:
-  // ONNX Runtime copies a slice to the GPU (or its own memory) as soon as it
-  // gets it. New buffers per slice left the whole file's worth of them for
-  // the garbage collector, which iPhone Safari seemed to keep around,
-  // compressed, counting against the tab's memory limit.
-  let scratch = new ArrayBuffer(0)
   const view = new Uint8Array(0)
   Object.defineProperties(view, {
     byteLength: { get: () => size },
@@ -1157,9 +1278,13 @@ async function openWeights(modelId: string, name: string) {
     subarray: {
       value: (begin = 0, end = size) => {
         const length = end - begin
-        if (scratch.byteLength < length) scratch = new ArrayBuffer(length)
-        const slice = new Uint8Array(scratch, 0, length)
+        // Room for the staging buffer's rounding to 16 bytes too.
+        if (loadScratch.byteLength < length) {
+          loadScratch = new ArrayBuffer(Math.ceil(length / 16) * 16)
+        }
+        const slice = new Uint8Array(loadScratch, 0, length)
         handle.read(slice, { at: begin })
+        weightRead = { bytes: length }
         return slice
       }
     }
@@ -1168,7 +1293,7 @@ async function openWeights(modelId: string, name: string) {
     data: view,
     close: () => {
       handle.close()
-      scratch = new ArrayBuffer(0)
+      loadScratch = new ArrayBuffer(0)
     }
   }
 }
