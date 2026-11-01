@@ -15,10 +15,10 @@ index ca85f66..fea6640 100644
  
      pimpl->threadpools.init(lctx, params);
 diff --git a/common/common.h b/common/common.h
-index 0ce36d1..524ac39 100644
+index 67a01d2..f5ab48e 100644
 --- a/common/common.h
 +++ b/common/common.h
-@@ -484,6 +484,7 @@ struct common_params {
+@@ -487,6 +487,7 @@ struct common_params {
      int32_t n_sequences           =     1; // number of sequences to decode
      int32_t n_outputs_max         =     0; // max outputs in a batch (0 = n_batch)
      int32_t n_outputs_max_per_seq =     1; // max outputs per sequence
@@ -27,7 +27,7 @@ index 0ce36d1..524ac39 100644
      int32_t grp_attn_w            =   512; // group-attention width
      int32_t n_print               =    -1; // print token count every n tokens (-1 = disabled)
 diff --git a/common/sampling.cpp b/common/sampling.cpp
-index 564fa9c..358be8a 100644
+index 564fa9c..c4ebadd 100644
 --- a/common/sampling.cpp
 +++ b/common/sampling.cpp
 @@ -125,6 +125,17 @@ struct common_sampler {
@@ -48,7 +48,7 @@ index 564fa9c..358be8a 100644
      void reset() {
          prev.clear();
  
-@@ -165,6 +176,47 @@ struct common_sampler {
+@@ -165,6 +176,59 @@ struct common_sampler {
          cur_p = { cur.data(), cur.size(), -1, false };
      }
  
@@ -63,6 +63,15 @@ index 564fa9c..358be8a 100644
 +        if (m <= topk_k) {
 +            return false;
 +        }
++        // the smallest value read (the order depends on the backend); a NaN (which no order holds) and
++        // the full logits are read
++        float v_min = INFINITY;
++        for (int32_t i = 0; i < m; i++) {
++            if (std::isnan(vals[i])) {
++                return false;
++            }
++            v_min = std::min(v_min, vals[i]);
++        }
 +        topk_tmp.resize(m);
 +        for (int32_t i = 0; i < m; i++) {
 +            topk_tmp[i] = llama_token_data{ (llama_token) ids[i], vals[i], 0.0f };
@@ -72,11 +81,14 @@ index 564fa9c..358be8a 100644
 +            llama_sampler_apply(llama_sampler_chain_get(chain, i), &tmp);
 +        }
 +        GGML_ASSERT(tmp.size == (size_t) m && tmp.data == topk_tmp.data());
++        for (int32_t i = 0; i < m; i++) {
++            if (std::isnan(topk_tmp[i].logit)) {
++                return false;
++            }
++        }
 +        std::sort(topk_tmp.begin(), topk_tmp.end(),
 +                  [](const llama_token_data & a, const llama_token_data & b) { return a.logit > b.logit; });
-+        // the values read are the largest first: the last is the smallest
-+        const float v_min = vals[m - 1];
-+        const float w_k   = topk_tmp[topk_k - 1].logit;
++        const float w_k = topk_tmp[topk_k - 1].logit;
 +        if (!(w_k > topk_tmp[topk_k].logit && w_k > v_min)) {
 +            return false;
 +        }
@@ -96,36 +108,55 @@ index 564fa9c..358be8a 100644
      common_time_meas tm() {
          return common_time_meas(t_total_us, params.no_perf);
      }
-@@ -188,6 +240,8 @@ std::string common_params_sampling::print() const {
+@@ -188,6 +252,8 @@ std::string common_params_sampling::print() const {
      return std::string(result);
  }
  
-+static void common_sampler_topk_init(common_sampler * gsmpl);
++static void common_sampler_topk_init(common_sampler * gsmpl, const llama_vocab * vocab);
 +
  struct common_sampler * common_sampler_init(
          const struct llama_model * model,
          struct common_params_sampling & params) {
-@@ -443,9 +497,43 @@ struct common_sampler * common_sampler_init(
+@@ -443,9 +509,62 @@ struct common_sampler * common_sampler_init(
          /* .rng     = */ std::mt19937(llama_sampler_get_seed(chain) ^ 0x9e3779b9u),
      };
  
-+    common_sampler_topk_init(result);
++    common_sampler_topk_init(result, vocab);
 +
      return result;
  }
  
 +// whether the context's top-k logits can stand in for all of them with this chain (see common_sampler::topk_k)
-+static void common_sampler_topk_init(common_sampler * gsmpl) {
++static void common_sampler_topk_init(common_sampler * gsmpl, const llama_vocab * vocab) {
 +    const auto & p = gsmpl->params;
 +    gsmpl->topk_k   = 0;
 +    gsmpl->topk_idx = -1;
-+    // (a grammar's rejected samples are redrawn from all the logits, read back from the device then)
-+    if (p.mirostat != 0 || gsmpl->grmr != nullptr || gsmpl->rbudget != nullptr || p.n_probs > 0 || !(p.penalty_repeat >= 1.0f) ||
-+        !(p.penalty_freq >= 0.0f) || !(p.penalty_present >= 0.0f)) {
++    // (a grammar checks the token the chain samples, and a rejected one is redrawn from all the logits,
++    // read back from the device then; a grammar applied first, and the reasoning budget while it forces
++    // tokens, take all the logits: see common_sampler_sample)
++    if (p.mirostat != 0 || p.n_probs > 0 || !(p.penalty_repeat >= 1.0f) || !(p.penalty_freq >= 0.0f) ||
++        !(p.penalty_present >= 0.0f)) {
 +        return;
 +    }
 +    for (const auto & lb : p.logit_bias) {
 +        if (!(lb.bias <= 0.0f)) {
++            return;
++        }
++    }
++    // the logit-bias sampler adds every bias of a token to the full logits but only the first to a few
++    // candidates: a token biased twice (by the user, or also as a suppressed token) needs them all
++    {
++        std::vector<llama_token> biased;
++        for (const auto & lb : p.logit_bias) {
++            biased.push_back(lb.token);
++        }
++        int32_t             n_suppress = 0;
++        const llama_token * suppress   = llama_vocab_get_suppress_tokens(vocab, &n_suppress);
++        for (int32_t i = 0; i < n_suppress; ++i) {
++            biased.push_back(suppress[i]);
++        }
++        std::sort(biased.begin(), biased.end());
++        if (std::adjacent_find(biased.begin(), biased.end()) != biased.end()) {
 +            return;
 +        }
 +    }
@@ -149,7 +180,7 @@ index 564fa9c..358be8a 100644
  void common_sampler_free(struct common_sampler * gsmpl) {
      if (!gsmpl) {
          return;
-@@ -517,14 +605,17 @@ void common_sampler_reset(struct common_sampler * gsmpl) {
+@@ -517,14 +636,17 @@ void common_sampler_reset(struct common_sampler * gsmpl) {
  
  struct common_sampler * common_sampler_clone(common_sampler * gsmpl) {
      return new common_sampler {
@@ -175,7 +206,7 @@ index 564fa9c..358be8a 100644
      };
  }
  
-@@ -546,6 +637,8 @@ void common_sampler_copy(const common_sampler * src, common_sampler * dst) {
+@@ -546,6 +668,8 @@ void common_sampler_copy(const common_sampler * src, common_sampler * dst) {
      dst->cur_p      = src->cur_p;
      dst->cur_p.data = src->cur_p.data ? dst->cur.data() : nullptr; // re-point to dst's buffer
      dst->rng        = src->rng;
@@ -184,7 +215,7 @@ index 564fa9c..358be8a 100644
      dst->t_total_us = src->t_total_us;
  }
  
-@@ -595,6 +688,10 @@ void common_perf_print(const struct llama_context * ctx, const struct common_sam
+@@ -595,6 +719,10 @@ void common_perf_print(const struct llama_context * ctx, const struct common_sam
      }
  }
  
@@ -195,13 +226,16 @@ index 564fa9c..358be8a 100644
  struct llama_sampler * common_sampler_get(const struct common_sampler * gsmpl) {
      if (!gsmpl) {
          return nullptr;
-@@ -616,7 +713,10 @@ llama_token common_sampler_sample(struct common_sampler * gsmpl, struct llama_co
+@@ -616,7 +744,13 @@ llama_token common_sampler_sample(struct common_sampler * gsmpl, struct llama_co
      auto & chain = gsmpl->chain;
      auto & cur_p = gsmpl->cur_p; // initialized by set_logits
  
 -    gsmpl->set_logits(ctx, idx);
-+    // the context's top-k logits, when they stand in for all of them (a grammar applied first needs them all)
-+    if ((grammar_first && grammar_should_apply(gsmpl)) || !gsmpl->set_logits_topk(ctx, idx)) {
++    // the context's top-k logits, when they stand in for all of them (a grammar applied first, and the
++    // reasoning budget forcing a token that may not be among them, need them all)
++    const bool need_all = (grammar_first && grammar_should_apply(gsmpl)) ||
++                          (rbudget && common_reasoning_budget_get_state(rbudget) == REASONING_BUDGET_FORCING);
++    if (need_all || !gsmpl->set_logits_topk(ctx, idx)) {
 +        gsmpl->set_logits(ctx, idx);
 +    }
  
@@ -223,20 +257,21 @@ index f19bd27..2ecbb08 100644
  //
  // - set logits
 diff --git a/include/llama.h b/include/llama.h
-index ae54e66..97b46ad 100644
+index ae54e66..4f6ee43 100644
 --- a/include/llama.h
 +++ b/include/llama.h
-@@ -1146,6 +1146,20 @@ extern "C" {
+@@ -1146,6 +1146,21 @@ extern "C" {
      // returns NULL for invalid ids.
      LLAMA_API float * llama_get_logits_ith(struct llama_context * ctx, int32_t i);
  
-+    // Read back each output's k largest logits (values largest first, ties by
-+    // lower index, then their token ids as floats) instead of all of them, for
-+    // samplers that keep only the top k (0 turns it off), from the next decode
-+    // on. The full logits of a row are still read back, from the device, when
-+    // llama_get_logits(_ith) asks for them, until the next decode. Used where
-+    // reading every logit and sorting them on the CPU costs more than finding
-+    // the top k on the device.
++    // Read back each output's k largest logits (k values, in an order that
++    // depends on the backend, then their token ids as floats in the same
++    // order) instead of all of them, for samplers that keep only the top k (0
++    // turns it off), from the next decode on, where a GPU computes the logits
++    // (ignored on the CPU). The full logits of a row are still read back, from
++    // the device, when llama_get_logits(_ith) asks for them, until the next
++    // decode or encode. Used where reading every logit and sorting them on the
++    // CPU costs more than finding the top k on the device.
 +    LLAMA_API void llama_set_logits_topk(struct llama_context * ctx, int32_t k);
 +
 +    // The top-k logits of output i (see llama_set_logits_topk): returns k and
@@ -248,7 +283,7 @@ index ae54e66..97b46ad 100644
      // when pooling_type == LLAMA_POOLING_TYPE_NONE or when using a generative model,
      // the embeddings for which llama_batch.logits[i] != 0 are stored contiguously
 diff --git a/src/llama-context.cpp b/src/llama-context.cpp
-index 455f519..98103cf 100644
+index 455f519..8478ce4 100644
 --- a/src/llama-context.cpp
 +++ b/src/llama-context.cpp
 @@ -346,6 +346,7 @@ llama_context::llama_context(
@@ -259,13 +294,32 @@ index 455f519..98103cf 100644
  
      // Initialize backend samplers here so they are part of the sampling graph
      // before the reserve passes run later in this function. This avoids a later
-@@ -1030,9 +1031,51 @@ enum llama_pooling_type llama_context::pooling_type() const {
+@@ -1030,9 +1031,76 @@ enum llama_pooling_type llama_context::pooling_type() const {
  float * llama_context::get_logits() {
      output_reorder();
  
 +    if (logits_topk_k > 0) {
-+        for (int64_t j = 0; j < (int64_t) logits_topk_fetched.size(); j++) {
-+            logits_topk_fetch(j);
++        // the rows not read yet, in one read of the graph's output
++        const int64_t n_rows = (int64_t) logits_topk_fetched.size();
++        int64_t n_missing = 0;
++        for (int64_t j = 0; j < n_rows; j++) {
++            n_missing += logits_topk_fetched[j] ? 0 : 1;
++        }
++        if (n_missing > 1) {
++            const size_t       n_vocab = model.vocab.n_tokens();
++            std::vector<float> rows((size_t) n_rows * n_vocab);
++            ggml_backend_tensor_get(logits_topk_src, rows.data(), 0, rows.size() * sizeof(float));
++            for (int64_t j = 0; j < n_rows; j++) {
++                if (!logits_topk_fetched[j]) {
++                    memcpy(logits.data + j*n_vocab, rows.data() + (size_t) logits_topk_dev_row[j]*n_vocab,
++                           n_vocab*sizeof(float));
++                    logits_topk_fetched[j] = 1;
++                }
++            }
++        } else {
++            for (int64_t j = 0; j < n_rows; j++) {
++                logits_topk_fetch(j);
++            }
 +        }
 +    }
 +
@@ -283,6 +337,12 @@ index 455f519..98103cf 100644
 +}
 +
 +void llama_context::set_logits_topk(int32_t k) {
++    // only where a GPU computes the logits: on the CPU, reading them all back costs nothing and finding
++    // the top k in the graph costs more than the sampler's own pass
++    ggml_backend_dev_t dev = model.dev_output();
++    if (dev == nullptr || ggml_backend_dev_type(dev) == GGML_BACKEND_DEVICE_TYPE_CPU) {
++        k = 0;
++    }
 +    // the next graph is built with (or without) the top-k nodes; the scheduler grows its buffers if needed
 +    cparams.logits_topk = (uint32_t) std::max(0, k);
 +}
@@ -311,7 +371,7 @@ index 455f519..98103cf 100644
  int64_t llama_context::output_resolve_row(int32_t i) const {
      int64_t j = -1;
  
-@@ -1071,6 +1114,7 @@ float * llama_context::get_logits_ith(int32_t i) {
+@@ -1071,6 +1139,7 @@ float * llama_context::get_logits_ith(int32_t i) {
          }
  
          const int64_t j = output_resolve_row(i);
@@ -319,28 +379,41 @@ index 455f519..98103cf 100644
          return logits.data + j*model.vocab.n_tokens();
      } catch (const std::exception & err) {
          LLAMA_LOG_ERROR("%s: invalid logits id %d, reason: %s\n", __func__, i, err.what());
-@@ -1993,6 +2037,10 @@ int llama_context::decode(const llama_batch_ext & batch_inp) {
-         llama_sampler_backend_begin(entry.second);
-     }
+@@ -1598,6 +1667,10 @@ llm_graph_result * llama_context::process_ubatch(const llama_ubatch & ubatch, ll
+ }
  
-+    // the previous decode's top-k logits and graph are gone
+ int llama_context::encode(const llama_batch_ext & batch_inp) {
++    // the last decode's top-k logits and graph are gone (see llama_set_logits_topk)
 +    logits_topk_k   = 0;
 +    logits_topk_src = nullptr;
 +
-     int64_t n_outputs_prev = 0;
-     int64_t n_tokens_prev  = 0;
+     if (batch_inp.tokens.empty()) {
+         LLAMA_LOG_ERROR("%s: n_tokens == 0\n", __func__);
+         return -1;
+@@ -1837,6 +1910,11 @@ static bool needs_raw_logits(const llama_ubatch & ubatch, const std::map<llama_s
+ }
  
-@@ -2063,8 +2111,24 @@ int llama_context::decode(const llama_batch_ext & batch_inp) {
+ int llama_context::decode(const llama_batch_ext & batch_inp) {
++    // the last decode's top-k logits and graph are gone, whether or not this one gets far
++    // (see llama_set_logits_topk)
++    logits_topk_k   = 0;
++    logits_topk_src = nullptr;
++
+     if (!memory) {
+         LLAMA_LOG_DEBUG("%s: cannot decode batches with this context (calling encode() instead)\n", __func__);
+         return encode(batch_inp);
+@@ -2063,8 +2141,25 @@ int llama_context::decode(const llama_batch_ext & batch_inp) {
              t_embd = res->get_embd_pooled();
          }
  
 -        // extract logits
 -        if (logits.data && t_logits && n_outputs > 0 && needs_raw_logits(ubatch, sampling.samplers)) {
-+        // extract logits: the top k of each output, when this ubatch has all of the batch's outputs
-+        // (see llama_set_logits_topk), else all of them
++        // extract logits: the top k of each output, when this ubatch has all of the batch's outputs and
++        // is the last (a row's full logits are read from its graph's output later, if asked for, so no
++        // other graph may run before; see llama_set_logits_topk), else all of them
 +        ggml_tensor * t_topk = res->t_logits_topk;
 +        if (logits.data && t_logits && t_topk && n_outputs > 0 && n_outputs == n_outputs_all &&
-+            needs_raw_logits(ubatch, sampling.samplers)) {
++            n_tokens_prev + ubatch.n_tokens == n_tokens_all && needs_raw_logits(ubatch, sampling.samplers)) {
 +            ggml_backend_t backend_res = ggml_backend_sched_get_tensor_backend(sched.get(), t_topk);
 +            GGML_ASSERT(backend_res != nullptr);
 +            GGML_ASSERT(t_topk->ne[1] == n_outputs);
@@ -357,7 +430,7 @@ index 455f519..98103cf 100644
              ggml_backend_t backend_res = ggml_backend_sched_get_tensor_backend(sched.get(), t_logits);
              GGML_ASSERT(backend_res != nullptr);
              GGML_ASSERT(logits.data != nullptr);
-@@ -2452,6 +2516,14 @@ void llama_context::output_reorder() {
+@@ -2452,6 +2547,14 @@ void llama_context::output_reorder() {
              }
          }
  
@@ -372,7 +445,7 @@ index 455f519..98103cf 100644
          if (embd.size > 0) {
              for (uint64_t k = 0; k < n_embd_out; k++) {
                  std::swap(embd.data[i0*n_embd_out + k], embd.data[i1*n_embd_out + k]);
-@@ -4240,6 +4312,16 @@ float * llama_get_logits(llama_context * ctx) {
+@@ -4240,6 +4343,16 @@ float * llama_get_logits(llama_context * ctx) {
      return ctx->get_logits();
  }
  
@@ -434,7 +507,7 @@ index 0c260f7..8ddf4c0 100644
      int32_t  n_threads_batch; // number of threads to use for batch processing
  
 diff --git a/src/llama-graph.cpp b/src/llama-graph.cpp
-index a2d1c7d..4434750 100644
+index a2d1c7d..56f029e 100644
 --- a/src/llama-graph.cpp
 +++ b/src/llama-graph.cpp
 @@ -1410,6 +1410,8 @@ void llm_graph_result::reset() {
@@ -446,7 +519,7 @@ index a2d1c7d..4434750 100644
      t_sampled.clear();
      t_sampled_probs.clear();
      t_sampled_logits.clear();
-@@ -4212,6 +4214,30 @@ void llm_graph_context::build_logits() const {
+@@ -4212,6 +4214,31 @@ void llm_graph_context::build_logits() const {
      }
  }
  
@@ -454,7 +527,8 @@ index a2d1c7d..4434750 100644
 +    // only for a few outputs (decoding, speculative batches, the end of a prompt): a graph with many
 +    // (the prompt reserve) reads all the logits back, and the top-k's scratch space grows with them
 +    if (cparams.logits_topk == 0 || !samplers.empty() || !res->t_logits || res->t_logits->type != GGML_TYPE_F32 ||
-+        res->t_logits->ne[1] == 0 || res->t_logits->ne[1] > 16 || (int64_t) cparams.logits_topk >= res->t_logits->ne[0]) {
++        !ggml_is_contiguous(res->t_logits) || ggml_n_dims(res->t_logits) > 2 || res->t_logits->ne[1] == 0 ||
++        res->t_logits->ne[1] > 16 || (int64_t) cparams.logits_topk >= res->t_logits->ne[0]) {
 +        return;
 +    }
 +    ggml_tensor *  logits = res->t_logits;
@@ -527,7 +601,7 @@ index c7b2fcc..302656a 100644
      // there will be two additional dense projection layers
      // dense linear projections are applied after pooling
 diff --git a/tools/server/server-context.cpp b/tools/server/server-context.cpp
-index da0d58f..5f0c69c 100644
+index da0d58f..3b1a004 100644
 --- a/tools/server/server-context.cpp
 +++ b/tools/server/server-context.cpp
 @@ -3548,6 +3548,18 @@ private:
@@ -549,3 +623,25 @@ index da0d58f..5f0c69c 100644
          int32_t off_next = 0;
          int32_t n_batch = llama_n_batch(ctx_tgt);
          for (int32_t off = 0; off < batch.size(); off = off_next) {
+@@ -4836,7 +4848,12 @@ private:
+ 
+             // verify and try to accept the draft
+             {
+-                common_sampler_ptr smpl_save(common_sampler_clone(slot.smpl.get()));
++                // the sampler as it was, for a checkpoint restore: only where a rejected draft can need
++                // one (rolling back more tokens than the recurrent-state snapshots hold)
++                const bool may_restore =
++                    ctx_tgt_seq_rm_type == COMMON_CONTEXT_SEQ_RM_TYPE_FULL ||
++                    (ctx_tgt_seq_rm_type == COMMON_CONTEXT_SEQ_RM_TYPE_RS && n_draft > llama_n_rs_seq(ctx_tgt));
++                common_sampler_ptr smpl_save(may_restore ? common_sampler_clone(slot.smpl.get()) : nullptr);
+ 
+                 GGML_ASSERT(spec_i_batch.size() == n_draft + 1);
+                 GGML_ASSERT(slot.spec_draft_q.empty() || (slot.spec_draft_q.size() == slot.spec_draft.size()));
+@@ -4891,6 +4908,7 @@ private:
+                         slot.mem.seq_rm(slot.id, ckpt.pos_max + 1, -1);
+ 
+                         slot.prompt.tokens.keep_first(ckpt.n_tokens);
++                        GGML_ASSERT(smpl_save);
+                         common_sampler_copy(smpl_save.get(), slot.smpl.get());
+ 
+                         return;

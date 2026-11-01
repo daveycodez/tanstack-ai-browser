@@ -90,8 +90,10 @@
 #   the old state gathered from the recurrent cache, the CONCAT, a CPY per
 #   rollback snapshot, SSM_CONV and the C gate: seven or more dispatches,
 #   interleaved with the next layer's state gather) runs as one, found by a
-#   pass over the graph; its sums are fused multiply-adds as ssm_conv.wgsl's
-#   compile to, so the results are bit for bit the same. Pipelines for every
+#   pass over the graph, for LFM2's 3 taps and LFM3's 7; its sums are fused
+#   multiply-adds as ssm_conv.wgsl's compile to, so the results are bit for
+#   bit the same. Products of other weight types on 2 to 8 tokens run a
+#   column at a time, each the one-token product. Pipelines for every
 #   batch size of a speculative check are created at load (a size seen first
 #   in a reply cost it tens of ms). Safety: the one-token attention gives a
 #   row the mask hides entirely zeros (as the CPU) instead of 0/0, the
@@ -112,8 +114,11 @@
 #   per token that the top k it would keep are strictly ordered and above
 #   every logit not read; then the rest of the chain sees exactly the
 #   candidates it would have, so the same tokens are sampled, seed for seed.
-#   Otherwise, and for requests with a grammar, a reasoning budget or
-#   probabilities, all the logits are read (the server switches per batch).
+#   Otherwise, and for requests with probabilities, all the logits are read
+#   (the server switches per batch). With a grammar (tools, JSON schema), the
+#   token sampled from the top k is checked against it as before, and one it
+#   rejects is redrawn from all the logits; so is a token the reasoning
+#   budget forces.
 #   This saves the CPU's pass over 65,536 logits (about 0.35 ms per token
 #   greedy, 0.9 with the model card's sampling) and most of the read back.
 # - Speculative decoding without a draft model (llama-server's n-gram

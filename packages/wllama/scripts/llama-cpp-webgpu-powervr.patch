@@ -1,5 +1,5 @@
 diff --git a/ggml/src/ggml-webgpu/ggml-webgpu-shader-lib.hpp b/ggml/src/ggml-webgpu/ggml-webgpu-shader-lib.hpp
-index e01a417..c487603 100644
+index e01a417..6d0afa6 100644
 --- a/ggml/src/ggml-webgpu/ggml-webgpu-shader-lib.hpp
 +++ b/ggml/src/ggml-webgpu/ggml-webgpu-shader-lib.hpp
 @@ -51,6 +51,19 @@
@@ -111,7 +111,7 @@ index e01a417..c487603 100644
      std::unordered_map<ggml_webgpu_quantize_q8_pipeline_key, webgpu_pipeline, ggml_webgpu_quantize_q8_pipeline_key_hash>
          quantize_q8_pipelines;
      std::unordered_map<ggml_webgpu_mul_mat_id_gather_pipeline_key,
-@@ -2171,6 +2234,579 @@ class ggml_webgpu_shader_lib {
+@@ -2171,6 +2234,581 @@ class ggml_webgpu_shader_lib {
          return mul_mat_vec_pipelines[key];
      }
  
@@ -532,44 +532,49 @@ index e01a417..c487603 100644
 +    }
 +
 +    // out_f16 packs src1 as f16 pairs, for mul_mat_pvr_gemm.wgsl
-+    // PowerVR logits top-k (see topk_pvr.wgsl): stage 1, 2 or 3, for k values, g_max groups and cap
-+    // candidates per row; src_ro binds the stage's input read-only
-+    webgpu_pipeline get_topk_pvr_pipeline(uint32_t stage, uint32_t k, uint32_t g_max, uint32_t cap, bool src_ro) {
-+        std::string variant = "topk_pvr_s" + std::to_string(stage) + "_k" + std::to_string(k) + "_g" +
-+                              std::to_string(g_max) + "_c" + std::to_string(cap) + (src_ro ? "_ro" : "");
++    // PowerVR logits top-k (see topk_pvr.wgsl): stage 1, 2 or 3, for k values, groups of `group` values,
++    // g_max groups and cap candidates per row
++    webgpu_pipeline get_topk_pvr_pipeline(uint32_t stage, uint32_t k, uint32_t group, uint32_t g_max, uint32_t cap) {
++        std::string variant = "topk_pvr_s" + std::to_string(stage) + "_k" + std::to_string(k) + "_gs" +
++                              std::to_string(group) + "_g" + std::to_string(g_max) + "_c" + std::to_string(cap);
 +        auto it = topk_pvr_pipelines.find(variant);
 +        if (it != topk_pvr_pipelines.end()) {
 +            return it->second;
 +        }
 +        std::vector<std::string> defines = { "STAGE" + std::to_string(stage), "K=" + std::to_string(k) + "u",
++                                             "GROUP=" + std::to_string(group) + "u",
 +                                             "G_MAX=" + std::to_string(g_max) + "u",
 +                                             "CAP=" + std::to_string(cap) + "u" };
-+        if (src_ro) {
-+            defines.push_back("SRC_RO");
-+        }
 +        auto            processed = preprocessor.preprocess(wgsl_topk_pvr, defines);
 +        webgpu_pipeline pipeline     = ggml_webgpu_create_pipeline(device, processed, variant);
 +        topk_pvr_pipelines[variant] = pipeline;
 +        return pipeline;
 +    }
 +
-+    // The body of shortconv_pvr.wgsl's main() for n tokens: v0, v1 the old state, v(t + 2) token t's B * X,
-+    // then each token's conv (fused multiply-adds, as ssm_conv.wgsl compiles on PowerVR) times C, and the
-+    // snapshots (slot s: v(n - s), v(n - s + 1)).
-+    static std::string ggml_webgpu_shortconv_pvr_body(uint32_t n) {
++    // The body of shortconv_pvr.wgsl's main() for n tokens and a conv of width taps (ds = width - 1
++    // state values): v0 .. v(ds - 1) the old state, v(ds + t) token t's B * X, then each token's conv
++    // (fused multiply-adds from 0, tap 0 first, as ssm_conv.wgsl's loop compiles on PowerVR) times C,
++    // and the snapshots (slot s: v(n - s) .. v(n - s + ds - 1)).
++    static std::string ggml_webgpu_shortconv_pvr_body(uint32_t n, uint32_t width) {
++        const uint32_t     ds = width - 1;
 +        std::ostringstream b;
-+        b << "    let v0 = cache[st];\n";
-+        b << "    let v1 = cache[st + 1u];\n";
++        b << "    let st = params.offset_state + row * params.stride_state + " << ds << "u * ch;\n";
++        for (uint32_t j = 0; j < width; j++) {
++            b << "    let w" << j << " = w[params.offset_w + " << width << "u * ch + " << j << "u];\n";
++        }
++        for (uint32_t j = 0; j < ds; j++) {
++            b << "    let v" << j << " = cache[st + " << j << "u];\n";
++        }
 +        for (uint32_t t = 0; t < n; t++) {
-+            b << "    let v" << t + 2 << " = bcx[params.offset_b + " << t << "u * params.stride_bcx + ch] * bcx[params.offset_x + "
++            b << "    let v" << t + ds << " = bcx[params.offset_b + " << t << "u * params.stride_bcx + ch] * bcx[params.offset_x + "
 +              << t << "u * params.stride_bcx + ch];\n";
 +        }
 +        for (uint32_t t = 0; t < n; t++) {
 +            b << "    {\n";
 +            b << "        var sum = 0.0;\n";
-+            b << "        sum = fma(v" << t << ", w0, sum);\n";
-+            b << "        sum = fma(v" << t + 1 << ", w1, sum);\n";
-+            b << "        sum = fma(v" << t + 2 << ", w2, sum);\n";
++            for (uint32_t j = 0; j < width; j++) {
++                b << "        sum = fma(v" << t + j << ", w" << j << ", sum);\n";
++            }
 +            b << "        let r = bcx[params.offset_c + " << t << "u * params.stride_bcx + ch] * sum;\n";
 +            b << "        y[params.offset_y + " << t << "u * params.stride_y + ch] = r;\n";
 +            b << "        staged[" << t << "u * params.channels + ch] = r;\n";
@@ -577,28 +582,25 @@ index e01a417..c487603 100644
 +        }
 +        for (uint32_t s = 0; s < n; s++) {
 +            b << "    if (" << s << "u < params.n_snap) {\n";
-+            b << "        cache[params.snap" << s << " + 2u * ch] = v" << n - s << ";\n";
-+            b << "        cache[params.snap" << s << " + 2u * ch + 1u] = v" << n - s + 1 << ";\n";
++            for (uint32_t j = 0; j < ds; j++) {
++                b << "        cache[params.snap" << s << " + " << ds << "u * ch + " << j << "u] = v" << n - s + j << ";\n";
++            }
 +            b << "    }\n";
 +        }
 +        return b.str();
 +    }
 +
-+    // PowerVR: LFM's short convolution on n tokens in one dispatch (see shortconv_pvr.wgsl); bcx_ro binds
-+    // the in-projection's output (and the row index) read-only, w_ro the weights
-+    webgpu_pipeline get_shortconv_pvr_pipeline(uint32_t n, bool bcx_ro, bool w_ro) {
-+        const int key = ((int) n * 2 + (bcx_ro ? 1 : 0)) * 2 + (w_ro ? 1 : 0);
++    // PowerVR: LFM's short convolution on n tokens in one dispatch, a conv of width taps (see
++    // shortconv_pvr.wgsl); w_ro binds the weights read-only
++    webgpu_pipeline get_shortconv_pvr_pipeline(uint32_t n, uint32_t width, bool w_ro) {
++        const int key = ((int) n * 16 + (int) width) * 2 + (w_ro ? 1 : 0);
 +        auto      it  = shortconv_pvr_pipelines.find(key);
 +        if (it != shortconv_pvr_pipelines.end()) {
 +            return it->second;
 +        }
 +        std::vector<std::string> defines = { "N=" + std::to_string(n) + "u",
 +                                             "WG_SIZE=" + std::to_string(WEBGPU_SHORTCONV_PVR_WG_SIZE) + "u" };
-+        std::string              variant = "shortconv_pvr_n" + std::to_string(n);
-+        if (bcx_ro) {
-+            defines.push_back("BCX_RO");
-+            variant += "_ro";
-+        }
++        std::string              variant = "shortconv_pvr_n" + std::to_string(n) + "_w" + std::to_string(width);
 +        if (w_ro) {
 +            defines.push_back("W_RO");
 +            variant += "_wro";
@@ -606,7 +608,7 @@ index e01a417..c487603 100644
 +        auto       processed = preprocessor.preprocess(wgsl_shortconv_pvr, defines);
 +        const auto body_at   = processed.rfind("MAIN_BODY");
 +        GGML_ASSERT(body_at != std::string::npos);
-+        processed.replace(body_at, sizeof("MAIN_BODY") - 1, ggml_webgpu_shortconv_pvr_body(n));
++        processed.replace(body_at, sizeof("MAIN_BODY") - 1, ggml_webgpu_shortconv_pvr_body(n, width));
 +        webgpu_pipeline pipeline       = ggml_webgpu_create_pipeline(device, processed, variant);
 +        shortconv_pvr_pipelines[key]   = pipeline;
 +        return pipeline;
@@ -691,7 +693,7 @@ index e01a417..c487603 100644
      webgpu_pipeline get_mul_mat_fast_pipeline(const ggml_webgpu_shader_lib_context & context, bool src_overlap) {
          ggml_webgpu_mul_mat_pipeline_key key = {};
          key.src0_type                        = context.src0->type;
-@@ -2704,11 +3340,14 @@ class ggml_webgpu_shader_lib {
+@@ -2704,11 +3342,14 @@ class ggml_webgpu_shader_lib {
          return unary_pipelines[key];
      }
  
@@ -707,7 +709,7 @@ index e01a417..c487603 100644
  
          auto it = rms_norm_mul_pipelines.find(key);
          if (it != rms_norm_mul_pipelines.end()) {
-@@ -2728,6 +3367,9 @@ class ggml_webgpu_shader_lib {
+@@ -2728,6 +3369,9 @@ class ggml_webgpu_shader_lib {
          } else if (key.src_overlap) {
              defines.push_back("SRC_OVERLAP");
              variant += "_src_overlap";
@@ -718,7 +720,7 @@ index e01a417..c487603 100644
  
          defines.push_back(std::string("WG_SIZE=") + std::to_string(context.max_wg_size));
 diff --git a/ggml/src/ggml-webgpu/ggml-webgpu.cpp b/ggml/src/ggml-webgpu/ggml-webgpu.cpp
-index 555b888..ab113ea 100644
+index 555b888..2c45fce 100644
 --- a/ggml/src/ggml-webgpu/ggml-webgpu.cpp
 +++ b/ggml/src/ggml-webgpu/ggml-webgpu.cpp
 @@ -93,6 +93,10 @@ static inline uint32_t ggml_webgpu_u32_from_f32(float value) {
@@ -728,7 +730,7 @@ index 555b888..ab113ea 100644
 +#define WEBGPU_PVR_COMMAND_SUBMIT_BATCH_SIZE     16u
 +#define WEBGPU_PVR_FIRST_SUBMIT_BATCH_SIZE       4u
 +#define WEBGPU_PVR_RMS_NORM_MUL_WG_SIZE          128u
-+#define WEBGPU_PVR_READBACK_MAX_BYTES            (1u << 20)  // buffers read back whole on PowerVR
++#define WEBGPU_PVR_READBACK_MAX_BYTES            (32u << 20)  // state buffers read back whole on PowerVR (the recurrent state with its snapshots)
  
  /* End Constants */
  
@@ -784,7 +786,7 @@ index 555b888..ab113ea 100644
      // TODO: We should rework the CPU profiling time handling to make it more useful. ref: https://github.com/ggml-org/llama.cpp/pull/22050
  #ifdef GGML_WEBGPU_CPU_PROFILE
      // Profiling: labeled CPU time in ms (total)
-@@ -242,6 +277,100 @@ struct webgpu_global_context_struct {
+@@ -242,6 +277,108 @@ struct webgpu_global_context_struct {
  
  typedef std::shared_ptr<webgpu_global_context_struct> webgpu_global_context;
  
@@ -882,10 +884,18 @@ index 555b888..ab113ea 100644
 +    }
 +}
 +
++// PowerVR: where a fused short convolution's nodes sit in the graph (see
++// ggml_webgpu_pvr_shortconv_nodes): the gather, B * X, the CONCAT, SSM_CONV,
++// the MUL by C (where the fused op runs) and the snapshots' CPYs, slot 0 first
++struct ggml_webgpu_pvr_shortconv_at {
++    int              gi = -1, bi = -1, ci = -1, si = -1, yi = -1;
++    std::vector<int> snaps;
++};
++
  // All the base objects needed to run operations on a WebGPU device
  struct webgpu_context_struct {
      // Points to global instances owned by ggml_backend_webgpu_reg_context
-@@ -258,6 +387,24 @@ struct webgpu_context_struct {
+@@ -258,6 +395,41 @@ struct webgpu_context_struct {
  
      size_t memset_bytes_per_thread;
  
@@ -906,14 +916,35 @@ index 555b888..ab113ea 100644
 +    wgpu::Texture     pvr_dequant_tex;
 +    wgpu::TextureView pvr_dequant_view;
 +    uint32_t          pvr_dequant_rows = 0;
++    // PowerVR logits top-k: its scratch space (see ggml_webgpu_topk_pvr), a buffer
++    // of its own so that the logits and the scratch are each bound read-only
++    // where they are only read
++    wgpu::Buffer pvr_topk_buf;
++    size_t       pvr_topk_size = 0;
++    // PowerVR: the short convolutions fused in the last graph (see
++    // ggml_webgpu_pvr_shortconv_nodes), found again when a graph differs from
++    // it: its nodes, their outputs, shapes and sources (sig), the nodes the
++    // fused ops replace (skip), and the fused ops by the index where each runs
++    struct {
++        const ggml_cgraph *                                   graph = nullptr;
++        std::vector<uintptr_t>                                sig;
++        std::vector<uint8_t>                                  skip;
++        std::unordered_map<int, ggml_webgpu_pvr_shortconv_at> fused;
++    } pvr_sc;
++    // PowerVR: a product of a few columns was split per column (logged once)
++    bool pvr_split_logged = false;
 +
  #ifdef GGML_WEBGPU_GPU_PROFILE
      // Profiling: per-shader GPU time in ms
      std::unordered_map<std::string, double> shader_gpu_time_ms;
-@@ -286,6 +433,17 @@ struct webgpu_context_struct {
+@@ -286,6 +458,21 @@ struct webgpu_context_struct {
              this->set_rows_host_error_buf.Destroy();
              this->set_rows_host_error_buf = nullptr;
          }
++        if (this->pvr_topk_buf) {
++            this->pvr_topk_buf.Destroy();
++            this->pvr_topk_buf = nullptr;
++        }
 +        for (wgpu::Buffer & buf : this->pvr_staging_buf) {
 +            if (buf) {
 +                buf.Destroy();
@@ -928,7 +959,7 @@ index 555b888..ab113ea 100644
          if (this->set_rows_dev_error_buf) {
              this->set_rows_dev_error_buf.Destroy();
              this->set_rows_dev_error_buf = nullptr;
-@@ -531,6 +689,7 @@ static void ggml_backend_webgpu_wait_queue(webgpu_global_context & ctx) {
+@@ -531,6 +718,7 @@ static void ggml_backend_webgpu_wait_queue(webgpu_global_context & ctx) {
  
      ggml_backend_webgpu_check_wait_status(wait_status, callback_status, wgpu::QueueWorkDoneStatus::Success,
                                            "Queue wait", "Queue work", callback_message.c_str());
@@ -936,7 +967,7 @@ index 555b888..ab113ea 100644
  }
  
  static void ggml_backend_webgpu_map_buffer(webgpu_global_context & ctx,
-@@ -561,6 +720,9 @@ static void ggml_backend_webgpu_submit_commands(webgpu_context &          ctx,
+@@ -561,6 +749,9 @@ static void ggml_backend_webgpu_submit_commands(webgpu_context &          ctx,
          num_inflight_batches = 0;
      }
  
@@ -946,7 +977,7 @@ index 555b888..ab113ea 100644
      ctx->global_ctx->queue.Submit(1, &commands);
      num_inflight_batches++;
  }
-@@ -607,9 +769,16 @@ static webgpu_encoded_op ggml_backend_webgpu_build_multi(webgpu_context &
+@@ -607,9 +798,16 @@ static webgpu_encoded_op ggml_backend_webgpu_build_multi(webgpu_context &
          param_offsets.push_back(param_offset);
      }
  
@@ -965,7 +996,7 @@ index 555b888..ab113ea 100644
      }
  
  #ifdef GGML_WEBGPU_GPU_PROFILE
-@@ -703,6 +872,8 @@ static void ggml_backend_webgpu_buffer_memset(webgpu_global_context & ctx,
+@@ -703,6 +901,8 @@ static void ggml_backend_webgpu_buffer_memset(webgpu_global_context & ctx,
  
      wgpu::CommandBuffer              command  = encoder.Finish();
      std::vector<wgpu::CommandBuffer> commands = { command };
@@ -974,7 +1005,7 @@ index 555b888..ab113ea 100644
      ctx->queue.Submit(commands.size(), commands.data());
  }
  
-@@ -1629,10 +1800,496 @@ static void ggml_webgpu_quantize_q8_dispatch(webgpu_context &
+@@ -1629,10 +1829,531 @@ static void ggml_webgpu_quantize_q8_dispatch(webgpu_context &
      });
  }
  
@@ -1468,10 +1499,45 @@ index 555b888..ab113ea 100644
 +    GGML_ASSERT(!ggml_webgpu_pvr_is_repacked(src0));
 +    ctx->pvr_staged_src1 = nullptr;
 +
++    // PowerVR: a product of 2 to 8 columns (a speculative batch) that the PowerVR shaders don't take
++    // (weights of other types) runs as one-column products, so that each column's arithmetic is the
++    // one-token decode's: the generic shaders' batched paths sum in other orders, and speculative
++    // decoding would then write other text than decoding one token at a time
++    if (ggml_webgpu_is_pvr(ctx->global_ctx) && dst->ne[1] >= 2 && dst->ne[1] <= WEBGPU_MUL_MAT_VEC_PVR_MAX_COLS &&
++        dst->ne[2] == 1 && dst->ne[3] == 1 && src1->ne[2] == 1 && src1->ne[3] == 1 && src0->ne[2] == 1 &&
++        src0->ne[3] == 1) {
++        if (!ctx->pvr_split_logged) {
++            ctx->pvr_split_logged = true;
++            GGML_LOG_INFO("ggml_webgpu: PowerVR: %s products of 2 to %u columns run a column at a time\n",
++                          ggml_type_name(src0->type), WEBGPU_MUL_MAT_VEC_PVR_MAX_COLS);
++        }
++        webgpu_encoded_op result = {};
++        for (int64_t c = 0; c < dst->ne[1]; c++) {
++            // column c of src1 and dst, as views
++            ggml_tensor src1_c = *src1;
++            ggml_tensor dst_c  = *dst;
++            for (auto [view, t] : { std::pair<ggml_tensor *, ggml_tensor *>{ &src1_c, src1 }, { &dst_c, dst } }) {
++                view->view_src  = t->view_src ? t->view_src : t;
++                view->view_offs = t->view_offs + c * t->nb[1];
++                view->ne[1]     = 1;
++            }
++            webgpu_encoded_op op = ggml_webgpu_mul_mat(ctx, src0, &src1_c, &dst_c);
++            // (the PowerVR shaders, which take a column of weights that share dst's buffer, note the
++            // staged src1 by pointer: the next column's view is another tensor at that address)
++            ctx->pvr_staged_src1 = nullptr;
++            result.num_kernels += op.num_kernels;
++#ifdef GGML_WEBGPU_GPU_PROFILE
++            result.pipeline_names.insert(result.pipeline_names.end(), op.pipeline_names.begin(),
++                                         op.pipeline_names.end());
++#endif
++        }
++        return result;
++    }
++
      // Determine if this is a mat-vec operation
      bool use_mat_vec = (dst->ne[1] <= 4);
  
-@@ -2280,6 +2937,171 @@ static webgpu_encoded_op ggml_webgpu_flash_attn_vec(webgpu_context &          ct
+@@ -2280,6 +3001,171 @@ static webgpu_encoded_op ggml_webgpu_flash_attn_vec(webgpu_context &          ct
      return ggml_backend_webgpu_build_multi(ctx, dispatches);
  }
  
@@ -1643,7 +1709,7 @@ index 555b888..ab113ea 100644
  static webgpu_encoded_op ggml_webgpu_flash_attn(webgpu_context & ctx,
                                                  ggml_tensor *    Q,
                                                  ggml_tensor *    K,
-@@ -2287,6 +3109,15 @@ static webgpu_encoded_op ggml_webgpu_flash_attn(webgpu_context & ctx,
+@@ -2287,6 +3173,15 @@ static webgpu_encoded_op ggml_webgpu_flash_attn(webgpu_context & ctx,
                                                  ggml_tensor *    mask,
                                                  ggml_tensor *    sinks,
                                                  ggml_tensor *    dst) {
@@ -1659,7 +1725,7 @@ index 555b888..ab113ea 100644
      ggml_webgpu_flash_attn_op op = ggml_webgpu_flash_attn_prepare(ctx, Q, K, V, mask, sinks, dst);
      if (ggml_webgpu_flash_attn_use_vec_path(ctx->global_ctx, Q, K, V)) {
          return ggml_webgpu_flash_attn_vec(ctx, Q, K, V, mask, sinks, dst, std::move(op));
-@@ -2617,6 +3448,105 @@ static webgpu_encoded_op ggml_webgpu_repeat(webgpu_context & ctx, ggml_tensor *
+@@ -2617,6 +3512,127 @@ static webgpu_encoded_op ggml_webgpu_repeat(webgpu_context & ctx, ggml_tensor *
      return ggml_backend_webgpu_build(ctx, pipeline, params, entries, wg_x, wg_y);
  }
  
@@ -1672,6 +1738,19 @@ index 555b888..ab113ea 100644
 +    ggml_tensor * o, * w1, * x, * a, * w2, * out;
 +    float         eps1, eps2;
 +};
++
++// Whether two tensors are the same bytes or apart (or in different buffers). A
++// fused op that writes one where a thread of another workgroup (row) may
++// still read the other is only race-free then: gallocr may place a tensor
++// over part of another, at a shift.
++static bool ggml_webgpu_pvr_same_or_apart(const ggml_tensor * a, const ggml_tensor * b) {
++    if (ggml_webgpu_tensor_buf(a).Get() != ggml_webgpu_tensor_buf(b).Get()) {
++        return true;
++    }
++    const size_t oa = ggml_webgpu_tensor_offset(a);
++    const size_t ob = ggml_webgpu_tensor_offset(b);
++    return (oa == ob && ggml_nbytes(a) == ggml_nbytes(b)) || oa + ggml_nbytes(a) <= ob || ob + ggml_nbytes(b) <= oa;
++}
 +
 +static bool ggml_webgpu_pvr_post_norm_nodes(webgpu_context &            ctx,
 +                                            const struct ggml_cgraph * cgraph,
@@ -1724,6 +1803,15 @@ index 555b888..ab113ea 100644
 +    if (f.o->ne[2] != 1 || f.o->ne[3] != 1 || f.o->ne[1] > WEBGPU_MUL_MAT_VEC_PVR_MAX_COLS) {
 +        return false;
 +    }
++    // a column belongs to one thread throughout, so what it writes (a, out) may be what it reads (o, x)
++    // or apart from it, but not over another row's
++    for (const ggml_tensor * wr : { f.a, f.out }) {
++        for (const ggml_tensor * rd : { f.o, f.x, f.a }) {
++            if (wr != rd && !ggml_webgpu_pvr_same_or_apart(wr, rd)) {
++                return false;
++            }
++        }
++    }
 +    f.eps1 = ggml_get_op_params_f32(n1, 0);
 +    f.eps2 = ggml_get_op_params_f32(n2, 0);
 +    return true;
@@ -1765,7 +1853,7 @@ index 555b888..ab113ea 100644
  static std::optional<webgpu_encoded_op> ggml_webgpu_rms_norm_mul(webgpu_context & ctx,
                                                                   ggml_tensor *    rn_src,
                                                                   ggml_tensor *    rn_dst,
-@@ -2670,9 +3600,19 @@ static std::optional<webgpu_encoded_op> ggml_webgpu_rms_norm_mul(webgpu_context
+@@ -2670,9 +3686,19 @@ static std::optional<webgpu_encoded_op> ggml_webgpu_rms_norm_mul(webgpu_context
      shader_lib_ctx.src1                           = mul_src;
      shader_lib_ctx.dst                            = dst;
      shader_lib_ctx.max_wg_size = ctx->global_ctx->capabilities.limits.maxComputeInvocationsPerWorkgroup;
@@ -1788,7 +1876,7 @@ index 555b888..ab113ea 100644
      auto *          decisions   = static_cast<ggml_webgpu_rms_norm_mul_shader_decisions *>(pipeline.context.get());
  
      if (decisions->src_overlap) {
-@@ -2698,6 +3638,14 @@ static std::optional<webgpu_encoded_op> ggml_webgpu_rms_norm_mul(webgpu_context
+@@ -2698,6 +3724,14 @@ static std::optional<webgpu_encoded_op> ggml_webgpu_rms_norm_mul(webgpu_context
          entries.push_back(ggml_webgpu_make_tensor_bind_group_entry(ctx, 1, mul_src));
          entries.push_back(ggml_webgpu_make_tensor_bind_group_entry(ctx, 2, dst));
      }
@@ -1803,7 +1891,7 @@ index 555b888..ab113ea 100644
  
      uint32_t wg_x;
      uint32_t wg_y;
-@@ -3047,6 +3995,122 @@ static webgpu_encoded_op ggml_webgpu_argmax(webgpu_context & ctx, ggml_tensor *
+@@ -3047,6 +4081,110 @@ static webgpu_encoded_op ggml_webgpu_argmax(webgpu_context & ctx, ggml_tensor *
      return ggml_backend_webgpu_build(ctx, pipeline, params, entries, wg_x);
  }
  
@@ -1811,23 +1899,26 @@ index 555b888..ab113ea 100644
 +// builds it: TOP_K, GET_ROWS of the logits at those indices, the indices
 +// CPY'd to f32, and the two CONCAT'ed, in three dispatches that write the
 +// CONCAT's output (each row: the k values largest first, then the indices).
-+// The scratch space (group maxima, a count and the candidates of each row)
-+// follows the TOP_K's indices in its allocation (see get_alloc_size).
-+#define WEBGPU_TOPK_PVR_CHUNK 4096u  // values per stage 1 and 2 workgroup
-+#define WEBGPU_TOPK_PVR_GROUP 256u   // values per group
++// The scratch space (group maxima, a count and the candidates of each row) is
++// a buffer of its own, so that the logits and then the scratch are bound
++// read-only.
++#define WEBGPU_TOPK_PVR_GPW   16u    // groups per stage 1 and 2 workgroup
 +#define WEBGPU_TOPK_PVR_CAP   1792u  // candidates per row at most (the workgroup memory: 16 KB)
++#define WEBGPU_TOPK_PVR_G_MAX 2048u  // groups per row at most (stage 2 holds their maxima in workgroup memory)
 +
-+static uint32_t ggml_webgpu_topk_pvr_g_max(uint32_t n) {
-+    return ROUNDUP_POW2(CEIL_DIV(n, WEBGPU_TOPK_PVR_GROUP), 8u);
++static uint32_t ggml_webgpu_topk_pvr_g_max(uint32_t n, uint32_t group) {
++    return ROUNDUP_POW2(CEIL_DIV(n, group), 8u);
 +}
 +
-+// the scratch space: byte offset in the TOP_K's buffer, and size
-+static void ggml_webgpu_topk_pvr_scratch(webgpu_context & ctx, const ggml_tensor * logits, const ggml_tensor * topk,
-+                                         size_t & offset, size_t & size) {
-+    const size_t   align     = ctx->global_ctx->capabilities.limits.minStorageBufferOffsetAlignment;
-+    const uint32_t row_words = ggml_webgpu_topk_pvr_g_max((uint32_t) logits->ne[0]) + 1 + 2 * WEBGPU_TOPK_PVR_CAP;
-+    offset = ROUNDUP_POW2(ggml_webgpu_tensor_offset(topk) + ggml_nbytes(topk), align);
-+    size   = ROUNDUP_POW2((size_t) row_words * logits->ne[1] * sizeof(uint32_t), WEBGPU_STORAGE_BUF_BINDING_MULT);
++// Values per group for rows of n values and the top k: 256, or fewer where
++// that leaves fewer than k whole groups (small vocabularies); 0 when none fits.
++static uint32_t ggml_webgpu_topk_pvr_group(uint64_t n, uint64_t k) {
++    for (uint32_t group : { 256u, 128u, 64u, 32u, 16u }) {
++        if (n / group >= k) {
++            return CEIL_DIV(n, (uint64_t) group) <= WEBGPU_TOPK_PVR_G_MAX ? group : 0;
++        }
++    }
++    return 0;
 +}
 +
 +static webgpu_encoded_op ggml_webgpu_topk_pvr(webgpu_context & ctx,
@@ -1837,15 +1928,14 @@ index 555b888..ab113ea 100644
 +    const uint32_t n     = (uint32_t) logits->ne[0];
 +    const uint32_t k     = (uint32_t) topk->ne[0];
 +    const uint32_t rows  = (uint32_t) logits->ne[1];
-+    const uint32_t n_wg  = CEIL_DIV(n, WEBGPU_TOPK_PVR_CHUNK);
-+    const uint32_t g_max = ggml_webgpu_topk_pvr_g_max(n);
-+    size_t         scratch_offset;
-+    size_t         scratch_size;
-+    ggml_webgpu_topk_pvr_scratch(ctx, logits, topk, scratch_offset, scratch_size);
-+    const WGPUBuffer      scr_buf = ggml_webgpu_tensor_buf(topk).Get();
-+    const bool            src_ro  = ggml_webgpu_tensor_buf(logits).Get() != scr_buf;
-+    const bool            scr_ro  = ggml_webgpu_tensor_buf(out).Get() != scr_buf;
-+    std::vector<uint32_t> params  = {
++    const uint32_t group = ggml_webgpu_topk_pvr_group(n, k);
++    GGML_ASSERT(group != 0);
++    const uint32_t n_wg  = CEIL_DIV(n, group * WEBGPU_TOPK_PVR_GPW);
++    const uint32_t g_max = ggml_webgpu_topk_pvr_g_max(n, group);
++    const size_t   scratch_size =
++        ROUNDUP_POW2((size_t) (g_max + 1 + 2 * WEBGPU_TOPK_PVR_CAP) * rows * sizeof(uint32_t), 16);
++    ggml_webgpu_pvr_scratch(ctx, ctx->pvr_topk_buf, ctx->pvr_topk_size, scratch_size, "pvr_topk_buf");
++    std::vector<uint32_t> params = {
 +        (uint32_t) (ggml_webgpu_tensor_misalignment(ctx, logits) / sizeof(float)),
 +        (uint32_t) (logits->nb[1] / sizeof(float)),
 +        n,
@@ -1853,21 +1943,18 @@ index 555b888..ab113ea 100644
 +        (uint32_t) (out->nb[1] / sizeof(float)),
 +    };
 +    std::vector<webgpu_dispatch_desc> dispatches;
-+    for (uint32_t stage = 1; stage <= 2; stage++) {
-+        std::vector<wgpu::BindGroupEntry> entries = {
-+            ggml_webgpu_make_tensor_bind_group_entry(ctx, 0, logits),
-+            ggml_webgpu_make_bind_group_entry(1, ggml_webgpu_tensor_buf(topk), scratch_offset, scratch_size),
-+        };
-+        dispatches.push_back(
-+            { ctx->shader_lib->get_topk_pvr_pipeline(stage, k, g_max, WEBGPU_TOPK_PVR_CAP, src_ro), params,
-+              std::move(entries), { n_wg, rows } });
++    for (uint32_t stage = 1; stage <= 3; stage++) {
++        std::vector<wgpu::BindGroupEntry> entries;
++        if (stage < 3) {
++            entries = { ggml_webgpu_make_tensor_bind_group_entry(ctx, 0, logits),
++                        ggml_webgpu_make_bind_group_entry(1, ctx->pvr_topk_buf, 0, scratch_size) };
++        } else {
++            entries = { ggml_webgpu_make_bind_group_entry(0, ctx->pvr_topk_buf, 0, scratch_size),
++                        ggml_webgpu_make_tensor_bind_group_entry(ctx, 1, out) };
++        }
++        dispatches.push_back({ ctx->shader_lib->get_topk_pvr_pipeline(stage, k, group, g_max, WEBGPU_TOPK_PVR_CAP),
++                               params, std::move(entries), stage < 3 ? std::make_pair(n_wg, rows) : std::make_pair(rows, 1u) });
 +    }
-+    std::vector<wgpu::BindGroupEntry> entries = {
-+        ggml_webgpu_make_bind_group_entry(0, ggml_webgpu_tensor_buf(topk), scratch_offset, scratch_size),
-+        ggml_webgpu_make_tensor_bind_group_entry(ctx, 1, out),
-+    };
-+    dispatches.push_back({ ctx->shader_lib->get_topk_pvr_pipeline(3, k, g_max, WEBGPU_TOPK_PVR_CAP, scr_ro),
-+                           std::move(params), std::move(entries), { rows, 1 } });
 +    return ggml_backend_webgpu_build_multi(ctx, dispatches);
 +}
 +
@@ -1878,9 +1965,7 @@ index 555b888..ab113ea 100644
 +    const ggml_tensor * logits = topk->src[0];
 +    if (!ggml_webgpu_is_pvr(ctx->global_ctx) || logits->type != GGML_TYPE_F32 || topk->type != GGML_TYPE_I32 ||
 +        !ggml_is_contiguous(logits) || logits->ne[2] != 1 || logits->ne[3] != 1 || topk->ne[0] > 256 ||
-+        CEIL_DIV((uint64_t) logits->ne[0], WEBGPU_TOPK_PVR_GROUP) < (uint64_t) topk->ne[0] ||
-+        ggml_webgpu_topk_pvr_g_max((uint32_t) std::min<int64_t>(logits->ne[0], 1 << 24)) > 2048) {
-+        // (stage 2 holds a row's group maxima in workgroup memory: 2,048 of them at most)
++        logits->ne[0] >= (1 << 24) || ggml_webgpu_topk_pvr_group(logits->ne[0], topk->ne[0]) == 0) {
 +        return 0;
 +    }
 +    ggml_tensor * gr   = nullptr;
@@ -1906,15 +1991,6 @@ index 555b888..ab113ea 100644
 +                   ggml_get_op_params_i32(t, 0) == 0 && t->src[1] == cast && t->src[0]->view_src == gr &&
 +                   ggml_is_contiguous(t) && t->ne[0] == 2 * topk->ne[0] && t->ne[1] == topk->ne[1] &&
 +                   t->src[0]->ne[0] == topk->ne[0] && ggml_nelements(t->src[0]) == ggml_nelements(gr)) {
-+            // the scratch space must not overlap the output or the logits
-+            size_t scratch_offset;
-+            size_t scratch_size;
-+            ggml_webgpu_topk_pvr_scratch(ctx, logits, topk, scratch_offset, scratch_size);
-+            if (ggml_webgpu_tensor_binding_overlap_range(ctx->global_ctx, t, topk->buffer, scratch_offset, scratch_size) ||
-+                ggml_webgpu_tensor_binding_overlap_range(ctx->global_ctx, (ggml_tensor *) logits, topk->buffer,
-+                                                         scratch_offset, scratch_size)) {
-+                return 0;
-+            }
 +            return i - node_idx;
 +        } else {
 +            return 0;
@@ -1926,7 +2002,7 @@ index 555b888..ab113ea 100644
  static webgpu_encoded_op ggml_webgpu_argsort(webgpu_context & ctx, ggml_tensor * src, ggml_tensor * dst) {
      bool is_top_k = dst->op == GGML_OP_TOP_K;
  
-@@ -3417,6 +4481,35 @@ static std::optional<webgpu_encoded_op> ggml_webgpu_encode(webgpu_context ctx,
+@@ -3417,6 +4555,35 @@ static std::optional<webgpu_encoded_op> ggml_webgpu_encode(webgpu_context ctx,
          case GGML_OP_GET_ROWS:
              return ggml_webgpu_get_rows(ctx, src0, src1, node);
          case GGML_OP_MUL_MAT:
@@ -1962,7 +2038,7 @@ index 555b888..ab113ea 100644
              return ggml_webgpu_mul_mat(ctx, src0, src1, node);
          case GGML_OP_MUL_MAT_ID:
              return ggml_webgpu_mul_mat_id(ctx, src0, src1, src2, node);
-@@ -3434,6 +4527,13 @@ static std::optional<webgpu_encoded_op> ggml_webgpu_encode(webgpu_context ctx,
+@@ -3434,6 +4601,13 @@ static std::optional<webgpu_encoded_op> ggml_webgpu_encode(webgpu_context ctx,
          case GGML_OP_REPEAT:
              return ggml_webgpu_repeat(ctx, src0, node);
          case GGML_OP_RMS_NORM:
@@ -1976,7 +2052,7 @@ index 555b888..ab113ea 100644
              if (ggml_webgpu_can_fuse_rms_norm_mul(cgraph, node_idx)) {
                  num_encoded_ops        = 2;
                  ggml_tensor * mul_node = nodes[node_idx + 1];
-@@ -3483,10 +4583,15 @@ static std::optional<webgpu_encoded_op> ggml_webgpu_encode(webgpu_context ctx,
+@@ -3483,10 +4657,15 @@ static std::optional<webgpu_encoded_op> ggml_webgpu_encode(webgpu_context ctx,
              return ggml_webgpu_pad(ctx, src0, node);
          case GGML_OP_ARGMAX:
              return ggml_webgpu_argmax(ctx, src0, node);
@@ -1993,7 +2069,7 @@ index 555b888..ab113ea 100644
          case GGML_OP_CUMSUM:
              return ggml_webgpu_cumsum(ctx, src0, node);
          case GGML_OP_SUM:
-@@ -3561,6 +4666,304 @@ static void ggml_backend_webgpu_check_set_rows(webgpu_context & ctx, uint32_t &
+@@ -3561,6 +4740,345 @@ static void ggml_backend_webgpu_check_set_rows(webgpu_context & ctx, uint32_t &
  #endif
  }
  
@@ -2006,7 +2082,9 @@ index 555b888..ab113ea 100644
 +// gather sits among them, so these nodes aren't consecutive: a pass over the
 +// graph finds them, and the fused op runs at the last (the MUL), the others
 +// being skipped. It reads the old state from the cache itself, as the
-+// gather's output may be reused by then, and writes the snapshots.
++// gather's output may be reused by then, and writes the snapshots. The conv
++// has `width` taps (LFM2: 3, LFM3: 7) and the state width - 1 values per
++// channel.
 +struct ggml_webgpu_pvr_shortconv {
 +    ggml_tensor *              bcx   = nullptr;  // the in-projection's output (B, C and X are views of it)
 +    ggml_tensor *              b     = nullptr;
@@ -2019,6 +2097,7 @@ index 555b888..ab113ea 100644
 +    ggml_tensor *              y     = nullptr;  // C times the conv
 +    std::vector<ggml_tensor *> snaps;            // the snapshots' rows in the cache, slot 0 first
 +    uint32_t                   n     = 0;        // tokens
++    uint32_t                   width = 0;        // the conv's taps
 +};
 +
 +static const ggml_tensor * ggml_webgpu_base(const ggml_tensor * t) {
@@ -2040,12 +2119,37 @@ index 555b888..ab113ea 100644
 +           ggml_webgpu_tensor_offset(v) % sizeof(float) == 0;
 +}
 +
++// The fused op's tensors, from the nodes where at says they are.
++static ggml_webgpu_pvr_shortconv ggml_webgpu_pvr_shortconv_get(const ggml_cgraph *                 cgraph,
++                                                               const ggml_webgpu_pvr_shortconv_at & at) {
++    ggml_tensor * gr = cgraph->nodes[at.gi];
++    ggml_tensor * bx = cgraph->nodes[at.bi];
++    ggml_tensor * sc = cgraph->nodes[at.si];
++    ggml_tensor * y  = cgraph->nodes[at.yi];
++    ggml_webgpu_pvr_shortconv f;
++    f.rows  = gr->src[0];
++    f.idx   = gr->src[1];
++    f.cache = (ggml_tensor *) ggml_webgpu_base(f.rows);
++    f.b     = bx->src[0];
++    f.x     = bx->src[1];
++    f.bcx   = (ggml_tensor *) ggml_webgpu_base(f.b);
++    f.w     = sc->src[1];
++    f.y     = y;
++    f.c     = y->src[0] == sc ? y->src[1] : y->src[0];
++    for (int i : at.snaps) {
++        f.snaps.push_back(cgraph->nodes[i]->src[1]);
++    }
++    f.n     = (uint32_t) sc->ne[1];
++    f.width = (uint32_t) f.w->ne[0];
++    return f;
++}
++
 +// Finds the fused short convolutions of cgraph: marks the nodes they replace
-+// in skip, and records each at the index of the node where it runs.
-+static void ggml_webgpu_pvr_shortconv_nodes(webgpu_context &                                  ctx,
-+                                            ggml_cgraph *                                     cgraph,
-+                                            std::vector<uint8_t> &                            skip,
-+                                            std::unordered_map<int, ggml_webgpu_pvr_shortconv> & fused) {
++// in skip, and records each by the index of the node where it runs.
++static void ggml_webgpu_pvr_shortconv_nodes(webgpu_context &                                        ctx,
++                                            ggml_cgraph *                                           cgraph,
++                                            std::vector<uint8_t> &                                  skip,
++                                            std::unordered_map<int, ggml_webgpu_pvr_shortconv_at> & fused) {
 +    const int n_nodes = cgraph->n_nodes;
 +    bool      any     = false;
 +    for (int i = 0; i < n_nodes && !any; i++) {
@@ -2097,21 +2201,26 @@ index 555b888..ab113ea 100644
 +        ggml_tensor * w   = sc->src[1];
 +        const int64_t ch  = sc->ne[0];
 +        const int64_t n   = sc->ne[1];
++        // the conv's taps, and the state's values per channel (width - 1); not 4 taps, which
++        // ssm_conv.wgsl sums as one expression rather than as fused multiply-adds
++        const int64_t width = w->ne[0];
++        const int64_t ds    = width - 1;
 +        if (sc->type != GGML_TYPE_F32 || n < 1 || n > 8 || sc->ne[2] != 1 || sc->ne[3] != 1 || !ggml_is_contiguous(sc) ||
-+            w->type != GGML_TYPE_F32 || w->ne[0] != 3 || w->ne[1] != ch || !ggml_is_contiguous(w) ||
-+            cat->op != GGML_OP_CONCAT || ggml_get_op_params_i32(cat, 0) != 0 || cat->type != GGML_TYPE_F32 ||
-+            cat->ne[0] != n + 2 || cat->ne[1] != ch || cat->ne[2] != 1 || !ggml_is_contiguous(cat)) {
++            w->type != GGML_TYPE_F32 || width < 2 || width > 8 || width == 4 || w->ne[1] != ch ||
++            !ggml_is_contiguous(w) || cat->op != GGML_OP_CONCAT || ggml_get_op_params_i32(cat, 0) != 0 ||
++            cat->type != GGML_TYPE_F32 || cat->ne[0] != n + ds || cat->ne[1] != ch || cat->ne[2] != 1 ||
++            !ggml_is_contiguous(cat)) {
 +            continue;
 +        }
 +        const int ci = index_before(cat, si);
 +        if (ci < 0) {
 +            continue;
 +        }
-+        // the old state: a [2, ch] reshape of a one-row gather from the cache
++        // the old state: a [width - 1, ch] reshape of a one-row gather from the cache
 +        const ggml_tensor * st = cat->src[0];
 +        ggml_tensor *       gr = (ggml_tensor *) ggml_webgpu_unview(st);
-+        if (st->ne[0] != 2 || st->ne[1] != ch || !ggml_is_contiguous(st) || st->type != GGML_TYPE_F32 ||
-+            gr->op != GGML_OP_GET_ROWS || gr->type != GGML_TYPE_F32 || gr->ne[0] != 2 * ch || gr->ne[1] != 1 ||
++        if (st->ne[0] != ds || st->ne[1] != ch || !ggml_is_contiguous(st) || st->type != GGML_TYPE_F32 ||
++            gr->op != GGML_OP_GET_ROWS || gr->type != GGML_TYPE_F32 || gr->ne[0] != ds * ch || gr->ne[1] != 1 ||
 +            gr->ne[2] != 1 || ggml_webgpu_tensor_offset(st) != ggml_webgpu_tensor_offset(gr)) {
 +            continue;
 +        }
@@ -2122,7 +2231,7 @@ index 555b888..ab113ea 100644
 +        ggml_tensor * rows = gr->src[0];
 +        ggml_tensor * idx  = gr->src[1];
 +        ggml_tensor * cache = (ggml_tensor *) ggml_webgpu_base(rows);
-+        if (rows->type != GGML_TYPE_F32 || rows->nb[0] != sizeof(float) || rows->ne[0] != 2 * ch ||
++        if (rows->type != GGML_TYPE_F32 || rows->nb[0] != sizeof(float) || rows->ne[0] != ds * ch ||
 +            idx->type != GGML_TYPE_I32 || idx->ne[0] < 1 || cache->type != GGML_TYPE_F32 ||
 +            ggml_webgpu_tensor_offset(rows) % sizeof(float) != 0 || rows->nb[1] % sizeof(float) != 0) {
 +            continue;
@@ -2164,10 +2273,9 @@ index 555b888..ab113ea 100644
 +            !ggml_webgpu_pvr_shortconv_part(cpar, bcx, ch, n)) {
 +            continue;
 +        }
-+        // the snapshots: CPYs of [2, ch] views of the CONCAT into rows of the cache, slot s at token n - s
-+        std::vector<int>           snap_nodes;
-+        std::vector<ggml_tensor *> snaps;
-+        bool                       ok = true;
++        // the snapshots: CPYs of [width - 1, ch] views of the CONCAT into rows of the cache, slot s at token n - s
++        std::vector<int> snap_nodes;
++        bool             ok = true;
 +        for (int i = ci + 1; i < si && ok; i++) {
 +            ggml_tensor * t = cgraph->nodes[i];
 +            if (t->op != GGML_OP_CPY || ggml_is_empty(t)) {
@@ -2178,15 +2286,14 @@ index 555b888..ab113ea 100644
 +            if (src->view_src != cat) {
 +                continue;
 +            }
-+            const int64_t s = (int64_t) snaps.size();
-+            ok = src->ne[0] == 2 && src->ne[1] == ch && src->nb[1] == cat->nb[1] &&
++            const int64_t s = (int64_t) snap_nodes.size();
++            ok = src->ne[0] == ds && src->ne[1] == ch && src->nb[1] == cat->nb[1] &&
 +                 src->view_offs == (size_t) (n - s) * sizeof(float) && ggml_webgpu_base(dst) == cache &&
-+                 ggml_nelements(dst) == 2 * ch && ggml_is_contiguous(dst) && t->type == GGML_TYPE_F32 &&
++                 ggml_nelements(dst) == ds * ch && ggml_is_contiguous(dst) && t->type == GGML_TYPE_F32 &&
 +                 dst->type == GGML_TYPE_F32 && s < n;
 +            snap_nodes.push_back(i);
-+            snaps.push_back(dst);
 +        }
-+        if (!ok || snaps.empty()) {
++        if (!ok || snap_nodes.empty()) {
 +            continue;
 +        }
 +        // nothing else reads what the skipped nodes write, and they come before the MUL
@@ -2195,16 +2302,17 @@ index 555b888..ab113ea 100644
 +            continue;
 +        }
 +        // nor touches the cache between the gather and the MUL (the gather's reads and the CPYs' writes
-+        // happen at the MUL)
++        // happen at the MUL), nor writes where the row index is: the gather was its last reader, so its
++        // memory may be another node's by the MUL (the last conv layer's)
 +        {
 +            bool touched = false;
 +            for (int i = gi + 1; i < yi && !touched; i++) {
 +                const ggml_tensor * t = cgraph->nodes[i];
-+                if (ggml_op_is_empty(t->op) || ggml_is_empty(t) ||
++                if (ggml_op_is_empty(t->op) || ggml_is_empty(t) || i == bi || i == ci || i == si ||
 +                    std::find(snap_nodes.begin(), snap_nodes.end(), i) != snap_nodes.end()) {
 +                    continue;
 +                }
-+                touched = ggml_webgpu_base(t) == cache;
++                touched = ggml_webgpu_base(t) == cache || ggml_webgpu_tensor_binding_overlap(ctx->global_ctx, t, idx);
 +                for (int j = 0; j < GGML_MAX_SRC && t->src[j] && !touched; j++) {
 +                    touched = ggml_webgpu_base(t->src[j]) == cache;
 +                }
@@ -2223,19 +2331,14 @@ index 555b888..ab113ea 100644
 +            ggml_webgpu_tensor_binding_overlap(ctx->global_ctx, cache, w)) {
 +            continue;
 +        }
-+        ggml_webgpu_pvr_shortconv f;
-+        f.bcx   = bcx;
-+        f.b     = bx->src[0];
-+        f.x     = bx->src[1];
-+        f.c     = cpar;
-+        f.cache = cache;
-+        f.rows  = rows;
-+        f.idx   = idx;
-+        f.w     = w;
-+        f.y     = y;
-+        f.snaps = snaps;
-+        f.n     = (uint32_t) n;
-+        fused[yi] = f;
++        ggml_webgpu_pvr_shortconv_at at;
++        at.gi    = gi;
++        at.bi    = bi;
++        at.ci    = ci;
++        at.si    = si;
++        at.yi    = yi;
++        at.snaps = snap_nodes;
++        fused[yi] = at;
 +        for (int i : { gi, bi, ci, si }) {
 +            skip[i] = 1;
 +        }
@@ -2246,11 +2349,10 @@ index 555b888..ab113ea 100644
 +}
 +
 +static webgpu_encoded_op ggml_webgpu_pvr_shortconv_op(webgpu_context & ctx, const ggml_webgpu_pvr_shortconv & f) {
-+    const size_t   align   = ctx->global_ctx->capabilities.limits.minStorageBufferOffsetAlignment;
-+    const size_t   bcx_at  = ggml_webgpu_tensor_align_offset(ctx, f.bcx);
++    const size_t   bcx_at   = ggml_webgpu_tensor_align_offset(ctx, f.bcx);
 +    const size_t   cache_at = ggml_webgpu_tensor_align_offset(ctx, f.cache);
-+    const uint32_t ch      = (uint32_t) f.y->ne[0];
-+    auto           el      = [](size_t bytes) { return (uint32_t) (bytes / sizeof(float)); };
++    const uint32_t ch       = (uint32_t) f.y->ne[0];
++    auto           el       = [](size_t bytes) { return (uint32_t) (bytes / sizeof(float)); };
 +    std::vector<uint32_t> params = {
 +        el(ggml_webgpu_tensor_offset(f.b) - bcx_at),
 +        el(ggml_webgpu_tensor_offset(f.c) - bcx_at),
@@ -2268,18 +2370,11 @@ index 555b888..ab113ea 100644
 +    for (size_t s = 0; s < 8; s++) {
 +        params.push_back(s < f.snaps.size() ? el(ggml_webgpu_tensor_offset(f.snaps[s]) - cache_at) : 0u);
 +    }
-+    GGML_UNUSED(align);
 +    const size_t bytes = ROUNDUP_POW2(ggml_nbytes(f.y), 16);
 +    ggml_webgpu_pvr_stage_next(ctx, bytes);
-+    // read-only bindings for what sits in other buffers than the outputs (y, the cache; the staging buffer is its own)
-+    const WGPUBuffer y_buf     = ggml_webgpu_tensor_buf(f.y).Get();
-+    const WGPUBuffer cache_buf = ggml_webgpu_tensor_buf(f.cache).Get();
-+    auto             ro        = [&](const ggml_tensor * t) {
-+        const WGPUBuffer b = ggml_webgpu_tensor_buf(t).Get();
-+        return b != y_buf && b != cache_buf;
-+    };
-+    const bool bcx_ro = ro(f.bcx) && ro(f.idx) && ggml_webgpu_tensor_buf(f.bcx).Get() == ggml_webgpu_tensor_buf(f.idx).Get();
-+    const bool w_ro   = ro(f.w);
++    // the weights bound read-only when they sit in another buffer than the outputs (y, the cache)
++    const WGPUBuffer w_buf = ggml_webgpu_tensor_buf(f.w).Get();
++    const bool w_ro = w_buf != ggml_webgpu_tensor_buf(f.y).Get() && w_buf != ggml_webgpu_tensor_buf(f.cache).Get();
 +    std::vector<wgpu::BindGroupEntry> entries = {
 +        ggml_webgpu_make_tensor_bind_group_entry(ctx, 0, f.bcx),
 +        ggml_webgpu_make_tensor_bind_group_entry(ctx, 1, f.cache),
@@ -2291,48 +2386,58 @@ index 555b888..ab113ea 100644
 +    ctx->pvr_staged_src1  = f.y;
 +    ctx->pvr_staged_f16   = false;
 +    ctx->pvr_staged_by_op = true;
-+    webgpu_pipeline pipeline = ctx->shader_lib->get_shortconv_pvr_pipeline(f.n, bcx_ro, w_ro);
++    webgpu_pipeline pipeline = ctx->shader_lib->get_shortconv_pvr_pipeline(f.n, f.width, w_ro);
 +    return ggml_backend_webgpu_build(ctx, pipeline, params, entries, CEIL_DIV(ch, WEBGPU_SHORTCONV_PVR_WG_SIZE));
++}
++
++// The graph's signature for the short-conv pass (see webgpu_context_struct::pvr_sc): per node, the
++// node, its output, op, shape, strides and sources (and theirs).
++static void ggml_webgpu_pvr_graph_sig(const ggml_cgraph * cgraph, std::vector<uintptr_t> & sig) {
++    sig.clear();
++    sig.reserve((size_t) cgraph->n_nodes * 12);
++    for (int i = 0; i < cgraph->n_nodes; i++) {
++        const ggml_tensor * t = cgraph->nodes[i];
++        sig.push_back((uintptr_t) t);
++        sig.push_back((uintptr_t) t->data);
++        sig.push_back((uintptr_t) t->op);
++        for (int d = 0; d < GGML_MAX_DIMS; d++) {
++            sig.push_back((uintptr_t) t->ne[d]);
++        }
++        sig.push_back((uintptr_t) t->nb[1]);
++        for (int j = 0; j < GGML_MAX_SRC && t->src[j]; j++) {
++            sig.push_back((uintptr_t) t->src[j]);
++            sig.push_back((uintptr_t) t->src[j]->data);
++        }
++        sig.push_back(0);
++    }
 +}
 +
  static ggml_status ggml_backend_webgpu_graph_compute(ggml_backend_t backend, struct ggml_cgraph * cgraph) {
      WEBGPU_LOG_DEBUG("ggml_backend_webgpu_graph_compute(" << cgraph->n_nodes << " nodes)");
  
-@@ -3586,12 +4989,56 @@ static ggml_status ggml_backend_webgpu_graph_compute(ggml_backend_t backend, str
+@@ -3586,12 +5104,44 @@ static ggml_status ggml_backend_webgpu_graph_compute(ggml_backend_t backend, str
      if (ctx->batch_compute_passes) {
          ctx->active_compute_pass = ctx->active_command_encoder.BeginComputePass();
      }
 +    ctx->pvr_staged_src1 = nullptr;
 +
 +    // PowerVR: the short convolutions run as one op each (see ggml_webgpu_pvr_shortconv); a graph run
-+    // again (the same nodes where they were) reuses what the pass over it found
-+    static struct {
-+        const ggml_cgraph *                                graph = nullptr;
-+        std::vector<const ggml_tensor *>                   nodes;
-+        std::vector<const void *>                          data;
-+        std::vector<uint8_t>                               skip;
-+        std::unordered_map<int, ggml_webgpu_pvr_shortconv> fused;
-+    } pvr_sc;
-+    std::vector<uint8_t> *                               pvr_skip      = nullptr;
-+    std::unordered_map<int, ggml_webgpu_pvr_shortconv> * pvr_shortconv = nullptr;
++    // again (the same nodes, outputs and sources) reuses what the pass over it found
++    std::vector<uint8_t> *                                 pvr_skip      = nullptr;
++    std::unordered_map<int, ggml_webgpu_pvr_shortconv_at> * pvr_shortconv = nullptr;
 +    if (ggml_webgpu_is_pvr(ctx->global_ctx)) {
-+        bool same = pvr_sc.graph == cgraph && (int) pvr_sc.nodes.size() == cgraph->n_nodes;
-+        for (int i = 0; i < cgraph->n_nodes && same; i++) {
-+            same = pvr_sc.nodes[i] == cgraph->nodes[i] && pvr_sc.data[i] == cgraph->nodes[i]->data;
++        auto &                 sc = ctx->pvr_sc;
++        std::vector<uintptr_t> sig;
++        ggml_webgpu_pvr_graph_sig(cgraph, sig);
++        if (sc.graph != cgraph || sc.sig != sig) {
++            sc.graph = cgraph;
++            sc.sig   = std::move(sig);
++            sc.skip.assign(cgraph->n_nodes, 0);
++            sc.fused.clear();
++            ggml_webgpu_pvr_shortconv_nodes(ctx, cgraph, sc.skip, sc.fused);
 +        }
-+        if (!same) {
-+            pvr_sc.graph = cgraph;
-+            pvr_sc.nodes.assign(cgraph->nodes, cgraph->nodes + cgraph->n_nodes);
-+            pvr_sc.data.resize(cgraph->n_nodes);
-+            for (int i = 0; i < cgraph->n_nodes; i++) {
-+                pvr_sc.data[i] = cgraph->nodes[i]->data;
-+            }
-+            pvr_sc.skip.assign(cgraph->n_nodes, 0);
-+            pvr_sc.fused.clear();
-+            ggml_webgpu_pvr_shortconv_nodes(ctx, cgraph, pvr_sc.skip, pvr_sc.fused);
-+        }
-+        pvr_skip      = &pvr_sc.skip;
-+        pvr_shortconv = &pvr_sc.fused;
++        pvr_skip      = &sc.skip;
++        pvr_shortconv = &sc.fused;
 +    }
  
      while (node_idx < cgraph->n_nodes) {
@@ -2349,14 +2454,14 @@ index 555b888..ab113ea 100644
 +        if (pvr_shortconv && !pvr_shortconv->empty()) {
 +            auto it = pvr_shortconv->find(node_idx);
 +            if (it != pvr_shortconv->end()) {
-+                fused_cmd = ggml_webgpu_pvr_shortconv_op(ctx, it->second);
++                fused_cmd = ggml_webgpu_pvr_shortconv_op(ctx, ggml_webgpu_pvr_shortconv_get(cgraph, it->second));
 +            }
 +        }
 +        if (auto cmd = fused_cmd ? fused_cmd : ggml_webgpu_encode(ctx, cgraph, node_idx, num_encoded_ops)) {
              commands.push_back(*cmd);
              num_batched_kernels += cmd.value().num_kernels;
  #ifdef GGML_WEBGPU_GPU_PROFILE
-@@ -3600,7 +5047,12 @@ static ggml_status ggml_backend_webgpu_graph_compute(ggml_backend_t backend, str
+@@ -3600,7 +5150,12 @@ static ggml_status ggml_backend_webgpu_graph_compute(ggml_backend_t backend, str
  #endif
          }
  
@@ -2370,7 +2475,7 @@ index 555b888..ab113ea 100644
              if (ctx->active_compute_pass) {
                  ctx->active_compute_pass.End();
              }
-@@ -3627,6 +5079,19 @@ static ggml_status ggml_backend_webgpu_graph_compute(ggml_backend_t backend, str
+@@ -3627,6 +5182,19 @@ static ggml_status ggml_backend_webgpu_graph_compute(ggml_backend_t backend, str
  #endif
          }
  
@@ -2390,7 +2495,30 @@ index 555b888..ab113ea 100644
          node_idx += num_encoded_ops;
          num_encoded_ops = 1;
      }
-@@ -3718,6 +5183,7 @@ static void ggml_backend_webgpu_set_tensor_async(ggml_backend_t backend,
+@@ -3708,6 +5276,12 @@ static void ggml_backend_webgpu_event_wait(ggml_backend_t backend, ggml_backend_
+     ggml_backend_webgpu_device_event_synchronize(nullptr, event);
+ }
+ 
++static void ggml_backend_webgpu_buffer_set_tensor(ggml_backend_buffer_t buffer,
++                                                  ggml_tensor *         tensor,
++                                                  const void *          data,
++                                                  size_t                offset,
++                                                  size_t                size);
++
+ static void ggml_backend_webgpu_set_tensor_async(ggml_backend_t backend,
+                                                  ggml_tensor *  tensor,
+                                                  const void *   data,
+@@ -3715,9 +5289,17 @@ static void ggml_backend_webgpu_set_tensor_async(ggml_backend_t backend,
+                                                  size_t         size) {
+     GGML_UNUSED(backend);
+     auto * buf_ctx      = (ggml_backend_webgpu_buffer_context *) tensor->buffer->context;
++    // PowerVR: a tensor that is or becomes repacked (see ggml_webgpu_pvr_repacked_marker) is written by
++    // set_tensor, which moves the bytes into its layout
++    if (ggml_webgpu_pvr_is_repacked(tensor) ||
++        (offset == 0 && size == ggml_nbytes(tensor) && ggml_webgpu_pvr_repackable(buf_ctx->global_ctx, tensor))) {
++        ggml_backend_webgpu_buffer_set_tensor(tensor->buffer, tensor, data, offset, size);
++        return;
++    }
      size_t total_offset = ggml_webgpu_tensor_offset(tensor) + offset;
  
      // Write aligned portion
@@ -2398,7 +2526,7 @@ index 555b888..ab113ea 100644
      buf_ctx->global_ctx->queue.WriteBuffer(buf_ctx->buffer, total_offset, data, (size / 4) * 4);
  
      if (size % 4 != 0) {
-@@ -3736,8 +5202,36 @@ static void ggml_backend_webgpu_set_tensor_async(ggml_backend_t backend,
+@@ -3736,8 +5318,36 @@ static void ggml_backend_webgpu_set_tensor_async(ggml_backend_t backend,
      }
  }
  
@@ -2435,7 +2563,7 @@ index 555b888..ab113ea 100644
      ggml_backend_webgpu_wait_queue(backend_ctx->webgpu_ctx->global_ctx);
  }
  
-@@ -3745,7 +5239,7 @@ static ggml_backend_i ggml_backend_webgpu_i = {
+@@ -3745,7 +5355,7 @@ static ggml_backend_i ggml_backend_webgpu_i = {
      /* .get_name                = */ ggml_backend_webgpu_name,
      /* .free                    = */ ggml_backend_webgpu_free,
      /* .set_tensor_async        = */ ggml_backend_webgpu_set_tensor_async,
@@ -2444,7 +2572,7 @@ index 555b888..ab113ea 100644
      /* .set_tensor_2d_async     = */ NULL,
      /* .get_tensor_2d_async     = */ NULL,
      /* .cpy_tensor_async        = */ NULL,
-@@ -3767,6 +5261,9 @@ static ggml_backend_i ggml_backend_webgpu_i = {
+@@ -3767,6 +5377,9 @@ static ggml_backend_i ggml_backend_webgpu_i = {
  static void ggml_backend_webgpu_buffer_free_buffer(ggml_backend_buffer_t buffer) {
      ggml_backend_webgpu_buffer_context * ctx = static_cast<ggml_backend_webgpu_buffer_context *>(buffer->context);
      if (ctx != nullptr && ctx->buffer != nullptr) {
@@ -2454,7 +2582,7 @@ index 555b888..ab113ea 100644
          ctx->buffer.Destroy();
          delete ctx;
      }
-@@ -3778,6 +5275,12 @@ static void * ggml_backend_webgpu_buffer_get_base(ggml_backend_buffer_t buffer)
+@@ -3778,6 +5391,12 @@ static void * ggml_backend_webgpu_buffer_get_base(ggml_backend_buffer_t buffer)
      return webgpu_ptr_base;
  }
  
@@ -2467,7 +2595,7 @@ index 555b888..ab113ea 100644
  static void ggml_backend_webgpu_buffer_memset_tensor(ggml_backend_buffer_t buffer,
                                                       ggml_tensor *         tensor,
                                                       uint8_t               value,
-@@ -3797,6 +5300,14 @@ static void ggml_backend_webgpu_buffer_memset_tensor(ggml_backend_buffer_t buffe
+@@ -3797,6 +5416,14 @@ static void ggml_backend_webgpu_buffer_memset_tensor(ggml_backend_buffer_t buffe
      WEBGPU_LOG_DEBUG("ggml_backend_webgpu_buffer_memset_tensor(" << buf_ctx->label << ", " << tensor << ", " << value
                                                                   << ", " << offset << ", " << size << ")");
  
@@ -2482,7 +2610,7 @@ index 555b888..ab113ea 100644
      size_t total_offset = ggml_webgpu_tensor_offset(tensor) + offset;
  
      // This is a trick to set all bytes of a u32 to the same 1 byte value.
-@@ -3805,6 +5316,56 @@ static void ggml_backend_webgpu_buffer_memset_tensor(ggml_backend_buffer_t buffe
+@@ -3805,6 +5432,56 @@ static void ggml_backend_webgpu_buffer_memset_tensor(ggml_backend_buffer_t buffe
      WEBGPU_CPU_PROFILE_TOTAL_END(memset_tensor, buf_ctx->global_ctx);
  }
  
@@ -2539,7 +2667,7 @@ index 555b888..ab113ea 100644
  static void ggml_backend_webgpu_buffer_set_tensor(ggml_backend_buffer_t buffer,
                                                    ggml_tensor *         tensor,
                                                    const void *          data,
-@@ -3813,6 +5374,21 @@ static void ggml_backend_webgpu_buffer_set_tensor(ggml_backend_buffer_t buffer,
+@@ -3813,6 +5490,21 @@ static void ggml_backend_webgpu_buffer_set_tensor(ggml_backend_buffer_t buffer,
      WEBGPU_CPU_PROFILE_TOTAL_START(set_tensor);
      ggml_backend_webgpu_buffer_context * buf_ctx = (ggml_backend_webgpu_buffer_context *) buffer->context;
  
@@ -2561,7 +2689,7 @@ index 555b888..ab113ea 100644
      WEBGPU_LOG_DEBUG("ggml_backend_webgpu_buffer_set_tensor(" << buf_ctx->label << ", " << tensor << ", " << data
                                                                << ", " << offset << ", " << size << ")");
  
-@@ -3838,6 +5414,7 @@ static void ggml_backend_webgpu_buffer_set_tensor(ggml_backend_buffer_t buffer,
+@@ -3838,6 +5530,7 @@ static void ggml_backend_webgpu_buffer_set_tensor(ggml_backend_buffer_t buffer,
      }
  
      if (size > 0) {
@@ -2569,7 +2697,7 @@ index 555b888..ab113ea 100644
          buf_ctx->global_ctx->queue.WriteBuffer(buf_ctx->buffer, total_offset, data, (size / 4) * 4);
      }
  
-@@ -3858,11 +5435,11 @@ static void ggml_backend_webgpu_buffer_set_tensor(ggml_backend_buffer_t buffer,
+@@ -3858,11 +5551,11 @@ static void ggml_backend_webgpu_buffer_set_tensor(ggml_backend_buffer_t buffer,
      WEBGPU_CPU_PROFILE_TOTAL_END(set_tensor, buf_ctx->global_ctx);
  }
  
@@ -2586,16 +2714,26 @@ index 555b888..ab113ea 100644
      WEBGPU_CPU_PROFILE_TOTAL_START(get_tensor);
      ggml_backend_webgpu_buffer_context * buf_ctx = (ggml_backend_webgpu_buffer_context *) buffer->context;
      WEBGPU_LOG_DEBUG("ggml_backend_webgpu_buffer_get_tensor(" << buf_ctx->label << ", " << tensor << ", " << data
-@@ -3887,6 +5464,24 @@ static void ggml_backend_webgpu_buffer_get_tensor(ggml_backend_buffer_t buffer,
+@@ -3887,6 +5580,34 @@ static void ggml_backend_webgpu_buffer_get_tensor(ggml_backend_buffer_t buffer,
  
      std::lock_guard<std::recursive_mutex> lock(buf_ctx->global_ctx->mutex);
  
 +    // On PowerVR each read back waits several ms, and saving the model's state
-+    // reads the recurrent state one layer at a time: read a small buffer back
-+    // whole, and serve further reads from that copy while nothing has been
-+    // written since.
++    // reads the recurrent state one layer at a time: read a small state buffer
++    // back whole (not a compute buffer, which is read every token, a little
++    // of it: the logits), and serve further reads from that copy while
++    // nothing has been written since.
 +    const size_t buf_size = buf_ctx->buffer.GetSize();
-+    if (ggml_webgpu_is_pvr(buf_ctx->global_ctx) && buf_size <= WEBGPU_PVR_READBACK_MAX_BYTES && buf_size % 4 == 0) {
++    const bool   whole    = ggml_webgpu_is_pvr(buf_ctx->global_ctx) && buf_size <= WEBGPU_PVR_READBACK_MAX_BYTES &&
++                       buf_size % 4 == 0 && ggml_backend_buffer_get_usage(buffer) == GGML_BACKEND_BUFFER_USAGE_ANY;
++    if (ggml_webgpu_is_pvr(buf_ctx->global_ctx) && buf_ctx->global_ctx->pvr_readback_src != nullptr &&
++        buf_ctx->global_ctx->pvr_readback_epoch != buf_ctx->global_ctx->pvr_write_epoch) {
++        // the copy is stale (written since): free it (it may be tens of MB)
++        webgpu_global_context & g = buf_ctx->global_ctx;
++        std::vector<uint8_t>().swap(g->pvr_readback_data);
++        g->pvr_readback_src = nullptr;
++    }
++    if (whole) {
 +        webgpu_global_context & g = buf_ctx->global_ctx;
 +        if (g->pvr_readback_src != buf_ctx->buffer.Get() || g->pvr_readback_epoch != g->pvr_write_epoch) {
 +            total_offset = 0;
@@ -2611,7 +2749,7 @@ index 555b888..ab113ea 100644
      if (buf_ctx->global_ctx->get_tensor_staging_buf == nullptr ||
          buf_ctx->global_ctx->get_tensor_staging_buf.GetSize() < final_size) {
          // Create a new staging buffer if it doesn't exist or is too small
-@@ -3904,20 +5499,52 @@ static void ggml_backend_webgpu_buffer_get_tensor(ggml_backend_buffer_t buffer,
+@@ -3904,20 +5625,51 @@ static void ggml_backend_webgpu_buffer_get_tensor(ggml_backend_buffer_t buffer,
      wgpu::CommandBuffer commands = encoder.Finish();
  
      // Submit the command buffer to the queue
@@ -2629,8 +2767,7 @@ index 555b888..ab113ea 100644
  
      // Copy the data from the mapped range to the output buffer
      std::memcpy(data, (const void *) ((const char *) mapped_range + local_offset), size);
-+    if (total_offset == 0 && final_size == buf_size && ggml_webgpu_is_pvr(buf_ctx->global_ctx) &&
-+        buf_size <= WEBGPU_PVR_READBACK_MAX_BYTES) {
++    if (whole && total_offset == 0 && final_size == buf_size) {
 +        webgpu_global_context & g = buf_ctx->global_ctx;
 +        g->pvr_readback_data.assign((const uint8_t *) mapped_range, (const uint8_t *) mapped_range + buf_size);
 +        g->pvr_readback_src   = buf_ctx->buffer.Get();
@@ -2664,7 +2801,7 @@ index 555b888..ab113ea 100644
  static void ggml_backend_webgpu_buffer_clear(ggml_backend_buffer_t buffer, uint8_t value) {
      WEBGPU_LOG_DEBUG("ggml_backend_webgpu_buffer_clear(" << buffer << ", " << (uint32_t) value << ")");
      WEBGPU_CPU_PROFILE_TOTAL_START(clear);
-@@ -4194,6 +5821,10 @@ static void create_webgpu_device(ggml_backend_webgpu_reg_context * ctx) {
+@@ -4194,6 +5946,10 @@ static void create_webgpu_device(ggml_backend_webgpu_reg_context * ctx) {
      ctx->webgpu_global_ctx->command_submit_batch_size = ggml_backend_webgpu_get_command_submit_batch_size();
      ctx->webgpu_global_ctx->max_inflight_batches      = ggml_backend_webgpu_get_max_inflight_batches();
      ctx->webgpu_global_ctx->vendor                    = info.vendor;
@@ -2675,7 +2812,7 @@ index 555b888..ab113ea 100644
      // The subgroup shaders also use @builtin(subgroup_id), a later WGSL
      // language feature than subgroups: browsers with subgroups but not
      // subgroup_id (Chrome 141, for one) fail to compile them.
-@@ -4326,6 +5957,55 @@ static webgpu_context initialize_webgpu_context(ggml_backend_dev_t dev) {
+@@ -4326,6 +6082,58 @@ static webgpu_context initialize_webgpu_context(ggml_backend_dev_t dev) {
      ggml_webgpu_create_buffer(webgpu_ctx->global_ctx->device, webgpu_ctx->set_rows_host_error_buf,
                                WEBGPU_SET_ROWS_ERROR_BUF_SIZE_BYTES,
                                wgpu::BufferUsage::CopyDst | wgpu::BufferUsage::MapRead, "set_rows_host_error_buf");
@@ -2723,15 +2860,18 @@ index 555b888..ab113ea 100644
 +        if (ggml_webgpu_pvr_subgroups_tile(webgpu_ctx->global_ctx, WEBGPU_FLASH_ATTN_PVR_MQ_ROWS * 4, 4)) {
 +            webgpu_ctx->shader_lib->get_flash_attn_pvr_mq_pipeline(128, 4, true, true);
 +        }
-+        // LFM's fused short convolution for each batch size (the weights in their own buffer)
-+        for (uint32_t n = 1; n <= 8; n++) {
-+            webgpu_ctx->shader_lib->get_shortconv_pvr_pipeline(n, false, true);
++        // LFM's fused short convolution for each batch size (the weights in their own buffer), of 3 taps
++        // (LFM2) and 7 (LFM3)
++        for (uint32_t width : { 3u, 7u }) {
++            for (uint32_t n = 1; n <= 8; n++) {
++                webgpu_ctx->shader_lib->get_shortconv_pvr_pipeline(n, width, true);
++            }
 +        }
 +    }
  
  #ifdef GGML_WEBGPU_GPU_PROFILE
      webgpu_ctx->batch_compute_passes = false;
-@@ -4449,6 +6129,32 @@ static bool ggml_backend_webgpu_device_supports_op(ggml_backend_dev_t dev, const
+@@ -4449,6 +6257,32 @@ static bool ggml_backend_webgpu_device_supports_op(ggml_backend_dev_t dev, const
          return false;
      }
  
@@ -2766,10 +2906,10 @@ index 555b888..ab113ea 100644
          case GGML_OP_NONE:
 diff --git a/ggml/src/ggml-webgpu/wgsl-shaders/flash_attn_pvr.wgsl b/ggml/src/ggml-webgpu/wgsl-shaders/flash_attn_pvr.wgsl
 new file mode 100644
-index 0000000..bdc2f02
+index 0000000..039f88f
 --- /dev/null
 +++ b/ggml/src/ggml-webgpu/wgsl-shaders/flash_attn_pvr.wgsl
-@@ -0,0 +1,131 @@
+@@ -0,0 +1,139 @@
 +// Flash attention for one query token, or a few, on Imagination PowerVR GPUs
 +// (f32 Q, f16 K/V). The generic vector path takes milliseconds per call
 +// there. One workgroup per query token and head: each thread walks every
@@ -2850,13 +2990,21 @@ index 0000000..bdc2f02
 +    let k_head = (params.offset_k + kvh * params.stride_k2) / 4u;
 +    let v_head = (params.offset_v + kvh * params.stride_v2) / 4u;
 +    for (var j = lid; j < params.n_kv; j += WG_SIZE) {
++#ifdef HAS_MASK
++        // a position the mask hides (-inf: f16 holds nothing else this low) contributes nothing: skip
++        // its K row (the sum below would be -inf, or NaN, and fail the test after it alike)
++        let mv = f32(mask[params.offset_mask + row * params.stride_mask1 + j]);
++        if (mv <= NEG_BIG) {
++            continue;
++        }
++#endif
 +        let kb = k_head + j * (params.stride_k1 / 4u);
 +        var s = 0.0;
 +        for (var i = 0u; i < D4; i++) {
 +            s += dot(qv[i], vec4<f32>(k[kb + i]));
 +        }
 +#ifdef HAS_MASK
-+        s += f32(mask[params.offset_mask + row * params.stride_mask1 + j]);
++        s += mv;
 +#endif
 +        if (s > NEG_BIG) {
 +            let m_new = max(m, s);
@@ -4548,34 +4696,28 @@ index 46a2080..b0b2887 100644
  
 diff --git a/ggml/src/ggml-webgpu/wgsl-shaders/shortconv_pvr.wgsl b/ggml/src/ggml-webgpu/wgsl-shaders/shortconv_pvr.wgsl
 new file mode 100644
-index 0000000..2921427
+index 0000000..b1ec094
 --- /dev/null
 +++ b/ggml/src/ggml-webgpu/wgsl-shaders/shortconv_pvr.wgsl
-@@ -0,0 +1,80 @@
+@@ -0,0 +1,70 @@
 +// LFM2/LFM3's short convolution on N tokens (1 to 8) of one sequence, on
 +// Imagination PowerVR GPUs, in one dispatch instead of seven or more (see
 +// ggml_webgpu_pvr_shortconv_nodes): with the in-projection's output bcx
-+// (B, C and X per token), the old conv state (D_CONV = 2 values per
-+// channel) gathered from the recurrent cache, and the conv weights, each
-+// thread takes a channel and computes
++// (B, C and X per token), the old conv state (D = width - 1 values per
++// channel: LFM2's conv has 3 taps, LFM3's 7) gathered from the recurrent
++// cache, and the conv weights, each thread takes a channel and computes
 +//   v      = [old state, B * X of each token]   (the CONCAT)
-+//   conv_t = v[t] * w0 + v[t + 1] * w1 + v[t + 2] * w2   (SSM_CONV: summed in that order from 0, as
-+//            fused multiply-adds, which is how ssm_conv.wgsl's loop compiles on PowerVR)
++//   conv_t = v[t] * w0 + v[t + 1] * w1 + ... + v[t + D] * wD   (SSM_CONV: summed in that order from 0,
++//            as fused multiply-adds, which is how ssm_conv.wgsl's loop compiles on PowerVR)
 +//   y_t    = C_t * conv_t                        (the MUL)
 +// writes y (and copies it into the staging buffer, as the next product's
 +// src1), and writes the rollback snapshots of the state into the cache
-+// (slot s holds the state s tokens back: v[N - s], v[N - s + 1]). Each
++// (slot s holds the state s tokens back: v[N - s] .. v[N - s + D - 1]). Each
 +// value is computed as the separate ops compute it, so the results are
 +// theirs bit for bit. The old state is read before any snapshot is written
 +// over it, in the same thread.
 +
-+// BCX_RO, W_RO: bcx (and the row index), and the weights, bound read-only (in
-+// another buffer than what's written)
-+#ifdef BCX_RO
-+#define BCX_ACCESS read
-+#else
-+#define BCX_ACCESS read_write
-+#endif
++// W_RO: the weights bound read-only (in another buffer than what's written)
 +#ifdef W_RO
 +#define W_ACCESS read
 +#else
@@ -4590,7 +4732,7 @@ index 0000000..2921427
 +    offset_state: u32,  // elements of the cache binding: row 0 of the gathered view
 +    stride_state: u32,  // elements between rows of that view
 +    offset_idx: u32,    // elements of the row index (i32)
-+    offset_w: u32,      // elements of the conv weights ([3, channels])
++    offset_w: u32,      // elements of the conv weights ([width, channels])
 +    offset_y: u32,      // elements of y
 +    stride_y: u32,      // elements between tokens of y
 +    channels: u32,
@@ -4605,9 +4747,9 @@ index 0000000..2921427
 +    snap7: u32,
 +};
 +
-+@group(0) @binding(0) var<storage, BCX_ACCESS> bcx: array<f32>;
++@group(0) @binding(0) var<storage, read_write> bcx: array<f32>;
 +@group(0) @binding(1) var<storage, read_write> cache: array<f32>;
-+@group(0) @binding(2) var<storage, BCX_ACCESS> idx: array<i32>;
++@group(0) @binding(2) var<storage, read_write> idx: array<i32>;
 +@group(0) @binding(3) var<storage, W_ACCESS> w: array<f32>;
 +@group(0) @binding(4) var<storage, read_write> y: array<f32>;
 +@group(0) @binding(5) var<storage, read_write> staged: array<f32>;
@@ -4622,19 +4764,15 @@ index 0000000..2921427
 +        return;
 +    }
 +    let row = u32(idx[params.offset_idx]);
-+    let st = params.offset_state + row * params.stride_state + 2u * ch;
-+    let w0 = w[params.offset_w + 3u * ch];
-+    let w1 = w[params.offset_w + 3u * ch + 1u];
-+    let w2 = w[params.offset_w + 3u * ch + 2u];
 +
 +// the body, written out token by token by the shader library (see
-+// ggml_webgpu_shortconv_pvr_body): plain variables v0, v1, ... rather than an
-+// indexed array, which PowerVR keeps in slow memory
++// ggml_webgpu_shortconv_pvr_body): plain variables w0, w1, ..., v0, v1, ...
++// rather than indexed arrays, which PowerVR keeps in slow memory
 +MAIN_BODY
 +}
 diff --git a/ggml/src/ggml-webgpu/wgsl-shaders/topk_pvr.wgsl b/ggml/src/ggml-webgpu/wgsl-shaders/topk_pvr.wgsl
 new file mode 100644
-index 0000000..ac51534
+index 0000000..9ceecee
 --- /dev/null
 +++ b/ggml/src/ggml-webgpu/wgsl-shaders/topk_pvr.wgsl
 @@ -0,0 +1,233 @@
@@ -4646,20 +4784,18 @@ index 0000000..ac51534
 +// candidates, see STAGE2) gets index -1 everywhere, and the sampler then
 +// reads the logits instead.
 +//
-+// Three dispatches over a scratch area: per row, the maxima of its groups of
-+// 256 values, a candidate count and up to CAP candidates (key, index).
-+// STAGE1: the group maxima. STAGE2: T0, the K-th largest group maximum, is
-+// at most the K-th largest value (K groups have a value at least T0), so
-+// the values at least T0 are the candidates; they're few for logits.
++// Three dispatches over a scratch area (a buffer of its own): per row, the
++// maxima of its groups of GROUP values (256, or fewer for small vocabularies:
++// there must be K groups at least), a candidate count and up to CAP
++// candidates (key, index).
++// STAGE1: the group maxima. STAGE2: T0, the K-th largest maximum of the
++// whole groups (a last group of a few values, whose maximum may be low, is
++// left out: there are K whole groups at least), is at most the K-th largest
++// value (K groups have a value at least T0), so the values at least T0 are
++// the candidates; they're few for logits.
 +// STAGE3: each candidate's rank among them (by key, then index) is its
 +// place in the output, if below K. A key is the float's bits mapped so that
 +// unsigned order is float order.
-+
-+#ifdef SRC_RO
-+#define SRC_ACCESS read
-+#else
-+#define SRC_ACCESS read_write
-+#endif
 +
 +struct Params {
 +    offset_src: u32,  // elements of the logits
@@ -4670,7 +4806,7 @@ index 0000000..ac51534
 +};
 +
 +const WG = 256u;
-+const GROUP = 256u;           // values per group
++// GROUP: values per group (a define)
 +const GPW = 16u;              // groups per STAGE1/STAGE2 workgroup
 +const CHUNK = GROUP * GPW;    // values per STAGE1/STAGE2 workgroup
 +// scratch per row (u32 words): G_MAX group maxima, the count, CAP (key, index) pairs
@@ -4678,17 +4814,18 @@ index 0000000..ac51534
 +const_assert K <= 256u;
 +const_assert G_MAX % 8u == 0u;
 +const_assert CAP % WG == 0u;
++const_assert GROUP % 16u == 0u && GROUP <= WG;
 +
 +#ifdef STAGE1
-+@group(0) @binding(0) var<storage, SRC_ACCESS> src: array<f32>;
++@group(0) @binding(0) var<storage, read> src: array<f32>;
 +@group(0) @binding(1) var<storage, read_write> scratch: array<u32>;
 +#endif
 +#ifdef STAGE2
-+@group(0) @binding(0) var<storage, SRC_ACCESS> src: array<f32>;
++@group(0) @binding(0) var<storage, read> src: array<f32>;
 +@group(0) @binding(1) var<storage, read_write> scratch: array<atomic<u32>>;
 +#endif
 +#ifdef STAGE3
-+@group(0) @binding(0) var<storage, SRC_ACCESS> scratch: array<u32>;
++@group(0) @binding(0) var<storage, read> scratch: array<u32>;
 +@group(0) @binding(1) var<storage, read_write> dst: array<f32>;
 +#endif
 +@group(0) @binding(2) var<uniform> params: Params;
@@ -4722,7 +4859,8 @@ index 0000000..ac51534
 +    part[lid] = m;
 +    workgroupBarrier();
 +    let srow = row * ROW_WORDS;
-+    if (lid % 16u == 0u) {
++    // (the last workgroup's groups past the row's last are no groups: not written over the count)
++    if (lid % 16u == 0u && g * GROUP < params.n) {
 +        var mm = part[lid];
 +        for (var j = 1u; j < 16u; j++) {
 +            mm = max(mm, part[lid + j]);
@@ -4745,7 +4883,7 @@ index 0000000..ac51534
 +fn main(@builtin(workgroup_id) wg_id: vec3<u32>, @builtin(local_invocation_index) lid: u32) {
 +    let row = wg_id.y;
 +    let srow = row * ROW_WORDS;
-+    let n_groups = (params.n + GROUP - 1u) / GROUP;
++    let n_groups = params.n / GROUP;  // the whole ones
 +    for (var i = lid; i < G_MAX / 4u; i += WG) {
 +        var v = vec4<u32>(0u);
 +        for (var c = 0u; c < 4u; c++) {
@@ -4760,7 +4898,7 @@ index 0000000..ac51534
 +        atomicStore(&n_wg, 0u);
 +    }
 +    workgroupBarrier();
-+    // T0: the group maximum ranked K - 1 (by key, then group; empty groups rank last)
++    // T0: the whole groups' maximum ranked K - 1 (by key, then group; the others rank last)
 +    for (var i = lid; i < n_groups; i += WG) {
 +        let mi = gmax[i / 4u][i % 4u];
 +        let mi4 = vec4<u32>(mi);

@@ -464,27 +464,31 @@ const SPECULATIVE = {
  * on the CPU in WebAssembly.
  */
 export async function runsOnWebGpu(): Promise<boolean> {
-  if (options.gpu === false || typeof navigator === "undefined") return false
-  if (!("gpu" in navigator)) return false
-  if (!("Suspending" in WebAssembly) && !needsCompat()) return false
+  return (await webGpuAdapter()) !== null
+}
+
+/** The WebGPU adapter models run on here (see `runsOnWebGpu`), or null. */
+async function webGpuAdapter(): Promise<GPUAdapter | null> {
+  if (options.gpu === false || typeof navigator === "undefined") return null
+  if (!("gpu" in navigator)) return null
+  if (!("Suspending" in WebAssembly) && !needsCompat()) return null
   try {
-    return (await navigator.gpu.requestAdapter()) !== null
+    return await navigator.gpu.requestAdapter()
   } catch {
-    return false
+    return null
   }
 }
 
-/** Whether WebGPU here runs on an Imagination PowerVR GPU (the Pixel 10's). */
+/**
+ * Whether models run on WebGPU on an Imagination PowerVR GPU here (the Pixel
+ * 10's), in the main build: not where llama.cpp runs on the CPU (Firefox,
+ * which has no JSPI), whose batches aren't computed as the PowerVR shaders
+ * compute them.
+ */
 async function onPowerVR() {
-  if (options.gpu === false || needsCompat() || !("gpu" in navigator)) {
-    return false
-  }
-  try {
-    const adapter = await navigator.gpu.requestAdapter()
-    return adapter?.info.vendor === "img-tec"
-  } catch {
-    return false
-  }
+  if (needsCompat()) return false
+  const adapter = await webGpuAdapter()
+  return adapter?.info.vendor === "img-tec"
 }
 
 /** Whether to decode speculatively (see `RuntimeOptions.speculative`). */
