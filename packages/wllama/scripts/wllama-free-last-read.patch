@@ -1,0 +1,13 @@
+diff --git a/src/workers-code/llama-cpp.js b/src/workers-code/llama-cpp.js
+--- a/src/workers-code/llama-cpp.js
++++ b/src/workers-code/llama-cpp.js
+@@ -291,6 +291,9 @@
+     data = await pendingReadPromise;
+   } finally {
+     isAwaitReading = false;
++    // The settled promise holds the read's ArrayBuffer: dropping it lets the
++    // last read (often a whole tensor, hundreds of MB) be freed.
++    pendingReadPromise = null;
+     pendingReadResolve = null;
+     pendingReadReject = null;
+   }

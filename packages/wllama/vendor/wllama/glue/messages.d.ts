@@ -38,6 +38,7 @@ export interface GlueMsgLoadReq {
     kv_unified?: boolean | undefined;
     flash_attn?: boolean | undefined;
     swa_full?: boolean | undefined;
+    token_embd_gpu?: boolean | undefined;
     n_ctx_checkpoints?: number | undefined;
     checkpoint_min_step?: number | undefined;
     chat_template?: string | undefined;

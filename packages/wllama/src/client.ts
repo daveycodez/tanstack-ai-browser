@@ -502,6 +502,35 @@ async function gpuTopK() {
   return (await onPowerVR()) ? 128 : undefined
 }
 
+/**
+ * Whether to keep a tied token embedding on the GPU only (wllama's
+ * `token_embd_gpu`): on WebGPU, where llama.cpp otherwise holds the
+ * vocabulary table twice, the output head on the GPU and a copy for the
+ * embedding on the CPU (398 MB for Qwen3.5 2B, 205 MB for LFM3). wllama
+ * checks the file: only models with no separate `output.weight`. Not on
+ * PowerVR, where Q4_K and Q6_K weights are repacked for the matrix products
+ * as they're uploaded, and the embedding's row lookups read them as stored.
+ */
+async function tokenEmbdOnGpu(onGpu: boolean) {
+  return onGpu && !(await onPowerVR())
+}
+
+/**
+ * Contexts a CPU load falls back to, in turn, when the model's whole window
+ * doesn't fit: there llama.cpp's attention cache is in WebAssembly's memory,
+ * which wllama caps at 4 GB (Qwen3.5 2B's 262,144 tokens take 3 GB).
+ */
+const CPU_FALLBACK_CONTEXTS = [32_768, 8_192]
+
+/** Whether wllama failed to load the model or create its context. */
+function isContextLoadError(error: unknown) {
+  return (
+    error instanceof Error &&
+    (error as { type?: string }).type === "load_error" &&
+    error.message.startsWith("Failed to load the model or create its context")
+  )
+}
+
 async function startLoad(
   model: WllamaTextModel,
   wllama: Wllama,
@@ -515,12 +544,8 @@ async function startLoad(
   if (compat) useCompat(wllama, compat)
   const speculative = await useSpeculative()
   const topK = await gpuTopK()
-  // Saved slot states only restore into the same build and setup (speculative
-  // decoding keeps extra recurrent-state snapshots).
-  state = {
-    model,
-    build: `${BUILD_ID} ${compat?.wasm ?? mainWasmUrl()}${speculative ? " speculative" : ""} n_ctx ${contextLength ?? 0}`
-  }
+  const onGpu = await runsOnWebGpu()
+  const tokenEmbdGpu = await tokenEmbdOnGpu(onGpu)
   // A model already in storage loads from it, without the network.
   const saved = await wllama.modelManager.getModels()
   const cached = saved.some((m) => m.url === url)
@@ -544,35 +569,64 @@ async function startLoad(
     keepLoaded: keepLoaded.has(model),
     unload: unloadModel
   })
-  await wllama.loadModelFromUrl(url, {
-    // The caller's, else 0: llama.cpp's "the model's training context"
-    // (wllama's own default is 1,024 tokens, less than a system prompt with
-    // tools). llama.cpp reserves the attention cache for all of it now.
-    n_ctx: contextLength ?? 0,
-    // wllama's default otherwise: WebGPU where the browser has it.
-    ...(options.gpu === false && { n_gpu_layers: 0 }),
-    // The whole context in sliding-window layers' cache (LFM3's), not just
-    // the window, so a follow-up can reuse what was read before: otherwise
-    // LFM3 rereads the whole prompt after a tool call. +65 MB for LFM3;
-    // nothing for models without such layers.
-    swa_full: true,
-    ...(options.threads && { n_threads: options.threads }),
-    ...(speculative && SPECULATIVE),
-    ...(topK && { logits_topk: topK }),
-    signal,
-    progressCallback: ({ loaded: bytes, total }) => {
-      if (cached) return
-      // (0 until the server says the file's size.)
-      const totalBytes = total
-      status.set({
-        state: "loading",
-        progress: totalBytes ? Math.min(bytes / totalBytes, 1) : 0,
-        cached: false,
-        loadedBytes: bytes,
-        totalBytes
-      })
+  const loadOnce = (nCtx: number) =>
+    wllama.loadModelFromUrl(url, {
+      n_ctx: nCtx,
+      // wllama's default otherwise: WebGPU where the browser has it.
+      ...(options.gpu === false && { n_gpu_layers: 0 }),
+      // The whole context in sliding-window layers' cache (LFM3's), not just
+      // the window, so a follow-up can reuse what was read before: otherwise
+      // LFM3 rereads the whole prompt after a tool call. +65 MB for LFM3;
+      // nothing for models without such layers.
+      swa_full: true,
+      ...(options.threads && { n_threads: options.threads }),
+      ...(speculative && SPECULATIVE),
+      ...(topK && { logits_topk: topK }),
+      ...(tokenEmbdGpu && { token_embd_gpu: true }),
+      signal,
+      progressCallback: ({ loaded: bytes, total }) => {
+        if (cached) return
+        // (0 until the server says the file's size.)
+        const totalBytes = total
+        status.set({
+          state: "loading",
+          progress: totalBytes ? Math.min(bytes / totalBytes, 1) : 0,
+          cached: false,
+          loadedBytes: bytes,
+          totalBytes
+        })
+      }
+    })
+  // The caller's context, else 0: llama.cpp's "the model's training context"
+  // (wllama's own default is 1,024 tokens, less than a system prompt with
+  // tools). llama.cpp reserves the attention cache for all of it now. On the
+  // CPU with no context set, a load it doesn't fit in is retried smaller
+  // (CPU_FALLBACK_CONTEXTS); a context the caller set is never changed, and
+  // WebGPU keeps the model's own.
+  const contexts =
+    contextLength === undefined && !onGpu
+      ? [0, ...CPU_FALLBACK_CONTEXTS]
+      : [contextLength ?? 0]
+  for (const [attempt, nCtx] of contexts.entries()) {
+    // Saved slot states only restore into the same build and setup
+    // (speculative decoding keeps extra recurrent-state snapshots).
+    state = {
+      model,
+      build: `${BUILD_ID} ${compat?.wasm ?? mainWasmUrl()}${speculative ? " speculative" : ""} n_ctx ${nCtx}`
     }
-  })
+    try {
+      await loadOnce(nCtx)
+      break
+    } catch (error) {
+      const next = contexts[attempt + 1]
+      if (next === undefined || signal.aborted || !isContextLoadError(error)) {
+        throw error
+      }
+      console.warn(
+        `[wllama] ${meta.name} didn't fit in memory with ${nCtx ? `${count.format(nCtx)} tokens` : "its whole context"} on the CPU; loading it with ${count.format(next)}.`
+      )
+    }
+  }
   await restoreState(model, wllama)
   return wllama
 }
