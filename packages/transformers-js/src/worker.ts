@@ -1139,7 +1139,20 @@ async function loadRuntime(
         // WebKit releases destroyed buffers late, so a long reply climbed
         // past an iPhone's memory limit (on a Mac: 1,672 MB at 1,000 tokens
         // and climbing, against 1,137 MB and flat with bucket).
-        executionProviders: [device]
+        executionProviders: [device],
+        // On the GPU, no constant folding: LFM exports read the tied
+        // embedding's 4-bit weights into the output layer through a Reshape,
+        // and folding it copied the whole table into ONNX Runtime's
+        // WebAssembly memory (which never shrinks) and uploaded a second
+        // copy to the GPU. LFM3: 408 MB of WebAssembly memory and 131 MB of
+        // GPU memory, past an iPhone tab's 2 GB limit; LFM2-1.2B-Tool:
+        // 819 MB. Without it: 17 MB, the same replies and speed, and a load
+        // from disk in 1.5 s instead of 21 on a Mac.
+        ...(device === "webgpu" && {
+          extra: {
+            "optimization.disable_specified_optimizers": "ConstantFolding"
+          }
+        })
       }
     })
     return {
