@@ -11,12 +11,12 @@ import { setting } from "#/lib/settings"
 import {
   DEFAULT_MODEL,
   hasWebGpuNow,
-  isApplePlatform,
+  isMacOS,
   offered,
   useHasBuiltInModel,
   useHasWebGl2,
   useHasWebGpu,
-  useIsApplePlatform
+  useIsMacOS
 } from "./models"
 import type { ModelId } from "./models"
 
@@ -31,14 +31,14 @@ const effortSetting = setting("effort", "high")
 
 /** The picked model, if this device can run it, else the default for it. */
 export const selectedModel = () =>
-  offered(modelSetting.get(), isApplePlatform(), hasWebGpuNow())
+  offered(modelSetting.get(), isMacOS(), hasWebGpuNow())
 
 export const useSelectedModel = () => {
   // The built-in model and the WebGL models are offered once the browser's
   // checks are back.
   useHasBuiltInModel()
   useHasWebGl2()
-  return offered(modelSetting.use(), useIsApplePlatform(), useHasWebGpu())
+  return offered(modelSetting.use(), useIsMacOS(), useHasWebGpu())
 }
 
 export const setSelectedModel = (id: ModelId) => modelSetting.set(id)

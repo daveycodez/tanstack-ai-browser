@@ -322,14 +322,18 @@ export const modelInfo = (id: ModelId) =>
 export const isModelId = (value: unknown): value is ModelId =>
   MODELS.some((m) => m.id === value)
 
-/** Apple's model only exists on macOS and iOS (iPadOS reports itself as a Mac). */
-export const isApplePlatform = () =>
+/**
+ * Apple's model is reached through apfel, a server on the Mac: macOS only.
+ * iPadOS reports itself as a Mac too, so a touch screen rules it out.
+ */
+export const isMacOS = () =>
   typeof navigator !== "undefined" &&
-  /Mac|iPhone|iPad|iPod/.test(navigator.userAgent)
+  /Macintosh/.test(navigator.userAgent) &&
+  navigator.maxTouchPoints <= 1
 
 const noopSubscribe = () => () => undefined
-export const useIsApplePlatform = () =>
-  useSyncExternalStore(noopSubscribe, isApplePlatform, () => false)
+export const useIsMacOS = () =>
+  useSyncExternalStore(noopSubscribe, isMacOS, () => false)
 
 /**
  * Whether models run on WebGPU here. Until the GPU check is back, what
@@ -401,12 +405,12 @@ export const useHasBuiltInModel = () =>
   useSyncExternalStore(builtIn.subscribe, builtIn.get, () => false)
 
 /**
- * What this device can run: Apple's model on Apple devices, CPU models
+ * What this device can run: Apple's model on macOS, CPU models
  * without WebGPU, the built-in model where the browser has one.
  */
-const canRun = (id: ModelId, isApple: boolean, hasGpu: boolean) =>
+const canRun = (id: ModelId, isMac: boolean, hasGpu: boolean) =>
   isModelId(id) &&
-  (id !== "apple-fm" || isApple) &&
+  (id !== "apple-fm" || isMac) &&
   (id !== "built-in" || builtIn.get()) &&
   (modelInfo(id).adapter.name !== "webgl" || webGl2.get()) &&
   (hasGpu || !modelInfo(id).needsWebGpu)
@@ -417,12 +421,12 @@ const canRun = (id: ModelId, isApple: boolean, hasGpu: boolean) =>
  */
 export const offered = (
   id: ModelId,
-  isApple: boolean,
+  isMac: boolean,
   hasGpu: boolean
 ): ModelId =>
-  canRun(id, isApple, hasGpu)
+  canRun(id, isMac, hasGpu)
     ? id
-    : canRun(DEFAULT_MODEL, isApple, hasGpu)
+    : canRun(DEFAULT_MODEL, isMac, hasGpu)
       ? DEFAULT_MODEL
       : hasGpu
         ? DEFAULT_GPU_MODEL
@@ -430,11 +434,11 @@ export const offered = (
 
 /** Models to offer in the picker on this device. */
 export function useModels() {
-  const isApple = useIsApplePlatform()
+  const isMac = useIsMacOS()
   const hasGpu = useHasWebGpu()
   useHasBuiltInModel()
   useHasWebGl2()
-  return MODELS.filter((m) => canRun(m.id, isApple, hasGpu))
+  return MODELS.filter((m) => canRun(m.id, isMac, hasGpu))
 }
 
 const IDLE = createStore<ModelStatus>({ state: "idle" })

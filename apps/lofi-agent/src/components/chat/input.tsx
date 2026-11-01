@@ -153,7 +153,13 @@ function ChatModelSelector() {
   const sections = PROVIDERS.map((provider) => ({
     ...provider,
     detail: backends[provider.id],
-    models: models.filter((m) => m.adapter.name === provider.id)
+    // Alphabetical by name (the repo name, as written), ignoring case.
+    models: models
+      .filter((m) => m.adapter.name === provider.id)
+      .sort((a, b) => {
+        const [x, y] = [a.name.toLowerCase(), b.name.toLowerCase()]
+        return x < y ? -1 : x > y ? 1 : 0
+      })
   })).filter((section) => section.models.length > 0)
   // Counts picks, so a slow Apple check can't undo a newer choice.
   const lastPick = useRef(0)
