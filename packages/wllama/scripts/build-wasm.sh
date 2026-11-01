@@ -29,6 +29,25 @@
 # - Faster model loading: llama.cpp reads tensors in file order
 #   (llama-cpp-load-in-file-order.patch) and wllama reads ahead 64 MB blocks
 #   (wllama-fast-load.patch).
+# - Less memory once loaded, and while loading. The worker kept the last
+#   file read's ArrayBuffer (the CPU token embedding, 398 MB for Qwen3.5 2B)
+#   in a settled promise for the model's whole life; it drops it now
+#   (wllama-free-last-read.patch). Without mmap, llama.cpp staged each GPU
+#   tensor through a buffer as big as the tensor, biggest first: the 398 MB
+#   output head left a hole in the heap, and nearly every read missed the
+#   64 MB read-ahead block (Qwen's 1.28 GB file was read 11.5 GB over). GPU
+#   tensors now go through one 16 MB buffer, in file order
+#   (llama-cpp-load-in-pieces.patch), except on devices that need their
+#   tensors set whole: WebGPU on PowerVR, which repacks Q4_K and Q6_K
+#   tensors only when they're set whole, loads exactly as before. And with
+#   tied embeddings (no output.weight), the token_embd_gpu load option
+#   (wllama-token-embd-gpu.patch) keeps the token embedding on the GPU,
+#   where the output head is the same tensor, instead of a second copy on the
+#   CPU; not on PowerVR, nor where the GPU can't look rows up in it. Qwen3.5
+#   2B on WebGPU in Chrome on an M3 Ultra (8,192 tokens): page memory 1.94 GB
+#   -> 0.45 GB loaded, 3.65 -> 0.55 GB at most while loading, load 5.4 ->
+#   about 2 s; LFM3 1.7B 1.16 -> 0.47 GB, 1.99 -> 0.55 GB, 4.2 -> 1.5-1.8 s.
+#   The same tokens, greedy.
 # - Slot state save and restore (wllama-slot-state.patch, wllama issue
 #   #298): Wllama.saveSlotState() and restoreSlotState(), llama-server's own
 #   slot save and restore, so the client can keep what the model has read
@@ -156,6 +175,13 @@ git -C "$WORK/wllama" apply "$HERE/wllama-speculative.patch"
 # Downloads resume after a dropped connection or a file the browser closed.
 git -C "$WORK/wllama" apply "$HERE/wllama-resumable-download.patch"
 git -C "$WORK/wllama" apply "$HERE/wllama-logits-topk.patch"
+# A load whose context llama.cpp couldn't create (too little memory for the
+# KV cache) fails with an error, instead of aborting at the first request.
+git -C "$WORK/wllama" apply "$HERE/wllama-load-failure.patch"
+# The worker lets go of the last file read once it's copied in.
+git -C "$WORK/wllama" apply "$HERE/wllama-free-last-read.patch"
+# A tied token embedding on the GPU only (token_embd_gpu).
+git -C "$WORK/wllama" apply "$HERE/wllama-token-embd-gpu.patch"
 LLAMA="$WORK/wllama/llama.cpp"
 git -C "$LLAMA" init -q
 git -C "$LLAMA" fetch -q --depth 1 https://github.com/ggml-org/llama.cpp.git "$LLAMA_CPP_COMMIT"
@@ -173,6 +199,8 @@ git -C "$LLAMA" apply "$HERE/llama-cpp-webgpu-subgroup-id.patch"
 git -C "$LLAMA" apply "$HERE/llama-cpp-webgpu-powervr.patch"
 # Sampling from the logits' top k, read back instead of all of them (logits_topk).
 git -C "$LLAMA" apply "$HERE/llama-cpp-logits-topk.patch"
+# GPU tensors staged in 16 MB pieces and read in file order (whole on PowerVR).
+git -C "$LLAMA" apply "$HERE/llama-cpp-load-in-pieces.patch"
 
 # Emscripten, at the version wllama builds with.
 EMSDK_DIR="${EMSDK_DIR:-$WORK/emsdk}"

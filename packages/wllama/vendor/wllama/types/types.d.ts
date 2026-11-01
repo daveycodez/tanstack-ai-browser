@@ -23,6 +23,14 @@ export interface LoadModelParams {
     cache_type_v?: 'f32' | 'f16' | 'q8_0' | 'q5_1' | 'q5_0' | 'q4_1' | 'q4_0';
     flash_attn?: boolean;
     swa_full?: boolean;
+    /**
+     * When the model's output head is its token embedding (tied: the file has
+     * no `output.weight`) and the model runs on a GPU that looks rows up in it,
+     * keep that one tensor on the GPU only, instead of a second copy for the
+     * embedding on the CPU: hundreds of MB less memory for large vocabularies.
+     * Not on GPUs whose tensors are only uploaded whole (WebGPU on PowerVR).
+     */
+    token_embd_gpu?: boolean;
     chat_template?: string;
     jinja?: boolean;
     reasoning?: boolean;
