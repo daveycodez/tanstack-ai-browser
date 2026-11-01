@@ -871,12 +871,16 @@ async function downloadFile(
 ) {
   const files = weightsFile(modelId, name)
   if (await hasFile(dir, files.done)) return
-  const fileHandle = await dir.getFileHandle(files.file, { create: true })
-  let handle = await openSync(fileHandle)
+  let handle = await openSync(
+    await dir.getFileHandle(files.file, { create: true })
+  )
   /**
    * The bytes on disk, through a new handle if the browser closed this one
    * (Safari can, mid-download): retries would otherwise write to the closed
-   * one and fail at once.
+   * one and fail at once. The file is looked up again from the storage root,
+   * and made again if it's gone: iPhone Safari sometimes deletes a site's
+   * whole storage a few seconds into a page (WebsiteDataStore::removeData in
+   * the device log), and the download then starts over.
    */
   const onDisk = async () => {
     try {
@@ -887,7 +891,10 @@ async function downloadFile(
       } catch {
         // Already closed.
       }
-      handle = await openSync(fileHandle)
+      dir = await navigator.storage.getDirectory()
+      handle = await openSync(
+        await dir.getFileHandle(files.file, { create: true })
+      )
       return handle.getSize()
     }
   }
