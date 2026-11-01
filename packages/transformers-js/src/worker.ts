@@ -817,9 +817,26 @@ async function downloadFile(
 ) {
   const files = weightsFile(modelId, name)
   if (await hasFile(dir, files.done)) return
-  const handle = await openSync(
-    await dir.getFileHandle(files.file, { create: true })
-  )
+  const fileHandle = await dir.getFileHandle(files.file, { create: true })
+  let handle = await openSync(fileHandle)
+  /**
+   * The bytes on disk, through a new handle if the browser closed this one
+   * (Safari can, mid-download): retries would otherwise write to the closed
+   * one and fail at once.
+   */
+  const onDisk = async () => {
+    try {
+      return handle.getSize()
+    } catch {
+      try {
+        handle.close()
+      } catch {
+        // Already closed.
+      }
+      handle = await openSync(fileHandle)
+      return handle.getSize()
+    }
+  }
   let written = handle.getSize()
   if (size && written > size) {
     handle.truncate(0)
@@ -838,7 +855,11 @@ async function downloadFile(
   }
   try {
     let nextLog = written + size / 10
-    for (let attempt = 1; !size || written < size; attempt++) {
+    // Failures in a row with no bytes gained: a retry that made progress
+    // starts the count over.
+    let attempt = 1
+    while (!size || written < size) {
+      const start = written
       try {
         const res = await fetchWithoutReferrer(
           files.url,
@@ -855,22 +876,34 @@ async function downloadFile(
           written = 0
         }
         const reader = res.body.getReader()
-        for (;;) {
-          const { done, value } = await reader.read()
-          if (done) break
-          written += handle.write(value, { at: written })
-          onWritten(written)
-          if (size && written >= nextLog && written < size) {
-            logSpeed(`${Math.round((written / size) * 100)}%`)
-            nextLog += size / 10
+        try {
+          for (;;) {
+            const { done, value } = await reader.read()
+            if (done) break
+            written += handle.write(value, { at: written })
+            onWritten(written)
+            if (size && written >= nextLog && written < size) {
+              logSpeed(`${Math.round((written / size) * 100)}%`)
+              nextLog += size / 10
+            }
           }
+        } catch (error) {
+          // (A write failed: stop the response rather than let it run on.)
+          reader.cancel().catch(() => undefined)
+          throw error
         }
         if (!size) break
       } catch (error) {
-        if (error instanceof HttpError || attempt >= DOWNLOAD_ATTEMPTS) {
-          throw error
+        if (error instanceof HttpError) throw error
+        // Go on from what's on disk (a new handle if this one was closed).
+        try {
+          written = await onDisk()
+        } catch {
+          // Reopening failed too: counted as a failed try.
         }
-        logSpeed(`interrupted (${errorMessage(error)}), try ${attempt + 1}`)
+        attempt = written > start ? 1 : attempt + 1
+        if (attempt > DOWNLOAD_ATTEMPTS) throw error
+        logSpeed(`interrupted (${errorMessage(error)}), try ${attempt}`)
         await new Promise((resolve) => setTimeout(resolve, 1000 * 2 ** attempt))
       }
     }

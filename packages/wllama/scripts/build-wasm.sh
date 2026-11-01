@@ -77,6 +77,12 @@
 #   start (llama-cpp-lfm2-message-spans.patch). LFM2 and LFM2.5 can't roll
 #   their memory back, so without a checkpoint there a new chat rereads the
 #   system prompt and tools.
+# - Downloads that resume (wllama-resumable-download.patch): wllama's OPFS
+#   worker fetched a model in one go and failed on any interruption, starting
+#   from zero next time. It now retries, asking for the missing bytes only,
+#   through a new file handle if the browser closed the old one (Safari can,
+#   mid-download), and gives up after 6 tries in a row with no progress.
+#   Upstream: https://github.com/ngxson/wllama/pull/301.
 #
 # The builds are otherwise wllama's own (scripts/docker-compose.yml): the
 # same Emscripten, Dawn and CMake options. The JavaScript is wllama's own
@@ -108,6 +114,8 @@ git -C "$WORK/wllama" apply "$HERE/wllama-fast-load.patch"
 git -C "$WORK/wllama" apply "$HERE/wllama-slot-state.patch"
 git -C "$WORK/wllama" apply "$HERE/wllama-message-spans.patch"
 git -C "$WORK/wllama" apply "$HERE/wllama-speculative.patch"
+# Downloads resume after a dropped connection or a file the browser closed.
+git -C "$WORK/wllama" apply "$HERE/wllama-resumable-download.patch"
 LLAMA="$WORK/wllama/llama.cpp"
 git -C "$LLAMA" init -q
 git -C "$LLAMA" fetch -q --depth 1 https://github.com/ggml-org/llama.cpp.git "$LLAMA_CPP_COMMIT"
