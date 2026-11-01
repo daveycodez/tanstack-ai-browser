@@ -55,12 +55,22 @@
 #   1 to 8 tokens at once, each token's arithmetic exactly the one-token
 #   product's (so a speculative batch gives the text decoding one token at a
 #   time gives), written out per token and summed with subgroup shuffles; the
-#   FFN's gate, up and SwiGLU, a product and the residual add after it, and a
-#   norm and the copy of its output for the next product each run as one
-#   dispatch (about 30% fewer per token). 350M Q4_K_M on the Pixel: prompt 40
-#   -> 700 tokens/s (810 for 3,000 tokens), generation 2.5 -> 26 tokens/s, and
-#   up to 62 with speculative decoding where the reply repeats the prompt.
-#   Other GPUs run the code as before.
+#   FFN's gate, up and SwiGLU, a product and the residual add after it, a
+#   norm and the copy of its output for the next product, and (LFM3) a
+#   post-norm, the residual add and the next norm each run as one dispatch.
+#   Q4_K and Q6_K matrices are repacked as they are uploaded, in place (the
+#   same bytes moved, so no more memory): block b of row r goes to b * rows +
+#   r, so that neighbouring rows' blocks are neighbours, and each part of a
+#   block (Q4_K header and quants; Q6_K ql, qh, scales and d) sits in a plane
+#   of its own, every load aligned. The values read, and so every product, are
+#   the original layout's (checked bit for bit against the previous shaders),
+#   and reading a tensor back gives the original layout. The logits are read
+#   back without a queue wait first (the read waits for the work anyway: one
+#   wait less per token), and each graph's first command buffer is submitted
+#   after 4 dispatches. 350M Q4_K_M on the Pixel: prompt 40 -> 700 tokens/s
+#   (810 for 3,000 tokens), generation 2.5 -> 36 tokens/s (26 before the
+#   repacking), and up to 68 with speculative decoding where the reply
+#   repeats the prompt. Other GPUs run the code as before.
 # - Speculative decoding without a draft model (llama-server's n-gram
 #   drafters) as load options (wllama-speculative.patch: spec_type and
 #   spec_ngram_*), and in llama.cpp's ngram-simple, shorter n-grams down to
