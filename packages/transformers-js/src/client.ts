@@ -61,7 +61,11 @@ type Pending = {
   reject: (error: Error) => void
 }
 /** The model the worker holds (or is loading), and its load promise. */
-let loaded: { modelId: string; load: Pending } | null = null
+let loaded: {
+  modelId: string
+  contextLength: number | undefined
+  load: Pending
+} | null = null
 
 let worker: Worker | null = null
 let debug = false
@@ -171,13 +175,18 @@ export function hasWebGpu(): Promise<boolean> {
  * Loads a model (downloading it the first time), replacing any other: a
  * listed model at its pinned revision, or any Hugging Face id. Without
  * WebGPU the worker loads its q4 weights on the CPU instead of `dtype`.
+ * Chats may hold up to `contextLength` tokens: the model's own context
+ * window by default. A different context length loads the model again.
  */
 export function loadModel(
   model: string,
-  dtype: WeightsDtype = modelMeta(model)?.dtype ?? "q4f16"
+  dtype: WeightsDtype = modelMeta(model)?.dtype ?? "q4f16",
+  contextLength: number | undefined = modelMeta(model)?.context
 ): Promise<void> {
   const modelId = runtimeModelId(model)
-  if (loaded?.modelId === modelId) return loaded.load.promise
+  if (loaded?.modelId === modelId && loaded.contextLength === contextLength) {
+    return loaded.load.promise
+  }
   if (loaded) {
     // The worker frees the previous model before loading this one.
     modelStatus(loaded.modelId).set({ state: "idle" })
@@ -190,10 +199,15 @@ export function loadModel(
     reject = rej
   })
   promise.catch(() => undefined)
-  loaded = { modelId, load: { promise, resolve, reject } }
+  loaded = { modelId, contextLength, load: { promise, resolve, reject } }
   // The worker reports whether this is a download or a cached load.
   modelStatus(modelId).set({ state: "loading", progress: 0, cached: true })
-  post({ type: "load", modelId, dtype })
+  post({
+    type: "load",
+    modelId,
+    dtype,
+    ...(contextLength !== undefined && { contextLength })
+  })
   return promise
 }
 
@@ -211,7 +225,7 @@ export async function* generate(request: {
   thinking?: boolean
   sampling: Sampling
   maxTokens?: number
-  contextLength: number
+  contextLength?: number
   thinkingOpen: string
   signal?: AbortSignal
 }): AsyncGenerator<string, GenerationEnd> {
@@ -242,7 +256,9 @@ export async function* generate(request: {
     ...(request.thinking !== undefined && { thinking: request.thinking }),
     sampling: request.sampling,
     ...(request.maxTokens !== undefined && { maxTokens: request.maxTokens }),
-    contextLength: request.contextLength,
+    ...(request.contextLength !== undefined && {
+      contextLength: request.contextLength
+    }),
     thinkingOpen: request.thinkingOpen
   })
   try {

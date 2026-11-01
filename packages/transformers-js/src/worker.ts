@@ -18,7 +18,7 @@ import type {
   WorkerRequest,
   WorkerResponse
 } from "./protocol.js"
-import { chunkLargeMatMulNBits } from "./onnx-graph.js"
+import { chunkLargeMatMulNBits, trimRotaryTables } from "./onnx-graph.js"
 
 /**
  * Diagnostics (memory and cache logs, error stacks) when the page started
@@ -93,7 +93,7 @@ async function importTransformers(device: Device) {
   try {
     const tf = (await import(/* @vite-ignore */ url)) as TransformersModule
     // The same module instance Transformers.js imported.
-    if (device === "wasm") chunkModels(await import(/* @vite-ignore */ ortModule))
+    editModels(await import(/* @vite-ignore */ ortModule))
     return tf
   } finally {
     URL.revokeObjectURL(url)
@@ -111,22 +111,35 @@ async function importTransformers(device: Device) {
  */
 const CPU_MATMUL_BYTES = 64 * 1024 * 1024
 
-/** Has ONNX Runtime create sessions from models with large multiplies split. */
-function chunkModels(ort: {
+/** The edits for the model being loaded, set before its sessions are created. */
+let modelEdits: { chunkMatMuls: boolean; positions: number } | null = null
+
+/**
+ * Has ONNX Runtime create sessions from edited models: rotary tables cut to
+ * the context the model is loaded for, and on the CPU, large multiplies
+ * split (see CPU_MATMUL_BYTES).
+ */
+function editModels(ort: {
   InferenceSession: { create: (model: unknown, ...rest: Array<unknown>) => unknown }
 }) {
   const session = ort.InferenceSession
   const create = session.create.bind(session)
   session.create = (model, ...rest) => {
-    if (model instanceof Uint8Array) {
-      const chunked = chunkLargeMatMulNBits(model, CPU_MATMUL_BYTES)
-      if (chunked) {
-        if (DEBUG)
-          ctx.postMessage({ type: "log", text: "[model] large matrix multiplies split for the CPU" })
-        return create(chunked, ...rest)
-      }
+    if (!(model instanceof Uint8Array) || !modelEdits) return create(model, ...rest)
+    let edited = model
+    const trimmed = trimRotaryTables(edited, modelEdits.positions)
+    if (trimmed) edited = trimmed
+    const chunked = modelEdits.chunkMatMuls
+      ? chunkLargeMatMulNBits(edited, CPU_MATMUL_BYTES)
+      : null
+    if (chunked) edited = chunked
+    if (DEBUG && (trimmed || chunked)) {
+      ctx.postMessage({
+        type: "log",
+        text: `[model]${trimmed ? ` rotary tables cut to ${modelEdits.positions.toLocaleString("en-US")} positions;` : ""}${chunked ? " large matrix multiplies split for the CPU" : ""}`
+      })
     }
-    return create(model, ...rest)
+    return create(edited, ...rest)
   }
 }
 
@@ -180,12 +193,18 @@ type ModelClass = {
     options: Record<string, unknown>
   ) => Promise<Model>
 }
+/** The parts of a model's config.json read here. */
+type ModelConfig = {
+  architectures?: Array<string>
+  max_position_embeddings?: number
+  text_config?: { max_position_embeddings?: number }
+}
 type TransformersModule = Record<string, unknown> & {
   AutoConfig: {
     from_pretrained: (
       id: string,
       options?: Record<string, unknown>
-    ) => Promise<{ architectures?: Array<string> }>
+    ) => Promise<ModelConfig>
   }
   AutoTokenizer: {
     from_pretrained: (
@@ -270,6 +289,8 @@ type Runtime = {
   device: Device
   /** The weights loaded: q4 on the CPU, whatever was asked for on the GPU. */
   dtype: WeightsDtype
+  /** Tokens a chat may hold: what the model was loaded for. */
+  contextLength: number
 }
 
 /**
@@ -1104,12 +1125,30 @@ async function modelClass(
 let current: {
   modelId: string
   dtype: WeightsDtype
+  contextLength: number | undefined
   runtime: Promise<Runtime>
 } | null = null
 
+/** Tokens a chat may hold when neither the caller nor the config says. */
+const FALLBACK_CONTEXT = 8192
+
+/**
+ * Tokens a chat may hold: what was asked for, at most the model's own
+ * context window (its config's max_position_embeddings), which is also the
+ * default.
+ */
+function contextFor(config: ModelConfig, requested: number | undefined) {
+  const own =
+    config.max_position_embeddings ??
+    config.text_config?.max_position_embeddings
+  const wanted = requested ?? own ?? FALLBACK_CONTEXT
+  return own ? Math.min(wanted, own) : wanted
+}
+
 async function loadRuntime(
   modelId: string,
-  requested: WeightsDtype
+  requested: WeightsDtype,
+  requestedContext: number | undefined
 ): Promise<Runtime> {
   const device = await pickDevice()
   // The CPU kernels want float32 activations: q4 weights.
@@ -1156,6 +1195,8 @@ async function loadRuntime(
     ).catch(() => null)
   }
   const { Model, config } = await modelClass(tf, repo, revision, weights)
+  const contextLength = contextFor(config, requestedContext)
+  modelEdits = { chunkMatMuls: device === "wasm", positions: contextLength }
   const opened: Array<Awaited<ReturnType<typeof openWeights>>> = []
   try {
     for (const { name } of weights)
@@ -1200,16 +1241,31 @@ async function loadRuntime(
       model,
       endTokens: endTokens(tokenizer, model),
       device,
-      dtype
+      dtype,
+      contextLength
     }
   } finally {
+    modelEdits = null
     for (const weightsData of opened) weightsData.close()
   }
 }
 
-/** Loads `modelId`, freeing whichever model was loaded before. */
-function load(modelId: string, dtype: WeightsDtype) {
-  if (current?.modelId === modelId && current.dtype === dtype) {
+/**
+ * Loads `modelId` for chats of up to `contextLength` tokens (the model's
+ * own context window by default), freeing whichever model was loaded
+ * before. A different context length loads the model again: its rotary
+ * tables are cut to it.
+ */
+function load(
+  modelId: string,
+  dtype: WeightsDtype,
+  contextLength: number | undefined
+) {
+  if (
+    current?.modelId === modelId &&
+    current.dtype === dtype &&
+    current.contextLength === contextLength
+  ) {
     return current.runtime
   }
   const previous = current?.runtime
@@ -1218,9 +1274,9 @@ function load(modelId: string, dtype: WeightsDtype) {
     await discardSaved()
     await previous?.then((r) => r.model.dispose()).catch(() => undefined)
     void removeOldCopies(modelId)
-    return loadRuntime(modelId, dtype)
+    return loadRuntime(modelId, dtype, contextLength)
   })()
-  current = { modelId, dtype, runtime }
+  current = { modelId, dtype, contextLength, runtime }
   runtime.then(
     () => {
       logMemory(`loaded ${modelId}`)
@@ -2114,15 +2170,20 @@ async function generate(
   thinking: boolean | undefined,
   sampling: Sampling,
   maxTokens: number | undefined,
-  contextLength: number,
+  requestedContext: number | undefined,
   thinkingOpen: string
 ): Promise<RunTimings> {
   // Time to first token counts from here: it includes reading the prompt.
   const requested = performance.now()
   if (!current) throw new Error("No model loaded.")
   const loaded = current
-  const { tf, tokenizer, model, endTokens, device, dtype } =
+  const { tf, tokenizer, model, endTokens, device, dtype, ...runtime } =
     await loaded.runtime
+  // Never past what the model was loaded for (its rotary tables end there).
+  const contextLength = Math.min(
+    requestedContext ?? runtime.contextLength,
+    runtime.contextLength
+  )
   // The model's caches, in memory and on disk, are by model and the dtype
   // loaded: the dtype decides the cache's tensor types (float16 on the GPU,
   // float32 on the CPU).
@@ -2334,7 +2395,7 @@ const errorMessage = (error: unknown) =>
 
 ctx.onmessage = ({ data }) => {
   if (data.type === "load") {
-    load(data.modelId, data.dtype).catch(() => undefined)
+    load(data.modelId, data.dtype, data.contextLength).catch(() => undefined)
   } else if (data.type === "generate") {
     generate(
       data.id,

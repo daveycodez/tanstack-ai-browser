@@ -90,6 +90,21 @@ export type ModelStatusStore = {
   subscribe: (listener: () => void) => () => void
 }
 
+/** iPhone and iPad (iPadOS reports itself as a Mac, with a touch screen). */
+const isIos = () =>
+  typeof navigator !== "undefined" &&
+  (/iPhone|iPad|iPod/.test(navigator.userAgent) ||
+    (/Macintosh/.test(navigator.userAgent) && navigator.maxTouchPoints > 1))
+
+/**
+ * Tokens a Transformers.js chat may hold on iOS. The package defaults to
+ * each model's whole context window; iPhone Safari keeps LFM chats to
+ * 8,192 (past it, ONNX Runtime moves their attention memory to buffers too
+ * large for a tab), and the smaller context also cuts the models' rotary
+ * tables when they load.
+ */
+const IOS_CONTEXT = 8192
+
 /** A Transformers.js model of the package's list, in the picker. */
 const local = (
   id: ModelId,
@@ -99,7 +114,10 @@ const local = (
   id,
   name,
   icon: model.includes("gemma") ? "/icons/gemma.svg" : "/icons/liquid.svg",
-  adapter: transformersJsText(model, { debug: import.meta.env.DEV }),
+  adapter: transformersJsText(model, {
+    debug: import.meta.env.DEV,
+    ...(isIos() && { contextLength: IOS_CONTEXT })
+  }),
   /** Its download and loading progress. */
   status: modelStatus(model) as ModelStatusStore | null,
   /** No CPU weights: it can't run where there's no WebGPU. */

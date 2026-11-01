@@ -1,6 +1,6 @@
 import assert from "node:assert/strict"
 import { describe, test } from "node:test"
-import { chunkLargeMatMulNBits } from "./onnx-graph.js"
+import { chunkLargeMatMulNBits, trimRotaryTables } from "./onnx-graph.js"
 
 /* A minimal protobuf writer and reader for building and checking models. */
 const text = new TextEncoder()
@@ -196,5 +196,92 @@ describe("chunkLargeMatMulNBits", () => {
       patched.filter((f) => f.field !== 7),
       original.filter((f) => f.field !== 7)
     )
+  })
+})
+
+/** A tensor: dims, data type, name, and inline bytes or an external file range. */
+const table = (
+  name: string,
+  dims: Array<number>,
+  type: number,
+  data: { raw: Uint8Array } | { offset: number; length: number }
+) =>
+  join(
+    ...dims.map((d) => int(1, d)),
+    int(2, type),
+    bytes(8, name),
+    ...("raw" in data
+      ? [bytes(9, data.raw)]
+      : [
+          bytes(13, join(bytes(1, "location"), bytes(2, "weights.onnx_data"))),
+          bytes(13, join(bytes(1, "offset"), bytes(2, String(data.offset)))),
+          bytes(13, join(bytes(1, "length"), bytes(2, String(data.length)))),
+          int(14, 1)
+        ])
+  )
+
+/** A model with a GroupQueryAttention reading cos and sin tables (inputs 7, 8). */
+function attentionModel(cos: Uint8Array, sin: Uint8Array, alsoRead?: string) {
+  const inputs = ["q", "k", "v", "pk", "pv", "seqlens", "total", "cos", "sin"]
+  const graph = join(
+    bytes(1, nodeProto("GroupQueryAttention", inputs, ["out"], "attn", [], "com.microsoft")),
+    ...(alsoRead ? [bytes(1, nodeProto("Identity", [alsoRead], ["copy"], "other"))] : []),
+    bytes(5, cos),
+    bytes(5, sin)
+  )
+  return join(int(1, 10), bytes(7, graph))
+}
+
+function tablesOf(model: Uint8Array) {
+  const graph = read(read(model).find((f) => f.field === 7)?.body ?? new Uint8Array())
+  return graph
+    .filter((f) => f.field === 5)
+    .map((f) => {
+      const t = read(f.body)
+      return {
+        name: texts(t, 8)[0],
+        dims: t.filter((x) => x.field === 1).map((x) => Number(x.value)),
+        raw: t.find((x) => x.field === 9)?.body,
+        external: Object.fromEntries(
+          t.filter((x) => x.field === 13).map((x) => texts(read(x.body), 1).concat(texts(read(x.body), 2)))
+        )
+      }
+    })
+}
+
+describe("trimRotaryTables", () => {
+  test("cuts external tables to the first rows: same offset, shorter length", () => {
+    // float16 [1000, 32]: 64 bytes a row.
+    const model = attentionModel(
+      table("cos", [1000, 32], 10, { offset: 4096, length: 64_000 }),
+      table("sin", [1000, 32], 10, { offset: 68_096, length: 64_000 })
+    )
+    const trimmed = trimRotaryTables(model, 100)
+    assert.ok(trimmed)
+    assert.deepEqual(tablesOf(trimmed), [
+      { name: "cos", dims: [100, 32], raw: undefined, external: { location: "weights.onnx_data", offset: "4096", length: "6400" } },
+      { name: "sin", dims: [100, 32], raw: undefined, external: { location: "weights.onnx_data", offset: "68096", length: "6400" } }
+    ])
+  })
+
+  test("cuts inline float32 tables to their first rows", () => {
+    const raw = Uint8Array.from({ length: 10 * 8 * 4 }, (_, i) => i & 255)
+    const model = attentionModel(
+      table("cos", [10, 8], 1, { raw }),
+      table("sin", [10, 8], 1, { raw })
+    )
+    const [cos] = tablesOf(trimRotaryTables(model, 3) as Uint8Array)
+    assert.deepEqual(cos.dims, [3, 8])
+    assert.deepEqual(cos.raw, raw.subarray(0, 3 * 8 * 4))
+  })
+
+  test("leaves tables that another op reads, or that are short enough", () => {
+    const cos = table("cos", [1000, 32], 10, { offset: 0, length: 64_000 })
+    const sin = table("sin", [1000, 32], 10, { offset: 64_000, length: 64_000 })
+    const sharedOnly = trimRotaryTables(attentionModel(cos, sin, "cos"), 100)
+    assert.ok(sharedOnly)
+    assert.deepEqual(tablesOf(sharedOnly).map((t) => t.dims), [[1000, 32], [100, 32]])
+    assert.equal(trimRotaryTables(attentionModel(cos, sin), 1000), null)
+    assert.equal(trimRotaryTables(model(10, 64), 100), null)
   })
 })

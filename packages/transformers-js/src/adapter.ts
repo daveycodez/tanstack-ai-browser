@@ -53,8 +53,11 @@ export type TransformersJsTextConfig = {
    */
   toolFormat?: ToolFormat
   /**
-   * Tokens a chat may hold, prompt and reply together: a listed model's own
-   * by default, else 8,192 (the most iPhone Safari allows for LFM3).
+   * Tokens a chat may hold, prompt and reply together: the model's whole
+   * context window by default (from its config). Less saves memory: the
+   * model's rotary tables are cut to it when it loads. On an iPhone, LFM
+   * models need 8,192 at most: past it, ONNX Runtime's buffer cache moves
+   * their attention memory to buffers larger than iPhone Safari allows.
    */
   contextLength?: number
   /**
@@ -65,9 +68,6 @@ export type TransformersJsTextConfig = {
   /** Memory and cache logs from the worker, in the console. */
   debug?: boolean
 }
-
-/** Tokens a chat may hold for a model this package doesn't list. */
-const DEFAULT_CONTEXT = 8192
 
 /** The config a model takes: any other model than a listed one names its tool format. */
 export type TransformersJsTextConfigFor<TModel extends string> =
@@ -297,7 +297,7 @@ export class TransformersJsTextAdapter<
   override readonly api = "transformers-js" as const
   override readonly inputModalities = ["text"] as const
   private readonly toolFormat: ToolFormat
-  private readonly contextLength: number
+  private readonly contextLength: number | undefined
   private readonly dtype: WeightsDtype
 
   constructor(config: TransformersJsTextConfig, model: TModel) {
@@ -309,8 +309,8 @@ export class TransformersJsTextAdapter<
       )
     }
     this.toolFormat = toolFormat
-    this.contextLength =
-      config.contextLength ?? modelMeta(model)?.context ?? DEFAULT_CONTEXT
+    // Left out, the worker uses the model's own context window.
+    this.contextLength = config.contextLength ?? modelMeta(model)?.context
     this.dtype = config.dtype ?? modelMeta(model)?.dtype ?? "q4f16"
     if (config.debug) setDebug(true)
   }
@@ -356,7 +356,7 @@ export class TransformersJsTextAdapter<
       ...(options.parentRunId && { parentRunId: options.parentRunId })
     }
     try {
-      await loadModel(model, this.dtype)
+      await loadModel(model, this.dtype, this.contextLength)
     } catch (error) {
       yield {
         type: EventType.RUN_ERROR,
@@ -557,7 +557,7 @@ export class TransformersJsTextAdapter<
     options: StructuredOutputOptions<TransformersJsTextProviderOptions>
   ): Promise<StructuredOutputResult<unknown>> {
     const { chatOptions, outputSchema } = options
-    await loadModel(this.model, this.dtype)
+    await loadModel(this.model, this.dtype, this.contextLength)
     const system = normalizeSystemPrompts(chatOptions.systemPrompts)
       .map((p) => p.content)
       .concat(

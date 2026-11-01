@@ -22,7 +22,10 @@ export type TransformersJsModelMeta = {
   }
   /** Parameter count. */
   size: string
-  /** Tokens a chat can hold, prompt and reply together, in this runtime. */
+  /**
+   * The model's whole context window, in tokens: the default for
+   * `contextLength`.
+   */
   context: number
   /** Reasoning levels for `chat({ reasoning })`, read from the chat template. */
   reasoning?: ModelReasoning
@@ -50,12 +53,14 @@ const THINKING_SWITCH = {
 const ALWAYS_THINKS = { levels: { high: "true" }, budget: false } as const
 
 /**
- * The LFM builds hold 8,192 tokens per chat in this runtime: past 4,096
- * tokens ONNX Runtime's buffer cache moves LFM3's attention memory to 8 MiB
- * buffers, which hold exactly 8,192; one more token would move it to
- * 12 MiB, past what iPhone Safari allows.
+ * Each model's whole context window (max_position_embeddings in its
+ * config), the default for `contextLength`. On an iPhone, set 8,192 for the
+ * LFM builds: past 4,096 tokens ONNX Runtime's buffer cache moves LFM3's
+ * attention memory to 8 MiB buffers, which hold exactly 8,192; one more
+ * token would move it to 12 MiB, past what iPhone Safari allows.
  */
-const CONTEXT = 8192
+const LFM3_CONTEXT = 262_144
+const LFM2_CONTEXT = 128_000
 
 const TOOLS_AND_THINKING = {
   input: ["text"],
@@ -110,7 +115,7 @@ const GEMMA_4_E4B = {
   revision: "2b6d2e26a962f70a33da8f7cd81e1afdd8d9cfb2",
   supports: TOOLS_AND_THINKING,
   size: "4b",
-  context: 32_768,
+  context: 131_072,
   reasoning: THINKING_SWITCH,
   toolFormat: "gemma4",
   sampling: GEMMA_4_SAMPLING
@@ -127,7 +132,7 @@ const LFM3_1_7B_WEB = {
   revision: "9cda8fa27706d239b9c58f53a867d398e313b961",
   supports: TOOLS_AND_THINKING,
   size: "1.7b",
-  context: CONTEXT,
+  context: LFM3_CONTEXT,
   reasoning: THINKING_SWITCH,
   toolFormat: "lfm3",
   sampling: LFM3_SAMPLING,
@@ -139,7 +144,7 @@ const LFM3_1_7B = {
   name: "onnx-community/LFM3-1.7B-ONNX",
   supports: TOOLS_AND_THINKING,
   size: "1.7b",
-  context: CONTEXT,
+  context: LFM3_CONTEXT,
   reasoning: THINKING_SWITCH,
   toolFormat: "lfm3",
   sampling: LFM3_SAMPLING,
@@ -150,7 +155,7 @@ const LFM2_5_1_2B = {
   name: "LiquidAI/LFM2.5-1.2B-Instruct-ONNX",
   supports: TOOLS,
   size: "1.2b",
-  context: CONTEXT,
+  context: LFM2_CONTEXT,
   toolFormat: "lfm2",
   sampling: LFM2_5_SAMPLING,
   cpu: true
@@ -160,7 +165,7 @@ const LFM2_5_1_2B_THINKING = {
   name: "LiquidAI/LFM2.5-1.2B-Thinking-ONNX",
   supports: TOOLS_AND_THINKING,
   size: "1.2b",
-  context: CONTEXT,
+  context: LFM2_CONTEXT,
   reasoning: ALWAYS_THINKS,
   toolFormat: "lfm2",
   sampling: LFM2_5_THINKING_SAMPLING,
@@ -177,7 +182,7 @@ const LFM2_1_2B_TOOL = {
   revision: "6a719165fdb804a2e312e14bf1491221717a3049",
   supports: TOOLS,
   size: "1.2b",
-  context: CONTEXT,
+  context: LFM2_CONTEXT,
   toolFormat: "lfm2",
   sampling: LFM2_TOOL_SAMPLING,
   cpu: true
@@ -193,7 +198,7 @@ const LFM2_5_350M = {
   revision: "d11593fd9eb408e322667926656598896c2d5ff9",
   supports: TOOLS,
   size: "350m",
-  context: CONTEXT,
+  context: LFM2_CONTEXT,
   toolFormat: "lfm2",
   sampling: LFM2_5_SAMPLING,
   cpu: true
@@ -209,7 +214,7 @@ const LFM2_5_1_2B_WEB = {
   revision: "f8df717df1ee01ccb899484d7f25cddfa78dd49f",
   supports: TOOLS,
   size: "1.2b",
-  context: CONTEXT,
+  context: LFM2_CONTEXT,
   toolFormat: "lfm2",
   sampling: LFM2_5_SAMPLING,
   cpu: true
@@ -220,7 +225,7 @@ const LFM2_5_1_2B_THINKING_WEB = {
   revision: "db6d0161174b69db3bd4ed789e9a1cb888344f32",
   supports: TOOLS_AND_THINKING,
   size: "1.2b",
-  context: CONTEXT,
+  context: LFM2_CONTEXT,
   reasoning: ALWAYS_THINKS,
   toolFormat: "lfm2",
   sampling: LFM2_5_THINKING_SAMPLING,

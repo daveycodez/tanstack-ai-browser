@@ -60,7 +60,17 @@ export type RunTimings = {
 export type WeightsDtype = "q4f16" | "q4"
 
 export type WorkerRequest =
-  | { type: "load"; modelId: string; dtype: WeightsDtype }
+  | {
+      type: "load"
+      modelId: string
+      dtype: WeightsDtype
+      /**
+       * Tokens a chat may hold, prompt and reply together: the model's own
+       * context window when left out, and never more. The model's rotary
+       * tables are cut to it, so a different value loads the model again.
+       */
+      contextLength?: number
+    }
   | {
       type: "generate"
       id: string
@@ -71,8 +81,11 @@ export type WorkerRequest =
       sampling: Sampling
       /** Most tokens to generate; the worker's default when left out. */
       maxTokens?: number
-      /** Tokens the chat may hold, prompt and reply together. */
-      contextLength: number
+      /**
+       * Tokens the chat may hold, prompt and reply together: at most what
+       * the model was loaded for, which is also the default.
+       */
+      contextLength?: number
       /**
        * Where the model's thinking starts: sent ahead of the reply when the
        * chat template opens the thinking in the prompt itself.
