@@ -9,12 +9,13 @@ How we build the ONNX models we publish on Hugging Face under `daveycodez/`. Eac
 | Folder | Hugging Face repo | Built from |
 |---|---|---|
 | [`lfm3-1.7b-web-onnx`](lfm3-1.7b-web-onnx) | [daveycodez/LFM3-1.7B-Web-ONNX](https://huggingface.co/daveycodez/LFM3-1.7B-Web-ONNX) | onnx-community/LFM3-1.7B-ONNX |
+| [`lfm3-1.7b-web-gguf`](lfm3-1.7b-web-gguf) | [daveycodez/LFM3-1.7B-Web-GGUF](https://huggingface.co/daveycodez/LFM3-1.7B-Web-GGUF) | LiquidAI/LFM3-1.7B-GGUF (BF16) |
 | [`lfm2.5-1.2b-web-onnx`](lfm2.5-1.2b-web-onnx) | [daveycodez/LFM2.5-1.2B-Web-ONNX](https://huggingface.co/daveycodez/LFM2.5-1.2B-Web-ONNX) | LiquidAI/LFM2.5-1.2B-Instruct-ONNX |
 | [`lfm2.5-1.2b-thinking-web-onnx`](lfm2.5-1.2b-thinking-web-onnx) | [daveycodez/LFM2.5-1.2B-Thinking-Web-ONNX](https://huggingface.co/daveycodez/LFM2.5-1.2B-Thinking-Web-ONNX) | LiquidAI/LFM2.5-1.2B-Thinking-ONNX |
 
 ## Setup
 
-Python 3.14 with the packages in [`requirements.txt`](requirements.txt), in a `venv` inside the folder you're building:
+The GGUF build also needs a native llama.cpp build (see its `BUILD.md`). For the ONNX builds: Python 3.14 with the packages in [`requirements.txt`](requirements.txt), in a `venv` inside the folder you're building:
 
 ```bash
 cd models/lfm3-1.7b-web-onnx/q4f16

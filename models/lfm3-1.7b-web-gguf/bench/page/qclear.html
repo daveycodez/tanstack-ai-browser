@@ -1,0 +1,26 @@
+<!doctype html><meta charset=utf-8><meta name=viewport content="width=device-width"><body style="font:16px system-ui;padding:16px"><pre id=o>qclear…</pre><script type=module>
+// Lists wllama's cached models; removes those whose URL contains one of ?remove=a,b (comma-separated).
+const out = document.getElementById("o")
+const send = (obj) => { out.textContent += "\n" + JSON.stringify(obj); return fetch("http://localhost:3999/", { method: "POST", mode: "no-cors", body: JSON.stringify(obj) }).catch(() => {}) }
+const { ModelManager } = await import("./esm/index.js")
+const mm = new ModelManager()
+const remove = (new URLSearchParams(location.search).get("remove") ?? "").split(",").filter(Boolean)
+const models = await mm.getModels({ includeInvalid: true })
+const list = []
+for (const m of models) {
+  let status; try { status = m.validate() } catch (e) { status = String(e) }
+  const hit = remove.some((r) => m.url.includes(r))
+  if (hit) { try { await m.remove(); status += " -> removed" } catch (e) { status += " -> remove failed " + e } }
+  list.push({ url: m.url.slice(-60), size: m.size, status })
+}
+const rmfile = (new URLSearchParams(location.search).get("rmfile") ?? "").split(",").filter(Boolean)
+if (rmfile.length) {
+  const cache = await (await navigator.storage.getDirectory()).getDirectoryHandle("cache", { create: true })
+  const names = []; for await (const [name] of cache.entries()) names.push(name)
+  for (const n of names) if (rmfile.some((r) => n.includes(r))) { try { await cache.removeEntry(n); list.push({ rmfile: n.slice(-50) }) } catch (e) { list.push({ rmfile: n.slice(-50), err: String(e) }) } }
+}
+const est = await navigator.storage.estimate()
+for (const r of list) await send({ qclear: r })
+await send({ usageMB: Math.round(est.usage / 1e6), quotaMB: Math.round(est.quota / 1e6) })
+await send({ done: true })
+</script>

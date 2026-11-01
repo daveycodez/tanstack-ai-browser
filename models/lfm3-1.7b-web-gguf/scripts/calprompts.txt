@@ -1,0 +1,40 @@
+How does a bicycle stay upright when moving?
+Write a product description for a reusable water bottle.
+What are the main differences between cats and dogs as pets?
+Explain recursion with a simple example in JavaScript.
+Give me five tips for writing a good resume.
+What is the water cycle?
+Write a thank-you note to a teacher.
+How do I make a simple tomato pasta sauce?
+Explain what Git branches are and why they are useful.
+What is the difference between weather and climate?
+Write a short poem about the ocean at night.
+How do solar panels generate electricity?
+What should I pack for a weekend camping trip?
+Explain the difference between let, const and var in JavaScript.
+What were the main causes of World War I?
+How can I save money on groceries?
+Write a Python function that checks if a string is a palindrome.
+Describe the life cycle of a butterfly.
+What is a good morning routine for productivity?
+Explain how credit scores work.
+Write a short dialogue between a customer and a barista.
+How does the stock market work, in simple terms?
+What is the difference between a virus and bacteria?
+Write a regular expression that matches email addresses and explain it.
+Suggest some fun activities for a rainy day with kids.
+How does GPS determine your location?
+Explain what Docker containers are.
+What are some ways to reduce stress?
+Write a brief summary of the theory of evolution.
+How do I write a good commit message?
+Plan a simple birthday party for a 7-year-old.
+What is the role of the Supreme Court?
+Explain how a hash map works.
+Write a motivational message for someone starting a new job.
+What is the greenhouse effect?
+How do I convert Celsius to Fahrenheit? Give the formula and an example.
+Recommend three classic novels and say why they are worth reading.
+How do airplanes fly?
+Write a TypeScript interface for a blog post with comments.
+What are the benefits of learning a second language?

@@ -13,3 +13,12 @@ __pycache__/
 *.npy
 *.bin
 *.log
+q/
+wt/
+web/
+orig/
+*.gguf
+*.kld
+*.jsonl
+*-profile/
+bench/page/esm/
