@@ -19,6 +19,7 @@ import type {
   WorkerResponse
 } from "./protocol.js"
 import { pooledSize, SparePool } from "./buffer-pool.js"
+import { checkpointsToDrop } from "./checkpoints.js"
 import { embedRows } from "./disk-embedding.js"
 import {
   chunkLargeMatMulNBits,
@@ -1769,7 +1770,8 @@ const gpuTensor = (
  * best, so agents that take turns on the model keep one each: an agent and
  * the sub-agents it runs have different system prompts and tools, and with
  * one cache each would wipe out the other's.
- * ~22 KB per token of GPU memory, plus 0.3 MB per checkpoint.
+ * ~22 KB per token of GPU memory, plus the checkpoints (0.3 MB each for
+ * LFM3, 10.3 MB for Qwen3.5; CHECKPOINT_BYTES in all at most).
  */
 type Checkpoint = { length: number; states: Record<string, Tensor> }
 type SavedCache = {
@@ -1793,9 +1795,43 @@ const MAX_SAVED = 6
 const SAVED_TOKENS = 8192
 /** Checkpoints kept per cache: the oldest (shortest) and the latest ones. */
 const MAX_CHECKPOINTS = 6
+/**
+ * Bytes all checkpoints may take together, the run's own included (see
+ * checkpoints.ts): LFM3's never come near it (6 caches x 6 x 0.3 MB);
+ * Qwen3.5's would reach ~370 MB without it.
+ */
+const CHECKPOINT_BYTES = 64 * 1024 * 1024
 
 const disposeCheckpoint = (checkpoint: Checkpoint) => {
   for (const tensor of Object.values(checkpoint.states)) tensor.dispose()
+}
+
+/** A tensor's size in bytes. */
+const tensorBytes = (tensor: Tensor) =>
+  tensor.dims.reduce((a, b) => a * b, 1) *
+  (tensor.ort_tensor.type === "float16" ? 2 : 4)
+
+const checkpointBytes = (checkpoint: Checkpoint) =>
+  Object.values(checkpoint.states).reduce((sum, t) => sum + tensorBytes(t), 0)
+
+/**
+ * Drops checkpoints past MAX_CHECKPOINTS per cache and CHECKPOINT_BYTES in
+ * all; `lists` is each cache's checkpoints, most recently used first.
+ */
+function fitCheckpoints(lists: Array<Array<Checkpoint>>) {
+  const drops = checkpointsToDrop(
+    lists.map((list) => list.map(checkpointBytes)),
+    MAX_CHECKPOINTS,
+    CHECKPOINT_BYTES
+  )
+  for (const [i, list] of lists.entries()) {
+    if (drops[i].size === 0) continue
+    const kept = list.filter((c, k) => {
+      if (drops[i].has(k)) disposeCheckpoint(c)
+      return !drops[i].has(k)
+    })
+    list.splice(0, list.length, ...kept)
+  }
 }
 
 const disposeSaved = async (entry: SavedCache) => {
@@ -1834,6 +1870,7 @@ function trimSaved(tf: TransformersModule, entry: SavedCache) {
 /** Keeps a run's cache, trimming or dropping others past the limits. */
 function keepSaved(tf: TransformersModule, entry: SavedCache) {
   savedCaches.unshift(entry)
+  fitCheckpoints(savedCaches.map((e) => e.checkpoints))
   let tokens = savedCaches.reduce((sum, e) => sum + e.ids.length, 0)
   for (let i = savedCaches.length - 1; i >= 1 && tokens > SAVED_TOKENS; i--) {
     const before = savedCaches[i].ids.length
@@ -2611,9 +2648,7 @@ async function generate(
       checkpoints.push(checkpoint(tf, at, length))
       // Keep the oldest (often the end of the system prompt and tools, which
       // new chats share) and the latest.
-      if (checkpoints.length > MAX_CHECKPOINTS) {
-        checkpoints.splice(1, 1).forEach(disposeCheckpoint)
-      }
+      fitCheckpoints([checkpoints, ...savedCaches.map((e) => e.checkpoints)])
     }
     // Checkpoints on the way: where the system prompt and tools end, which
     // the next chat or sub-agent run repeats, and where this prompt stopped
