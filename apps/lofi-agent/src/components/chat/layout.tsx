@@ -5,7 +5,7 @@
  */
 import { Skeleton } from "@heroui/react"
 import type { LayoutProps } from "@tanstack/ai-react/ui"
-import { useEffect, useMemo } from "react"
+import { useEffect, useMemo, useState } from "react"
 import type { ComponentType } from "react"
 import { useStickToBottomContext } from "use-stick-to-bottom"
 
@@ -40,12 +40,25 @@ export function ChatLayout({
     [threadId]
   )
 
+  // Opening a session lands at the bottom at once: the transcript taking
+  // the skeleton's place counts as content growing, which would otherwise
+  // scroll down smoothly. Growth after that (a streaming reply) still does.
+  const [opened, setOpened] = useState(false)
+  useEffect(() => {
+    if (isHydrating || opened) return
+    // Two frames: after the transcript's first layout and its scroll.
+    let frame = requestAnimationFrame(() => {
+      frame = requestAnimationFrame(() => setOpened(true))
+    })
+    return () => cancelAnimationFrame(frame)
+  }, [isHydrating, opened])
+
   if (messages.length === 0 && (!isHydrating || !hasSaved)) {
     return <EmptyState Input={Input} />
   }
 
   return (
-    <Conversation>
+    <Conversation resize={opened ? "smooth" : "instant"}>
       <ConversationContent>
         {isHydrating ? (
           <TranscriptSkeleton />
