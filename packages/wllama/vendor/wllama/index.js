@@ -382,6 +382,11 @@ var GLUE_MESSAGE_PROTOTYPES = {
         "isNullable": true
       },
       {
+        "type": "int",
+        "name": "logits_topk",
+        "isNullable": true
+      },
+      {
         "type": "arr_str",
         "name": "kv_overrides_keys",
         "isNullable": true
@@ -3120,6 +3125,7 @@ var Wllama = class {
         spec_ngram_size_n_min: params.spec_ngram_size_n_min,
         spec_ngram_size_m: params.spec_ngram_size_m,
         spec_ngram_min_hits: params.spec_ngram_min_hits,
+        logits_topk: params.logits_topk,
         kv_overrides_keys: params.kv_overrides ? Object.keys(params.kv_overrides) : void 0,
         kv_overrides_vals: params.kv_overrides ? Object.values(params.kv_overrides) : void 0,
         reasoning_budget_tokens: params.reasoning_budget_tokens,

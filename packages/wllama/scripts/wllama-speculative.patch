@@ -89,10 +89,10 @@ index 023df70..05280e1 100644
    kv_overrides_vals?: string[] | undefined;
    reasoning_budget_tokens?: number | undefined;
 diff --git a/src/types/types.ts b/src/types/types.ts
-index de08636..6d05c6b 100644
+index de08636..29d85f6 100644
 --- a/src/types/types.ts
 +++ b/src/types/types.ts
-@@ -68,6 +68,21 @@ export interface LoadModelParams {
+@@ -68,6 +68,24 @@ export interface LoadModelParams {
    spec_draft_p_min?: number;
    spec_draft_threads?: number;
    spec_draft_threads_batch?: number;
@@ -105,7 +105,10 @@ index de08636..6d05c6b 100644
 +  spec_ngram_size_n?: number;
 +  /**
 +   * ngram-simple: shorter n-grams, down to this size, are looked up when
-+   * longer ones have no match, drafting at most 2^(n-1) tokens after an n-gram.
++   * longer ones have no match, and the number of tokens drafted is chosen by
++   * cost: how likely each is right (learnt as generation goes on, by the
++   * length of the match) against how long a pass of that many tokens takes
++   * (measured as it goes); none when no draft pays.
 +   */
 +  spec_ngram_size_n_min?: number;
 +  /** Most tokens drafted at once. */

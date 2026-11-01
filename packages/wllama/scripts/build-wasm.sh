@@ -67,16 +67,45 @@
 #   and reading a tensor back gives the original layout. The logits are read
 #   back without a queue wait first (the read waits for the work anyway: one
 #   wait less per token), and each graph's first command buffer is submitted
-#   after 4 dispatches. 350M Q4_K_M on the Pixel: prompt 40 -> 700 tokens/s
-#   (810 for 3,000 tokens), generation 2.5 -> 36 tokens/s (26 before the
-#   repacking), and up to 68 with speculative decoding where the reply
-#   repeats the prompt. Other GPUs run the code as before.
+#   after 4 dispatches. LFM2/LFM3's short convolution on a few tokens (B * X,
+#   the old state gathered from the recurrent cache, the CONCAT, a CPY per
+#   rollback snapshot, SSM_CONV and the C gate: seven or more dispatches,
+#   interleaved with the next layer's state gather) runs as one, found by a
+#   pass over the graph; its sums are fused multiply-adds as ssm_conv.wgsl's
+#   compile to, so the results are bit for bit the same. Pipelines for every
+#   batch size of a speculative check are created at load (a size seen first
+#   in a reply cost it tens of ms). Safety: the one-token attention gives a
+#   row the mask hides entirely zeros (as the CPU) instead of 0/0, the
+#   subgroup shaders place threads by subgroup and lane rather than assume
+#   local_invocation_index runs through the lanes in order, and that
+#   attention's workgroup size counts its max and sum arrays against the
+#   device's workgroup memory. 350M Q4_K_M on the Pixel: prompt 40 -> 700
+#   tokens/s (810 for 3,000 tokens), generation 2.5 -> 38 tokens/s (26
+#   before the repacking), and up to 73 with speculative decoding where
+#   the reply repeats the prompt. Other GPUs run the code as before.
+# - Sampling from the logits' top k (llama-cpp-logits-topk.patch, and
+#   wllama-logits-topk.patch: the logits_topk load option, which the client
+#   sets to 128 on WebGPU on PowerVR): the graph also finds each output's 128
+#   largest logits (on PowerVR in three dispatches: group maxima, the
+#   candidates at or above the 128th largest maximum, their ranks), and only
+#   those are read back. The sampler uses them when its chain is penalties
+#   and logit biases that only lower logits, then top-k (k < 128), and checks
+#   per token that the top k it would keep are strictly ordered and above
+#   every logit not read; then the rest of the chain sees exactly the
+#   candidates it would have, so the same tokens are sampled, seed for seed.
+#   Otherwise, and for requests with a grammar, a reasoning budget or
+#   probabilities, all the logits are read (the server switches per batch).
+#   This saves the CPU's pass over 65,536 logits (about 0.35 ms per token
+#   greedy, 0.9 with the model card's sampling) and most of the read back.
 # - Speculative decoding without a draft model (llama-server's n-gram
 #   drafters) as load options (wllama-speculative.patch: spec_type and
 #   spec_ngram_*), and in llama.cpp's ngram-simple, shorter n-grams down to
-#   spec_ngram_size_n_min when longer ones have no match, drafting at most
-#   2^(n-1) tokens after an n-gram, and skipping 1, 2, 4 .. 16 drafts after
-#   the second rejected in a row (llama-cpp-speculative-ngram.patch). The
+#   spec_ngram_size_n_min when longer ones have no match, drafting as many of
+#   the up to 7 tokens that followed as pays: how likely each is right
+#   (learnt as the reply goes on, by how far back the match goes) against
+#   how long a pass of that many tokens takes (measured between drafts), and
+#   none when no draft beats one token per pass by 5% or the match's older
+#   occurrences were followed by other tokens (llama-cpp-speculative-ngram.patch). The
 #   same patch keeps recurrent-state snapshots for every drafter, not just
 #   those with a draft model, so LFM2 and LFM3 roll a rejected draft back on
 #   the device instead of saving and restoring a checkpoint per draft. The
@@ -126,6 +155,7 @@ git -C "$WORK/wllama" apply "$HERE/wllama-message-spans.patch"
 git -C "$WORK/wllama" apply "$HERE/wllama-speculative.patch"
 # Downloads resume after a dropped connection or a file the browser closed.
 git -C "$WORK/wllama" apply "$HERE/wllama-resumable-download.patch"
+git -C "$WORK/wllama" apply "$HERE/wllama-logits-topk.patch"
 LLAMA="$WORK/wllama/llama.cpp"
 git -C "$LLAMA" init -q
 git -C "$LLAMA" fetch -q --depth 1 https://github.com/ggml-org/llama.cpp.git "$LLAMA_CPP_COMMIT"
@@ -141,6 +171,8 @@ git -C "$LLAMA" apply "$HERE/llama-cpp-speculative-ngram.patch"
 git -C "$LLAMA" apply "$HERE/llama-cpp-webgpu-subgroup-id.patch"
 # PowerVR (img-tec) shaders and fixes.
 git -C "$LLAMA" apply "$HERE/llama-cpp-webgpu-powervr.patch"
+# Sampling from the logits' top k, read back instead of all of them (logits_topk).
+git -C "$LLAMA" apply "$HERE/llama-cpp-logits-topk.patch"
 
 # Emscripten, at the version wllama builds with.
 EMSDK_DIR="${EMSDK_DIR:-$WORK/emsdk}"

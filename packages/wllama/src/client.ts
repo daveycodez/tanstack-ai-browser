@@ -87,6 +87,15 @@ export type RuntimeOptions = {
    * batch is computed in another order), `false` off.
    */
   speculative?: boolean
+  /**
+   * Sampling from the logits' top 128, found on the GPU, instead of reading
+   * every logit back and sorting them on the CPU, when the sampling settings
+   * keep at most the top 127 anyway (top-k after only repeat penalties and
+   * logit biases that lower logits); the same tokens are sampled, and other
+   * requests read every logit. By default on where it is faster: WebGPU on
+   * Imagination PowerVR GPUs. `false` turns it off.
+   */
+  gpuTopK?: boolean
   /** wllama's and llama.cpp's logs, in the console. */
   debug?: boolean
 }
@@ -433,10 +442,12 @@ async function restoreState(model: WllamaTextModel, wllama: Wllama) {
 
 /**
  * llama.cpp's n-gram speculative decoding (ngram-simple): the longest of the
- * last 4 tokens to 1 token that occurred before drafts what followed it, at
- * most 2^(n-1) tokens after an n-gram and 7 in all. Checking a token in the
- * batch costs about a quarter of a pass on the Pixel, so short matches,
- * which guess worse, draft fewer.
+ * last 4 tokens to 1 token that occurred before drafts what followed it, up
+ * to 7 tokens. How many is chosen by cost (this package's patch): how likely
+ * each next guess is right, learnt as the reply goes on for each length of
+ * match, against how long a pass of that many tokens takes, measured as it
+ * goes; nothing when no draft would pay, or when the match's older
+ * occurrences disagree on what comes next.
  */
 const SPECULATIVE = {
   spec_type: "ngram-simple",
@@ -463,9 +474,8 @@ export async function runsOnWebGpu(): Promise<boolean> {
   }
 }
 
-/** Whether to decode speculatively (see `RuntimeOptions.speculative`). */
-async function useSpeculative() {
-  if (options.speculative !== undefined) return options.speculative
+/** Whether WebGPU here runs on an Imagination PowerVR GPU (the Pixel 10's). */
+async function onPowerVR() {
   if (options.gpu === false || needsCompat() || !("gpu" in navigator)) {
     return false
   }
@@ -475,6 +485,21 @@ async function useSpeculative() {
   } catch {
     return false
   }
+}
+
+/** Whether to decode speculatively (see `RuntimeOptions.speculative`). */
+async function useSpeculative() {
+  if (options.speculative !== undefined) return options.speculative
+  return onPowerVR()
+}
+
+/**
+ * The logits' top k read back for sampling (see `RuntimeOptions.gpuTopK`),
+ * or undefined: every logit is read back.
+ */
+async function gpuTopK() {
+  if (options.gpuTopK === false || options.gpu === false) return undefined
+  return (await onPowerVR()) ? 128 : undefined
 }
 
 async function startLoad(
@@ -489,6 +514,7 @@ async function startLoad(
   const compat = needsCompat() ? await compatBuild() : null
   if (compat) useCompat(wllama, compat)
   const speculative = await useSpeculative()
+  const topK = await gpuTopK()
   // Saved slot states only restore into the same build and setup (speculative
   // decoding keeps extra recurrent-state snapshots).
   state = {
@@ -532,6 +558,7 @@ async function startLoad(
     swa_full: true,
     ...(options.threads && { n_threads: options.threads }),
     ...(speculative && SPECULATIVE),
+    ...(topK && { logits_topk: topK }),
     signal,
     progressCallback: ({ loaded: bytes, total }) => {
       if (cached) return
