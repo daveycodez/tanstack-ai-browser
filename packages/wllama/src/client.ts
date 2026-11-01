@@ -4,12 +4,13 @@
  * the previous one. Models download once to the Origin Private File
  * System, and load from there afterwards, offline included.
  */
-import { LoggerWithoutDebug, Wllama } from "@wllama/wllama/esm/index.js"
+import { BUILD_ID } from "../vendor/wllama/build-id.js"
+import { LoggerWithoutDebug, Wllama } from "../vendor/wllama/index.js"
 import type {
   ChatCompletionChunk,
   ChatCompletionParams,
   ChatCompletionResponse
-} from "@wllama/wllama/esm/index.js"
+} from "../vendor/wllama/index.js"
 
 import { modelMeta, modelUrl } from "./model-meta.js"
 import type { WllamaTextModel } from "./model-meta.js"
@@ -68,6 +69,23 @@ export type RuntimeOptions = {
   compat?: { wasm: string; worker: string }
   /** CPU threads. wllama's default otherwise: half the cores. */
   threads?: number
+  /**
+   * `false` to run on the CPU only. By default, wllama's: on WebGPU where
+   * the browser has it (Chrome, Edge, Safari), on the CPU elsewhere
+   * (Firefox, which has no JSPI, and browsers without WebGPU).
+   */
+  gpu?: boolean
+  /**
+   * Speculative decoding: guesses of the next few tokens, taken from the
+   * conversation so far (n-grams), checked in one pass, so text that repeats
+   * the prompt (code edits, summaries, tool results) is written several
+   * tokens at a time. By default on where it gives the same text as without
+   * it and is faster: WebGPU on Imagination PowerVR GPUs (the Pixel 10's),
+   * whose kernels score a batch of tokens exactly as one at a time. `true`
+   * turns it on everywhere (elsewhere the text may differ slightly, as a
+   * batch is computed in another order), `false` off.
+   */
+  speculative?: boolean
   /** wllama's and llama.cpp's logs, in the console. */
   debug?: boolean
 }
@@ -81,18 +99,35 @@ export function configureRuntime(next: RuntimeOptions) {
 
 // This package's builds of wllama (scripts/build-wasm.sh): llama.cpp new
 // enough for LFM3, with its WebAssembly SIMD kernels, which wllama's own
-// builds leave out. The main builds' JavaScript glue is wllama's, unchanged.
+// builds leave out. wllama's JavaScript (vendor/wllama) comes from the same
+// build, with slot state save and restore added.
+
+/**
+ * The full URL of a file of this package's `wasm/`, from its URL next to
+ * this module. Turbopack (Next.js) makes that URL a path, which the compat
+ * worker can't load. Vite's dev server pre-bundles the package into
+ * node_modules/.vite/deps, which moves these URLs to node_modules/.vite/wasm,
+ * where it serves no files; it does serve the package's own, so they're used
+ * instead.
+ */
+function packageFile(url: URL) {
+  const file = new URL(url.href, location.href)
+  if (!file.pathname.includes("/node_modules/.vite/")) return file.href
+  const name = file.pathname.slice(file.pathname.lastIndexOf("/") + 1)
+  return new URL(`/node_modules/@tanstack-ai-browser/wllama/wasm/${name}`, file)
+    .href
+}
 
 /** The main build. */
 const defaultWasmUrl = () =>
-  new URL("../wasm/wllama.wasm", import.meta.url).href
+  packageFile(new URL("../wasm/wllama.wasm", import.meta.url))
 
 /**
  * The main build with relaxed SIMD dot products as well: about twice as
  * fast at reading prompts as wllama's own build.
  */
 const relaxedWasmUrl = () =>
-  new URL("../wasm/wllama-relaxed.wasm", import.meta.url).href
+  packageFile(new URL("../wasm/wllama-relaxed.wasm", import.meta.url))
 
 /** A WebAssembly module with one relaxed SIMD instruction (i32x4.relaxed_dot_i8x16_i7x16_add_s). */
 const RELAXED_SIMD_MODULE = new Uint8Array([
@@ -117,10 +152,14 @@ function mainWasmUrl() {
   return defaultWasmUrl()
 }
 
-/** The compat build, with the glue from the same build. */
+/**
+ * The compat build, with the glue from the same build. The glue ships as
+ * `.js.txt` so bundlers emit it as is: `next build --webpack` minifies `.js`
+ * files emitted this way, which breaks it.
+ */
 const defaultCompat = () => ({
-  wasm: new URL("../wasm/wllama-compat.wasm", import.meta.url).href,
-  worker: new URL("../wasm/wllama-compat.js", import.meta.url).href
+  wasm: packageFile(new URL("../wasm/wllama-compat.wasm", import.meta.url)),
+  worker: packageFile(new URL("../wasm/wllama-compat.js.txt", import.meta.url))
 })
 
 /** A WebAssembly module with only a 64-bit memory. */
@@ -200,16 +239,159 @@ let askedToKeep = false
 /**
  * Asks the browser to keep this site's storage, so a downloaded model isn't
  * deleted to free space or, in Safari, after 7 days without a visit.
- * Browsers may say no; it's only a request.
+ * Browsers may say no; it's only a request. Called when a download starts,
+ * not for cached loads. Skipped in Firefox, which shows a permission prompt
+ * for it; there a model is still kept across reloads, unless the disk runs
+ * low.
  */
 function keepDownloads() {
   if (askedToKeep || typeof navigator === "undefined") return
   askedToKeep = true
+  if (/firefox/i.test(navigator.userAgent)) return
   navigator.storage?.persist?.().catch(() => undefined)
 }
 
 const errorText = (error: unknown) =>
   error instanceof Error ? error.message : String(error)
+
+// The model's state after a chat (what it has read, as llama.cpp's slot
+// save file), kept in the Origin Private File System so the first message
+// after a reload doesn't read the system prompt and tools again: llama.cpp
+// reuses the start of the prompt that matches the restored one, and a state
+// that doesn't match is simply not reused. One per model, saved again when
+// the system prompt or tools change.
+
+const STATE_DIR = "wllama-state"
+
+/** What a saved state is for: the model's file, the build that saved it, and the prefix it starts with. */
+type StateInfo = {
+  url: string
+  build: string
+  prefix: string
+  savedAt: number
+}
+
+const debug = (...args: unknown[]) => {
+  if (options.debug) console.debug("[wllama state]", ...args)
+}
+
+/** The model's files in STATE_DIR. */
+const stateFiles = async (model: WllamaTextModel) => {
+  const root = await navigator.storage.getDirectory()
+  const dir = await root.getDirectoryHandle(STATE_DIR, { create: true })
+  const name = model.replace(/[^\w.-]/g, "_")
+  return { dir, data: `${name}.bin`, info: `${name}.json` }
+}
+
+/** The system prompt and tools of a request, as a short hash and its length. */
+function prefixKey(request: ChatRequest) {
+  const text = JSON.stringify([
+    request.messages.filter((message) => message.role === "system"),
+    request.tools ?? []
+  ])
+  // FNV-1a: a collision only skips a save.
+  let hash = 0x811c9dc5
+  for (let i = 0; i < text.length; i++) {
+    hash = Math.imul(hash ^ text.charCodeAt(i), 0x01000193)
+  }
+  return `${(hash >>> 0).toString(16)}:${text.length}`
+}
+
+/** The loaded model's build and saved prefix, set by startLoad. */
+let state: { model: WllamaTextModel; build: string; prefix?: string } | null =
+  null
+let saving = false
+
+/** Saves the model's state after a chat, unless one with the same system prompt and tools is saved. */
+async function saveState(
+  model: WllamaTextModel,
+  wllama: Wllama,
+  request: ChatRequest
+) {
+  const current = state
+  const prefix = prefixKey(request)
+  if (current?.model !== model || current.prefix === prefix || saving) return
+  saving = true
+  try {
+    const start = performance.now()
+    const data = await wllama.saveSlotState()
+    const saved = performance.now()
+    const { dir, data: dataName, info: infoName } = await stateFiles(model)
+    const info: StateInfo = {
+      url: modelUrl(model),
+      build: current.build,
+      prefix,
+      savedAt: Date.now()
+    }
+    const write = async (name: string, content: FileSystemWriteChunkType) => {
+      const file = await dir.getFileHandle(name, { create: true })
+      const writable = await file.createWritable()
+      await writable.write(content)
+      await writable.close()
+    }
+    // wllama's copy of the bytes, not its shared memory.
+    await write(dataName, data as Uint8Array<ArrayBuffer>)
+    await write(infoName, JSON.stringify(info))
+    current.prefix = prefix
+    debug(
+      `saved ${(data.byteLength / 1e6).toFixed(1)} MB in ${Math.round(saved - start)} ms (+${Math.round(performance.now() - saved)} ms to write)`
+    )
+  } catch (error) {
+    debug("not saved:", error)
+  } finally {
+    saving = false
+  }
+}
+
+/** Restores the model's saved state, if it's from this build. */
+async function restoreState(model: WllamaTextModel, wllama: Wllama) {
+  const current = state
+  try {
+    const start = performance.now()
+    const { dir, data, info: infoName } = await stateFiles(model)
+    const file = async (name: string) =>
+      (await dir.getFileHandle(name)).getFile()
+    const info = JSON.parse(await (await file(infoName)).text()) as StateInfo
+    if (info.url !== modelUrl(model) || info.build !== current?.build) return
+    const bytes = new Uint8Array(await (await file(data)).arrayBuffer())
+    const read = performance.now()
+    const tokens = await wllama.restoreSlotState(bytes)
+    current.prefix = info.prefix
+    debug(
+      `restored ${tokens} tokens, ${(bytes.byteLength / 1e6).toFixed(1)} MB, in ${Math.round(performance.now() - read)} ms (+${Math.round(read - start)} ms to read)`
+    )
+  } catch (error) {
+    debug("not restored:", error)
+  }
+}
+
+/**
+ * llama.cpp's n-gram speculative decoding (ngram-simple): the longest of the
+ * last 4 tokens to 1 token that occurred before drafts what followed it, at
+ * most 2^(n-1) tokens after an n-gram and 7 in all. Checking a token in the
+ * batch costs about a quarter of a pass on the Pixel, so short matches,
+ * which guess worse, draft fewer.
+ */
+const SPECULATIVE = {
+  spec_type: "ngram-simple",
+  spec_ngram_size_n: 4,
+  spec_ngram_size_n_min: 1,
+  spec_ngram_size_m: 7
+}
+
+/** Whether to decode speculatively (see `RuntimeOptions.speculative`). */
+async function useSpeculative() {
+  if (options.speculative !== undefined) return options.speculative
+  if (options.gpu === false || needsCompat() || !("gpu" in navigator)) {
+    return false
+  }
+  try {
+    const adapter = await navigator.gpu.requestAdapter()
+    return adapter?.info.vendor === "img-tec"
+  } catch {
+    return false
+  }
+}
 
 async function startLoad(
   model: WllamaTextModel,
@@ -219,22 +401,32 @@ async function startLoad(
   const status = modelStatus(model)
   const url = modelUrl(model)
   const meta = modelMeta(model)
-  if (needsCompat()) useCompat(wllama, await compatBuild())
+  const compat = needsCompat() ? await compatBuild() : null
+  if (compat) useCompat(wllama, compat)
+  const speculative = await useSpeculative()
+  // Saved slot states only restore into the same build and setup (speculative
+  // decoding keeps extra recurrent-state snapshots).
+  state = {
+    model,
+    build: `${BUILD_ID} ${compat?.wasm ?? mainWasmUrl()}${speculative ? " speculative" : ""}`
+  }
   // A model already in storage loads from it, without the network.
   const saved = await wllama.modelManager.getModels()
   const cached = saved.some((m) => m.url === url)
   status.set({ state: "loading", progress: 0, cached })
+  if (!cached) keepDownloads()
   await wllama.loadModelFromUrl(url, {
     // wllama's default is 1,024 tokens, less than a system prompt with tools.
     n_ctx: meta.context,
-    // On the CPU: wllama would otherwise use WebGPU where the browser has it.
-    n_gpu_layers: 0,
+    // wllama's default otherwise: WebGPU where the browser has it.
+    ...(options.gpu === false && { n_gpu_layers: 0 }),
     // The whole context in sliding-window layers' cache (LFM3's), not just
     // the window, so a follow-up can reuse what was read before: otherwise
     // LFM3 rereads the whole prompt after a tool call. +65 MB for LFM3;
     // nothing for models without such layers.
     swa_full: true,
     ...(options.threads && { n_threads: options.threads }),
+    ...(speculative && SPECULATIVE),
     signal,
     progressCallback: ({ loaded: bytes, total }) => {
       if (cached) return
@@ -248,6 +440,7 @@ async function startLoad(
       })
     }
   })
+  await restoreState(model, wllama)
   return wllama
 }
 
@@ -259,7 +452,6 @@ export function loadModel(model: WllamaTextModel): Promise<Wllama> {
   if (loaded?.model === model) return loaded.promise
   const previous = loaded
   if (previous) modelStatus(previous.model).set({ state: "idle" })
-  keepDownloads()
   const wllama = new Wllama(
     { default: mainWasmUrl() },
     {
@@ -319,11 +511,15 @@ export async function streamChat(
   signal?: AbortSignal
 ): Promise<AsyncIterable<ChatCompletionChunk>> {
   const wllama = await loadModel(model)
-  return wllama.createChatCompletion({
+  const chunks = await wllama.createChatCompletion({
     ...request,
     stream: true,
     ...(signal && { abortSignal: signal })
   })
+  return (async function* () {
+    yield* chunks
+    void saveState(model, wllama, request)
+  })()
 }
 
 /** A whole chat completion from `model`, loading it first. */
@@ -334,11 +530,13 @@ export async function completeChat(
 ): Promise<ChatCompletionResponse> {
   const wllama = await loadModel(model)
   try {
-    return await wllama.createChatCompletion({
+    const response = await wllama.createChatCompletion({
       ...request,
       stream: false,
       ...(signal && { abortSignal: signal })
     })
+    void saveState(model, wllama, request)
+    return response
   } catch (error) {
     throw contextError(error, modelMeta(model).context)
   }
