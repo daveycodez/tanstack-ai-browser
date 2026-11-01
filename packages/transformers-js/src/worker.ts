@@ -1090,10 +1090,7 @@ async function loadRuntime(
       "This model needs WebGPU, which this browser doesn't have, and it has no weights for running on the CPU. Pick another model."
     )
   }
-  // Before the download, not alongside it: twice on an iPhone, Safari
-  // closed the file being downloaded ~170 MB in, both times while the other
-  // dtype's 1.2 GB file was being removed, and no retry got it back.
-  await removeOtherWeights(modelId, dtype, weights)
+  void removeOtherWeights(modelId, dtype, weights)
   const cached = await isDownloaded(modelId, weights)
   ctx.postMessage({ type: "progress", modelId, progress: 0, cached })
   // Whole percents only; the download stream reports every chunk.
@@ -1188,8 +1185,7 @@ function load(modelId: string, dtype: WeightsDtype) {
     // The kept caches belong to the previous model.
     await discardSaved()
     await previous?.then((r) => r.model.dispose()).catch(() => undefined)
-    // (Finished before any download: see removeOtherWeights.)
-    await removeOldCopies(modelId)
+    void removeOldCopies(modelId)
     return loadRuntime(modelId, dtype)
   })()
   current = { modelId, dtype, runtime }
