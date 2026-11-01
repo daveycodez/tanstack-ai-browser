@@ -18,6 +18,7 @@ import type {
   WorkerRequest,
   WorkerResponse
 } from "./protocol.js"
+import { pooledSize, SparePool } from "./buffer-pool.js"
 import { embedRows } from "./disk-embedding.js"
 import {
   chunkLargeMatMulNBits,
@@ -428,8 +429,6 @@ const gpu = {
   peakBytes: 0,
   /** The peak since the last memory log line (dev only). */
   linePeakBytes: 0,
-  /** Destroyed buffers kept as spares, part of liveBytes. */
-  spareBytes: 0,
   lost: null as string | null,
   error: null as string | null,
   promptTokens: 0,
@@ -450,46 +449,69 @@ const gpu = {
 }
 
 /*
- * Every generated token, ONNX Runtime allocates two 4.2 MB storage buffers
- * for LFM3's outputs (at a ~3,000-token prompt) and destroys them a step
- * later: its bucket cache keeps only a few spares per size (20 at 4 MiB, 10
- * at 8 MiB) and destroys the rest. iPhone Safari didn't reclaim the
- * destroyed memory fast enough: 8.4 MB per token, and the page passed its
- * 2 GB limit ~350 tokens into a reply. Destroyed buffers of 1 MB or more are
- * kept and handed back for the next request of the same size and usage
- * instead. (microsoft/onnxruntime#33751)
+ * GPU buffers between model steps. ONNX Runtime's default buffer cache
+ * ("bucket") keeps the buffers of every size it has made, up to a count per
+ * size: after a 2,048-token Qwen3.5 reply it held ~180 MB of sizes it had
+ * outgrown, and for sizes past its counts it destroyed a buffer every token
+ * (LFM3: 8.4 MB per token at a ~3,000-token prompt, which iPhone Safari
+ * reclaimed so late that the page passed its 2 GB limit ~350 tokens into a
+ * reply; microsoft/onnxruntime#33751). So ONNX Runtime runs in its
+ * "lazyRelease" mode, destroying each step's buffers when the step ends,
+ * and the worker keeps them instead (see buffer-pool.ts): the next step
+ * takes them back, with sizes rounded up so that a request growing a token
+ * at a time keeps its buffer, and what it leaves goes for good. Without the
+ * pool, lazyRelease destroys and makes ~41 MB of buffers per Qwen3.5 token.
  */
-const POOL_MIN_BYTES = 1 << 20
-/**
- * Spares of a size are destroyed once that many pooled requests have gone by
- * without one for it: past 4,096 tokens the 4 MB buffers give way to 8 MB
- * ones, and their spares would otherwise sit in memory for good.
- */
-const POOL_STALE_REQUESTS = 512
 
 /** GPUBufferUsage.MAP_READ | GPUBufferUsage.MAP_WRITE. */
 const MAP_READ_OR_WRITE = 0x1 | 0x2
-/** Free buffers kept per size and usage. */
-const POOL_PER_SIZE = 12
+/** GPUBufferUsage.STORAGE. */
+const STORAGE_USAGE = 0x80
+
+/** Set while the worker makes a buffer of its own (createOwnBuffer). */
+let creatingOwnBuffer = false
 
 /**
- * Buffers of odd sizes made here (cut-down caches), destroyed for real
- * rather than kept as spares nothing would ask for.
+ * A buffer for the worker itself (copies of cache tensors): the exact size,
+ * and destroyed for real when it goes, never kept as a spare.
  */
-const unpooledBuffers = new WeakSet<GPUBuffer>()
-
-/** The pool a buffer request can be served from, or null. */
-function poolKey(descriptor: GPUBufferDescriptor) {
-  const mappable = descriptor.usage & MAP_READ_OR_WRITE
-  if (
-    descriptor.size < POOL_MIN_BYTES ||
-    mappable ||
-    descriptor.mappedAtCreation
-  ) {
-    return null
+function createOwnBuffer(device: GPUDevice, descriptor: GPUBufferDescriptor) {
+  creatingOwnBuffer = true
+  try {
+    return device.createBuffer(descriptor)
+  } finally {
+    creatingOwnBuffer = false
   }
-  return `${descriptor.size}/${descriptor.usage}`
 }
+
+/**
+ * Whether a buffer request goes through the pool: ONNX Runtime's storage
+ * buffers once the model is loaded (not its weights, which stay, nor
+ * buffers for mapping).
+ */
+const pooled = (descriptor: GPUBufferDescriptor) =>
+  !creatingOwnBuffer &&
+  modelEdits === null &&
+  (descriptor.usage & STORAGE_USAGE) !== 0 &&
+  (descriptor.usage & MAP_READ_OR_WRITE) === 0 &&
+  !descriptor.mappedAtCreation
+
+/** Spare buffers by device: a lost device's spares are useless to the next. */
+const sparePools = new WeakMap<GPUDevice, SparePool<GPUBuffer>>()
+
+/** Ends a model step (a prompt step, a token): drops the spares it left. */
+function endGpuStep() {
+  if (gpu.device) sparePools.get(gpu.device)?.endStep()
+}
+
+/** Destroys every spare buffer: a reply is done. */
+function dropSpareBuffers() {
+  if (gpu.device) sparePools.get(gpu.device)?.clear()
+}
+
+/** Bytes held as spares. */
+const spareBytes = () =>
+  (gpu.device && sparePools.get(gpu.device)?.bytes) || 0
 
 function trackGpu() {
   const scope = globalThis as unknown as {
@@ -502,28 +524,41 @@ function trackGpu() {
   const adapter = scope.GPUAdapter?.prototype
   if (!device || !buffer || !adapter) return
   const sizes = new WeakMap<GPUBuffer, number>()
+  /** Pooled buffers: their device and pool key. */
   const owners = new WeakMap<GPUBuffer, { device: GPUDevice; key: string }>()
-  const pools = new WeakMap<GPUDevice, Map<string, Array<GPUBuffer>>>()
+  /** Buffers sitting in a pool, which ONNX Runtime has destroyed. */
+  const spares = new WeakSet<GPUBuffer>()
+  const destroy = buffer.destroy
+  /** Destroys a buffer for real. */
+  const release = (target: GPUBuffer) => {
+    owners.delete(target)
+    spares.delete(target)
+    const size = sizes.get(target)
+    if (size !== undefined) {
+      gpu.liveBytes -= size
+      sizes.delete(target)
+      liveBuffers.delete(target)
+    }
+    destroy.call(target)
+  }
   const poolFor = (owner: GPUDevice) => {
-    let pool = pools.get(owner)
-    if (!pool) pools.set(owner, (pool = new Map()))
+    let pool = sparePools.get(owner)
+    if (!pool) sparePools.set(owner, (pool = new SparePool(release)))
     return pool
   }
-  // Pooled requests so far, and the last one for each size.
-  let requests = 0
-  const lastRequested = new Map<string, number>()
   const createBuffer = device.createBuffer
-  device.createBuffer = function (descriptor) {
-    const key = poolKey(descriptor)
-    if (key) {
-      lastRequested.set(key, ++requests)
-      if (requests % 64 === 0) dropStaleSpares(poolFor(this))
-    }
-    const reused = key ? poolFor(this).get(key)?.pop() : undefined
-    if (reused) {
-      gpu.spareBytes -= descriptor.size
-      gpu.churn.reused++
-      return reused
+  device.createBuffer = function (requested) {
+    let descriptor = requested
+    let key: string | null = null
+    if (pooled(descriptor)) {
+      descriptor = { ...descriptor, size: pooledSize(descriptor.size) }
+      key = `${descriptor.size}/${descriptor.usage}`
+      const spare = poolFor(this).take(key)
+      if (spare) {
+        spares.delete(spare)
+        gpu.churn.reused++
+        return spare
+      }
     }
     const created = createBuffer.call(this, descriptor)
     if (key) owners.set(created, { device: this, key })
@@ -541,44 +576,13 @@ function trackGpu() {
     gpu.linePeakBytes = Math.max(gpu.linePeakBytes, gpu.liveBytes)
     return created
   }
-  const destroy = buffer.destroy
-  /** Destroys a buffer for real. */
-  const release = (target: GPUBuffer) => {
-    owners.delete(target)
-    const size = sizes.get(target)
-    if (size !== undefined) {
-      gpu.liveBytes -= size
-      sizes.delete(target)
-      liveBuffers.delete(target)
-    }
-    destroy.call(target)
-  }
-  /** Destroys the spares of sizes nothing has asked for in a while. */
-  const dropStaleSpares = (pool: Map<string, Array<GPUBuffer>>) => {
-    for (const [key, free] of pool) {
-      if (requests - (lastRequested.get(key) ?? 0) < POOL_STALE_REQUESTS)
-        continue
-      for (const spare of free) {
-        gpu.spareBytes -= sizes.get(spare) ?? 0
-        release(spare)
-      }
-      pool.delete(key)
-    }
-  }
   buffer.destroy = function () {
-    // A large buffer is kept for the next request of its size, not destroyed.
-    const owner = unpooledBuffers.has(this) ? undefined : owners.get(this)
-    if (owner) {
-      const pool = poolFor(owner.device)
-      const free = pool.get(owner.key) ?? []
-      if (free.length < POOL_PER_SIZE && !free.includes(this)) {
-        gpu.spareBytes += sizes.get(this) ?? 0
-        free.push(this)
-        pool.set(owner.key, free)
-        return
-      }
-    }
-    release(this)
+    // Already a spare: ONNX Runtime destroyed it twice.
+    if (spares.has(this)) return
+    const owner = owners.get(this)
+    if (!owner) return release(this)
+    spares.add(this)
+    poolFor(owner.device).put(owner.key, this, sizes.get(this) ?? 0)
   }
   if (DEBUG) countGpuWork()
   const requestDevice = adapter.requestDevice
@@ -702,7 +706,7 @@ function logMemory(step: string) {
   const alive = c.bindGroups - c.bindGroupsFreed
   ctx.postMessage({
     type: "log",
-    text: `[memory] ${step}: wasm ${mb(wasmBytes)} MB, GPU buffers ${mb(gpu.liveBytes)} MB (${mb(gpu.spareBytes)} MB of them spares; peak ${mb(gpu.linePeakBytes)} MB since the last line, ${mb(gpu.peakBytes)} MB in all), ${alive} bind groups not yet collected; since last: ${since}`
+    text: `[memory] ${step}: wasm ${mb(wasmBytes)} MB, GPU buffers ${mb(gpu.liveBytes)} MB (${mb(spareBytes())} MB of them spares; peak ${mb(gpu.linePeakBytes)} MB since the last line, ${mb(gpu.peakBytes)} MB in all), ${alive} bind groups not yet collected; since last: ${since}`
   })
   gpu.linePeakBytes = gpu.liveBytes
 }
@@ -1399,13 +1403,16 @@ async function loadRuntime(
           path: name,
           data: opened[i].data
         })),
-        // onnxruntime's default buffer cache ("bucket") reuses GPU buffers
-        // between steps. "lazyRelease" frees them after every step instead,
-        // which creates and destroys ~27 MB of buffers per token for LFM3;
-        // WebKit releases destroyed buffers late, so a long reply climbed
-        // past an iPhone's memory limit (on a Mac: 1,672 MB at 1,000 tokens
-        // and climbing, against 1,137 MB and flat with bucket).
-        executionProviders: [device],
+        // ONNX Runtime destroys each step's buffers when the step ends
+        // ("lazyRelease"), and the worker's pool keeps them for the next
+        // step (see sparePools). On its own, lazyRelease made and destroyed
+        // ~27 MB of buffers per LFM3 token, which WebKit reclaims late: a
+        // long reply climbed past an iPhone's memory limit.
+        executionProviders: [
+          device === "webgpu"
+            ? { name: "webgpu", storageBufferCacheMode: "lazyRelease" }
+            : device
+        ],
         // No constant folding: LFM exports read the tied embedding's 4-bit
         // weights into the output layer through a Reshape, and folding it
         // copied the whole table into ONNX Runtime's WebAssembly memory
@@ -1591,11 +1598,10 @@ function copyCacheTensor(
     from = tokens * size * bytes
     to = length * size * bytes
   }
-  const buffer = device.createBuffer({
+  const buffer = createOwnBuffer(device, {
     size: pieces * to,
     usage: CACHE_BUFFER_USAGE
   })
-  unpooledBuffers.add(buffer)
   const encoder = device.createCommandEncoder()
   for (let i = 0; i < pieces; i++) {
     encoder.copyBufferToBuffer(source, i * from, buffer, i * to, to)
@@ -2130,11 +2136,10 @@ async function loadFromDisk(
       entries[t.name] = new tf.Tensor(t.type, data, t.dims)
       continue
     }
-    const gpuBuffer = device.createBuffer({
+    const gpuBuffer = createOwnBuffer(device, {
       size: t.size,
       usage: CACHE_BUFFER_USAGE
     })
-    unpooledBuffers.add(gpuBuffer)
     device.queue.writeBuffer(
       gpuBuffer,
       0,
@@ -2192,6 +2197,7 @@ async function readPrompt(
     if (cache) cache.update(entries)
     else cache = new tf.DynamicCache(entries)
     if (stops.includes(stop)) onStop(cache, stop)
+    endGpuStep()
     nudgeGarbageCollector()
     logMemory(
       `prompt read ${stop} of ${length} tokens (${size} in ${Math.round(ms)} ms)`
@@ -2427,6 +2433,7 @@ async function generate(
       lastToken = performance.now()
       firstToken ??= lastToken
       outputTokens += tokens.length
+      endGpuStep()
       if (outputTokens % 16 === 0) nudgeGarbageCollector()
       if (outputTokens % 32 === 0) {
         logMemory(`reply ${outputTokens} tokens (prompt ${gpu.promptTokens})`)
@@ -2554,6 +2561,7 @@ async function generate(
       checkpoints.forEach(disposeCheckpoint)
       await cache.dispose().catch(() => undefined)
     }
+    dropSpareBuffers()
     logMemory(`reply finished, ${outputTokens} tokens`)
     if (DEBUG) {
       ctx.postMessage({

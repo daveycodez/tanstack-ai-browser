@@ -50,6 +50,8 @@ Any other Hugging Face ONNX model works too, given how it writes tool calls and 
 
 `chat()` runs tools and the agent loop; each model call runs in the worker. Weights download once to the Origin Private File System, prompts are read in time-sized steps (under Safari's GPU watchdog), and the model's cache is reused across calls by token prefix, with the system prompt and tools saved to disk.
 
+**GPU memory** stays close to the weights. ONNX Runtime destroys each step's working buffers and the worker keeps them for the next step, rounded up to a quarter of a power of two so that a buffer growing a token at a time keeps fitting; what a step leaves is destroyed. On a Mac after a 2,048-token prompt and a 128-token reply, LFM3 holds 1,013 MB of GPU buffers (it held 1,340 with ONNX Runtime's own cache) and Qwen3.5 1,184 MB (1,335), and both write faster (LFM3 128 tokens/s against 120, Qwen3.5 58 against 33).
+
 The model runs in a module Web Worker that the package starts with `new Worker(new URL("./worker.js", import.meta.url))`. Bundlers that understand that pattern (Vite, webpack 5, Rollup with a worker plugin) emit the worker file for you. With Vite, leave the package out of dependency pre-bundling, so the worker's URL still points at a real file:
 
 ```ts
