@@ -2,6 +2,8 @@
 
 Test on the Mac unless the user asks for a device. Another agent may be driving the Pixel 10 Pro: never touch it, and never use port 9222 (the Pixel's Chrome, forwarded by adb).
 
+On the Mac, test in the desktop app's built-in Browser (the `mcp__Claude_Browser__*` tools), never in the user's own browser: no Claude in Chrome, no Safari or Chrome windows of theirs.
+
 ## Running the runtime benchmarks
 
 The bench pages live in `packages/webgl/bench` and are served cross-origin isolated by `server.mjs`, which also bundles the packages' TypeScript on request.
