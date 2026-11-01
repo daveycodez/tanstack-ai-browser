@@ -18,7 +18,14 @@ import type {
   WorkerRequest,
   WorkerResponse
 } from "./protocol.js"
-import { chunkLargeMatMulNBits, trimRotaryTables } from "./onnx-graph.js"
+import { embedRows } from "./disk-embedding.js"
+import {
+  chunkLargeMatMulNBits,
+  readQuantizedEmbedding,
+  scoreLastTokenOnly,
+  trimRotaryTables
+} from "./onnx-graph.js"
+import type { QuantizedEmbedding } from "./onnx-graph.js"
 
 /**
  * Diagnostics (memory and cache logs, error stacks) when the page started
@@ -112,34 +119,91 @@ async function importTransformers(device: Device) {
 const CPU_MATMUL_BYTES = 64 * 1024 * 1024
 
 /** The edits for the model being loaded, set before its sessions are created. */
-let modelEdits: { chunkMatMuls: boolean; positions: number } | null = null
+let modelEdits: {
+  modelId: string
+  chunkMatMuls: boolean
+  positions: number
+} | null = null
+
+/** onnxruntime-web, as far as editModels uses it. */
+type Ort = {
+  InferenceSession: { create: (model: unknown, ...rest: Array<unknown>) => unknown }
+  Tensor: new (type: "float32", data: Float32Array, dims: Array<number>) => unknown
+}
 
 /**
  * Has ONNX Runtime create sessions from edited models: rotary tables cut to
- * the context the model is loaded for, and on the CPU, large multiplies
- * split (see CPU_MATMUL_BYTES).
+ * the context the model is loaded for, scores computed for the last token
+ * only, and on the CPU, large multiplies split (see CPU_MATMUL_BYTES). A
+ * 4-bit embedding session is replaced by a lookup on disk
+ * (diskEmbeddingSession).
  */
-function editModels(ort: {
-  InferenceSession: { create: (model: unknown, ...rest: Array<unknown>) => unknown }
-}) {
+function editModels(ort: Ort) {
   const session = ort.InferenceSession
   const create = session.create.bind(session)
   session.create = (model, ...rest) => {
     if (!(model instanceof Uint8Array) || !modelEdits) return create(model, ...rest)
+    const table = readQuantizedEmbedding(model)
+    if (table) {
+      if (DEBUG) {
+        ctx.postMessage({
+          type: "log",
+          text: `[model] embedding read from disk (${(table.codes.length / 1e6).toFixed(0)} MB not loaded)`
+        })
+      }
+      return Promise.resolve(diskEmbeddingSession(ort, table, modelEdits.modelId))
+    }
     let edited = model
     const trimmed = trimRotaryTables(edited, modelEdits.positions)
     if (trimmed) edited = trimmed
+    const lastOnly = scoreLastTokenOnly(edited)
+    if (lastOnly) edited = lastOnly
     const chunked = modelEdits.chunkMatMuls
       ? chunkLargeMatMulNBits(edited, CPU_MATMUL_BYTES)
       : null
     if (chunked) edited = chunked
-    if (DEBUG && (trimmed || chunked)) {
+    if (DEBUG && (trimmed || lastOnly || chunked)) {
       ctx.postMessage({
         type: "log",
-        text: `[model]${trimmed ? ` rotary tables cut to ${modelEdits.positions.toLocaleString("en-US")} positions;` : ""}${chunked ? " large matrix multiplies split for the CPU" : ""}`
+        text: `[model]${trimmed ? ` rotary tables cut to ${modelEdits.positions.toLocaleString("en-US")} positions;` : ""}${lastOnly ? " scores for the last token only;" : ""}${chunked ? " large matrix multiplies split for the CPU" : ""}`
       })
     }
     return create(edited, ...rest)
+  }
+}
+
+/**
+ * Stands in for an `embed_tokens` session: looks its tokens' rows up in the
+ * weights file instead of holding the table in memory (see
+ * disk-embedding.ts). The file is opened on first use: until the model has
+ * loaded, the loader holds its only access handle.
+ */
+function diskEmbeddingSession(
+  ort: Ort,
+  table: QuantizedEmbedding,
+  modelId: string
+) {
+  let file: Awaited<ReturnType<typeof openWeights>> | null = null
+  return {
+    inputNames: [table.input],
+    outputNames: [table.output],
+    async run(
+      feeds: Record<string, { data: ArrayLike<bigint>; dims: ReadonlyArray<number> }>
+    ) {
+      const ids = feeds[table.input]
+      file ??= await openWeights(modelId, table.codes.location)
+      const { data } = file
+      const rows = embedRows(table, ids.data, (offset, length) =>
+        data.subarray(offset, offset + length)
+      )
+      return {
+        [table.output]: new ort.Tensor("float32", rows, [...ids.dims, table.K])
+      }
+    },
+    async release() {
+      file?.close()
+      file = null
+    }
   }
 }
 
@@ -1302,7 +1366,11 @@ async function loadRuntime(
   }
   const { Model, config } = await modelClass(tf, repo, revision, weights)
   const contextLength = contextFor(config, requestedContext)
-  modelEdits = { chunkMatMuls: device === "wasm", positions: contextLength }
+  modelEdits = {
+    modelId,
+    chunkMatMuls: device === "wasm",
+    positions: contextLength
+  }
   const opened: Array<Awaited<ReturnType<typeof openWeights>>> = []
   try {
     for (const { name } of weights)

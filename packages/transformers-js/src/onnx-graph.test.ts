@@ -1,6 +1,11 @@
 import assert from "node:assert/strict"
 import { describe, test } from "node:test"
-import { chunkLargeMatMulNBits, trimRotaryTables } from "./onnx-graph.js"
+import {
+  chunkLargeMatMulNBits,
+  readQuantizedEmbedding,
+  scoreLastTokenOnly,
+  trimRotaryTables
+} from "./onnx-graph.js"
 
 /* A minimal protobuf writer and reader for building and checking models. */
 const text = new TextEncoder()
@@ -283,5 +288,125 @@ describe("trimRotaryTables", () => {
     assert.deepEqual(tablesOf(sharedOnly).map((t) => t.dims), [[1000, 32], [100, 32]])
     assert.equal(trimRotaryTables(attentionModel(cos, sin), 1000), null)
     assert.equal(trimRotaryTables(model(10, 64), 100), null)
+  })
+})
+
+/** A graph's ValueInfo: an input (11) or output (12) named `name`. */
+const valueInfo = (field: number, name: string) => bytes(field, bytes(1, name))
+
+/**
+ * A decoder's end: final norm -> output layer (MatMulNBits) -> `logits`,
+ * optionally through a Cast or a soft cap (Div, Tanh, Mul by constants).
+ */
+function decoderModel(options: { after?: "cast" | "softcap"; keepInput?: boolean } = {}) {
+  const head = nodeProto(
+    "MatMulNBits",
+    ["normed", "B", "scales"],
+    [options.after ? "head_out" : "logits"],
+    "lm_head",
+    [intAttr("K", 64), intAttr("N", 100), intAttr("bits", 4), intAttr("block_size", 32)],
+    "com.microsoft"
+  )
+  const after =
+    options.after === "cast"
+      ? [nodeProto("Cast", ["head_out"], ["logits"], "cast", [intAttr("to", 1)])]
+      : options.after === "softcap"
+        ? [
+            nodeProto("Div", ["head_out", "cap"], ["scaled"], "div"),
+            nodeProto("Tanh", ["scaled"], ["capped"], "tanh"),
+            nodeProto("Mul", ["capped", "cap"], ["logits"], "mul")
+          ]
+        : []
+  const graph = join(
+    bytes(1, nodeProto("SimplifiedLayerNormalization", ["hidden", "norm_w"], ["normed"], "norm")),
+    bytes(1, head),
+    ...after.map((n) => bytes(1, n)),
+    bytes(2, "graph"),
+    bytes(5, tensorProto("B", [100, 2, 16])),
+    bytes(5, tensorProto("scales", [100, 2])),
+    bytes(5, tensorProto("cap", [1])),
+    valueInfo(11, "inputs_embeds"),
+    ...(options.keepInput ? [valueInfo(11, "num_logits_to_keep")] : []),
+    valueInfo(12, "logits")
+  )
+  return join(int(1, 10), bytes(7, graph))
+}
+
+describe("scoreLastTokenOnly", () => {
+  test("slices the output layer's input to the last position", () => {
+    const edited = scoreLastTokenOnly(decoderModel())
+    assert.ok(edited)
+    const { nodes, int64s } = nodesOf(edited)
+    assert.deepEqual(nodes.map((n) => n.op), ["SimplifiedLayerNormalization", "Slice", "MatMulNBits"])
+    const [, slice, head] = nodes
+    assert.equal(slice.inputs[0], "normed")
+    assert.deepEqual(head.inputs, [slice.outputs[0], "B", "scales"])
+    assert.deepEqual(head.outputs, ["logits"])
+    assert.deepEqual(int64s.get(slice.inputs[1]), [-1])
+    assert.deepEqual(int64s.get(slice.inputs[3]), [-2])
+  })
+
+  test("finds the output layer behind a Cast or a soft cap", () => {
+    for (const after of ["cast", "softcap"] as const) {
+      const edited = scoreLastTokenOnly(decoderModel({ after }))
+      assert.ok(edited, after)
+      const head = nodesOf(edited).nodes.find((n) => n.op === "MatMulNBits")
+      assert.match(head?.inputs[0] ?? "", /last_position/, after)
+    }
+  })
+
+  test("leaves models that take num_logits_to_keep, or have no logits", () => {
+    assert.equal(scoreLastTokenOnly(decoderModel({ keepInput: true })), null)
+    assert.equal(scoreLastTokenOnly(model(10, 64)), null)
+  })
+})
+
+/** An embedding graph: GatherBlockQuantized (4-bit, blocks of 32) -> Cast. */
+function embeddingModel(options: { castTo?: number; rows?: number; K?: number } = {}) {
+  const rows = options.rows ?? 3
+  const K = options.K ?? 64
+  const blocks = K / 32
+  const graph = join(
+    bytes(
+      1,
+      nodeProto(
+        "GatherBlockQuantized",
+        ["codes", "input_ids", "scales", "zeros"],
+        ["gathered"],
+        "gather",
+        [intAttr("bits", 4), intAttr("block_size", 32), intAttr("gather_axis", 0), intAttr("quantize_axis", 1)],
+        "com.microsoft"
+      )
+    ),
+    bytes(1, nodeProto("Cast", ["gathered"], ["inputs_embeds"], "cast", [intAttr("to", options.castTo ?? 1)])),
+    bytes(2, "graph"),
+    bytes(5, table("codes", [rows, K / 2], 2, { offset: 0, length: (rows * K) / 2 })),
+    bytes(5, table("scales", [rows, blocks], 10, { offset: (rows * K) / 2, length: rows * blocks * 2 })),
+    bytes(5, table("zeros", [rows, blocks / 2], 2, { offset: (rows * K) / 2 + rows * blocks * 2, length: rows })),
+    valueInfo(11, "input_ids"),
+    valueInfo(12, "inputs_embeds")
+  )
+  return join(int(1, 10), bytes(7, graph))
+}
+
+describe("readQuantizedEmbedding", () => {
+  test("reads a 4-bit embedding table's layout", () => {
+    assert.deepEqual(readQuantizedEmbedding(embeddingModel()), {
+      input: "input_ids",
+      output: "inputs_embeds",
+      rows: 3,
+      K: 64,
+      blockSize: 32,
+      codes: { location: "weights.onnx_data", offset: 0, length: 96 },
+      scaleType: 10,
+      scales: { location: "weights.onnx_data", offset: 96, length: 12 },
+      zeros: { location: "weights.onnx_data", offset: 108, length: 3 }
+    })
+  })
+
+  test("only float32 rows, and only embedding graphs", () => {
+    assert.equal(readQuantizedEmbedding(embeddingModel({ castTo: 10 })), null)
+    assert.equal(readQuantizedEmbedding(decoderModel()), null)
+    assert.equal(readQuantizedEmbedding(model(10, 64)), null)
   })
 })

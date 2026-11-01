@@ -357,3 +357,201 @@ export function chunkLargeMatMulNBits(
   const newGraph = lengthField(7, concat(graphParts))
   return concat(modelFields.map((f, i) => (i === graphIndex ? newGraph : f.raw)))
 }
+
+/** ValueInfoProto names in a graph field: inputs (11) or outputs (12). */
+const valueNames = (graph: Array<Field>, field: number) =>
+  graph
+    .filter((f) => f.field === field && f.bytes)
+    .map((f) => firstString(parse(f.bytes as Uint8Array), 1))
+
+/** Ops the output layer's result may pass through on its way to `logits`. */
+const PER_POSITION = new Set(["Cast", "Tanh", "Mul", "Div", "Add", "Sub"])
+
+/**
+ * Has the model compute `logits` for the last position only. Exports with
+ * a `num_logits_to_keep` input do that when asked; others score every
+ * token of a prompt step, which a large vocabulary makes costly: Qwen3.5's
+ * 248,320 words over a 256-token step are a 127 MB buffer, and as much
+ * again in WebAssembly memory when it's read back. A Slice now takes the
+ * last position of the output layer's input (rows are scored
+ * independently, so the last row's scores don't change).
+ *
+ * Returns the edited model, or null where it doesn't apply.
+ */
+export function scoreLastTokenOnly(model: Uint8Array): Uint8Array | null {
+  const modelFields = parse(model)
+  const graphIndex = modelFields.findIndex((f) => f.field === 7)
+  const graphBytes = modelFields[graphIndex]?.bytes
+  if (!graphBytes) return null
+  const graph = parse(graphBytes)
+  if (!valueNames(graph, 12).includes("logits")) return null
+  if (valueNames(graph, 11).includes("num_logits_to_keep")) return null
+
+  const initializers = new Set<string>()
+  const producers = new Map<string, number>()
+  graph.forEach((f, index) => {
+    if (f.field === 5 && f.bytes) initializers.add(firstString(parse(f.bytes), 8))
+    if (f.field !== 1 || !f.bytes) return
+    for (const output of strings(parse(f.bytes), 2)) producers.set(output, index)
+  })
+
+  // From `logits` back to the output layer, through per-position ops whose
+  // other inputs are constants (a cast, Gemma's soft cap).
+  let index = producers.get("logits")
+  for (let hops = 0; index !== undefined && hops < 8; hops++) {
+    const fields = parse(graph[index].bytes as Uint8Array)
+    const op = firstString(fields, 4)
+    const inputs = strings(fields, 1)
+    if (op === "MatMulNBits" || op === "MatMul") break
+    if (!PER_POSITION.has(op)) return null
+    const variable = inputs.filter((i) => i && !initializers.has(i))
+    if (variable.length !== 1) return null
+    index = producers.get(variable[0])
+  }
+  if (index === undefined) return null
+  const head = parse(graph[index].bytes as Uint8Array)
+  const op = firstString(head, 4)
+  if (op !== "MatMulNBits" && op !== "MatMul") return null
+  const hidden = strings(head, 1)[0]
+  if (!hidden) return null
+
+  const last = `${hidden}/last_position`
+  const slice = node(
+    "Slice",
+    [hidden, `${last}/starts`, `${last}/ends`, `${last}/axes`],
+    [last],
+    `${last}/Slice`
+  )
+  // The head with its first input (A) read from the Slice.
+  let replaced = false
+  const newHead = concat(
+    head.map((f) => {
+      if (f.field !== 1 || replaced) return f.raw
+      replaced = true
+      return stringField(1, last)
+    })
+  )
+  const graphParts: Array<Uint8Array> = []
+  graph.forEach((f, i) => {
+    if (i === index) graphParts.push(lengthField(1, slice), lengthField(1, newHead))
+    else graphParts.push(f.raw)
+  })
+  graphParts.push(
+    lengthField(5, int64Tensor(`${last}/starts`, [-1])),
+    lengthField(5, int64Tensor(`${last}/ends`, [2 ** 31 - 1])),
+    // The position axis, second to last: [batch, positions, hidden].
+    lengthField(5, int64Tensor(`${last}/axes`, [-2]))
+  )
+  const newGraph = lengthField(7, concat(graphParts))
+  return concat(modelFields.map((f, i) => (i === graphIndex ? newGraph : f.raw)))
+}
+
+/** Where a tensor's bytes are in an external data file. */
+export type ExternalBytes = { location: string; offset: number; length: number }
+
+/**
+ * A 4-bit quantized embedding table, as a lone GatherBlockQuantized graph
+ * (onnx-community's `embed_tokens` sessions) stores it: per row of `K`
+ * values, `K / 2` bytes of codes (low nibble first), a scale per block of
+ * `blockSize` values, and a 4-bit zero point per block (8 without).
+ */
+export type QuantizedEmbedding = {
+  input: string
+  /** The float32 rows. */
+  output: string
+  rows: number
+  /** Values per row. */
+  K: number
+  blockSize: number
+  codes: ExternalBytes
+  /** ONNX type of the scales: 1 float32, 10 float16. */
+  scaleType: 1 | 10
+  scales: ExternalBytes
+  zeros?: ExternalBytes
+}
+
+/**
+ * The embedding table a model's graph is, if it's only a 4-bit
+ * GatherBlockQuantized lookup (with a Cast) over weights in an external
+ * data file; null for anything else.
+ */
+export function readQuantizedEmbedding(model: Uint8Array): QuantizedEmbedding | null {
+  const graphBytes = parse(model).find((f) => f.field === 7)?.bytes
+  if (!graphBytes) return null
+  const graph = parse(graphBytes)
+  const nodes = graph.filter((f) => f.field === 1 && f.bytes).map((f) => parse(f.bytes as Uint8Array))
+  const inputs = valueNames(graph, 11)
+  const outputs = valueNames(graph, 12)
+  if (inputs.length !== 1 || outputs.length !== 1 || nodes.length > 2) return null
+  const gather = nodes.find((n) => firstString(n, 4) === "GatherBlockQuantized")
+  if (!gather) return null
+  const cast = nodes.find((n) => n !== gather)
+  if (cast && firstString(cast, 4) !== "Cast") return null
+
+  const attribute = (fields: Array<Field>, name: string) => {
+    for (const a of fields) {
+      if (a.field !== 5 || !a.bytes) continue
+      const attr = parse(a.bytes)
+      if (firstString(attr, 1) !== name) continue
+      const value = attr.find((x) => x.field === 3)?.value
+      return value === undefined ? undefined : Number(BigInt.asIntN(64, value))
+    }
+    return undefined
+  }
+  const bits = attribute(gather, "bits") ?? 4
+  const blockSize = attribute(gather, "block_size") ?? 128
+  const gatherAxis = attribute(gather, "gather_axis") ?? 0
+  const quantizeAxis = attribute(gather, "quantize_axis") ?? 1
+  if (bits !== 4 || gatherAxis !== 0) return null
+  const [codesName, idsName, scalesName, zerosName] = strings(gather, 1)
+  if (idsName !== inputs[0]) return null
+  const gatherOut = strings(gather, 2)[0]
+  if (cast ? strings(cast, 1)[0] !== gatherOut || strings(cast, 2)[0] !== outputs[0] : gatherOut !== outputs[0]) return null
+
+  const tensors = new Map<string, { dims: Array<number>; type: number; external: ExternalBytes | null }>()
+  for (const f of graph) {
+    if (f.field !== 5 || !f.bytes) continue
+    const tensor = parse(f.bytes)
+    const entries = new Map<string, string>()
+    for (const x of tensor) {
+      if (x.field !== 13 || !x.bytes) continue
+      const entry = parse(x.bytes)
+      entries.set(firstString(entry, 1), firstString(entry, 2))
+    }
+    const location = entries.get("location")
+    tensors.set(firstString(tensor, 8), {
+      dims: dims(tensor),
+      type: Number(tensor.find((x) => x.field === 2)?.value ?? 0),
+      external: location
+        ? { location, offset: Number(entries.get("offset") ?? 0), length: Number(entries.get("length") ?? 0) }
+        : null
+    })
+  }
+  const codes = tensors.get(codesName)
+  const scales = tensors.get(scalesName)
+  const zeros = zerosName ? tensors.get(zerosName) : undefined
+  if (!codes?.external || !scales?.external || (zerosName && !zeros?.external)) return null
+  // One weights file, which the lookup opens.
+  if (scales.external.location !== codes.external.location) return null
+  if (zeros?.external && zeros.external.location !== codes.external.location) return null
+  // Codes as uint8, packed two to a byte, quantized along the row.
+  if (codes.type !== 2 || quantizeAxis !== codes.dims.length - 1) return null
+  const rows = codes.dims[0]
+  const K = (codes.dims.slice(1).reduce((p, d) => p * d, 1) * 8) / bits
+  if (!rows || K % blockSize !== 0) return null
+  if (scales.type !== 1 && scales.type !== 10) return null
+  if (scales.dims.reduce((p, d) => p * d, 1) !== rows * (K / blockSize)) return null
+  // float32 rows only (the scales' type, or a Cast to it).
+  if ((cast ? attribute(cast, "to") : scales.type) !== 1) return null
+  return {
+    input: inputs[0],
+    output: outputs[0],
+    rows,
+    K,
+    blockSize,
+    codes: codes.external,
+    scaleType: scales.type,
+    scales: scales.external,
+    ...(zeros?.external && { zeros: zeros.external })
+  }
+}
