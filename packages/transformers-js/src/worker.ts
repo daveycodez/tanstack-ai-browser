@@ -426,6 +426,10 @@ const gpu = {
   device: null as GPUDevice | null,
   liveBytes: 0,
   peakBytes: 0,
+  /** The peak since the last memory log line (dev only). */
+  linePeakBytes: 0,
+  /** Destroyed buffers kept as spares, part of liveBytes. */
+  spareBytes: 0,
   lost: null as string | null,
   error: null as string | null,
   promptTokens: 0,
@@ -517,6 +521,7 @@ function trackGpu() {
     }
     const reused = key ? poolFor(this).get(key)?.pop() : undefined
     if (reused) {
+      gpu.spareBytes -= descriptor.size
       gpu.churn.reused++
       return reused
     }
@@ -533,6 +538,7 @@ function trackGpu() {
     if (DEBUG) liveBuffers.set(created, descriptor.size)
     gpu.liveBytes += descriptor.size
     gpu.peakBytes = Math.max(gpu.peakBytes, gpu.liveBytes)
+    gpu.linePeakBytes = Math.max(gpu.linePeakBytes, gpu.liveBytes)
     return created
   }
   const destroy = buffer.destroy
@@ -552,7 +558,10 @@ function trackGpu() {
     for (const [key, free] of pool) {
       if (requests - (lastRequested.get(key) ?? 0) < POOL_STALE_REQUESTS)
         continue
-      for (const spare of free) release(spare)
+      for (const spare of free) {
+        gpu.spareBytes -= sizes.get(spare) ?? 0
+        release(spare)
+      }
       pool.delete(key)
     }
   }
@@ -563,6 +572,7 @@ function trackGpu() {
       const pool = poolFor(owner.device)
       const free = pool.get(owner.key) ?? []
       if (free.length < POOL_PER_SIZE && !free.includes(this)) {
+        gpu.spareBytes += sizes.get(this) ?? 0
         free.push(this)
         pool.set(owner.key, free)
         return
@@ -692,8 +702,9 @@ function logMemory(step: string) {
   const alive = c.bindGroups - c.bindGroupsFreed
   ctx.postMessage({
     type: "log",
-    text: `[memory] ${step}: wasm ${mb(wasmBytes)} MB, GPU buffers ${mb(gpu.liveBytes)} MB (peak ${mb(gpu.peakBytes)} MB), ${alive} bind groups not yet collected; since last: ${since}`
+    text: `[memory] ${step}: wasm ${mb(wasmBytes)} MB, GPU buffers ${mb(gpu.liveBytes)} MB (${mb(gpu.spareBytes)} MB of them spares; peak ${mb(gpu.linePeakBytes)} MB since the last line, ${mb(gpu.peakBytes)} MB in all), ${alive} bind groups not yet collected; since last: ${since}`
   })
+  gpu.linePeakBytes = gpu.liveBytes
 }
 
 /** Called when the GPU device is lost. */
