@@ -434,7 +434,10 @@ test("adds support to an attacked friendly queen without claiming its threat dis
   assert.deepEqual(move.outcome.support?.addedFriendlySupport, [
     {
       target: { piece: "q", square: index("d3") },
-      supporters: [{ piece: "b", square: index("e2") }]
+      supporters: [{ piece: "b", square: index("e2") }],
+      beforeCount: 0,
+      afterCount: 1,
+      wasThreatened: true
     }
   ])
   assert.ok(
@@ -828,4 +831,389 @@ test("speculative reply-capture analysis preserves history and every other conte
     }),
     withoutSafety
   )
+})
+
+test("king-cover facts are opt-in and preserve all moves and the saved game", () => {
+  const game = sequence(newGame(), ["e2e4"])
+  const saved = JSON.stringify(game)
+  const baseline = annotatedLegalMoves(game)
+  assert.ok(baseline.every((move) => move.outcome.kingCover === undefined))
+  const withCover = annotatedLegalMoves(game, { kingCover: true })
+  assert.deepEqual(
+    withCover.map((move) => move.id),
+    baseline.map((move) => move.id)
+  )
+  assert.equal(JSON.stringify(game), saved)
+  const central = withCover.find((move) => move.id === "e7e6")
+  assert.ok(central?.outcome.kingCover)
+  assert.deepEqual(
+    central.outcome.kingCover.before,
+    central.outcome.kingCover.after
+  )
+  assert.deepEqual(central.outcome.kingCover.relevantWings, [])
+})
+
+test("current wing cover survives absent castling rights and reports neutral pawn distances", () => {
+  const game = fromFen("6k1/5ppp/8/8/8/8/8/4K3 b - - 0 40")
+  for (const id of ["g7g6", "h7h6"]) {
+    const cover = annotated(game, id, { kingCover: true }).outcome.kingCover
+    assert.ok(cover)
+    assert.equal(cover.before[0].kind, "current")
+    assert.deepEqual(cover.before[0].homeFiles, ["f", "g", "h"])
+    assert.deepEqual(cover.after[0].nearFiles, ["f", "g", "h"])
+    assert.deepEqual(cover.after[0].missingFiles, [])
+    assert.deepEqual(cover.relevantWings, ["kingside"])
+  }
+  const advanced = annotated(game, "g7g5", { kingCover: true }).outcome
+    .kingCover
+  assert.ok(advanced)
+  assert.deepEqual(advanced.after[0].nearFiles, ["f", "h"])
+  assert.deepEqual(advanced.after[0].advancedFiles, ["g"])
+  assert.deepEqual(advanced.after[0].missingFiles, [])
+  const both = sequence(game, ["g7g5", "e1e2"])
+  const h6 = annotated(both, "h7h6", { kingCover: true }).outcome.kingCover
+  assert.deepEqual(h6?.after[0].nearFiles, ["f", "h"])
+  const h8 = annotated(game, "g8h8", { kingCover: true }).outcome.kingCover
+  assert.equal(h8?.after[0].kind, "current")
+  assert.equal(h8?.after[0].kingSquare, index("h8"))
+})
+
+test("cover counts unique files, actual pawn squares, and missing files independently", () => {
+  const move = annotated(
+    fromFen("6k1/5p1p/6p1/6p1/8/8/8/4K3 b - - 0 40"),
+    "h7h6",
+    { kingCover: true }
+  )
+  const profile = move.outcome.kingCover?.after[0]
+  assert.ok(profile)
+  assert.equal(profile.pawnSquares.length, 4)
+  assert.deepEqual(profile.nearFiles, ["f", "g", "h"])
+  assert.deepEqual(profile.advancedFiles, [])
+  const missing = annotated(
+    fromFen("6k1/5p1p/8/8/8/8/8/4K3 b - - 0 40"),
+    "h7h6",
+    { kingCover: true }
+  )
+  assert.deepEqual(missing.outcome.kingCover?.after[0].missingFiles, ["g"])
+})
+
+test("future castle cover depends on permanent rights, not temporary blockers or check", () => {
+  const game = fromFen("r3kb1r/ppp2ppp/8/8/8/8/8/4R1K1 b kq - 0 40")
+  const block = annotated(game, "f8e7", { kingCover: true, castling: true })
+  assert.deepEqual(
+    block.outcome.kingCover?.before.map((profile) => [
+      profile.kind,
+      profile.wing
+    ]),
+    [
+      ["future", "kingside"],
+      ["future", "queenside"]
+    ]
+  )
+  assert.deepEqual(
+    block.outcome.kingCover?.before,
+    block.outcome.kingCover?.after
+  )
+  const rook = annotated(
+    fromFen("r3k2r/ppp2ppp/8/8/8/8/8/4K3 b kq - 0 40"),
+    "h8g8",
+    { kingCover: true, castling: true }
+  )
+  assert.deepEqual(
+    rook.outcome.kingCover?.after.map((profile) => profile.wing),
+    ["queenside"]
+  )
+  assert.ok(
+    !rook.outcome.castling?.paths.some(
+      (path) => path.side === "ai" && path.wing === "kingside"
+    )
+  )
+  const noRights = annotated(
+    fromFen("r3k2r/ppp2ppp/8/8/8/8/8/4K3 b - - 0 40"),
+    "g7g5",
+    { kingCover: true, castling: true }
+  )
+  assert.deepEqual(noRights.outcome.kingCover, {
+    before: [],
+    after: [],
+    relevantWings: []
+  })
+  assert.deepEqual(noRights.outcome.castling?.lostRights, [])
+  assert.deepEqual(noRights.outcome.castling?.paths, [])
+})
+
+test("actual castling has landing cover and no duplicate future loss/path story", () => {
+  const game = fromFen("r3k2r/ppp2ppp/8/8/8/8/8/4K3 b kq - 0 40")
+  for (const id of ["e8g8", "e8c8"]) {
+    const move = annotated(game, id, { kingCover: true, castling: true })
+    assert.equal(move.outcome.kingCover?.landing?.kind, "current")
+    assert.equal(
+      move.outcome.kingCover?.landing?.wing,
+      move.outcome.castling?.performed
+    )
+    assert.deepEqual(
+      move.outcome.kingCover?.landing?.nearFiles,
+      id === "e8g8" ? ["f", "g", "h"] : ["a", "b", "c"]
+    )
+    assert.deepEqual(move.outcome.castling?.lostRights, [])
+    assert.ok(!move.outcome.castling?.paths.some((path) => path.side === "ai"))
+  }
+})
+
+test("opposite-wing storms and central pushes do not alter current queenside cover", () => {
+  const game = fromFen("2kr3r/ppp2ppp/8/8/8/8/PPP2PPP/R3K2R b KQ - 0 40")
+  const move = annotated(game, "g7g5", { kingCover: true })
+  assert.deepEqual(
+    move.outcome.kingCover?.before,
+    move.outcome.kingCover?.after
+  )
+  assert.equal(move.outcome.kingCover?.after[0].wing, "queenside")
+  assert.deepEqual(move.outcome.kingCover?.relevantWings, [])
+  for (const id of ["d2d4", "e2e4"]) {
+    const central = annotated(newGame(), id, { kingCover: true })
+    assert.deepEqual(
+      central.outcome.kingCover?.before,
+      central.outcome.kingCover?.after
+    )
+    assert.deepEqual(central.outcome.kingCover?.relevantWings, [])
+  }
+  const white = annotated(
+    fromFen("4k3/8/8/8/8/8/5PPP/6K1 w - - 0 40"),
+    "g2g3",
+    { kingCover: true }
+  )
+  assert.equal(white.outcome.kingCover?.after[0].kind, "current")
+  assert.deepEqual(white.outcome.kingCover?.after[0].nearFiles, ["f", "g", "h"])
+})
+
+test("new support to an unattacked queen or rook is support rather than rescue", () => {
+  for (const piece of ["Q", "R"]) {
+    const game = fromFen(`7k/8/8/8/8/3${piece}4/8/3B3K w - - 0 40`)
+    const move = annotated(game, "d1e2", { support: true, relationships: true })
+    const support = move.outcome.support?.addedFriendlySupport.find(
+      (entry) => entry.target.square === index("d3")
+    )
+    assert.ok(support)
+    assert.equal(support.beforeCount, 0)
+    assert.equal(support.afterCount, 1)
+    assert.equal(support.wasThreatened, false)
+    assert.deepEqual(move.outcome.relationships?.resolvedThreats, [])
+  }
+})
+
+test("ordinary purposeful pawn advances report bishop/queen openings without a penalty", () => {
+  for (const [history, id, bishop] of [
+    [["e2e4"], "e7e6", "f8"],
+    [["e2e4"], "e7e5", "f8"],
+    [[], "d2d4", "c1"],
+    [["e2e4"], "g7g6", "f8"],
+    [[], "b2b3", "c1"]
+  ] as [string[], string, string][]) {
+    const move = annotated(sequence(newGame(), history), id, { mobility: true })
+    const opens = move.outcome.mobility?.changedOtherPieces.find(
+      (piece) => piece.fromSquare === index(bishop)
+    )
+    assert.ok(
+      opens && opens.after > opens.before && opens.newSquares.length > 0
+    )
+    assert.equal(
+      move.outcome.mobility?.pawnAdvance?.squares,
+      id.endsWith("4") || id.endsWith("5") ? 2 : 1
+    )
+    if (id.startsWith("e7") || id === "d2d4") {
+      assert.ok(
+        move.outcome.mobility?.changedOtherPieces.some(
+          (piece) => piece.piece === "q" && piece.newSquares.length > 0
+        )
+      )
+    }
+  }
+})
+
+test("returning a king or rook never restores a future cover profile", () => {
+  const start = fromFen("r3k2r/ppp2ppp/8/8/8/8/8/4K3 b kq - 0 40")
+  const kingReturned = sequence(start, ["e8d8", "e1d1", "d8e8", "d1e1"])
+  const king = annotated(kingReturned, "g7g5", {
+    kingCover: true,
+    castling: true
+  })
+  assert.deepEqual(king.outcome.kingCover?.before, [])
+  assert.deepEqual(king.outcome.castling?.lostRights, [])
+  const rookReturned = sequence(start, ["h8g8", "e1d1", "g8h8", "d1e1"])
+  const rook = annotated(rookReturned, "g7g5", {
+    kingCover: true,
+    castling: true
+  })
+  assert.deepEqual(
+    rook.outcome.kingCover?.before.map((profile) => profile.wing),
+    ["queenside"]
+  )
+  assert.deepEqual(rook.outcome.kingCover?.relevantWings, [])
+})
+
+test("queenside kings on b/c home squares keep current cover without rights", () => {
+  for (const file of ["b", "c"]) {
+    const black = annotated(
+      fromFen(`${file === "b" ? "1k6" : "2k5"}/ppp5/8/8/8/8/8/4K3 b - - 0 40`),
+      "a7a6",
+      { kingCover: true }
+    )
+    assert.equal(black.outcome.kingCover?.after[0].kind, "current")
+    assert.equal(black.outcome.kingCover?.after[0].wing, "queenside")
+    assert.deepEqual(black.outcome.kingCover?.after[0].nearFiles, [
+      "a",
+      "b",
+      "c"
+    ])
+    const white = annotated(
+      fromFen(`4k3/8/8/8/8/8/PPP5/${file === "b" ? "1K6" : "2K5"} w - - 0 40`),
+      "a2a3",
+      { kingCover: true }
+    )
+    assert.equal(white.outcome.kingCover?.after[0].kind, "current")
+    assert.deepEqual(white.outcome.kingCover?.after[0].nearFiles, [
+      "a",
+      "b",
+      "c"
+    ])
+  }
+})
+
+test("promotion and king-mobility options remain independent, immutable and opt-in", () => {
+  const game = fromFen("8/7P/8/1R6/7q/1N1KP3/k7/8 b - - 0 72")
+  const saved = JSON.stringify(game)
+  const original = annotatedLegalMoves(game)
+  const enriched = annotatedLegalMoves(game, { promotionReplies: true, kingMobility: true })
+  assert.deepEqual(enriched.map((move) => move.id), original.map((move) => move.id))
+  assert.ok(original.every((move) => move.outcome.promotionReplies === undefined && move.outcome.kingMobility === undefined))
+  assert.ok(enriched.every((move) => move.outcome.mobility === undefined))
+  assert.equal(JSON.stringify(game), saved)
+  assert.deepEqual(enriched, annotatedLegalMoves(game, { promotionReplies: true, kingMobility: true }))
+})
+
+test("quiet promotions include all four legal roles even without an enemy capture", () => {
+  const game = fromFen("8/7P/8/1R6/7q/1N1KP3/k7/8 b - - 0 72")
+  const move = annotated(game, "h4f2", { promotionReplies: true, safety: true })
+  const promotions = move.outcome.promotionReplies
+  assert.ok(promotions)
+  assert.deepEqual(new Set(promotions.map((reply) => reply.promotion)), new Set(["q", "r", "b", "n"]))
+  for (const reply of promotions) {
+    assert.equal(reply.from, index("h7"))
+    assert.equal(reply.to, index("h8"))
+    assert.deepEqual(reply.capturableBy, [])
+    assert.equal(reply.netAfterPromotion, reply.promotion === "q" ? -8 : reply.promotion === "r" ? -4 : -2)
+    assert.equal(reply.netAfterImmediateCapture, undefined)
+  }
+  assert.deepEqual(move.outcome.replyMaterialLosses, [])
+  assert.deepEqual(annotated(game, "h4h7", { promotionReplies: true }).outcome.promotionReplies, [])
+})
+
+test("recapturable promotions preserve valid h-file control rather than inventing forced loss", () => {
+  const game = fromFen("8/7P/8/1R6/7q/1N1KP3/k7/8 b - - 0 72")
+  for (const id of ["a2b1", "h4h1", "h4f6"]) {
+    const promotions = annotated(game, id, { promotionReplies: true }).outcome.promotionReplies
+    assert.equal(promotions?.length, 4)
+    for (const reply of promotions ?? []) {
+      assert.ok(reply.capturableBy.some((piece) => piece.piece === "q"))
+      assert.equal(reply.netAfterImmediateCapture, 1)
+    }
+  }
+})
+
+test("promotion material includes candidate compensation and an actual capture-promotion", () => {
+  const game = fromFen("7r/6P1/8/r7/Q7/8/k7/6K1 b - - 0 40")
+  const promotions = annotated(game, "a5a4", { promotionReplies: true }).outcome.promotionReplies
+  assert.ok(promotions)
+  const quiet = promotions.find((reply) => reply.id === "g7g8q")
+  assert.equal(quiet?.netAfterPromotion, 1) // Queen9 gained, promotion gain8 conceded.
+  const capture = promotions.find((reply) => reply.id === "g7h8q")
+  assert.ok(capture)
+  assert.equal(capture.captured, "r")
+  assert.equal(capture.netAfterPromotion, -4) // 9 - rook5 - promotion8.
+})
+
+test("pinned promotion recapturers are excluded from the actual legal capture list", () => {
+  for (const [rank, pinned] of [["R2r2k1", true], ["3r2k1", false]] as const) {
+    const game = fromFen(`8/3P3p/8/8/${rank}/8/8/K7 b - - 0 40`)
+    const promotions = annotated(game, "h7h6", { promotionReplies: true }).outcome.promotionReplies
+    assert.equal(promotions?.length, 4)
+    for (const reply of promotions ?? []) {
+      assert.equal(reply.capturableBy.some((piece) => piece.square === index("d4")), !pinned)
+    }
+  }
+})
+
+test("underpromotion checks and promotion mates use each actual resulting board", () => {
+  const check = annotated(fromFen("8/p5P1/7k/8/8/8/8/K7 b - - 0 40"), "a7a6", { promotionReplies: true }).outcome.promotionReplies
+  assert.equal(check?.find((reply) => reply.promotion === "n")?.check, true)
+  assert.equal(check?.find((reply) => reply.promotion === "q")?.check, false)
+  const mate = annotated(fromFen("7k/p4P2/6K1/8/8/8/8/8 b - - 0 40"), "a7a6", { promotionReplies: true }).outcome.promotionReplies
+  for (const reply of mate ?? []) {
+    assert.equal(reply.checkmate, reply.promotion === "q" || reply.promotion === "r")
+    if (reply.checkmate) assert.deepEqual(reply.capturableBy, [])
+  }
+})
+
+test("queen and rook cutoffs report exact denied and newly available king destinations", () => {
+  const queen = annotated(fromFen("7K/8/2k5/3q4/8/8/8/8 b - - 0 40"), "d5d7", { kingMobility: true }).outcome.kingMobility
+  assert.ok(queen)
+  assert.deepEqual(new Set(queen.before), new Set([index("h7"), index("g7")]))
+  assert.deepEqual(queen.after, [index("g8")])
+  assert.deepEqual(new Set(queen.deniedSquares), new Set([index("h7"), index("g7")]))
+  assert.deepEqual(queen.newSquares, [index("g8")])
+  assert.equal(queen.opponentBareKing, true)
+  assert.deepEqual(queen.ownKingDistance, { before: 5, after: 5 })
+  const rook = annotated(fromFen("7K/8/5k2/r7/8/8/8/8 b - - 0 40"), "a5a7", { kingMobility: true }).outcome.kingMobility
+  assert.deepEqual(rook?.after, [index("g8")])
+  assert.deepEqual(rook?.deniedSquares, [index("h7")])
+  const closer = annotated(fromFen("7K/8/5k2/r7/8/8/8/8 b - - 0 40"), "f6f7", { kingMobility: true }).outcome.kingMobility
+  assert.deepEqual(closer?.ownKingDistance, { before: 2, after: 2 })
+})
+
+test("zero king destinations remain distinct from checks with nonking replies and stalemate", () => {
+  const block = annotated(fromFen("7K/7R/6kq/8/8/8/8/8 b - - 0 40"), "h6g7", { kingMobility: true })
+  assert.equal(block.outcome.check, true)
+  assert.equal(block.outcome.checkmate, false)
+  assert.deepEqual(block.outcome.kingMobility?.after, [])
+  assert.equal(block.outcome.kingMobility?.otherLegalReplyCount, 1)
+  assert.equal(block.outcome.kingMobility?.afterInCheck, true)
+  const pawn = annotated(fromFen("7K/5q2/2k5/8/8/8/P7/8 b - - 0 40"), "c6d6", { kingMobility: true })
+  assert.equal(pawn.outcome.stalemate, false)
+  assert.deepEqual(pawn.outcome.kingMobility?.after, [])
+  assert.equal(pawn.outcome.kingMobility?.otherLegalReplyCount, 2)
+  assert.equal(pawn.outcome.kingMobility?.opponentBareKing, false)
+  assert.equal(pawn.outcome.kingMobility?.opponentPawnCount, 1)
+  assert.equal(pawn.outcome.kingMobility?.ownKingDistance, undefined)
+  const stalemate = annotated(fromFen("7K/5q2/2k5/8/8/8/8/8 b - - 0 40"), "c6d6", { kingMobility: true, promotionReplies: true })
+  assert.equal(stalemate.outcome.stalemate, true)
+  assert.deepEqual(stalemate.outcome.kingMobility?.after, [])
+  assert.equal(stalemate.outcome.kingMobility?.otherLegalReplyCount, 0)
+  assert.deepEqual(stalemate.outcome.promotionReplies, [])
+})
+
+test("opening blockage is not a mating claim and castling remains a king destination", () => {
+  const opening = annotated(newGame(), "d2d4", { kingMobility: true }).outcome.kingMobility
+  assert.ok(opening)
+  assert.deepEqual(opening.before, [])
+  assert.deepEqual(opening.after, [])
+  assert.equal(opening.otherLegalReplyCount, 20)
+  assert.equal(opening.opponentNonPawnNonKingCount, 7)
+  assert.equal(opening.opponentPawnCount, 8)
+  assert.equal(opening.opponentBareKing, false)
+  assert.equal(opening.ownKingDistance, undefined)
+  const castle = annotated(fromFen("6k1/7p/8/8/8/8/8/4K2R b K - 0 40"), "h7h6", { kingMobility: true }).outcome.kingMobility
+  assert.ok(castle?.before.includes(index("g1")))
+  assert.ok(castle?.after.includes(index("g1")))
+})
+
+test("a checking queen sacrifice is still a loss even when king destinations decrease", () => {
+  const game = fromFen("7K/8/2k5/3q4/8/8/8/8 b - - 0 40")
+  const sacrifice = annotated(game, "d5g8", { kingMobility: true, safety: true })
+  assert.equal(sacrifice.outcome.check, true)
+  assert.deepEqual(sacrifice.outcome.kingMobility?.after, [index("g8")])
+  assert.ok(sacrifice.outcome.replyMaterialLosses?.some((loss) => loss.piece === "q" && loss.capturedBy.piece === "k" && loss.netMaterial === -9))
+  const protectedQueen = annotated(fromFen("5k1K/8/8/3q4/8/8/8/8 b - - 0 40"), "d5g8", { kingMobility: true, safety: true })
+  assert.equal(protectedQueen.outcome.checkmate, true)
+  assert.deepEqual(protectedQueen.outcome.kingMobility?.after, [])
+  assert.deepEqual(protectedQueen.outcome.replyMaterialLosses, [])
 })

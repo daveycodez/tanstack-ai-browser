@@ -1,4 +1,7 @@
+import type { UsageInfo } from "@tanstack/ai"
 import type { OpponentModel } from "../src/lib/opponents.ts"
+export type ReasoningMode = "off" | "native" | "emulated-working-notes"
+
 export type BenchmarkCase = {
   id: string
   label: string
@@ -30,10 +33,12 @@ export type BenchmarkResult = {
   index: number
   total: number
   seconds: number
-  choices: { id: string; outcome: string }[]
+  choices: { id: string; notation?: string; label?: string; outcome: string }[]
   prompt?: string
+  systemPrompt?: string
   thinkingChars: number
   reasoningText: string
+  usage?: UsageInfo
   error?: string
   condition?: string
 }
@@ -51,7 +56,8 @@ export type BenchmarkReport = {
     thinking: boolean
     requestedThinking: boolean
     reasoningSupported: boolean
-    reasoningBudgetTokens: 512
+    reasoningMode: ReasoningMode
+    reasoningBudgetTokens: 512 | 1024
     maxOutputTokens: 8192 | null
     sampling: "model defaults"
     repetitions: number

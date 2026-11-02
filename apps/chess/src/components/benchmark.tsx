@@ -9,7 +9,11 @@ import {
 import type { OpponentModel } from "../lib/opponents"
 import { CASES } from "../../bench/cases"
 import { runBenchmark } from "../../bench/runner"
-import type { BenchmarkReport, BenchmarkResult } from "../../bench/types"
+import type {
+  BenchmarkReport,
+  BenchmarkResult,
+  ReasoningMode
+} from "../../bench/types"
 
 function seconds(value: number) {
   return Number.isFinite(value) ? `${value.toFixed(2)} s` : "—"
@@ -101,13 +105,21 @@ export function BenchmarkView() {
   const [position, setPosition] = useState("calibration")
   const [thinking, setThinking] = useState(false)
   const [repetitions, setRepetitions] = useState(2)
+  const [reasoningBudgetTokens, setReasoningBudgetTokens] = useState<
+    512 | 1024
+  >(512)
   const [running, setRunning] = useState(false)
   const [results, setResults] = useState<BenchmarkResult[]>([])
   const [report, setReport] = useState<BenchmarkReport>()
   const [partialReport, setPartialReport] = useState<Record<string, unknown>>()
-  const [runReasoning, setRunReasoning] = useState({
+  const [runReasoning, setRunReasoning] = useState<{
+    enabled: boolean
+    supported: boolean
+    mode: ReasoningMode
+  }>({
     enabled: false,
-    supported: true
+    supported: true,
+    mode: "off"
   })
   const [status, setStatus] = useState(
     "Ready. Every model uses the same prompt and position facts."
@@ -115,8 +127,7 @@ export function BenchmarkView() {
   const [error, setError] = useState<string>()
   const controller = useRef<AbortController | undefined>(undefined)
   const mounted = useRef(true)
-  const support =
-    model === "prompt-api" ? "none" : opponentOption(model).thinking
+  const support = opponentOption(model).thinking
   const reasoningSupported = support !== "none"
   const effectiveThinking =
     support === "required" || (support === "optional" && thinking)
@@ -129,7 +140,9 @@ export function BenchmarkView() {
               ? testCase.partition !== "holdout"
               : testCase.partition === "holdout"
           )
-        : CASES.filter((testCase) => testCase.id === position)
+        : position === "observed"
+          ? CASES.filter((testCase) => testCase.id.startsWith("observed-"))
+          : CASES.filter((testCase) => testCase.id === position)
   const plannedTrials =
     selectedCases.length * (Number.isFinite(repetitions) ? repetitions : 0)
   const grouped = useMemo(() => {
@@ -167,9 +180,14 @@ export function BenchmarkView() {
       thinking: effectiveThinking,
       requestedThinking: effectiveThinking,
       reasoningSupported,
+      reasoningMode: !effectiveThinking
+        ? "off"
+        : model === "prompt-api"
+          ? "emulated-working-notes"
+          : "native",
       repetitions,
       caseIds: selectedCases.map((testCase) => testCase.id),
-      reasoningBudgetTokens: 512,
+      reasoningBudgetTokens,
       maxOutputTokens: model === "prompt-api" ? null : 8192,
       sampling: "model defaults"
     }
@@ -186,7 +204,8 @@ export function BenchmarkView() {
     })
     setRunReasoning({
       enabled: effectiveThinking,
-      supported: reasoningSupported
+      supported: reasoningSupported,
+      mode: config.reasoningMode as ReasoningMode
     })
     setError(undefined)
     setStatus("Preparing model and positions…")
@@ -195,6 +214,7 @@ export function BenchmarkView() {
         model,
         thinking: effectiveThinking,
         repetitions,
+        reasoningBudgetTokens,
         caseIds: config.caseIds,
         signal: active.signal,
         onResult: (result) => {
@@ -217,7 +237,8 @@ export function BenchmarkView() {
       setReport(completed)
       setRunReasoning({
         enabled: completed.config.thinking,
-        supported: completed.config.reasoningSupported
+        supported: completed.config.reasoningSupported,
+        mode: completed.config.reasoningMode
       })
       setStatus(
         active.signal.aborted
@@ -304,12 +325,15 @@ export function BenchmarkView() {
                   onChange={(event) => setThinking(event.target.checked)}
                 />
                 <span>
-                  Reasoning{support === "required" ? " (always on)" : ""}
+                  {model === "prompt-api"
+                    ? "Working notes (Prompt API)"
+                    : "Reasoning"}
+                  {support === "required" ? " (always on)" : ""}
                 </span>
               </label>
               <p>
                 {model === "prompt-api"
-                  ? "Prompt API does not expose a reasoning mode or reasoning trace for this model."
+                  ? "Uses a separate working-notes pass before choosing a move. These are generated notes, not native hidden reasoning."
                   : !reasoningSupported
                     ? "This model does not support reasoning mode."
                     : support === "required"
@@ -319,9 +343,21 @@ export function BenchmarkView() {
             </div>
           </div>
           <div className="configuration-notes">
-            <span>
-              Reasoning budget: <strong>512 tokens</strong>
-            </span>
+            <label className="budget-control">
+              Reasoning budget
+              <select
+                value={reasoningBudgetTokens}
+                disabled={!reasoningSupported}
+                onChange={(event) =>
+                  setReasoningBudgetTokens(
+                    Number(event.target.value) as 512 | 1024
+                  )
+                }
+              >
+                <option value={512}>512 tokens</option>
+                <option value={1024}>1,024 tokens</option>
+              </select>
+            </label>
             <span>
               Output cap:{" "}
               <strong>
@@ -355,6 +391,9 @@ export function BenchmarkView() {
                   }
                   )
                 </option>
+                <option value="observed">
+                  Observed games ({CASES.filter((testCase) => testCase.id.startsWith("observed-")).length})
+                </option>
                 {CASES.map((testCase) => (
                   <option key={testCase.id} value={testCase.id}>
                     {testCase.label}
@@ -383,7 +422,8 @@ export function BenchmarkView() {
         <p className="local-note">
           Runs only when you press Run. Models may download on first use.
           Results stay on this page; your saved game is untouched. Reasoning
-          text is shown only when the model actually provides it.
+          output is printed as native reasoning or emulated Prompt API working
+          notes, according to the mode actually used.
         </p>
       </form>
       <section className="run-status" aria-label="Run status">
@@ -476,7 +516,10 @@ export function BenchmarkView() {
                           : "Calibration"}
                       </span>
                     </td>
-                    <td className="move-code">{result.moveId ?? "—"}</td>
+                    <td className="move-code">
+                      {result.choices.find((choice) => choice.id === result.moveId)
+                        ?.notation ?? result.rawAnswer ?? result.moveId ?? "—"}
+                    </td>
                     <td>
                       {result.index >= 0
                         ? `${result.index + 1} / ${result.total}`
@@ -533,8 +576,13 @@ export function BenchmarkView() {
                               {result.condition}
                             </Detail>
                           )}
+                          {result.systemPrompt && (
+                            <Detail title="Exact shared system instruction">
+                              {result.systemPrompt}
+                            </Detail>
+                          )}
                           {result.prompt && (
-                            <Detail title="Exact shared prompt">
+                            <Detail title="Exact shared user prompt">
                               {result.prompt}
                             </Detail>
                           )}
@@ -546,14 +594,30 @@ export function BenchmarkView() {
                               )
                               .join("\n\n") || "No choices recorded."}
                           </Detail>
-                          <Detail title="Actual reasoning trace">
+                          <Detail
+                            title={
+                              runReasoning.mode === "emulated-working-notes"
+                                ? "Prompt API working notes (emulated)"
+                                : runReasoning.mode === "native"
+                                  ? "Native reasoning trace"
+                                  : "Reasoning output"
+                            }
+                          >
                             {result.reasoningText ||
                               (!runReasoning.supported
                                 ? "This model/API does not expose a reasoning trace."
                                 : !runReasoning.enabled
                                   ? "Reasoning was off for this run."
-                                  : "No reasoning trace was returned for this trial.")}
+                                  : runReasoning.mode ===
+                                      "emulated-working-notes"
+                                    ? "No working notes were returned for this trial."
+                                    : "No reasoning trace was returned for this trial.")}
                           </Detail>
+                          {result.usage && (
+                            <Detail title="Provider usage">
+                              {JSON.stringify(result.usage, null, 2)}
+                            </Detail>
+                          )}
                           <Detail title="Raw model answer">
                             {result.rawAnswer ?? "No answer recorded."}
                           </Detail>

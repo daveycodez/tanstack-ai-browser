@@ -1,5 +1,5 @@
 import { chat } from "@tanstack/ai"
-import type { AnyTextAdapter } from "@tanstack/ai"
+import type { AnyTextAdapter, ChatMiddleware, UsageInfo } from "@tanstack/ai"
 import {
   loadPromptApiModel,
   promptApiStatus,
@@ -14,8 +14,8 @@ import {
 } from "@tanstack-ai-browser/webgl"
 import { moveOutputSchema } from "./move-output"
 import { annotatedLegalMoves, currentThreats } from "./chess"
-import { buildSharedPrompt } from "./shared-prompt"
-import { resolveMoveId } from "./ai-move"
+import { buildSharedPrompt, SHARED_SYSTEM_PROMPT } from "./shared-prompt"
+import { moveChoiceLabel, resolveActionLabel } from "./move-choice"
 import type { Game } from "./chess"
 import { opponentOption, resolveOpponent } from "./opponents"
 import type { OpponentSettings } from "./opponents"
@@ -29,13 +29,17 @@ import type {
 export type { ModelStatus } from "@tanstack-ai-browser/webgl"
 
 export type AiMoveOptions = {
+  /** Manual diagnostic override; gameplay defaults to 512 when enabled. */
+  reasoningBudgetTokens?: 512 | 1024
   /** Paired fixture order for manual benchmarks; normal gameplay shuffles. */
   moveOrder?: readonly string[]
   onInput?: (input: {
-    choices: { id: string; outcome: string }[]
+    choices: { id: string; notation: string; label: string; outcome: string }[]
     prompt: string
+    systemPrompt: string
   }) => void
   onAnswer?: (answer: string) => void
+  onUsage?: (usage: UsageInfo) => void
 }
 
 export const MODEL = "LiquidAI/LFM3-1.7B-GGUF" as const
@@ -95,6 +99,14 @@ export async function chooseAiMove(
   const moves = annotatedLegalMoves(game, {
     relationships: true,
     mobility: true,
+    support: game.board.some(
+      (piece) =>
+        piece?.side === game.turn && (piece.type === "q" || piece.type === "r")
+    ),
+    castling: /[kq]/.test(game.fen.split(" ")[2]),
+    kingCover: true,
+    promotionReplies: true,
+    kingMobility: true,
     safety: true
   })
   if (!moves.length) throw new Error("The AI has no legal moves.")
@@ -126,9 +138,9 @@ export async function chooseAiMove(
     moves,
     currentThreats: currentThreats(game)
   })
-  options?.onInput?.({ choices, prompt })
+  options?.onInput?.({ choices, prompt, systemPrompt: SHARED_SYSTEM_PROMPT })
   if (moves.length === 1) {
-    options?.onAnswer?.(moves[0].id)
+    options?.onAnswer?.(moveChoiceLabel(moves[0]))
     return moves[0].id
   }
 
@@ -140,9 +152,9 @@ export async function chooseAiMove(
   }
 
   // The decoder enforces every legal option; rules validation still runs after generation.
-  const outputSchema = moveOutputSchema(moves.map((move) => move.id))
-  if (prompt.length > 10_000)
-    throw new Error("This position exceeds the local AI prompt limit.")
+  const outputSchema = moveOutputSchema(moves.map(moveChoiceLabel))
+  // Tokenized prompt, template, schema, and generation must fit the adapter context.
+  // A character count cannot determine that budget; the runtime enforces it.
 
   if (opponent.model === "prompt-api") {
     if (activeWebGlModel) {
@@ -169,6 +181,7 @@ export async function chooseAiMove(
     onPhase?.("processing")
     const chatOptions = {
       threadId: `chess-${game.sessionId}`,
+      systemPrompts: [SHARED_SYSTEM_PROMPT],
       messages: [
         {
           role: "user" as const,
@@ -176,6 +189,16 @@ export async function chooseAiMove(
         }
       ],
       outputSchema,
+      ...(options?.onUsage && {
+        middleware: [
+          {
+            name: "chess-benchmark-usage",
+            onUsage(_ctx, usage) {
+              if (!generationSignal.aborted) options.onUsage?.(usage)
+            }
+          } satisfies ChatMiddleware
+        ]
+      }),
       stream: false as const,
       abortController: generationController
     }
@@ -183,7 +206,24 @@ export async function chooseAiMove(
       opponent.model === "prompt-api"
         ? await chat({
             ...chatOptions,
-            adapter: promptApiText()
+            adapter: promptApiText({
+              ...(onPhase && {
+                onGenerationPhase: (phase: GenerationPhase) => {
+                  if (!generationSignal.aborted) onPhase(phase)
+                }
+              }),
+              ...(onThinking && {
+                onThinking: (delta: string) => {
+                  if (!generationSignal.aborted) onThinking(delta)
+                }
+              })
+            }),
+            reasoning: opponent.thinking
+              ? {
+                  level: "high" as const,
+                  budgetTokens: options?.reasoningBudgetTokens ?? 512
+                }
+              : ("off" as const)
           })
         : await chat({
             ...chatOptions,
@@ -202,15 +242,18 @@ export async function chooseAiMove(
             }) as AnyTextAdapter,
             ...(thinkingSupport !== "none" && {
               reasoning: opponent.thinking
-                ? { level: "high" as const, budgetTokens: 512 }
+                ? {
+                    level: "high" as const,
+                    budgetTokens: options?.reasoningBudgetTokens ?? 512
+                  }
                 : ("off" as const)
             }),
             modelOptions: { maxTokens: 8192 }
           })
     generationSignal.throwIfAborted()
-    const { moveId } = outputSchema.parse(answer)
-    options?.onAnswer?.(moveId)
-    return resolveMoveId(game, moveId)
+    const { move } = outputSchema.parse(answer)
+    options?.onAnswer?.(move)
+    return resolveActionLabel(moves, move)
   } finally {
     clearTimeout(deadline)
     signal.removeEventListener("abort", cancelGeneration)

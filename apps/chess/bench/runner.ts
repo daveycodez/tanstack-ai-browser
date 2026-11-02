@@ -12,6 +12,7 @@ export type BenchmarkOptions = {
   model: OpponentModel
   thinking: boolean
   repetitions: number
+  reasoningBudgetTokens?: 512 | 1024
   caseIds?: string[]
   signal: AbortSignal
   onResult: (result: BenchmarkResult) => void
@@ -27,6 +28,9 @@ export async function runBenchmark(
     options.repetitions > 20
   )
     throw new RangeError("Repetitions must be 1–20.")
+  const reasoningBudgetTokens = options.reasoningBudgetTokens ?? 512
+  if (reasoningBudgetTokens !== 512 && reasoningBudgetTokens !== 1024)
+    throw new RangeError("Reasoning budget must be 512 or 1024 tokens.")
   const selected = options.caseIds ?? CASES.map((c) => c.id)
   const cases = CASES.filter((c) => selected.includes(c.id))
   if (!cases.length || cases.length !== new Set(selected).size)
@@ -51,13 +55,18 @@ export async function runBenchmark(
         : {}),
       requestedThinking: options.thinking,
       reasoningSupported,
-      reasoningBudgetTokens: 512,
+      reasoningMode: !opponent.thinking
+        ? "off"
+        : opponent.model === "prompt-api"
+          ? "emulated-working-notes"
+          : "native",
+      reasoningBudgetTokens,
       maxOutputTokens: opponent.model === "prompt-api" ? null : 8192,
       sampling: "model defaults",
       repetitions: options.repetitions,
       caseIds: cases.map((c) => c.id),
-      suiteVersion: "audited-v3",
-      outputContract: "legal-uci-enum-v1",
+      suiteVersion: "audited-v9",
+      outputContract: "human-action-enum-v3",
       promptVersion: SHARED_PROMPT_VERSION,
       orderPolicy: "recorded pair then deterministic novel permutations"
     },
@@ -119,11 +128,16 @@ export async function runBenchmark(
             result.thinkingChars += delta.length
           },
           {
+            reasoningBudgetTokens,
             moveOrder: benchmarkOrder(testCase, repetition),
             onInput: (input) => {
               result.choices = input.choices
               result.prompt = input.prompt
+              result.systemPrompt = input.systemPrompt
               result.total = input.choices.length
+            },
+            onUsage: (usage) => {
+              result.usage = usage
             },
             onAnswer: (answer) => {
               result.rawAnswer = answer

@@ -533,3 +533,19 @@
     padding-bottom: 14px;
   }
 }
+
+.benchmark-shell .budget-control {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+.benchmark-shell .budget-control select {
+  width: auto;
+  height: 36px;
+  font-size: 12px;
+}
+@media (max-width: 600px) {
+  .benchmark-shell .budget-control select {
+    height: 44px;
+  }
+}

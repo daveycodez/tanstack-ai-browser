@@ -135,9 +135,14 @@ function unlockGameAudio(): Promise<AudioContext | undefined> {
     // Safari can also report interrupted after a tab switch, lock, or call.
     return audio
       .resume()
-      .then(() =>
-        audio === context && audio.state === "running" ? audio : undefined
-      )
+      .then(() => {
+        if (audio !== context || audio.state !== "running") return undefined
+        if (!soundEnabled() || document.hidden) {
+          void audio.suspend().catch(() => undefined)
+          return undefined
+        }
+        return audio
+      })
       .catch(() => undefined)
   } catch {
     return Promise.resolve(undefined)

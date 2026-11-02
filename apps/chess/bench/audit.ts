@@ -50,7 +50,8 @@ const objectives: Record<string, Objective> = {
   "observed-free-knight-after-nxf5": "capture-opportunity",
   "observed-free-pawn-on-h7": "promotion-safety",
   "observed-phone-queen-check-loss": "material-safety",
-  "observed-free-bishop-on-a6": "safe-capture-value"
+  "observed-free-bishop-on-a6": "safe-capture-value",
+  "observed-free-bishop-on-h6": "safe-capture-value"
 }
 const naturalHistories: Record<string, string[]> = {
   opening: ["e2e4"],
@@ -421,6 +422,82 @@ function signalAudit(test: BenchmarkCase, legal: Move[], row: AuditRow) {
         )
       })
       .map(idOf)
+  if (
+    [
+      "context-king-cover-before-g5",
+      "context-king-cover-opposite-storm"
+    ].includes(test.id)
+  ) {
+    derived = legal
+      .filter((move) => move.from === "g7" && move.isBigPawn())
+      .map(idOf)
+  }
+  if (
+    [
+      "context-king-cover-castle-thin",
+      "context-king-cover-fianchetto"
+    ].includes(test.id)
+  ) {
+    derived = legal.filter((move) => move.isKingsideCastle()).map(idOf)
+    if (!derived.length)
+      row.errors.push(
+        "King-cover castle diagnostic has no legal kingside castle"
+      )
+  }
+  // Independent location checks: these are neutral facts, not a castling score.
+  if (test.id.startsWith("context-king-cover-")) {
+    const pawn = (square: Square) =>
+      initial.get(square)?.type === "p" && initial.get(square)?.color === "b"
+    const expected =
+      test.id === "context-king-cover-castle-thin"
+        ? ["f7", "g5", "h6"]
+        : test.id === "context-king-cover-fianchetto"
+          ? ["f7", "g6", "h7"]
+          : test.id === "context-king-cover-opposite-storm"
+            ? ["a7", "b7", "c7"]
+            : ["f7", "g7", "h6"]
+    if (!expected.every((square) => pawn(square as Square)))
+      row.errors.push("Unexpected pawn-cover teaching locations")
+    if (test.id === "context-king-cover-opposite-storm") {
+      if (
+        initial.get("c8")?.type !== "k" ||
+        /[kq]/.test(initial.fen().split(" ")[2])
+      )
+        row.errors.push(
+          "Opposite-wing case must have an actual c8 king and no Black castling rights"
+        )
+      const push = legal.find((move) => move.from === "g7" && move.to === "g5")
+      if (
+        !push ||
+        !expected.every(
+          (square) => new Chess(push.after).get(square as Square)?.type === "p"
+        )
+      )
+        row.errors.push("Opposite-wing push changed queenside pawns")
+    }
+  }
+  if (["context-king-mobility-queen-cutoff", "context-king-mobility-rook-cutoff"].includes(test.id)) {
+    const piece = test.id.includes("queen") ? "q" : "r"
+    const before = movesAt(test.fen, opposite(color)).filter((move) => move.piece === "k")
+    if (before.length !== 2) row.errors.push("Expected two original king destinations")
+    derived = legal.filter((move) => {
+      const after = new Chess(move.after)
+      return move.piece === piece && !after.isCheck() && !after.isGameOver() &&
+        replies(move).filter((reply) => reply.piece === "k").length < before.length
+    }).map(idOf)
+  }
+  if (["context-king-mobility-box-pawn", "context-king-mobility-box-stalemate"].includes(test.id)) {
+    const before = movesAt(test.fen, opposite(color))
+    if (before.some((move) => move.piece === "k")) row.errors.push("Boxed king unexpectedly has an original destination")
+    const withPawn = test.id.endsWith("pawn")
+    if (before.filter((move) => move.piece !== "k").length !== (withPawn ? 2 : 0)) row.errors.push("Unexpected original nonking reply count")
+    derived = legal.filter((move) => {
+      const after = new Chess(move.after)
+      const actual = replies(move)
+      return move.piece === "k" && !after.isCheck() && !actual.some((reply) => reply.piece === "k") &&
+        (withPawn ? actual.length === 2 && !after.isStalemate() : after.isStalemate())
+    }).map(idOf)
+  }
   if (test.id === "context-castle-now")
     derived = legal
       .filter((move) => move.isKingsideCastle() || move.isQueensideCastle())

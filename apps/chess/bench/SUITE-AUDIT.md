@@ -1,6 +1,6 @@
-# Chess fixture audit: audited-v6
+# Chess fixture audit: audited-v9
 
-This audit precedes further prompt tuning. The suite has 30 cases: 27 calibration cases and three holdouts, with 20 scored cases and 10 ungraded diagnostics. The ten recent
+This audit precedes further prompt tuning. The suite has 39 cases: 36 calibration cases and three holdouts, with 21 scored cases and 18 ungraded diagnostics. Recent
 calibration cases cover exposure of a different piece, defender withdrawal, a losing
 knight-for-pawn exchange, the user's actual quiet knight loss, an observed missed free bishop, a later missed knight recapture, a promotion-defense position, an exact phone queen-for-rook loss, and a five-ply bishop opportunity. The holdouts
 must remain out of prompt selection. Freeze the chosen profile before running them;
@@ -31,7 +31,8 @@ complete duplicate-free legal permutation; every expected/signal ID is legal.
 Natural examples carry replayable legal history: opening, Fool's Mate, Scholar's Mate
 defense, the duplicate opening mobility diagnostic, mate versus castling, and the
 castling holdout, plus exact observed games through White 29.Bxh7, White 17.Bxb8, White 25.Nxf5, and White 72.h7. Replay must reproduce the entire FEN, including clocks and rights.
-The other 18 cases are constructed teaching positions, not asserted game transcripts.
+Three new cover diagnostics also replay the user's exact opening through 4.Nf3 and 7.Nd3, and a legal fianchetto opening through 5.Nc3.
+The other 23 cases are constructed teaching positions, not asserted game transcripts.
 Their neutral clocks are halfmove 0/fullmove 40. Those clocks avoid the impossible
 appearance of a sparse endgame on move 1, but are not proof that the position can
 arise on exactly move 40. Necessary material/king/pawn conditions are checked; exhaustive
@@ -122,6 +123,15 @@ unrecaptured queen/rook capture; signals must exercise their named factual predi
 | observed-free-pawn-on-h7                 | calibration | exact user-game history  |    23 |       10 | broad immediate promotion defense; pawn capture is a signal |
 | observed-phone-queen-check-loss          | calibration | exact phone-game history |    43 |       29 | material safety; checking queen trade is not justified      |
 | observed-free-bishop-on-a6               | calibration | exact user-game history  |    22 |        1 | sole safe bishop capture after the five-ply opening         |
+| observed-free-bishop-on-h6               | calibration | exact user-game history  |    31 |        3 | pawn, knight or rook can safely capture bishop h6           |
+| context-king-cover-before-g5             | calibration | exact user-game history  |    24 | ungraded | neutral future-wing pawn advance before g5                  |
+| context-king-cover-castle-thin           | calibration | exact user-game history  |    34 | ungraded | legal castle with an advanced g-pawn                        |
+| context-king-cover-fianchetto            | calibration | legal history            |    34 | ungraded | legal castle with all three nearby pawn files               |
+| context-king-cover-opposite-storm        | calibration | synthetic                |    27 | ungraded | opposite-wing push leaves current queenside cover unchanged |
+| context-king-mobility-queen-cutoff       | calibration | synthetic | 31 | ungraded | quiet queen cutoff observations, with stalemate counterexample |
+| context-king-mobility-rook-cutoff        | calibration | synthetic | 21 | ungraded | quiet rook cutoff observations, without ranking moves |
+| context-king-mobility-box-pawn           | calibration | synthetic | 31 | ungraded | zero king destinations with two legal pawn replies |
+| context-king-mobility-box-stalemate      | calibration | synthetic | 31 | ungraded | paired pawn-free board gives actual stalemate |
 | holdout-knight-queen-safety              | holdout     | synthetic                |    36 |       12 | fresh knight attack; nonqueen defense also accepted         |
 | holdout-back-rank-defense                | holdout     | synthetic                |    20 |        5 | distinct mate pattern with multiple defenses                |
 | holdout-castle-safe-play                 | holdout     | legal history            |    36 |       31 | broad safe play including a legal castle                    |
@@ -263,3 +273,89 @@ The corrected expected sets are exported independently for FEN-matched post-hoc
 analysis; derived summaries and errata should identify the changed objective and
 retain the original result. Regrading recorded answers is not a new model run.
 The three holdouts remain unchanged and are not used to choose these corrections.
+
+## Seventh observed regression: bishop offered on h6
+
+The newest exact game is1.e4 e6 2.d3 h6 3.Bxh6, with31legal Black moves. Three
+captures win the bishop3 safely: `g7xh6`, `Ng8xh6`, and `Rh8xh6`. All three ties
+are accepted; the test does not force a favorite piece. The actual `3...g6` is quiet.
+The case is an ordinary safe-capture-value opportunity and carries exact legal history.
+
+The only checking alternative, `Bb4+`, is not a forced win of that bishop. White
+can move the offered bishop from h6 to d2, both escaping and blocking check. After
+`...Bxd2+`, White can recapture with its king, knight, or queen for an equal bishop
+exchange, net0. The only other immediate Black capture in that response board is
+`...Rxh2`, but `Rxh2` loses that rook for a pawn, net-4. Thus this quiet check does
+not supply an overlooked guaranteed bishop3 gain like the corrected Qxf2+ case.
+A unit test verifies that concrete refuting response; the capture grade stays broad
+across all three truly safe immediate captures.
+
+## Neutral king-cover, support, and opening diagnostics
+
+The four added cases are unscored diagnostics. Their signals record a pawn advance
+or actual legal castle; they neither require nor prohibit the signal move. Both
+recorded orders contain every legal choice. The previous31 cases, their scored
+accepted sets, and all three holdouts remain unchanged. In particular, the corrected
+forcing Qxf2+ opportunity, broad h7 promotion defenses, and defended queen exchange
+retain their existing objectives.
+
+The first two replay the user's exact sequence1.d4 a5 2.e3 Nf6 3.Bc4 h6 4.Nf3 g5
+5.O-O e6 6.Ne5 Bd6 7.Nd3, stopping before ...g5 and before ...O-O respectively.
+The fianchetto diagnostic replays1.e4 g6 2.d4 Bg7 3.Nf3 d6 4.Bc4 Nf6 5.Nc3.
+The opposite-wing board is explicitly synthetic, with Black king c8 and no Black
+castling rights; White alone retains KQ. Advancing g7-g5 leaves Black's a/b/c pawns
+unchanged. Independent audit branches verify the legal signals and pawn locations,
+with no competing immediate mate or free major capture.
+
+Opt-in engine cover profiles list the mover's actual friendly pawn squares and
+unique home/near/advanced/missing files. Nearby means one or two ranks from the own
+back rank. An advanced file contains a pawn but no nearby pawn; missing means no
+friendly pawn anywhere on that file. These are locations, not a king-safety score.
+The fixed files are f/g/h for kingside and a/b/c for queenside, so central d/e pushes
+are not described as reducing queenside cover. A king already on g/h or b/c of its
+home rank has current cover even with no rights. A king on e1/e8 has future cover
+only for a permanently retained wing right, regardless of temporary blockers/check.
+Actual castling reports its landing cover once; it is not simultaneously described
+as losing or preparing the same castle. Empty paths remain distinct from legal
+castling. Neither cover counts nor pawn advances change the rules of castling.
+
+Selective support metadata separates new geometric, king-safe support from exact
+legal recaptures after an actual capture. It supplies prior/current defender counts
+and whether the target was actually threatened before moving. Adding support to an
+unattacked queen/rook is not a resolved threat or rescue. Pinned defenders are
+excluded. Existing mobility facts neutrally identify pawns opening bishops/queens;
+a double push, fianchetto, or ordinary support move carries no blanket penalty.
+
+
+## Optional promotion replies and legal king destinations
+
+Four further unscored synthetic diagnostics observe legal king destinations, not
+best moves or a mating score. They retain two complete legal orders and no forced
+favorite. The queen position has two original king destinations; Qd7 leaves a new
+single destination g8. Qf7 stalemates, and Qg8+ loses the queen to that king: reducing
+a count is not sufficient to call a move good. The rook position has quiet Ra7/Rg5
+cutoffs. The paired box positions have zero original White king destinations.
+With a2 present, each quiet Black king move leaves two legal pawn replies. Removing
+the pawn makes those same moves stalemate. No initial inactive king is checked,
+and no immediate Black mate or free major capture competes with these observations.
+The prior35 cases and all scored/holdout expectation rows remain unchanged.
+
+Opt-in king-mobility metadata compares distinct legal opposing king destinations
+on the unchanged pre-move board with actual legal next replies after each candidate.
+Castling destinations count when legal. Denied and newly available destinations,
+check, and the number of other legal replies are separate facts. Counts alone do
+not establish checkmate, confinement quality, or strategic progress. Phase facts
+count opposing pawns and nonpawn/nonking pieces; own-king Chebyshev distance is
+provided only against a bare king, without a coordination bonus or move ranking.
+Terminal future claims are suppressed by the renderer.
+
+Promotion-reply metadata is also opt-in. Every actual legal queen/rook/bishop/knight
+promotion reply, including quiet and capture promotions, reports its own check/mate
+status and legal immediate captures of the resulting piece. Material deltas are
+relative to the original candidate board and include that candidate's capture or
+promotion, the opponent's capture/promotion, and the best available immediate legal
+capture of the promoted piece. These are conditional one-reply possibilities, not
+forced lines. A queen capture9 can compensate an enemy promotion gain8; an h-file
+queen can capture a new h8 piece after any role, preserving the broad h7 grade.
+Pinned geometric recapturers do not count. Underpromotion can change check/mate,
+so roles are not merged. No new scored promotion case duplicates the real h7 case.

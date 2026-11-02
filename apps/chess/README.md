@@ -1,8 +1,8 @@
 # Chess
 
-A responsive chess game with its own blue and silver design, built with TanStack Start,
-React, TanStack DB, and this workspace’s local Prompt API and WebGL adapters.
-Human plays white; the selected language model plays black. No hosted model or API key.
+A responsive blue-and-silver chess game built with TanStack Start, React, TanStack DB,
+and this workspace’s local Prompt API and WebGL adapters. Human plays White; the
+selected language model plays Black. No hosted inference or API key is required.
 
 ## Run
 
@@ -11,92 +11,105 @@ pnpm install
 pnpm nx dev chess
 ```
 
-Open http://localhost:3003. The checkers app remains a separate project at port 3002.
-Use `pnpm nx dev chess --port=3004` if 3003 is occupied, and use the URL Vite reports.
+Open the URL Vite reports, normally http://127.0.0.1:3003. Checkers remains a separate
+project at port 3002. Reuse an existing Chess server when one is already running.
 
-## Playing and saving
+## Playing, appearance, and feedback
 
-Start or resume from the home screen. Select a white piece, then a highlighted legal
-destination. Arrow keys move focus, Enter or Space selects, and Escape clears selection.
-Promotion lets you choose a queen, rook, bishop, or knight. The board supports flipping.
+Select a white piece and a highlighted destination. Arrow keys move focus, Enter or
+Space selects, and Escape clears selection. Promotion offers all four pieces. The
+board can be flipped. Chess.js validates check, mate, stalemate, castling, en passant,
+underpromotion, repetition, fifty-move draws, and insufficient material.
 
-The rules are validated by chess.js: check, checkmate, stalemate, castling, en passant,
-promotion and underpromotion, threefold repetition, the fifty-move rule, and insufficient
-material. The move record uses standard algebraic notation. A language model cannot
-commit a move that the rules engine rejects.
+The home screen’s top-right theme dropdown offers System, Light, and Dark. System
+is the default; the choice persists separately from the saved game. Movement and
+capture animations also cover castling rooks, en passant, and promotions. Reduced
+motion is respected; animation never postpones the logical move or the AI’s turn.
 
-TanStack DB’s IndexedDB collection stores the current board, FEN, starting FEN, complete
-move history, result, and opponent selection in the `chess` database. This is separate
-from checkers storage. The game replays its move history to preserve repetition rights
-when you reload. Browser storage opens after hydration; both routes render on the server.
-Starting over asks before replacing an active game.
+The speaker control on the menu and game persists its mute preference. Move,
+capture, check, checkmate, promotion, castling, and draw cues are synthesized locally;
+there are no sound-asset downloads. Audio starts only after a user gesture. Enabling
+sound explicitly plays a test tap and requests playback audio when supported.
+
+TanStack DB’s IndexedDB collection stores the board, starting/current FEN, complete
+move history, result, and opponent in the separate `chess` database. Replaying the
+history preserves repetition rights. Storage opens after hydration. Starting over
+asks before replacing an active game. Theme and sound preferences use local storage.
 
 ## Local AI
 
-The opponent selector offers this workspace’s WebGL models and, when the browser reports
-support, its built-in Prompt API model. WebGL models download on first use and cache in
-the browser. Download/loading progress, prompt processing, model thinking, and errors
-are shown in the game. Thinking-capable models expose the existing reasoning controls.
+The opponent picker lists WebGL models and an available browser Prompt API model.
+WebGL weights download on first use and cache in the browser. Loading, processing,
+optional thinking, and errors are visible. The game never silently uses a cloud AI.
 
-The AI receives an English board snapshot with named pieces and exact squares, explicit
-castling rights, en passant, check and move counters, plus recent moves and legal UCI
-move IDs with concise immediate-outcome descriptions. Raw FEN remains internal to the
-rules engine and is not sent to the model. Each legal move names its moving/captured
-pieces and promotion, and spells out check, checkmate, stalemate or another immediate
-draw. It also identifies when the opponent has a checkmating reply on the next turn.
+Every model receives the same system instruction and user prompt. The user prompt
+contains the decoded current pieces and squares, side/check status, available
+castles, the last eight individual moves, and every legal move with concise outcome
+facts. FEN, full history, castling rights, en passant, and counters remain authoritative
+inside the rules engine; the model does not have to decode FEN.
 
-Recapture metadata counts distinct opposing pieces with a legal reply that captures
-the moved piece, and names the lowest-value recapturer. Pinned or otherwise illegal
-replies are excluded; promotion variants from one pawn count once. En passant uses
-the actual captured square. Material values are pawn 1, knight/bishop 3, rook 5 and
-queen 9; kings are royal. When recapture is possible, a conditional net material result
-covers only the move and that immediate recapture, including promotion accounting.
-These are factual consequences, not an engine ranking or a deeper search policy.
-The model still chooses from every legal move. Legal choices are shuffled for
-each generation and retry. TanStack AI requests a structured reply with a plain-string
-`moveId`, without listing the choices again in the output schema. The answer must
-identify exactly one legal move before committing. Exact UCI or unambiguous SAN is
-accepted and converted to UCI; illegal or ambiguous answers fail. Thinking is off by
-default and remains optional for supported models, with a 1,024-token budget when
-enabled. Existing saved thinking selections are preserved. With thinking enabled, the prompt asks the model to compare candidate moves,
-examine White’s strongest replies, and check threats before choosing.
-There is no random, search-engine, or heuristic fallback. A position with one legal move
-can proceed without model generation. Invalid replies require an explicit retry.
+The active **shared-v18** prompt makes context relevant to the position. Tactical
+positions retain concrete dangers and opportunities without generic opening or
+endgame coaching. Quiet positions receive early-development advice, actual
+pawn-cover context, or simplified king-coordination facts when relevant.
 
-WebGL uses the existing worker-backed adapter, model lifecycle and reasoning metadata.
-Prompt API uses the browser’s built-in model through the shared adapter. Browser and
-device support vary. If the Prompt API is unavailable, select a WebGL model; if WebGL
-cannot run, the app explains the capability error. The app never switches to a cloud AI.
+Annotations cover captures, check/mate/draw, legal recapturers, immediate mating
+replies, protection, castling rights, actual promotion replies and legal opponent
+king destinations. Promotion facts distinguish unanswered losses from legal
+recaptures or compensation. Zero king destinations alone is not mate. Conditional
+material accounting covers our move, an opposing capture, and the best immediate
+legal recapture; it is not a deeper ranking or a forced sequence. Values remain
+pawn 1, knight/bishop 3, rook 5, queen 9; kings are royal.
 
-Changing models cancels an in-flight reply. Leaving the game, restarting, or changing
-position also cancels the turn, and persisted position/session/opponent guards reject
-stale replies. Web Locks serialize same-origin AI turns across tabs. Generation has a
-120-second deadline after model loading, with manual retry on failure.
+All legal choices remain selectable in a strict `{ move }` enum. The exact selected
+label maps back to its existing UCI ID and is checked again for legality. No loose
+parsing, random replacement, or search-engine move selector substitutes an answer.
+Ordinary turns shuffle presentation order; a sole legal move needs no generation.
+
+Thinking defaults to off. Supported models expose an optional toggle with a
+512-token on-mode budget; the manual tester also offers 1,024 for diagnosis. The
+shared game instructions do not require reasoning. LFM uses native thinking;
+Prompt API’s optional working notes are explicitly an adapter-managed extra pass.
+
+WebGL uses the model’s actual configured token context. `maxTokens: 8192` is a
+generation ceiling, not the context setting. The arbitrary character-count guard
+has been removed. Prompt API manages its native final-output limit.
+
+Leaving, restarting, changing models, or changing position cancels an in-flight turn.
+Persisted session/position/opponent checks reject stale replies, and Web Locks
+serialize same-origin turns. A 120-second generation deadline starts after loading;
+errors offer a manual retry. Adapters receive TanStack AI’s native abort controller.
 
 ## Verify
 
 ```sh
 pnpm nx run-many -t test typecheck lint build -p chess
-pnpm nx preview chess
+pnpm nx run chess:bench-check
+pnpm nx run chess:bench-audit
 ```
 
-The production build prerenders `/` and `/game`; the game route hydrates the saved board.
-The Cloudflare configuration uses a separate `chess` Worker name. It retains the base
-branch’s runtime compatibility date, Node compatibility, logging, and trace settings.
-No deployment is required to play locally.
+These checks do not load or invoke models. The production build prerenders the
+routes and uses the separate `chess` Cloudflare Worker configuration. No deployment
+is required to play locally.
 
 ## Manual model benchmarks
 
-Run `pnpm nx bench chess`, then open http://127.0.0.1:3003/bench on the dev server.
-If the game server is already running, reuse it. This TanStack Start route replays the
-recorded tactical fixtures, exposes model/thinking/queen-priority comparisons, and
-prints the exact prompts, choices and results as JSON on the page. It never reads the saved game
-and model benchmarks are not run by automated tests. No files are downloaded.
+Run `pnpm nx bench chess`, or reuse the running server and visit `/bench`. This is a
+normal TanStack Start route, isolated from saved-game storage. Only pressing Run
+invokes a model. Results and full JSON print in-page; reports are never downloaded.
 
-See [benchmark instructions](bench/README.md) and [recorded findings](bench/FINDINGS.md).
+There is one shared prompt and one output contract for all models. The audited suite
+has **39 positions: 36 calibration and 3 held out**, with **21 scored objectives
+and 18 neutral diagnostics**. An Observed games preset isolates the seven replayable real-game cases.
+The suite accepts intelligent alternatives, including a forcing pawn check before
+winning a knight and valid defenses against promotion.
 
-The evaluated LFM3 GGUF opponent now uses compact move cards, current-threat summaries,
-and factual immediate-win/freequeen highlights. It prefers available castling in calm
-positions while keeping check, mate danger, queen rescue and clear material opportunities
-higher priority. All legal moves stay available and the model chooses; no search engine
-selects its turn. Other models retain baseline prompts pending their own evaluations.
+See [benchmark instructions](bench/README.md), [suite audit](bench/SUITE-AUDIT.md),
+[findings and historical grading corrections](bench/FINDINGS.md),
+[reasoning audit](bench/REASONING-AUDIT.md), and
+[strategy research and implementation status](bench/STRATEGY-RESEARCH.md).
+
+Desktop/mobile theme and layout checks passed. The user confirmed hearing the
+in-game sounds on an iPhone after the gesture/playback fix. Current evaluation
+results and their limits are documented in the findings; this is a casual local
+opponent, not a claimed professional-strength chess engine.

@@ -16,3 +16,17 @@ export function resolveMoveId(game: Game, answer: string): string {
   }
   return matches[0].id
 }
+
+/** Match the exact canonical SAN supplied by the engine, without guessing. */
+export function resolveCanonicalSan(game: Game, answer: string): string {
+  const moves = legalMoves(game)
+  const byNotation = new Map(moves.map((move) => [move.notation, move.id]))
+  if (byNotation.size !== moves.length)
+    throw new Error("Canonical SAN choices must be unique.")
+  const id = byNotation.get(answer)
+  if (!id)
+    throw new Error(
+      `The AI chose a noncanonical or illegal SAN move: ${answer.slice(0, 40)}`
+    )
+  return id
+}

@@ -1,0 +1,704 @@
+{
+  "schemaVersion": 4,
+  "choiceIndexBase": 0,
+  "runId": "bb944569-120d-4db7-9e70-15ce64bebe97",
+  "startedAt": "2026-11-02T10:33:47.796Z",
+  "finishedAt": "2026-11-02T10:33:52.264Z",
+  "revision": "05a0afb8d66b3c4eb4897b1ac66ac29db6b745e6-dirty",
+  "partial": false,
+  "config": {
+    "model": "prompt-api",
+    "thinking": false,
+    "runtimeModel": {
+      "id": "gemini-nano",
+      "name": "Gemini Nano",
+      "browser": "Chrome"
+    },
+    "requestedThinking": false,
+    "reasoningSupported": true,
+    "reasoningMode": "off",
+    "reasoningBudgetTokens": 512,
+    "maxOutputTokens": null,
+    "sampling": "model defaults",
+    "repetitions": 4,
+    "caseIds": [
+      "observed-free-bishop-on-a6"
+    ],
+    "suiteVersion": "audited-v6",
+    "outputContract": "human-action-enum-v3",
+    "promptVersion": "shared-v15",
+    "orderPolicy": "recorded pair then deterministic novel permutations"
+  },
+  "results": [
+    {
+      "trial": 1,
+      "repetition": 1,
+      "caseId": "observed-free-bishop-on-a6",
+      "label": "Observed game: pawn can take the bishop on a6",
+      "fen": "r1bqkbnr/pppppp1p/B1n3p1/8/4P3/5P2/PPPP2PP/RNBQK1NR b KQkq - 2 3",
+      "objective": "Exact five-ply replay of1.e4 g6 2.f3 Nc6 3.Ba6. Black b7xa6 wins bishop3 without immediate recapture, White mate, or a negative exchange elsewhere. It is the only legal capture and no checking/forcing capture alternative exists. Actual3...d6 is quiet; this scoped opportunity grade does not assert long-term engine-best play.",
+      "expectedMoveIds": [
+        "b7a6"
+      ],
+      "partition": "calibration",
+      "legal": true,
+      "passed": true,
+      "signal": null,
+      "index": 5,
+      "total": 22,
+      "seconds": 1.0881999999284744,
+      "choices": [
+        {
+          "id": "f8g7",
+          "notation": "Bg7",
+          "label": "Move bishop f8 to g7",
+          "outcome": "Move bishop f8 to g7 | SAN Bg7 | UCI f8g7 | bishop f8-g7 | BISHOP LEAVES HOME SQUARE"
+        },
+        {
+          "id": "c6d4",
+          "notation": "Nd4",
+          "label": "Move knight c6 to d4",
+          "outcome": "Move knight c6 to d4 | SAN Nd4 | UCI c6d4 | knight c6-d4 | ORDINARY MOVE"
+        },
+        {
+          "id": "f8h6",
+          "notation": "Bh6",
+          "label": "Move bishop f8 to h6",
+          "outcome": "Move bishop f8 to h6 | SAN Bh6 | UCI f8h6 | bishop f8-h6 | BISHOP LEAVES HOME SQUARE"
+        },
+        {
+          "id": "b7b5",
+          "notation": "b5",
+          "label": "Move pawn b7 to b5",
+          "outcome": "Move pawn b7 to b5 | SAN b5 | UCI b7b5 | pawn b7-b5 | DANGER TO BLACK: after this move White bishop (3) on a6 can take Black pawn (1) on b5; possible immediate exchange net -1; Black also threatens White bishop (3) on a6 on the unchanged board; White moves next"
+        },
+        {
+          "id": "g8h6",
+          "notation": "Nh6",
+          "label": "Move knight g8 to h6",
+          "outcome": "Move knight g8 to h6 | SAN Nh6 | UCI g8h6 | knight g8-h6 | KNIGHT LEAVES HOME SQUARE"
+        },
+        {
+          "id": "b7a6",
+          "notation": "bxa6",
+          "label": "Capture bishop (3): pawn b7 to a6",
+          "outcome": "Capture bishop (3): pawn b7 to a6 | SAN bxa6 | UCI b7a6 | pawn b7-a6 | CAPTURES bishop (3); MOVED PIECE CANNOT BE LEGALLY RECAPTURED NEXT TURN"
+        },
+        {
+          "id": "b7b6",
+          "notation": "b6",
+          "label": "Move pawn b7 to b6",
+          "outcome": "Move pawn b7 to b6 | SAN b6 | UCI b7b6 | pawn b7-b6 | ORDINARY MOVE"
+        },
+        {
+          "id": "c6a5",
+          "notation": "Na5",
+          "label": "Move knight c6 to a5",
+          "outcome": "Move knight c6 to a5 | SAN Na5 | UCI c6a5 | knight c6-a5 | ORDINARY MOVE"
+        },
+        {
+          "id": "e7e5",
+          "notation": "e5",
+          "label": "Move pawn e7 to e5",
+          "outcome": "Move pawn e7 to e5 | SAN e5 | UCI e7e5 | pawn e7-e5 | PAWN ADVANCES ON CENTRAL FILE"
+        },
+        {
+          "id": "f7f6",
+          "notation": "f6",
+          "label": "Move pawn f7 to f6",
+          "outcome": "Move pawn f7 to f6 | SAN f6 | UCI f7f6 | pawn f7-f6 | ORDINARY MOVE"
+        },
+        {
+          "id": "h7h5",
+          "notation": "h5",
+          "label": "Move pawn h7 to h5",
+          "outcome": "Move pawn h7 to h5 | SAN h5 | UCI h7h5 | pawn h7-h5 | ORDINARY MOVE"
+        },
+        {
+          "id": "f7f5",
+          "notation": "f5",
+          "label": "Move pawn f7 to f5",
+          "outcome": "Move pawn f7 to f5 | SAN f5 | UCI f7f5 | pawn f7-f5 | COMPENSATING RECAPTURE AVAILABLE"
+        },
+        {
+          "id": "c6e5",
+          "notation": "Ne5",
+          "label": "Move knight c6 to e5",
+          "outcome": "Move knight c6 to e5 | SAN Ne5 | UCI c6e5 | knight c6-e5 | ORDINARY MOVE"
+        },
+        {
+          "id": "g6g5",
+          "notation": "g5",
+          "label": "Move pawn g6 to g5",
+          "outcome": "Move pawn g6 to g5 | SAN g5 | UCI g6g5 | pawn g6-g5 | ORDINARY MOVE"
+        },
+        {
+          "id": "h7h6",
+          "notation": "h6",
+          "label": "Move pawn h7 to h6",
+          "outcome": "Move pawn h7 to h6 | SAN h6 | UCI h7h6 | pawn h7-h6 | ORDINARY MOVE"
+        },
+        {
+          "id": "d7d6",
+          "notation": "d6",
+          "label": "Move pawn d7 to d6",
+          "outcome": "Move pawn d7 to d6 | SAN d6 | UCI d7d6 | pawn d7-d6 | PAWN ADVANCES ON CENTRAL FILE"
+        },
+        {
+          "id": "c6b8",
+          "notation": "Nb8",
+          "label": "Move knight c6 to b8",
+          "outcome": "Move knight c6 to b8 | SAN Nb8 | UCI c6b8 | knight c6-b8 | ORDINARY MOVE"
+        },
+        {
+          "id": "e7e6",
+          "notation": "e6",
+          "label": "Move pawn e7 to e6",
+          "outcome": "Move pawn e7 to e6 | SAN e6 | UCI e7e6 | pawn e7-e6 | PAWN ADVANCES ON CENTRAL FILE"
+        },
+        {
+          "id": "c6b4",
+          "notation": "Nb4",
+          "label": "Move knight c6 to b4",
+          "outcome": "Move knight c6 to b4 | SAN Nb4 | UCI c6b4 | knight c6-b4 | ORDINARY MOVE"
+        },
+        {
+          "id": "g8f6",
+          "notation": "Nf6",
+          "label": "Move knight g8 to f6",
+          "outcome": "Move knight g8 to f6 | SAN Nf6 | UCI g8f6 | knight g8-f6 | KNIGHT LEAVES HOME SQUARE"
+        },
+        {
+          "id": "d7d5",
+          "notation": "d5",
+          "label": "Move pawn d7 to d5",
+          "outcome": "Move pawn d7 to d5 | SAN d5 | UCI d7d5 | pawn d7-d5 | PAWN ADVANCES ON CENTRAL FILE"
+        },
+        {
+          "id": "a8b8",
+          "notation": "Rb8",
+          "label": "Move rook a8 to b8",
+          "outcome": "Move rook a8 to b8 | SAN Rb8 | UCI a8b8 | rook a8-b8 | ORDINARY MOVE"
+        }
+      ],
+      "thinkingChars": 0,
+      "reasoningText": "",
+      "condition": "User-reported thinking-on game, represented only by its exact legal board/history. Provider choice and reasoning mode do not alter the fixture objective.",
+      "prompt": "Black to move. Play a fun, sensible casual game. Choose one legal card.\nPriorities: CHECKMATE now; prevent White's mate and answer check; save a threatened queen or take a free queen; take safe material gains, including forcing checks that win material; otherwise CASTLE when listed; otherwise develop a knight/bishop or advance a central pawn.\nA check alone is not a material gain. Account for forcing follow-up captures and the conditional exchange losses before taking material. Protection is not immunity. Pawn 1, knight/bishop 3, rook 5, queen 9.\nBlack pieces (you):\nKing: e8\nQueens: d8\nRooks: a8, h8\nBishops: c8, f8\nKnights: g8, c6\nPawns: a7, b7, c7, d7, e7, f7, h7, g6\nWhite pieces (opponent):\nKing: e1\nQueens: d1\nRooks: a1, h1\nBishops: a6, c1\nKnights: b1, g1\nPawns: e4, f3, a2, b2, c2, d2, g2, h2\nBlack in check: no.\nCurrent White capture possibilities on the unchanged board:\nBlack pawn (1) on b7 can be captured by White bishop (3) on a6.\nLegal castling moves now: none.\nRecent 8 moves (oldest first):\nWhite: e4 (e2e4)\nBlack: g6 (g7g6)\nWhite: f3 (f2f3)\nBlack: Nc6 (b8c6)\nWhite: Ba6 (f1a6)\nHOW TO READ THE CARDS:\nThe board above is the position now. Each card describes a separate possible position after only that Black move. Its DANGER and exchange facts apply only to that move; destinations and threats from different cards do not occur together. CHECK on a card means that move checks White. Black in check above describes now.\nALL LEGAL CARDS (random order, no ranking):\nMove bishop f8 to g7 | SAN Bg7 | UCI f8g7 | bishop f8-g7 | BISHOP LEAVES HOME SQUARE\nMove knight c6 to d4 | SAN Nd4 | UCI c6d4 | knight c6-d4 | ORDINARY MOVE\nMove bishop f8 to h6 | SAN Bh6 | UCI f8h6 | bishop f8-h6 | BISHOP LEAVES HOME SQUARE\nMove pawn b7 to b5 | SAN b5 | UCI b7b5 | pawn b7-b5 | DANGER TO BLACK: after this move White bishop (3) on a6 can take Black pawn (1) on b5; possible immediate exchange net -1; Black also threatens White bishop (3) on a6 on the unchanged board; White moves next\nMove knight g8 to h6 | SAN Nh6 | UCI g8h6 | knight g8-h6 | KNIGHT LEAVES HOME SQUARE\nCapture bishop (3): pawn b7 to a6 | SAN bxa6 | UCI b7a6 | pawn b7-a6 | CAPTURES bishop (3); MOVED PIECE CANNOT BE LEGALLY RECAPTURED NEXT TURN\nMove pawn b7 to b6 | SAN b6 | UCI b7b6 | pawn b7-b6 | ORDINARY MOVE\nMove knight c6 to a5 | SAN Na5 | UCI c6a5 | knight c6-a5 | ORDINARY MOVE\nMove pawn e7 to e5 | SAN e5 | UCI e7e5 | pawn e7-e5 | PAWN ADVANCES ON CENTRAL FILE\nMove pawn f7 to f6 | SAN f6 | UCI f7f6 | pawn f7-f6 | ORDINARY MOVE\nMove pawn h7 to h5 | SAN h5 | UCI h7h5 | pawn h7-h5 | ORDINARY MOVE\nMove pawn f7 to f5 | SAN f5 | UCI f7f5 | pawn f7-f5 | COMPENSATING RECAPTURE AVAILABLE\nMove knight c6 to e5 | SAN Ne5 | UCI c6e5 | knight c6-e5 | ORDINARY MOVE\nMove pawn g6 to g5 | SAN g5 | UCI g6g5 | pawn g6-g5 | ORDINARY MOVE\nMove pawn h7 to h6 | SAN h6 | UCI h7h6 | pawn h7-h6 | ORDINARY MOVE\nMove pawn d7 to d6 | SAN d6 | UCI d7d6 | pawn d7-d6 | PAWN ADVANCES ON CENTRAL FILE\nMove knight c6 to b8 | SAN Nb8 | UCI c6b8 | knight c6-b8 | ORDINARY MOVE\nMove pawn e7 to e6 | SAN e6 | UCI e7e6 | pawn e7-e6 | PAWN ADVANCES ON CENTRAL FILE\nMove knight c6 to b4 | SAN Nb4 | UCI c6b4 | knight c6-b4 | ORDINARY MOVE\nMove knight g8 to f6 | SAN Nf6 | UCI g8f6 | knight g8-f6 | KNIGHT LEAVES HOME SQUARE\nMove pawn d7 to d5 | SAN d5 | UCI d7d5 | pawn d7-d5 | PAWN ADVANCES ON CENTRAL FILE\nMove rook a8 to b8 | SAN Rb8 | UCI a8b8 | rook a8-b8 | ORDINARY MOVE\nURGENT POSITION FACTS:\nMATERIAL-SAFE CHOICES FOR THE NEXT TURN: Move bishop f8 to g7, Move knight c6 to d4, Move bishop f8 to h6, Move knight g8 to h6, Capture bishop (3): pawn b7 to a6, Move pawn b7 to b6, Move knight c6 to a5, Move pawn e7 to e5, Move pawn f7 to f6, Move pawn h7 to h5, Move pawn f7 to f5, Move knight c6 to e5, Move pawn g6 to g5, Move pawn h7 to h6, Move pawn d7 to d6, Move knight c6 to b8, Move pawn e7 to e6, Move knight c6 to b4, Move knight g8 to f6, Move pawn d7 to d5, Move rook a8 to b8. No checked immediate capture exchange loses Black material; White has no mate in one.\nURGENT RESPONSE PRIORITY:\nAfter addressing the king and any attacked queen, prefer a MATERIAL-SAFE choice. When there is no urgent threat, castle if a listed castle is MATERIAL-SAFE.\nAVAILABLE IMMEDIATE OPPORTUNITIES:\nAvailable captures with no immediate legal recapture of the moved piece: Capture bishop (3): pawn b7 to a6. Checked replies show no net material loss or White mate in one.\nAfter addressing the king, any attacked queen, and immediate mate, favor safe material gains. A forcing check that wins further material can be better than a larger immediate capture. A check alone does not justify a listed material loss.\nReturn exactly one JSON object: key move, value the exact action label at the start of the chosen card. Copy the full label, including coordinates and any promotion or en passant text. Stop after the closing brace.",
+      "systemPrompt": "Play Black using the supplied chess facts. Take immediate mate first; otherwise prevent mate and protect an attacked queen. Prefer safe material gains. A forcing check that wins material on a later move can be better than a larger immediate capture. A check alone does not justify an uncompensated queen loss. Castle or develop when no better opportunity exists. The schema lists every legal move; neither enum order nor card order recommends a move.",
+      "usage": {
+        "promptTokens": 1900,
+        "completionTokens": 20,
+        "totalTokens": 1920,
+        "providerUsageDetails": {
+          "contextUsage": 1920,
+          "contextWindow": 9216
+        }
+      },
+      "rawAnswer": "Capture bishop (3): pawn b7 to a6",
+      "moveId": "b7a6"
+    },
+    {
+      "trial": 2,
+      "repetition": 2,
+      "caseId": "observed-free-bishop-on-a6",
+      "label": "Observed game: pawn can take the bishop on a6",
+      "fen": "r1bqkbnr/pppppp1p/B1n3p1/8/4P3/5P2/PPPP2PP/RNBQK1NR b KQkq - 2 3",
+      "objective": "Exact five-ply replay of1.e4 g6 2.f3 Nc6 3.Ba6. Black b7xa6 wins bishop3 without immediate recapture, White mate, or a negative exchange elsewhere. It is the only legal capture and no checking/forcing capture alternative exists. Actual3...d6 is quiet; this scoped opportunity grade does not assert long-term engine-best play.",
+      "expectedMoveIds": [
+        "b7a6"
+      ],
+      "partition": "calibration",
+      "legal": true,
+      "passed": true,
+      "signal": null,
+      "index": 5,
+      "total": 22,
+      "seconds": 1.0437000000476837,
+      "choices": [
+        {
+          "id": "c6a5",
+          "notation": "Na5",
+          "label": "Move knight c6 to a5",
+          "outcome": "Move knight c6 to a5 | SAN Na5 | UCI c6a5 | knight c6-a5 | ORDINARY MOVE"
+        },
+        {
+          "id": "g8h6",
+          "notation": "Nh6",
+          "label": "Move knight g8 to h6",
+          "outcome": "Move knight g8 to h6 | SAN Nh6 | UCI g8h6 | knight g8-h6 | KNIGHT LEAVES HOME SQUARE"
+        },
+        {
+          "id": "g8f6",
+          "notation": "Nf6",
+          "label": "Move knight g8 to f6",
+          "outcome": "Move knight g8 to f6 | SAN Nf6 | UCI g8f6 | knight g8-f6 | KNIGHT LEAVES HOME SQUARE"
+        },
+        {
+          "id": "b7b6",
+          "notation": "b6",
+          "label": "Move pawn b7 to b6",
+          "outcome": "Move pawn b7 to b6 | SAN b6 | UCI b7b6 | pawn b7-b6 | ORDINARY MOVE"
+        },
+        {
+          "id": "b7b5",
+          "notation": "b5",
+          "label": "Move pawn b7 to b5",
+          "outcome": "Move pawn b7 to b5 | SAN b5 | UCI b7b5 | pawn b7-b5 | DANGER TO BLACK: after this move White bishop (3) on a6 can take Black pawn (1) on b5; possible immediate exchange net -1; Black also threatens White bishop (3) on a6 on the unchanged board; White moves next"
+        },
+        {
+          "id": "b7a6",
+          "notation": "bxa6",
+          "label": "Capture bishop (3): pawn b7 to a6",
+          "outcome": "Capture bishop (3): pawn b7 to a6 | SAN bxa6 | UCI b7a6 | pawn b7-a6 | CAPTURES bishop (3); MOVED PIECE CANNOT BE LEGALLY RECAPTURED NEXT TURN"
+        },
+        {
+          "id": "g6g5",
+          "notation": "g5",
+          "label": "Move pawn g6 to g5",
+          "outcome": "Move pawn g6 to g5 | SAN g5 | UCI g6g5 | pawn g6-g5 | ORDINARY MOVE"
+        },
+        {
+          "id": "d7d5",
+          "notation": "d5",
+          "label": "Move pawn d7 to d5",
+          "outcome": "Move pawn d7 to d5 | SAN d5 | UCI d7d5 | pawn d7-d5 | PAWN ADVANCES ON CENTRAL FILE"
+        },
+        {
+          "id": "f8g7",
+          "notation": "Bg7",
+          "label": "Move bishop f8 to g7",
+          "outcome": "Move bishop f8 to g7 | SAN Bg7 | UCI f8g7 | bishop f8-g7 | BISHOP LEAVES HOME SQUARE"
+        },
+        {
+          "id": "c6b4",
+          "notation": "Nb4",
+          "label": "Move knight c6 to b4",
+          "outcome": "Move knight c6 to b4 | SAN Nb4 | UCI c6b4 | knight c6-b4 | ORDINARY MOVE"
+        },
+        {
+          "id": "e7e5",
+          "notation": "e5",
+          "label": "Move pawn e7 to e5",
+          "outcome": "Move pawn e7 to e5 | SAN e5 | UCI e7e5 | pawn e7-e5 | PAWN ADVANCES ON CENTRAL FILE"
+        },
+        {
+          "id": "a8b8",
+          "notation": "Rb8",
+          "label": "Move rook a8 to b8",
+          "outcome": "Move rook a8 to b8 | SAN Rb8 | UCI a8b8 | rook a8-b8 | ORDINARY MOVE"
+        },
+        {
+          "id": "c6e5",
+          "notation": "Ne5",
+          "label": "Move knight c6 to e5",
+          "outcome": "Move knight c6 to e5 | SAN Ne5 | UCI c6e5 | knight c6-e5 | ORDINARY MOVE"
+        },
+        {
+          "id": "f8h6",
+          "notation": "Bh6",
+          "label": "Move bishop f8 to h6",
+          "outcome": "Move bishop f8 to h6 | SAN Bh6 | UCI f8h6 | bishop f8-h6 | BISHOP LEAVES HOME SQUARE"
+        },
+        {
+          "id": "h7h5",
+          "notation": "h5",
+          "label": "Move pawn h7 to h5",
+          "outcome": "Move pawn h7 to h5 | SAN h5 | UCI h7h5 | pawn h7-h5 | ORDINARY MOVE"
+        },
+        {
+          "id": "d7d6",
+          "notation": "d6",
+          "label": "Move pawn d7 to d6",
+          "outcome": "Move pawn d7 to d6 | SAN d6 | UCI d7d6 | pawn d7-d6 | PAWN ADVANCES ON CENTRAL FILE"
+        },
+        {
+          "id": "c6b8",
+          "notation": "Nb8",
+          "label": "Move knight c6 to b8",
+          "outcome": "Move knight c6 to b8 | SAN Nb8 | UCI c6b8 | knight c6-b8 | ORDINARY MOVE"
+        },
+        {
+          "id": "e7e6",
+          "notation": "e6",
+          "label": "Move pawn e7 to e6",
+          "outcome": "Move pawn e7 to e6 | SAN e6 | UCI e7e6 | pawn e7-e6 | PAWN ADVANCES ON CENTRAL FILE"
+        },
+        {
+          "id": "f7f5",
+          "notation": "f5",
+          "label": "Move pawn f7 to f5",
+          "outcome": "Move pawn f7 to f5 | SAN f5 | UCI f7f5 | pawn f7-f5 | COMPENSATING RECAPTURE AVAILABLE"
+        },
+        {
+          "id": "f7f6",
+          "notation": "f6",
+          "label": "Move pawn f7 to f6",
+          "outcome": "Move pawn f7 to f6 | SAN f6 | UCI f7f6 | pawn f7-f6 | ORDINARY MOVE"
+        },
+        {
+          "id": "c6d4",
+          "notation": "Nd4",
+          "label": "Move knight c6 to d4",
+          "outcome": "Move knight c6 to d4 | SAN Nd4 | UCI c6d4 | knight c6-d4 | ORDINARY MOVE"
+        },
+        {
+          "id": "h7h6",
+          "notation": "h6",
+          "label": "Move pawn h7 to h6",
+          "outcome": "Move pawn h7 to h6 | SAN h6 | UCI h7h6 | pawn h7-h6 | ORDINARY MOVE"
+        }
+      ],
+      "thinkingChars": 0,
+      "reasoningText": "",
+      "condition": "User-reported thinking-on game, represented only by its exact legal board/history. Provider choice and reasoning mode do not alter the fixture objective.",
+      "prompt": "Black to move. Play a fun, sensible casual game. Choose one legal card.\nPriorities: CHECKMATE now; prevent White's mate and answer check; save a threatened queen or take a free queen; take safe material gains, including forcing checks that win material; otherwise CASTLE when listed; otherwise develop a knight/bishop or advance a central pawn.\nA check alone is not a material gain. Account for forcing follow-up captures and the conditional exchange losses before taking material. Protection is not immunity. Pawn 1, knight/bishop 3, rook 5, queen 9.\nBlack pieces (you):\nKing: e8\nQueens: d8\nRooks: a8, h8\nBishops: c8, f8\nKnights: g8, c6\nPawns: a7, b7, c7, d7, e7, f7, h7, g6\nWhite pieces (opponent):\nKing: e1\nQueens: d1\nRooks: a1, h1\nBishops: a6, c1\nKnights: b1, g1\nPawns: e4, f3, a2, b2, c2, d2, g2, h2\nBlack in check: no.\nCurrent White capture possibilities on the unchanged board:\nBlack pawn (1) on b7 can be captured by White bishop (3) on a6.\nLegal castling moves now: none.\nRecent 8 moves (oldest first):\nWhite: e4 (e2e4)\nBlack: g6 (g7g6)\nWhite: f3 (f2f3)\nBlack: Nc6 (b8c6)\nWhite: Ba6 (f1a6)\nHOW TO READ THE CARDS:\nThe board above is the position now. Each card describes a separate possible position after only that Black move. Its DANGER and exchange facts apply only to that move; destinations and threats from different cards do not occur together. CHECK on a card means that move checks White. Black in check above describes now.\nALL LEGAL CARDS (random order, no ranking):\nMove knight c6 to a5 | SAN Na5 | UCI c6a5 | knight c6-a5 | ORDINARY MOVE\nMove knight g8 to h6 | SAN Nh6 | UCI g8h6 | knight g8-h6 | KNIGHT LEAVES HOME SQUARE\nMove knight g8 to f6 | SAN Nf6 | UCI g8f6 | knight g8-f6 | KNIGHT LEAVES HOME SQUARE\nMove pawn b7 to b6 | SAN b6 | UCI b7b6 | pawn b7-b6 | ORDINARY MOVE\nMove pawn b7 to b5 | SAN b5 | UCI b7b5 | pawn b7-b5 | DANGER TO BLACK: after this move White bishop (3) on a6 can take Black pawn (1) on b5; possible immediate exchange net -1; Black also threatens White bishop (3) on a6 on the unchanged board; White moves next\nCapture bishop (3): pawn b7 to a6 | SAN bxa6 | UCI b7a6 | pawn b7-a6 | CAPTURES bishop (3); MOVED PIECE CANNOT BE LEGALLY RECAPTURED NEXT TURN\nMove pawn g6 to g5 | SAN g5 | UCI g6g5 | pawn g6-g5 | ORDINARY MOVE\nMove pawn d7 to d5 | SAN d5 | UCI d7d5 | pawn d7-d5 | PAWN ADVANCES ON CENTRAL FILE\nMove bishop f8 to g7 | SAN Bg7 | UCI f8g7 | bishop f8-g7 | BISHOP LEAVES HOME SQUARE\nMove knight c6 to b4 | SAN Nb4 | UCI c6b4 | knight c6-b4 | ORDINARY MOVE\nMove pawn e7 to e5 | SAN e5 | UCI e7e5 | pawn e7-e5 | PAWN ADVANCES ON CENTRAL FILE\nMove rook a8 to b8 | SAN Rb8 | UCI a8b8 | rook a8-b8 | ORDINARY MOVE\nMove knight c6 to e5 | SAN Ne5 | UCI c6e5 | knight c6-e5 | ORDINARY MOVE\nMove bishop f8 to h6 | SAN Bh6 | UCI f8h6 | bishop f8-h6 | BISHOP LEAVES HOME SQUARE\nMove pawn h7 to h5 | SAN h5 | UCI h7h5 | pawn h7-h5 | ORDINARY MOVE\nMove pawn d7 to d6 | SAN d6 | UCI d7d6 | pawn d7-d6 | PAWN ADVANCES ON CENTRAL FILE\nMove knight c6 to b8 | SAN Nb8 | UCI c6b8 | knight c6-b8 | ORDINARY MOVE\nMove pawn e7 to e6 | SAN e6 | UCI e7e6 | pawn e7-e6 | PAWN ADVANCES ON CENTRAL FILE\nMove pawn f7 to f5 | SAN f5 | UCI f7f5 | pawn f7-f5 | COMPENSATING RECAPTURE AVAILABLE\nMove pawn f7 to f6 | SAN f6 | UCI f7f6 | pawn f7-f6 | ORDINARY MOVE\nMove knight c6 to d4 | SAN Nd4 | UCI c6d4 | knight c6-d4 | ORDINARY MOVE\nMove pawn h7 to h6 | SAN h6 | UCI h7h6 | pawn h7-h6 | ORDINARY MOVE\nURGENT POSITION FACTS:\nMATERIAL-SAFE CHOICES FOR THE NEXT TURN: Move knight c6 to a5, Move knight g8 to h6, Move knight g8 to f6, Move pawn b7 to b6, Capture bishop (3): pawn b7 to a6, Move pawn g6 to g5, Move pawn d7 to d5, Move bishop f8 to g7, Move knight c6 to b4, Move pawn e7 to e5, Move rook a8 to b8, Move knight c6 to e5, Move bishop f8 to h6, Move pawn h7 to h5, Move pawn d7 to d6, Move knight c6 to b8, Move pawn e7 to e6, Move pawn f7 to f5, Move pawn f7 to f6, Move knight c6 to d4, Move pawn h7 to h6. No checked immediate capture exchange loses Black material; White has no mate in one.\nURGENT RESPONSE PRIORITY:\nAfter addressing the king and any attacked queen, prefer a MATERIAL-SAFE choice. When there is no urgent threat, castle if a listed castle is MATERIAL-SAFE.\nAVAILABLE IMMEDIATE OPPORTUNITIES:\nAvailable captures with no immediate legal recapture of the moved piece: Capture bishop (3): pawn b7 to a6. Checked replies show no net material loss or White mate in one.\nAfter addressing the king, any attacked queen, and immediate mate, favor safe material gains. A forcing check that wins further material can be better than a larger immediate capture. A check alone does not justify a listed material loss.\nReturn exactly one JSON object: key move, value the exact action label at the start of the chosen card. Copy the full label, including coordinates and any promotion or en passant text. Stop after the closing brace.",
+      "systemPrompt": "Play Black using the supplied chess facts. Take immediate mate first; otherwise prevent mate and protect an attacked queen. Prefer safe material gains. A forcing check that wins material on a later move can be better than a larger immediate capture. A check alone does not justify an uncompensated queen loss. Castle or develop when no better opportunity exists. The schema lists every legal move; neither enum order nor card order recommends a move.",
+      "usage": {
+        "promptTokens": 1900,
+        "completionTokens": 20,
+        "totalTokens": 1920,
+        "providerUsageDetails": {
+          "contextUsage": 1920,
+          "contextWindow": 9216
+        }
+      },
+      "rawAnswer": "Capture bishop (3): pawn b7 to a6",
+      "moveId": "b7a6"
+    },
+    {
+      "trial": 3,
+      "repetition": 3,
+      "caseId": "observed-free-bishop-on-a6",
+      "label": "Observed game: pawn can take the bishop on a6",
+      "fen": "r1bqkbnr/pppppp1p/B1n3p1/8/4P3/5P2/PPPP2PP/RNBQK1NR b KQkq - 2 3",
+      "objective": "Exact five-ply replay of1.e4 g6 2.f3 Nc6 3.Ba6. Black b7xa6 wins bishop3 without immediate recapture, White mate, or a negative exchange elsewhere. It is the only legal capture and no checking/forcing capture alternative exists. Actual3...d6 is quiet; this scoped opportunity grade does not assert long-term engine-best play.",
+      "expectedMoveIds": [
+        "b7a6"
+      ],
+      "partition": "calibration",
+      "legal": true,
+      "passed": true,
+      "signal": null,
+      "index": 19,
+      "total": 22,
+      "seconds": 1.0697000000476837,
+      "choices": [
+        {
+          "id": "c6a5",
+          "notation": "Na5",
+          "label": "Move knight c6 to a5",
+          "outcome": "Move knight c6 to a5 | SAN Na5 | UCI c6a5 | knight c6-a5 | ORDINARY MOVE"
+        },
+        {
+          "id": "c6b4",
+          "notation": "Nb4",
+          "label": "Move knight c6 to b4",
+          "outcome": "Move knight c6 to b4 | SAN Nb4 | UCI c6b4 | knight c6-b4 | ORDINARY MOVE"
+        },
+        {
+          "id": "c6e5",
+          "notation": "Ne5",
+          "label": "Move knight c6 to e5",
+          "outcome": "Move knight c6 to e5 | SAN Ne5 | UCI c6e5 | knight c6-e5 | ORDINARY MOVE"
+        },
+        {
+          "id": "g6g5",
+          "notation": "g5",
+          "label": "Move pawn g6 to g5",
+          "outcome": "Move pawn g6 to g5 | SAN g5 | UCI g6g5 | pawn g6-g5 | ORDINARY MOVE"
+        },
+        {
+          "id": "e7e6",
+          "notation": "e6",
+          "label": "Move pawn e7 to e6",
+          "outcome": "Move pawn e7 to e6 | SAN e6 | UCI e7e6 | pawn e7-e6 | PAWN ADVANCES ON CENTRAL FILE"
+        },
+        {
+          "id": "d7d6",
+          "notation": "d6",
+          "label": "Move pawn d7 to d6",
+          "outcome": "Move pawn d7 to d6 | SAN d6 | UCI d7d6 | pawn d7-d6 | PAWN ADVANCES ON CENTRAL FILE"
+        },
+        {
+          "id": "h7h5",
+          "notation": "h5",
+          "label": "Move pawn h7 to h5",
+          "outcome": "Move pawn h7 to h5 | SAN h5 | UCI h7h5 | pawn h7-h5 | ORDINARY MOVE"
+        },
+        {
+          "id": "b7b5",
+          "notation": "b5",
+          "label": "Move pawn b7 to b5",
+          "outcome": "Move pawn b7 to b5 | SAN b5 | UCI b7b5 | pawn b7-b5 | DANGER TO BLACK: after this move White bishop (3) on a6 can take Black pawn (1) on b5; possible immediate exchange net -1; Black also threatens White bishop (3) on a6 on the unchanged board; White moves next"
+        },
+        {
+          "id": "c6b8",
+          "notation": "Nb8",
+          "label": "Move knight c6 to b8",
+          "outcome": "Move knight c6 to b8 | SAN Nb8 | UCI c6b8 | knight c6-b8 | ORDINARY MOVE"
+        },
+        {
+          "id": "d7d5",
+          "notation": "d5",
+          "label": "Move pawn d7 to d5",
+          "outcome": "Move pawn d7 to d5 | SAN d5 | UCI d7d5 | pawn d7-d5 | PAWN ADVANCES ON CENTRAL FILE"
+        },
+        {
+          "id": "f7f6",
+          "notation": "f6",
+          "label": "Move pawn f7 to f6",
+          "outcome": "Move pawn f7 to f6 | SAN f6 | UCI f7f6 | pawn f7-f6 | ORDINARY MOVE"
+        },
+        {
+          "id": "a8b8",
+          "notation": "Rb8",
+          "label": "Move rook a8 to b8",
+          "outcome": "Move rook a8 to b8 | SAN Rb8 | UCI a8b8 | rook a8-b8 | ORDINARY MOVE"
+        },
+        {
+          "id": "g8h6",
+          "notation": "Nh6",
+          "label": "Move knight g8 to h6",
+          "outcome": "Move knight g8 to h6 | SAN Nh6 | UCI g8h6 | knight g8-h6 | KNIGHT LEAVES HOME SQUARE"
+        },
+        {
+          "id": "b7b6",
+          "notation": "b6",
+          "label": "Move pawn b7 to b6",
+          "outcome": "Move pawn b7 to b6 | SAN b6 | UCI b7b6 | pawn b7-b6 | ORDINARY MOVE"
+        },
+        {
+          "id": "f8g7",
+          "notation": "Bg7",
+          "label": "Move bishop f8 to g7",
+          "outcome": "Move bishop f8 to g7 | SAN Bg7 | UCI f8g7 | bishop f8-g7 | BISHOP LEAVES HOME SQUARE"
+        },
+        {
+          "id": "f7f5",
+          "notation": "f5",
+          "label": "Move pawn f7 to f5",
+          "outcome": "Move pawn f7 to f5 | SAN f5 | UCI f7f5 | pawn f7-f5 | COMPENSATING RECAPTURE AVAILABLE"
+        },
+        {
+          "id": "c6d4",
+          "notation": "Nd4",
+          "label": "Move knight c6 to d4",
+          "outcome": "Move knight c6 to d4 | SAN Nd4 | UCI c6d4 | knight c6-d4 | ORDINARY MOVE"
+        },
+        {
+          "id": "f8h6",
+          "notation": "Bh6",
+          "label": "Move bishop f8 to h6",
+          "outcome": "Move bishop f8 to h6 | SAN Bh6 | UCI f8h6 | bishop f8-h6 | BISHOP LEAVES HOME SQUARE"
+        },
+        {
+          "id": "g8f6",
+          "notation": "Nf6",
+          "label": "Move knight g8 to f6",
+          "outcome": "Move knight g8 to f6 | SAN Nf6 | UCI g8f6 | knight g8-f6 | KNIGHT LEAVES HOME SQUARE"
+        },
+        {
+          "id": "b7a6",
+          "notation": "bxa6",
+          "label": "Capture bishop (3): pawn b7 to a6",
+          "outcome": "Capture bishop (3): pawn b7 to a6 | SAN bxa6 | UCI b7a6 | pawn b7-a6 | CAPTURES bishop (3); MOVED PIECE CANNOT BE LEGALLY RECAPTURED NEXT TURN"
+        },
+        {
+          "id": "h7h6",
+          "notation": "h6",
+          "label": "Move pawn h7 to h6",
+          "outcome": "Move pawn h7 to h6 | SAN h6 | UCI h7h6 | pawn h7-h6 | ORDINARY MOVE"
+        },
+        {
+          "id": "e7e5",
+          "notation": "e5",
+          "label": "Move pawn e7 to e5",
+          "outcome": "Move pawn e7 to e5 | SAN e5 | UCI e7e5 | pawn e7-e5 | PAWN ADVANCES ON CENTRAL FILE"
+        }
+      ],
+      "thinkingChars": 0,
+      "reasoningText": "",
+      "condition": "User-reported thinking-on game, represented only by its exact legal board/history. Provider choice and reasoning mode do not alter the fixture objective.",
+      "prompt": "Black to move. Play a fun, sensible casual game. Choose one legal card.\nPriorities: CHECKMATE now; prevent White's mate and answer check; save a threatened queen or take a free queen; take safe material gains, including forcing checks that win material; otherwise CASTLE when listed; otherwise develop a knight/bishop or advance a central pawn.\nA check alone is not a material gain. Account for forcing follow-up captures and the conditional exchange losses before taking material. Protection is not immunity. Pawn 1, knight/bishop 3, rook 5, queen 9.\nBlack pieces (you):\nKing: e8\nQueens: d8\nRooks: a8, h8\nBishops: c8, f8\nKnights: g8, c6\nPawns: a7, b7, c7, d7, e7, f7, h7, g6\nWhite pieces (opponent):\nKing: e1\nQueens: d1\nRooks: a1, h1\nBishops: a6, c1\nKnights: b1, g1\nPawns: e4, f3, a2, b2, c2, d2, g2, h2\nBlack in check: no.\nCurrent White capture possibilities on the unchanged board:\nBlack pawn (1) on b7 can be captured by White bishop (3) on a6.\nLegal castling moves now: none.\nRecent 8 moves (oldest first):\nWhite: e4 (e2e4)\nBlack: g6 (g7g6)\nWhite: f3 (f2f3)\nBlack: Nc6 (b8c6)\nWhite: Ba6 (f1a6)\nHOW TO READ THE CARDS:\nThe board above is the position now. Each card describes a separate possible position after only that Black move. Its DANGER and exchange facts apply only to that move; destinations and threats from different cards do not occur together. CHECK on a card means that move checks White. Black in check above describes now.\nALL LEGAL CARDS (random order, no ranking):\nMove knight c6 to a5 | SAN Na5 | UCI c6a5 | knight c6-a5 | ORDINARY MOVE\nMove knight c6 to b4 | SAN Nb4 | UCI c6b4 | knight c6-b4 | ORDINARY MOVE\nMove knight c6 to e5 | SAN Ne5 | UCI c6e5 | knight c6-e5 | ORDINARY MOVE\nMove pawn g6 to g5 | SAN g5 | UCI g6g5 | pawn g6-g5 | ORDINARY MOVE\nMove pawn e7 to e6 | SAN e6 | UCI e7e6 | pawn e7-e6 | PAWN ADVANCES ON CENTRAL FILE\nMove pawn d7 to d6 | SAN d6 | UCI d7d6 | pawn d7-d6 | PAWN ADVANCES ON CENTRAL FILE\nMove pawn h7 to h5 | SAN h5 | UCI h7h5 | pawn h7-h5 | ORDINARY MOVE\nMove pawn b7 to b5 | SAN b5 | UCI b7b5 | pawn b7-b5 | DANGER TO BLACK: after this move White bishop (3) on a6 can take Black pawn (1) on b5; possible immediate exchange net -1; Black also threatens White bishop (3) on a6 on the unchanged board; White moves next\nMove knight c6 to b8 | SAN Nb8 | UCI c6b8 | knight c6-b8 | ORDINARY MOVE\nMove pawn d7 to d5 | SAN d5 | UCI d7d5 | pawn d7-d5 | PAWN ADVANCES ON CENTRAL FILE\nMove pawn f7 to f6 | SAN f6 | UCI f7f6 | pawn f7-f6 | ORDINARY MOVE\nMove rook a8 to b8 | SAN Rb8 | UCI a8b8 | rook a8-b8 | ORDINARY MOVE\nMove knight g8 to h6 | SAN Nh6 | UCI g8h6 | knight g8-h6 | KNIGHT LEAVES HOME SQUARE\nMove pawn b7 to b6 | SAN b6 | UCI b7b6 | pawn b7-b6 | ORDINARY MOVE\nMove bishop f8 to g7 | SAN Bg7 | UCI f8g7 | bishop f8-g7 | BISHOP LEAVES HOME SQUARE\nMove pawn f7 to f5 | SAN f5 | UCI f7f5 | pawn f7-f5 | COMPENSATING RECAPTURE AVAILABLE\nMove knight c6 to d4 | SAN Nd4 | UCI c6d4 | knight c6-d4 | ORDINARY MOVE\nMove bishop f8 to h6 | SAN Bh6 | UCI f8h6 | bishop f8-h6 | BISHOP LEAVES HOME SQUARE\nMove knight g8 to f6 | SAN Nf6 | UCI g8f6 | knight g8-f6 | KNIGHT LEAVES HOME SQUARE\nCapture bishop (3): pawn b7 to a6 | SAN bxa6 | UCI b7a6 | pawn b7-a6 | CAPTURES bishop (3); MOVED PIECE CANNOT BE LEGALLY RECAPTURED NEXT TURN\nMove pawn h7 to h6 | SAN h6 | UCI h7h6 | pawn h7-h6 | ORDINARY MOVE\nMove pawn e7 to e5 | SAN e5 | UCI e7e5 | pawn e7-e5 | PAWN ADVANCES ON CENTRAL FILE\nURGENT POSITION FACTS:\nMATERIAL-SAFE CHOICES FOR THE NEXT TURN: Move knight c6 to a5, Move knight c6 to b4, Move knight c6 to e5, Move pawn g6 to g5, Move pawn e7 to e6, Move pawn d7 to d6, Move pawn h7 to h5, Move knight c6 to b8, Move pawn d7 to d5, Move pawn f7 to f6, Move rook a8 to b8, Move knight g8 to h6, Move pawn b7 to b6, Move bishop f8 to g7, Move pawn f7 to f5, Move knight c6 to d4, Move bishop f8 to h6, Move knight g8 to f6, Capture bishop (3): pawn b7 to a6, Move pawn h7 to h6, Move pawn e7 to e5. No checked immediate capture exchange loses Black material; White has no mate in one.\nURGENT RESPONSE PRIORITY:\nAfter addressing the king and any attacked queen, prefer a MATERIAL-SAFE choice. When there is no urgent threat, castle if a listed castle is MATERIAL-SAFE.\nAVAILABLE IMMEDIATE OPPORTUNITIES:\nAvailable captures with no immediate legal recapture of the moved piece: Capture bishop (3): pawn b7 to a6. Checked replies show no net material loss or White mate in one.\nAfter addressing the king, any attacked queen, and immediate mate, favor safe material gains. A forcing check that wins further material can be better than a larger immediate capture. A check alone does not justify a listed material loss.\nReturn exactly one JSON object: key move, value the exact action label at the start of the chosen card. Copy the full label, including coordinates and any promotion or en passant text. Stop after the closing brace.",
+      "systemPrompt": "Play Black using the supplied chess facts. Take immediate mate first; otherwise prevent mate and protect an attacked queen. Prefer safe material gains. A forcing check that wins material on a later move can be better than a larger immediate capture. A check alone does not justify an uncompensated queen loss. Castle or develop when no better opportunity exists. The schema lists every legal move; neither enum order nor card order recommends a move.",
+      "usage": {
+        "promptTokens": 1900,
+        "completionTokens": 21,
+        "totalTokens": 1921,
+        "providerUsageDetails": {
+          "contextUsage": 1921,
+          "contextWindow": 9216
+        }
+      },
+      "rawAnswer": "Capture bishop (3): pawn b7 to a6",
+      "moveId": "b7a6"
+    },
+    {
+      "trial": 4,
+      "repetition": 4,
+      "caseId": "observed-free-bishop-on-a6",
+      "label": "Observed game: pawn can take the bishop on a6",
+      "fen": "r1bqkbnr/pppppp1p/B1n3p1/8/4P3/5P2/PPPP2PP/RNBQK1NR b KQkq - 2 3",
+      "objective": "Exact five-ply replay of1.e4 g6 2.f3 Nc6 3.Ba6. Black b7xa6 wins bishop3 without immediate recapture, White mate, or a negative exchange elsewhere. It is the only legal capture and no checking/forcing capture alternative exists. Actual3...d6 is quiet; this scoped opportunity grade does not assert long-term engine-best play.",
+      "expectedMoveIds": [
+        "b7a6"
+      ],
+      "partition": "calibration",
+      "legal": false,
+      "passed": false,
+      "signal": null,
+      "index": -1,
+      "total": 22,
+      "seconds": 1.263,
+      "choices": [
+        {
+          "id": "g8f6",
+          "notation": "Nf6",
+          "label": "Move knight g8 to f6",
+          "outcome": "Move knight g8 to f6 | SAN Nf6 | UCI g8f6 | knight g8-f6 | KNIGHT LEAVES HOME SQUARE"
+        },
+        {
+          "id": "d7d5",
+          "notation": "d5",
+          "label": "Move pawn d7 to d5",
+          "outcome": "Move pawn d7 to d5 | SAN d5 | UCI d7d5 | pawn d7-d5 | PAWN ADVANCES ON CENTRAL FILE"
+        },
+        {
+          "id": "c6a5",
+          "notation": "Na5",
+          "label": "Move knight c6 to a5",
+          "outcome": "Move knight c6 to a5 | SAN Na5 | UCI c6a5 | knight c6-a5 | ORDINARY MOVE"
+        },
+        {
+          "id": "f8g7",
+          "notation": "Bg7",
+          "label": "Move bishop f8 to g7",
+          "outcome": "Move bishop f8 to g7 | SAN Bg7 | UCI f8g7 | bishop f8-g7 | BISHOP LEAVES HOME SQUARE"
+        },
+        {
+          "id": "a8b8",
+          "notation": "Rb8",
+          "label": "Move rook a8 to b8",
+          "outcome": "Move rook a8 to b8 | SAN Rb8 | UCI a8b8 | rook a8-b8 | ORDINARY MOVE"
+        },
+        {
+          "id": "f7f6",
+          "notation": "f6",
+          "label": "Move pawn f7 to f6",
+          "outcome": "Move pawn f7 to f6 | SAN f6 | UCI f7f6 | pawn f7-f6 | ORDINARY MOVE"
+        },
+        {
+          "id": "e7e6",
+          "notation": "e6",
+          "label": "Move pawn e7 to e6",
+          "outcome": "Move pawn e7 to e6 | SAN e6 | UCI e7e6 | pawn e7-e6 | PAWN ADVANCES ON CENTRAL FILE"
+        },
+        {
+          "id": "f7f5",
+          "notation": "f5",
+          "label": "Move pawn f7 to f5",
+          "outcome": "Move pawn f7 to f5 | SAN f5 | UCI f7f5 | pawn f7-f5 | COMPENSATING RECAPTURE AVAILABLE"
+        },
+        {
+          "id": "g8h6",
+          "notation": "Nh6",
+          "label": "Move knight g8 to h6",
+          "outcome": "Move knight g8 to h6 | SAN Nh6 | UCI g8h6 | knight g8-h6 | KNIGHT LEAVES HOME SQUARE"
+        },
+        {
+          "id": "h7h5",
+          "notation": "h5",
+          "label": "Move pawn h7 to h5",
+          "outcome": "Move pawn h7 to h5 | SAN h5 | UCI h7h5 | pawn h7-h5 | ORDINARY MOVE"
+        },
+        {
+          "id": "b7b6",
+          "notation": "b6",
+          "label": "Move pawn b7 to b6",
+          "outcome": "Move pawn b7 to b6 | SAN b6 | UCI b7b6 | pawn b7-b6 | ORDINARY MOVE"
+        },
+        {
+          "id": "e7e5",
+          "notation": "e5",
+          "label": "Move pawn e7 to e5",
+          "outcome": "Move pawn e7 to e5 | SAN e5 | UCI e7e5 | pawn e7-e5 | PAWN ADVANCES ON CENTRAL FILE"
+        },
+        {
+          "id": "b7b5",
+          "notation": "b5",
+          "label": "Move pawn b7 to b5",
+          "outcome": "Move pawn b7 to b5 | SAN b5 | UCI b7b5 | pawn b7-b5 | DANGER TO BLACK: after this move White bishop (3) on a6 can take Black pawn (1) on b5; possible immediate exchange net -1; Black also threatens White bishop (3) on a6 on the unchanged board; White moves next"
+        },
+        {
+          "id": "c6b8",
+          "notation": "Nb8",
+          "label": "Move knight c6 to b8",
+          "outcome": "Move knight c6 to b8 | SAN Nb8 | UCI c6b8 | knight c6-b8 | ORDINARY MOVE"
+        },
+        {
+          "id": "b7a6",
+          "notation": "bxa6",
+          "label": "Capture bishop (3): pawn b7 to a6",
+          "outcome": "Capture bishop (3): pawn b7 to a6 | SAN bxa6 | UCI b7a6 | pawn b7-a6 | CAPTURES bishop (3); MOVED PIECE CANNOT BE LEGALLY RECAPTURED NEXT TURN"
+        },
+        {
+          "id": "c6e5",
+          "notation": "Ne5",
+          "label": "Move knight c6 to e5",
+          "outcome": "Move knight c6 to e5 | SAN Ne5 | UCI c6e5 | knight c6-e5 | ORDINARY MOVE"
+        },
+        {
+          "id": "f8h6",
+          "notation": "Bh6",
+          "label": "Move bishop f8 to h6",
+          "outcome": "Move bishop f8 to h6 | SAN Bh6 | UCI f8h6 | bishop f8-h6 | BISHOP LEAVES HOME SQUARE"
+        },
+        {
+          "id": "c6d4",
+          "notation": "Nd4",
+          "label": "Move knight c6 to d4",
+          "outcome": "Move knight c6 to d4 | SAN Nd4 | UCI c6d4 | knight c6-d4 | ORDINARY MOVE"
+        },
+        {
+          "id": "h7h6",
+          "notation": "h6",
+          "label": "Move pawn h7 to h6",
+          "outcome": "Move pawn h7 to h6 | SAN h6 | UCI h7h6 | pawn h7-h6 | ORDINARY MOVE"
+        },
+        {
+          "id": "d7d6",
+          "notation": "d6",
+          "label": "Move pawn d7 to d6",
+          "outcome": "Move pawn d7 to d6 | SAN d6 | UCI d7d6 | pawn d7-d6 | PAWN ADVANCES ON CENTRAL FILE"
+        },
+        {
+          "id": "c6b4",
+          "notation": "Nb4",
+          "label": "Move knight c6 to b4",
+          "outcome": "Move knight c6 to b4 | SAN Nb4 | UCI c6b4 | knight c6-b4 | ORDINARY MOVE"
+        },
+        {
+          "id": "g6g5",
+          "notation": "g5",
+          "label": "Move pawn g6 to g5",
+          "outcome": "Move pawn g6 to g5 | SAN g5 | UCI g6g5 | pawn g6-g5 | ORDINARY MOVE"
+        }
+      ],
+      "thinkingChars": 0,
+      "reasoningText": "",
+      "condition": "User-reported thinking-on game, represented only by its exact legal board/history. Provider choice and reasoning mode do not alter the fixture objective.",
+      "prompt": "Black to move. Play a fun, sensible casual game. Choose one legal card.\nPriorities: CHECKMATE now; prevent White's mate and answer check; save a threatened queen or take a free queen; take safe material gains, including forcing checks that win material; otherwise CASTLE when listed; otherwise develop a knight/bishop or advance a central pawn.\nA check alone is not a material gain. Account for forcing follow-up captures and the conditional exchange losses before taking material. Protection is not immunity. Pawn 1, knight/bishop 3, rook 5, queen 9.\nBlack pieces (you):\nKing: e8\nQueens: d8\nRooks: a8, h8\nBishops: c8, f8\nKnights: g8, c6\nPawns: a7, b7, c7, d7, e7, f7, h7, g6\nWhite pieces (opponent):\nKing: e1\nQueens: d1\nRooks: a1, h1\nBishops: a6, c1\nKnights: b1, g1\nPawns: e4, f3, a2, b2, c2, d2, g2, h2\nBlack in check: no.\nCurrent White capture possibilities on the unchanged board:\nBlack pawn (1) on b7 can be captured by White bishop (3) on a6.\nLegal castling moves now: none.\nRecent 8 moves (oldest first):\nWhite: e4 (e2e4)\nBlack: g6 (g7g6)\nWhite: f3 (f2f3)\nBlack: Nc6 (b8c6)\nWhite: Ba6 (f1a6)\nHOW TO READ THE CARDS:\nThe board above is the position now. Each card describes a separate possible position after only that Black move. Its DANGER and exchange facts apply only to that move; destinations and threats from different cards do not occur together. CHECK on a card means that move checks White. Black in check above describes now.\nALL LEGAL CARDS (random order, no ranking):\nMove knight g8 to f6 | SAN Nf6 | UCI g8f6 | knight g8-f6 | KNIGHT LEAVES HOME SQUARE\nMove pawn d7 to d5 | SAN d5 | UCI d7d5 | pawn d7-d5 | PAWN ADVANCES ON CENTRAL FILE\nMove knight c6 to a5 | SAN Na5 | UCI c6a5 | knight c6-a5 | ORDINARY MOVE\nMove bishop f8 to g7 | SAN Bg7 | UCI f8g7 | bishop f8-g7 | BISHOP LEAVES HOME SQUARE\nMove rook a8 to b8 | SAN Rb8 | UCI a8b8 | rook a8-b8 | ORDINARY MOVE\nMove pawn f7 to f6 | SAN f6 | UCI f7f6 | pawn f7-f6 | ORDINARY MOVE\nMove pawn e7 to e6 | SAN e6 | UCI e7e6 | pawn e7-e6 | PAWN ADVANCES ON CENTRAL FILE\nMove pawn f7 to f5 | SAN f5 | UCI f7f5 | pawn f7-f5 | COMPENSATING RECAPTURE AVAILABLE\nMove knight g8 to h6 | SAN Nh6 | UCI g8h6 | knight g8-h6 | KNIGHT LEAVES HOME SQUARE\nMove pawn h7 to h5 | SAN h5 | UCI h7h5 | pawn h7-h5 | ORDINARY MOVE\nMove pawn b7 to b6 | SAN b6 | UCI b7b6 | pawn b7-b6 | ORDINARY MOVE\nMove pawn e7 to e5 | SAN e5 | UCI e7e5 | pawn e7-e5 | PAWN ADVANCES ON CENTRAL FILE\nMove pawn b7 to b5 | SAN b5 | UCI b7b5 | pawn b7-b5 | DANGER TO BLACK: after this move White bishop (3) on a6 can take Black pawn (1) on b5; possible immediate exchange net -1; Black also threatens White bishop (3) on a6 on the unchanged board; White moves next\nMove knight c6 to b8 | SAN Nb8 | UCI c6b8 | knight c6-b8 | ORDINARY MOVE\nCapture bishop (3): pawn b7 to a6 | SAN bxa6 | UCI b7a6 | pawn b7-a6 | CAPTURES bishop (3); MOVED PIECE CANNOT BE LEGALLY RECAPTURED NEXT TURN\nMove knight c6 to e5 | SAN Ne5 | UCI c6e5 | knight c6-e5 | ORDINARY MOVE\nMove bishop f8 to h6 | SAN Bh6 | UCI f8h6 | bishop f8-h6 | BISHOP LEAVES HOME SQUARE\nMove knight c6 to d4 | SAN Nd4 | UCI c6d4 | knight c6-d4 | ORDINARY MOVE\nMove pawn h7 to h6 | SAN h6 | UCI h7h6 | pawn h7-h6 | ORDINARY MOVE\nMove pawn d7 to d6 | SAN d6 | UCI d7d6 | pawn d7-d6 | PAWN ADVANCES ON CENTRAL FILE\nMove knight c6 to b4 | SAN Nb4 | UCI c6b4 | knight c6-b4 | ORDINARY MOVE\nMove pawn g6 to g5 | SAN g5 | UCI g6g5 | pawn g6-g5 | ORDINARY MOVE\nURGENT POSITION FACTS:\nMATERIAL-SAFE CHOICES FOR THE NEXT TURN: Move knight g8 to f6, Move pawn d7 to d5, Move knight c6 to a5, Move bishop f8 to g7, Move rook a8 to b8, Move pawn f7 to f6, Move pawn e7 to e6, Move pawn f7 to f5, Move knight g8 to h6, Move pawn h7 to h5, Move pawn b7 to b6, Move pawn e7 to e5, Move knight c6 to b8, Capture bishop (3): pawn b7 to a6, Move knight c6 to e5, Move bishop f8 to h6, Move knight c6 to d4, Move pawn h7 to h6, Move pawn d7 to d6, Move knight c6 to b4, Move pawn g6 to g5. No checked immediate capture exchange loses Black material; White has no mate in one.\nURGENT RESPONSE PRIORITY:\nAfter addressing the king and any attacked queen, prefer a MATERIAL-SAFE choice. When there is no urgent threat, castle if a listed castle is MATERIAL-SAFE.\nAVAILABLE IMMEDIATE OPPORTUNITIES:\nAvailable captures with no immediate legal recapture of the moved piece: Capture bishop (3): pawn b7 to a6. Checked replies show no net material loss or White mate in one.\nAfter addressing the king, any attacked queen, and immediate mate, favor safe material gains. A forcing check that wins further material can be better than a larger immediate capture. A check alone does not justify a listed material loss.\nReturn exactly one JSON object: key move, value the exact action label at the start of the chosen card. Copy the full label, including coordinates and any promotion or en passant text. Stop after the closing brace.",
+      "systemPrompt": "Play Black using the supplied chess facts. Take immediate mate first; otherwise prevent mate and protect an attacked queen. Prefer safe material gains. A forcing check that wins material on a later move can be better than a larger immediate capture. A check alone does not justify an uncompensated queen loss. Castle or develop when no better opportunity exists. The schema lists every legal move; neither enum order nor card order recommends a move.",
+      "error": "The built-in model failed: An unknown error occurred: kErrorUnknown"
+    }
+  ],
+  "summary": {
+    "total": 4,
+    "legal": 3,
+    "passed": 3,
+    "scored": 4,
+    "firstOption": 0,
+    "medianSeconds": 1.0789499999880792
+  }
+}

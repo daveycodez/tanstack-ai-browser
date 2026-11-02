@@ -31,7 +31,13 @@ export type MoveSupport = {
     attacker: PieceRef
     defenders: PieceRef[]
   }[]
-  addedFriendlySupport: { target: PieceRef; supporters: PieceRef[] }[]
+  addedFriendlySupport: {
+    target: PieceRef
+    supporters: PieceRef[]
+    beforeCount: number
+    afterCount: number
+    wasThreatened: boolean
+  }[]
 }
 export type MoveMobility = {
   pawnAdvance?: { squares: 1 | 2; centralSquaresControlled: number[] }
@@ -46,6 +52,26 @@ export type MoveMobility = {
   }[]
 }
 export type CastlingWing = "kingside" | "queenside"
+/** Pawn locations around an actual wing king or a retained future castle wing.
+ * Counts describe locations only, never king safety or castling legality.
+ */
+export type KingCoverProfile = {
+  side: Side
+  wing: CastlingWing
+  kind: "current" | "future"
+  kingSquare: number
+  pawnSquares: number[]
+  homeFiles: string[]
+  nearFiles: string[]
+  advancedFiles: string[]
+  missingFiles: string[]
+}
+export type MoveKingCover = {
+  before: KingCoverProfile[]
+  after: KingCoverProfile[]
+  relevantWings: CastlingWing[]
+  landing?: KingCoverProfile
+}
 export type MoveCastling = {
   performed?: CastlingWing
   lostRights: { side: Side; wing: CastlingWing }[]
@@ -73,11 +99,42 @@ export type ReplyMaterialLoss = {
 }
 /** Compatibility view containing only queen/rook captures. */
 export type ReplyMajorLoss = ReplyMaterialLoss
+export type PromotionReply = {
+  id: string
+  from: number
+  to: number
+  promotion: "q" | "r" | "b" | "n"
+  captured?: PieceType
+  check: boolean
+  checkmate: boolean
+  capturableBy: PieceRef[]
+  /** Mover's material delta after the candidate and this actual promotion reply. */
+  netAfterPromotion: number
+  /** Best immediate material result among legal captures of the promoted piece. */
+  netAfterImmediateCapture?: number
+}
+export type KingMobility = {
+  /** Distinct legal destinations, including castling destinations where legal. */
+  before: number[]
+  after: number[]
+  deniedSquares: number[]
+  newSquares: number[]
+  afterInCheck: boolean
+  otherLegalReplyCount: number
+  opponentNonPawnNonKingCount: number
+  opponentPawnCount: number
+  opponentBareKing: boolean
+  /** Chebyshev distance only against a bare king; not a positional score. */
+  ownKingDistance?: { before: number; after: number }
+}
 export type MoveContextOptions = {
   relationships?: boolean
   support?: boolean
   mobility?: boolean
   castling?: boolean
+  kingCover?: boolean
+  promotionReplies?: boolean
+  kingMobility?: boolean
   safety?: boolean
 }
 export type AnnotatedMove = Move & {
@@ -92,6 +149,9 @@ export type AnnotatedMove = Move & {
     support?: MoveSupport
     mobility?: MoveMobility
     castling?: MoveCastling
+    kingCover?: MoveKingCover
+    promotionReplies?: PromotionReply[]
+    kingMobility?: KingMobility
     replyMaterialLosses?: ReplyMaterialLoss[]
     replyMajorLosses?: ReplyMajorLoss[]
     drawReason?: string
@@ -396,6 +456,7 @@ function supportAfterMove(
   engine: Chess,
   candidate: ChessMove,
   before: CaptureMap,
+  beforeEnemy: CaptureMap,
   replies: ChessMove[]
 ): MoveSupport {
   const destination = indexOf(candidate.to)
@@ -431,15 +492,15 @@ function supportAfterMove(
   }
   const addedFriendlySupport: MoveSupport["addedFriendlySupport"] = []
   for (const [square, target] of after) {
-    const originalSquare = [...before.keys()].find(
-      (source) => relocatedSquare(candidate, source) === square
-    )
+    const originalSquare =
+      Array.from({ length: 64 }, (_, source) => source).find(
+        (source) =>
+          source !== square && relocatedSquare(candidate, source) === square
+      ) ?? square
     const previous = new Set(
-      [
-        ...(originalSquare === undefined
-          ? []
-          : (before.get(originalSquare)?.attackers.keys() ?? []))
-      ].map((source) => relocatedSquare(candidate, source))
+      [...(before.get(originalSquare)?.attackers.keys() ?? [])].map((source) =>
+        relocatedSquare(candidate, source)
+      )
     )
     const supporters = [...target.attackers.values()].filter(
       (piece) => !previous.has(piece.square)
@@ -447,7 +508,10 @@ function supportAfterMove(
     if (supporters.length)
       addedFriendlySupport.push({
         target: { piece: target.piece, square },
-        supporters
+        supporters,
+        beforeCount: previous.size,
+        afterCount: target.attackers.size,
+        wasThreatened: beforeEnemy.has(originalSquare)
       })
   }
   return {
@@ -595,7 +659,9 @@ function castlingAfterMove(
       .map(({ side, wing }) => ({ side, wing })),
     paths: before.flatMap((path, index) => {
       const next = after[index]
-      if (!path.right && !next.right) return []
+      // Paths describe a future castle only while its original right survives.
+      // Rights consumed by an actual castle are represented by performed alone.
+      if (!path.right || !next.right) return []
       return [
         {
           side: path.side,
@@ -612,6 +678,173 @@ function castlingAfterMove(
         }
       ]
     })
+  }
+}
+
+function kingCoverProfiles(
+  engine: Chess,
+  color: "w" | "b"
+): KingCoverProfile[] {
+  const board = engine.board().flat()
+  const kingSquare = board.findIndex(
+    (piece) => piece?.color === color && piece.type === "k"
+  )
+  const backRank = color === "w" ? 7 : 0
+  if (Math.floor(kingSquare / 8) !== backRank) return []
+  const kingFile = kingSquare % 8
+  const rights = engine.fen().split(" ")[2]
+  return (["kingside", "queenside"] as const).flatMap((wing) => {
+    const key = wing === "kingside" ? "k" : "q"
+    const current = (wing === "kingside" ? [6, 7] : [1, 2]).includes(kingFile)
+    const future =
+      kingFile === 4 && rights.includes(color === "w" ? key.toUpperCase() : key)
+    if (!current && !future) return []
+    const files = wing === "kingside" ? ["f", "g", "h"] : ["a", "b", "c"]
+    const pawnSquares = board.flatMap((piece, square) =>
+      piece?.color === color &&
+      piece.type === "p" &&
+      files.includes(squareName(square)[0])
+        ? [square]
+        : []
+    )
+    const occupied = (file: string) =>
+      pawnSquares.filter((square) => squareName(square)[0] === file)
+    const distance = (square: number) =>
+      Math.abs(Math.floor(square / 8) - backRank)
+    const nearFiles = files.filter((file) =>
+      occupied(file).some(
+        (square) => distance(square) >= 1 && distance(square) <= 2
+      )
+    )
+    return [
+      {
+        side: sideOf(color),
+        wing,
+        kind: current ? ("current" as const) : ("future" as const),
+        kingSquare,
+        pawnSquares,
+        homeFiles: files.filter((file) =>
+          occupied(file).some((square) => distance(square) === 1)
+        ),
+        nearFiles,
+        advancedFiles: files.filter(
+          (file) => occupied(file).length && !nearFiles.includes(file)
+        ),
+        missingFiles: files.filter((file) => !occupied(file).length)
+      }
+    ]
+  })
+}
+function kingCoverAfterMove(
+  engine: Chess,
+  candidate: ChessMove,
+  before: KingCoverProfile[]
+): MoveKingCover {
+  const after = kingCoverProfiles(engine, candidate.color)
+  const performed = candidate.isKingsideCastle()
+    ? "kingside"
+    : candidate.isQueensideCastle()
+      ? "queenside"
+      : undefined
+  const relevantWings = (["kingside", "queenside"] as const)
+    .filter((wing) => {
+      const previous = before.find((profile) => profile.wing === wing)
+      const next = after.find((profile) => profile.wing === wing)
+      const files = wing === "kingside" ? "fgh" : "abc"
+      return (
+        JSON.stringify(previous) !== JSON.stringify(next) ||
+        (candidate.piece === "p" &&
+          (files.includes(candidate.from[0]) ||
+            files.includes(candidate.to[0])))
+      )
+    })
+    .filter(
+      (wing) =>
+        before.some((profile) => profile.wing === wing) ||
+        after.some((profile) => profile.wing === wing)
+    )
+  const landing = performed
+    ? after.find(
+        (profile) => profile.wing === performed && profile.kind === "current"
+      )
+    : undefined
+  return { before, after, relevantWings, ...(landing ? { landing } : {}) }
+}
+
+function promotionReplyOutcome(
+  engine: Chess,
+  candidate: ChessMove,
+  reply: ChessMove
+): PromotionReply {
+  if (!reply.promotion || reply.promotion === "p" || reply.promotion === "k") {
+    throw new Error("Expected an actual legal promotion reply.")
+  }
+  const value = (piece: PieceType) => pieceValues[piece] ?? 0
+  const netAfterPromotion =
+    (candidate.captured ? value(candidate.captured) : 0) +
+    (candidate.promotion ? value(candidate.promotion) - value("p") : 0) -
+    (reply.captured ? value(reply.captured) : 0) -
+    (value(reply.promotion) - value("p"))
+  engine.move(reply)
+  try {
+    const captures = positionStatus(engine).status === "playing"
+      ? engine.moves({ verbose: true }).filter((capture) =>
+          describe(capture).captures.includes(indexOf(reply.to)))
+      : []
+    const capturers = new Map<number, PieceRef>()
+    for (const capture of captures) {
+      const square = indexOf(capture.from)
+      capturers.set(square, { piece: capture.piece, square })
+    }
+    return {
+      id: describe(reply).id,
+      from: indexOf(reply.from),
+      to: indexOf(reply.to),
+      promotion: reply.promotion,
+      ...(reply.captured ? { captured: reply.captured } : {}),
+      check: engine.isCheck(),
+      checkmate: engine.isCheckmate(),
+      capturableBy: [...capturers.values()],
+      netAfterPromotion,
+      ...(captures.length ? {
+        netAfterImmediateCapture: netAfterPromotion + Math.max(...captures.map((capture) =>
+          value(reply.promotion ?? "p") + (capture.promotion ? value(capture.promotion) - value("p") : 0)))
+      } : {})
+    }
+  } finally {
+    engine.undo()
+  }
+}
+function kingMobilityAfterMove(
+  engine: Chess,
+  candidate: ChessMove,
+  beforeMoves: ChessMove[],
+  replies: ChessMove[],
+  beforeBoard: ReturnType<Chess["board"]>
+): KingMobility {
+  const destinations = (moves: ChessMove[]) => [...new Set(moves.filter((move) => move.piece === "k" && move.captured !== "k").map((move) => indexOf(move.to)))]
+  const before = destinations(beforeMoves)
+  const after = destinations(replies)
+  const board = engine.board().flat()
+  const opponent = candidate.color === "w" ? "b" : "w"
+  const opposing = board.filter((piece) => piece?.color === opponent)
+  const opponentNonPawnNonKingCount = opposing.filter((piece) => piece?.type !== "p" && piece?.type !== "k").length
+  const opponentPawnCount = opposing.filter((piece) => piece?.type === "p").length
+  const opponentBareKing = opposing.length === 1 && opposing[0]?.type === "k"
+  const kingIndex = (pieces: ReturnType<Chess["board"]>[number], color: "w" | "b") => pieces.findIndex((piece) => piece?.color === color && piece.type === "k")
+  const old = beforeBoard.flat()
+  const distance = (left: number, right: number) => Math.max(Math.abs(left % 8 - right % 8), Math.abs(Math.floor(left / 8) - Math.floor(right / 8)))
+  return {
+    before, after,
+    deniedSquares: before.filter((square) => !after.includes(square)),
+    newSquares: after.filter((square) => !before.includes(square)),
+    afterInCheck: engine.isCheck(),
+    otherLegalReplyCount: replies.filter((move) => move.piece !== "k").length,
+    opponentNonPawnNonKingCount, opponentPawnCount, opponentBareKing,
+    ...(opponentBareKing ? { ownKingDistance: {
+      before: distance(kingIndex(old, candidate.color), kingIndex(old, opponent)),
+      after: distance(kingIndex(board, candidate.color), kingIndex(board, opponent))
+    } } : {})
   }
 }
 
@@ -675,20 +908,24 @@ export function annotatedLegalMoves(
     ? captureMapFromMoves(candidates)
     : undefined
   const beforeOtherMoves =
-    options.relationships || options.castling
+    options.relationships || options.castling || options.support || options.kingMobility
       ? hypotheticalEngine(engine, engine.turn() === "w" ? "b" : "w").moves({
           verbose: true
         })
       : []
-  const beforeEnemy = options.relationships
-    ? captureMapFromMoves(beforeOtherMoves)
-    : undefined
+  const beforeEnemy =
+    options.relationships || options.support
+      ? captureMapFromMoves(beforeOtherMoves)
+      : undefined
   const beforeSupport = options.support
     ? geometricSupport(engine, engine.turn())
     : undefined
-  const beforeBoard = options.mobility ? engine.board() : undefined
+  const beforeBoard = options.mobility || options.kingMobility ? engine.board() : undefined
   const beforeCastling = options.castling
     ? castlingSnapshot(engine, candidates, beforeOtherMoves)
+    : undefined
+  const beforeKingCover = options.kingCover
+    ? kingCoverProfiles(engine, engine.turn())
     : undefined
   return candidates.map((candidate): AnnotatedMove => {
     const move = describe(candidate)
@@ -697,6 +934,7 @@ export function annotatedLegalMoves(
       const state = positionStatus(engine)
       let allowsMateInOne = false
       let replies: ChessMove[] = []
+      const promotionReplies: PromotionReply[] | undefined = options.promotionReplies ? [] : undefined
       const replyMaterialLosses: ReplyMaterialLoss[] | undefined =
         options.safety ? [] : undefined
       const replyMajorLosses: ReplyMajorLoss[] | undefined = options.safety
@@ -710,6 +948,7 @@ export function annotatedLegalMoves(
         replies = engine.moves({ verbose: true })
         for (const reply of replies) {
           if (reply.san.endsWith("#")) allowsMateInOne = true
+          if (promotionReplies && reply.promotion) promotionReplies.push(promotionReplyOutcome(engine, candidate, reply))
           if (replyMaterialLosses) {
             const loss = materialLossAfterReply(engine, candidate, reply)
             if (loss) {
@@ -748,6 +987,8 @@ export function annotatedLegalMoves(
           checkmate: state.status === "human-won" || state.status === "ai-won",
           stalemate: state.drawReason === "Stalemate",
           allowsMateInOne,
+          ...(promotionReplies ? { promotionReplies } : {}),
+          ...(options.kingMobility && beforeBoard ? { kingMobility: kingMobilityAfterMove(engine, candidate, beforeOtherMoves, replies, beforeBoard) } : {}),
           ...(replyMaterialLosses
             ? { replyMaterialLosses, replyMajorLosses }
             : {}),
@@ -770,17 +1011,27 @@ export function annotatedLegalMoves(
                   engine,
                   candidate,
                   beforeSupport,
+                  beforeEnemy ?? new Map(),
                   replies
                 )
               }
             : {}),
-          ...(state.status === "playing" && beforeBoard
+          ...(state.status === "playing" && options.mobility && beforeBoard
             ? {
                 mobility: mobilityAfterMove(
                   candidate,
                   beforeBoard,
                   candidates,
                   ownAfterMoves
+                )
+              }
+            : {}),
+          ...(beforeKingCover
+            ? {
+                kingCover: kingCoverAfterMove(
+                  engine,
+                  candidate,
+                  beforeKingCover
                 )
               }
             : {}),
