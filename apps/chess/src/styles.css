@@ -1,10 +1,13 @@
 :root {
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  color: #182c4d;
-  background: #f7f9fc;
+  color: var(--ink);
+  background: var(--background);
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
+  color-scheme: light dark;
+  --ink: #182c4d;
+  --background: #f7f9fc;
   --navy: #182c4d;
   --blue: #315fba;
   --slate: #687c98;
@@ -12,7 +15,229 @@
   --line: #dce4ef;
   --paper: #f7f9fc;
   --piece-outline: #233d60;
+  --primary: #182c4d;
+  --primary-hover: #294669;
+  --primary-shadow: #0b1d37;
+  --secondary-border: #b9c8dc;
+  --secondary-hover: #eaf0f8;
+  --online: #5c8193;
+  --danger: #9c3748;
+  --muted-rule: #c8d4e5;
+  --tableau-rule: #a9b9cf;
+  --avatar: #e5ecf5;
+  --avatar-border: #d7e1ee;
+  --turn-color: #47719f;
+  --turn-halo: #e3ebf5;
+  --surface: #edf2f8;
+  --focus: #496e8f;
+  --menu-surface: #f8fafb;
+  --menu-border: #d3dce3;
+  --hover: #edf1f5;
+  --selected: #e8eef3;
+  --active: #e2eaf1;
+  --label: #344257;
+  --option-footer: #f0f4f7;
+  --progress-bg: #d7e1ef;
+  --thinking-dot: #567ba6;
+  --danger-border: #e3c5cc;
+  --danger-bg: #fff5f6;
+  --danger-ink: #8f3545;
+  --scrollbar: #c1cfdf;
+  --ledger-stripe: #f0f4fa;
+  --notation-bg: #dbe6f7;
+  --notation-ink: #244e8e;
+  --result-bg: #e8eff8;
+  --promotion-border: #bfd0e4;
+  --promotion-hover: #c6d7ee;
 }
+:root[data-theme="light"] {
+  color-scheme: light;
+}
+:root[data-theme="dark"] {
+  --ink: #dce8f8;
+  --background: #111c2c;
+  --blue: #8eb5f5;
+  --slate: #a5b8cf;
+  --pale: #233950;
+  --line: #334a67;
+  --paper: #1b2b40;
+  --primary: #37669e;
+  --primary-hover: #4878ad;
+  --primary-shadow: #0b1420;
+  --secondary-border: #46617f;
+  --secondary-hover: #233b59;
+  --online: #87b9b7;
+  --danger: #ffb0bd;
+  --muted-rule: #3b526e;
+  --tableau-rule: #4b6583;
+  --avatar: #233750;
+  --avatar-border: #3a526f;
+  --turn-color: #9cbef0;
+  --turn-halo: #263b56;
+  --surface: #1b2c42;
+  --focus: #a3c3f2;
+  --menu-surface: #1e3048;
+  --menu-border: #3b5472;
+  --hover: #293f5a;
+  --selected: #304966;
+  --active: #3a5675;
+  --label: #d7e4f5;
+  --option-footer: #18283b;
+  --progress-bg: #334a67;
+  --thinking-dot: #9dbde5;
+  --danger-border: #754655;
+  --danger-bg: #3c2633;
+  --danger-ink: #ffb9c5;
+  --scrollbar: #4a6484;
+  --ledger-stripe: #17273a;
+  --notation-bg: #304e74;
+  --notation-ink: #d2e4ff;
+  --result-bg: #203750;
+  --promotion-border: #526f91;
+  --promotion-hover: #365273;
+  color-scheme: dark;
+}
+/* Match system colors in prerendered HTML before the theme script runs. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme]) {
+    --ink: #dce8f8;
+    --background: #111c2c;
+    --blue: #8eb5f5;
+    --slate: #a5b8cf;
+    --pale: #233950;
+    --line: #334a67;
+    --paper: #1b2b40;
+    --primary: #37669e;
+    --primary-hover: #4878ad;
+    --primary-shadow: #0b1420;
+    --secondary-border: #46617f;
+    --secondary-hover: #233b59;
+    --online: #87b9b7;
+    --danger: #ffb0bd;
+    --muted-rule: #3b526e;
+    --tableau-rule: #4b6583;
+    --avatar: #233750;
+    --avatar-border: #3a526f;
+    --turn-color: #9cbef0;
+    --turn-halo: #263b56;
+    --surface: #1b2c42;
+    --focus: #a3c3f2;
+    --menu-surface: #1e3048;
+    --menu-border: #3b5472;
+    --hover: #293f5a;
+    --selected: #304966;
+    --active: #3a5675;
+    --label: #d7e4f5;
+    --option-footer: #18283b;
+    --progress-bg: #334a67;
+    --thinking-dot: #9dbde5;
+    --danger-border: #754655;
+    --danger-bg: #3c2633;
+    --danger-ink: #ffb9c5;
+    --scrollbar: #4a6484;
+    --ledger-stripe: #17273a;
+    --notation-bg: #304e74;
+    --notation-ink: #d2e4ff;
+    --result-bg: #203750;
+    --promotion-border: #526f91;
+    --promotion-hover: #365273;
+    color-scheme: dark;
+  }
+}
+.theme-select {
+  position: relative;
+  flex-shrink: 0;
+  color: var(--ink);
+}
+.theme-trigger {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 8px;
+  list-style: none;
+  cursor: pointer;
+}
+.theme-trigger:hover,
+.theme-select[data-open="true"] .theme-trigger {
+  background: var(--secondary-hover);
+}
+.theme-trigger:focus-visible,
+.theme-menu button:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 3px;
+}
+.theme-trigger:focus:not(:focus-visible),
+.theme-menu button:focus:not(:focus-visible) {
+  outline: none;
+}
+.theme-moon {
+  display: none;
+}
+:root[data-theme="dark"] .theme-sun {
+  display: none;
+}
+:root[data-theme="dark"] .theme-moon {
+  display: block;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme]) .theme-sun {
+    display: none;
+  }
+  :root:not([data-theme]) .theme-moon {
+    display: block;
+  }
+}
+.theme-menu {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + 8px);
+  right: 0;
+  width: 152px;
+  padding: 5px;
+  border: 1px solid var(--menu-border);
+  border-radius: 10px;
+  background: var(--menu-surface);
+  box-shadow: 0 12px 32px #07111f20;
+}
+.theme-menu button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  min-height: 38px;
+  padding: 8px 11px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ink);
+  font-size: 13px;
+}
+.theme-menu button:hover,
+.theme-menu button:focus-visible {
+  background: var(--hover);
+}
+.theme-option-label {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.theme-option-label > svg {
+  flex-shrink: 0;
+  color: var(--slate);
+}
+.theme-check {
+  visibility: hidden;
+  color: var(--blue);
+}
+.theme-menu [aria-checked="true"] .theme-check {
+  visibility: visible;
+}
+
 * {
   box-sizing: border-box;
 }
@@ -40,7 +265,7 @@ button:focus-visible,
 summary:focus-visible,
 input:focus-visible,
 [tabindex]:focus-visible {
-  outline: 3px solid #315fba;
+  outline: 3px solid var(--blue);
   outline-offset: 4px;
 }
 button {
@@ -118,11 +343,11 @@ button svg {
 }
 .button-primary {
   color: #fff;
-  background: var(--navy);
-  box-shadow: 0 3px 0 #0b1d37;
+  background: var(--primary);
+  box-shadow: 0 3px 0 var(--primary-shadow);
 }
 .button-primary:hover {
-  background: #294669;
+  background: var(--primary-hover);
 }
 .button-primary span {
   font-size: 20px;
@@ -130,11 +355,11 @@ button svg {
 }
 .button-secondary {
   background: transparent;
-  border: 1px solid #b9c8dc;
+  border: 1px solid var(--secondary-border);
   box-shadow: none;
 }
 .button-secondary:hover {
-  background: #eaf0f8;
+  background: var(--secondary-hover);
 }
 .button-small {
   min-height: 37px;
@@ -149,19 +374,19 @@ button svg {
   white-space: nowrap;
 }
 .text-button:hover {
-  color: var(--navy);
+  color: var(--ink);
 }
 .online-dot {
   display: inline-block;
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: #5c8193;
+  background: var(--online);
   flex-shrink: 0;
 }
 .error-message {
   font-size: 13px;
-  color: #9c3748;
+  color: var(--danger);
   line-height: 1.6;
   margin-top: 20px;
   max-width: 400px;
@@ -220,7 +445,7 @@ button svg {
 .detail-separator {
   height: 13px;
   width: 1px;
-  background: #c8d4e5;
+  background: var(--muted-rule);
   margin: 0 4px;
 }
 .save-note {
@@ -243,7 +468,7 @@ button svg {
 }
 .tableau-caption span:first-child {
   font-weight: 600;
-  color: var(--navy);
+  color: var(--ink);
 }
 .menu-board-frame {
   background: #263f61;
@@ -294,7 +519,7 @@ button svg {
 .tableau-line {
   width: 38px;
   height: 1px;
-  background: #a9b9cf;
+  background: var(--tableau-rule);
 }
 .menu-footer {
   border-top: 1px solid var(--line);
@@ -371,7 +596,7 @@ button svg {
   gap: 6px;
   font-size: 10px;
   padding: 7px 9px;
-  border: 1px solid #d8e2ef;
+  border: 1px solid var(--line);
   border-radius: 20px;
   white-space: nowrap;
   color: var(--slate);
@@ -401,8 +626,8 @@ button svg {
   place-items: center;
   width: 38px;
   height: 38px;
-  background: #e5ecf5;
-  border: 1px solid #d7e1ee;
+  background: var(--avatar);
+  border: 1px solid var(--avatar-border);
   border-radius: 7px;
   flex-shrink: 0;
 }
@@ -429,11 +654,11 @@ button svg {
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: #47719f;
+  background: var(--turn-color);
   margin-left: 4px;
   margin-right: 6px;
   flex-shrink: 0;
-  box-shadow: 0 0 0 4px #e3ebf5;
+  box-shadow: 0 0 0 4px var(--turn-halo);
 }
 .captured-pieces {
   display: flex;
@@ -622,8 +847,8 @@ button svg {
   color: var(--slate);
 }
 .local-badge {
-  border: 1px solid #dce5ef;
-  background: #f0f5fa;
+  border: 1px solid var(--line);
+  background: var(--surface);
   padding: 4px 7px;
   border-radius: 5px;
   white-space: nowrap;
@@ -669,7 +894,7 @@ button svg {
   content: "";
 }
 .opponent-picker-trigger svg {
-  color: #82909d;
+  color: var(--slate);
   flex-shrink: 0;
   transition: transform 0.15s;
 }
@@ -680,7 +905,7 @@ button svg {
   cursor: default;
 }
 .opponent-picker-trigger:focus-visible {
-  outline: 2px solid #496e8f;
+  outline: 2px solid var(--focus);
   outline-offset: 4px;
 }
 .opponent-menu {
@@ -693,8 +918,8 @@ button svg {
   max-height: min(70svh, 510px);
   display: flex;
   flex-direction: column;
-  background: #f8fafb;
-  border: 1px solid #d3dce3;
+  background: var(--menu-surface);
+  border: 1px solid var(--menu-border);
   border-radius: 12px;
   box-shadow:
     0 12px 40px #23374d29,
@@ -705,7 +930,7 @@ button svg {
   padding: 17px 17px 13px;
   font-size: 12px;
   font-weight: 650;
-  border-bottom: 1px solid #e3e8ed;
+  border-bottom: 1px solid var(--line);
   flex-shrink: 0;
 }
 .opponent-options {
@@ -729,17 +954,17 @@ button svg {
   cursor: pointer;
 }
 .opponent-option:hover {
-  background: #edf1f5;
+  background: var(--hover);
 }
 .opponent-option-selected {
-  background: #e8eef3;
+  background: var(--selected);
 }
 .opponent-option-selected:hover {
-  background: #e2eaf1;
+  background: var(--active);
 }
 .opponent-option input,
 .opponent-thinking input {
-  accent-color: #344964;
+  accent-color: var(--label);
   width: 15px;
   height: 15px;
   margin: 0;
@@ -748,7 +973,7 @@ button svg {
 }
 .opponent-option input:focus-visible,
 .opponent-thinking input:focus-visible {
-  outline: 2px solid #496e8f;
+  outline: 2px solid var(--focus);
   outline-offset: 3px;
 }
 .opponent-option-copy {
@@ -758,7 +983,7 @@ button svg {
 }
 .opponent-option-copy > span {
   font-size: 12px;
-  color: #344257;
+  color: var(--label);
   line-height: 1.4;
   font-weight: 550;
   overflow-wrap: anywhere;
@@ -766,7 +991,7 @@ button svg {
 .opponent-option-copy small {
   font-size: 10px;
   line-height: 1.4;
-  color: #7c8895;
+  color: var(--slate);
 }
 .opponent-option-unavailable {
   opacity: 0.6;
@@ -774,8 +999,8 @@ button svg {
 }
 .opponent-thinking {
   padding: 15px 17px;
-  border-top: 1px solid #dce4ea;
-  background: #f0f4f7;
+  border-top: 1px solid var(--line);
+  background: var(--option-footer);
   flex-shrink: 0;
 }
 .opponent-thinking label {
@@ -789,7 +1014,7 @@ button svg {
 }
 .opponent-thinking label > span {
   font-size: 12px;
-  color: #344257;
+  color: var(--label);
   line-height: 1.5;
   font-weight: 550;
 }
@@ -798,7 +1023,7 @@ button svg {
   margin-top: 4px;
   font-size: 10px;
   font-weight: 400;
-  color: #7c8895;
+  color: var(--slate);
 }
 .opponent-sr-only {
   position: absolute;
@@ -823,7 +1048,7 @@ button svg {
 .ai-status {
   margin-top: 20px;
   padding: 14px;
-  background: #edf2f9;
+  background: var(--surface);
   border-radius: 7px;
 }
 .ai-status p {
@@ -841,7 +1066,7 @@ button svg {
 }
 .progress-track {
   height: 4px;
-  background: #d7e1ef;
+  background: var(--progress-bg);
   border-radius: 8px;
   margin-top: 11px;
   overflow: hidden;
@@ -849,7 +1074,7 @@ button svg {
 .progress-track > span {
   display: block;
   height: 100%;
-  background: #315fba;
+  background: var(--blue);
   border-radius: 8px;
   transition: width 0.2s;
 }
@@ -878,7 +1103,7 @@ button svg {
 .thinking-indicator i {
   width: 4px;
   height: 4px;
-  background: #567ba6;
+  background: var(--thinking-dot);
   border-radius: 50%;
   animation: pulse 1.5s ease-in-out infinite;
 }
@@ -892,9 +1117,9 @@ button svg {
   font-size: 11px;
   line-height: 1.7;
   padding: 13px;
-  border: 1px solid #e3c5cc;
-  background: #fff5f6;
-  color: #8f3545;
+  border: 1px solid var(--danger-border);
+  background: var(--danger-bg);
+  color: var(--danger-ink);
   border-radius: 7px;
   margin-top: 16px;
   overflow-wrap: anywhere;
@@ -919,7 +1144,7 @@ button svg {
   font-size: 10px;
   color: var(--slate);
   padding: 10px 12px;
-  background: #edf2f8;
+  background: var(--surface);
   border-radius: 5px;
 }
 .ledger-scroll {
@@ -927,7 +1152,7 @@ button svg {
   overflow: auto;
   overscroll-behavior: contain;
   scrollbar-width: thin;
-  scrollbar-color: #c1cfdf transparent;
+  scrollbar-color: var(--scrollbar) transparent;
 }
 .move-list {
   list-style: none;
@@ -941,7 +1166,7 @@ button svg {
   padding: 6px 12px;
 }
 .move-list li:nth-child(even) {
-  background: #f0f4fa;
+  background: var(--ledger-stripe);
 }
 .move-number {
   font-size: 11px;
@@ -955,8 +1180,8 @@ button svg {
   border-radius: 4px;
 }
 .move-list .current-notation {
-  background: #dbe6f7;
-  color: #244e8e;
+  background: var(--notation-bg);
+  color: var(--notation-ink);
   font-weight: 600;
 }
 .empty-moves {
@@ -1011,7 +1236,7 @@ button svg {
 .result-panel {
   margin-top: 18px;
   padding: 22px;
-  background: #e8eff8;
+  background: var(--result-bg);
   border-radius: 8px;
 }
 .result-panel h2 {
@@ -1033,9 +1258,9 @@ button svg {
 }
 /* Native dialogs retain focus and work equally well with touch and keyboard. */
 dialog {
-  color: var(--navy);
-  border: 1px solid #d1ddec;
-  background: #f7f9fc;
+  color: var(--ink);
+  border: 1px solid var(--menu-border);
+  background: var(--paper);
   border-radius: 14px;
   box-shadow: 0 24px 100px #13284540;
   max-width: calc(100vw - 32px);
@@ -1097,7 +1322,7 @@ dialog::backdrop {
   height: 30px;
   display: grid;
   place-items: center;
-  background: #e8eef7;
+  background: var(--surface);
   border-radius: 50%;
 }
 .thinking-dialog-content {
@@ -1130,9 +1355,9 @@ dialog::backdrop {
   margin: 24px 0 18px;
 }
 .promotion-option {
-  background: #dfe9f5;
+  background: var(--pale);
   padding: 8px 4px 11px;
-  border: 1px solid #bfd0e4;
+  border: 1px solid var(--promotion-border);
   border-radius: 7px;
   display: flex;
   flex-direction: column;
@@ -1143,7 +1368,7 @@ dialog::backdrop {
   text-transform: capitalize;
 }
 .promotion-option:hover {
-  background: #c6d7ee;
+  background: var(--promotion-hover);
 }
 .promotion-option .chess-piece {
   width: 58px;
@@ -1798,4 +2023,22 @@ dialog::backdrop {
     transition: none !important;
     scroll-behavior: auto !important;
   }
+}
+
+.brand-mark .piece-ai,
+.empty-moves .piece-ai,
+.note-knight .piece-ai {
+  color: var(--ink);
+  --piece-outline: var(--ink);
+}
+.player-avatar .piece-ai {
+  color: var(--label);
+  --piece-outline: var(--slate);
+}
+
+.captured-pieces .piece-ai {
+  --piece-outline: var(--slate);
+}
+.turn-badge:before {
+  box-shadow: 0 0 0 1px var(--line);
 }

@@ -308,6 +308,9 @@ importers:
       chess.js:
         specifier: ^1.4.0
         version: 1.4.0
+      next-themes:
+        specifier: 0.4.6
+        version: 0.4.6(react-dom@19.3.1(react@19.3.1))(react@19.3.1)
       react:
         specifier: ^19.2.0
         version: 19.3.1
