@@ -91,6 +91,51 @@ that best-effort measurement is not an equivalent native hard ceiling.
 See [the reasoning audit](REASONING-AUDIT.md) for request plumbing, budget semantics
 and the completed V15 evidence. Both current comparisons are complete; off remains the default for the fast casual game.
 
+### Uncapped follow-up: same 14 observed position/order pairs
+
+Both models were rerun through `/bench` with `reasoningBudgetTokens: null`, which
+omits `budgetTokens` from `{ level: "high" }`. The shared system/user prompts,
+complete ordered choices, FENs and expected sets matched the earlier off and
+512-token runs exactly. No chess prompt or gameplay default changed.
+
+| Model | Off objectives / median | 512 objectives / median | Uncapped objectives / median | Uncapped completed legal answers |
+| --- | --- | --- | --- | --- |
+| LFM3 WebGL | 13/14 / 1.324 s | 8/14 / 6.127 s | 9/14 / 81.032 s | 9/14 |
+| Nano working notes | 13/14 / 1.459 s | 13/14 / 11.781 s | 14/14 / 8.905 s | 14/14 |
+
+**LFM still regressed end to end versus off, but not through bad completed moves.**
+All nine returned answers met their objective. Five trials instead failed with
+`Structured output was truncated before the JSON Schema was satisfied (output token or context limit).`
+These were Ne2 repetition 2, both Nxf5 repetitions, h7 repetition 1 and phone
+queen-drop repetition 1. They are completion failures, not five observed bad chess
+choices. The successful-answer median alone was 53.978 s. The native run corrected
+the single off-mode h6 miss, but lost five previously successful trials to limits.
+Its traces still repeatedly discussed the board and exact JSON action label.
+
+Uncapped means no separate thinking ceiling, not infinite generation. The existing
+WebGL 8,192-token total-output ceiling, runtime context and 120-second deadline
+remained. All five errors reported output-or-context truncation; none reported
+the deadline. Failed calls have no final usage record, so this audit does not
+pretend to identify which of the two token limits was reached. Native uncapped
+usage omits exact thinking-token counts; successful complete-output measurements
+ranged from 2,793 to 6,938 tokens, including answer/control tokens.
+
+**Nano did not regress in this sample.** It corrected the earlier Qxe2+ miss by
+choosing Rxb8. Its notes still confused a piece square, so a correct answer does not
+validate every explanation. Notes measured 274–722 tokens by context usage; two
+trials exceeded 512 (722 and 544), and both had already passed in the earlier run.
+The newly corrected case used only 274 notes tokens. The previous 512 run reported
+no budget hits. The one-decision gain and latency change therefore cannot be
+attributed to removing the cap alone; generation variance remains a plausible
+explanation. This is one small paired-input run, not a strength guarantee.
+
+Raw [LFM record 82](results/2026-11-02-82-shared-v18-lfm-uncapped.json),
+[Nano record 83](results/2026-11-02-83-shared-v18-nano-uncapped.json) and the
+[exact paired comparison](results/2026-11-02-uncapped-thinking-comparison.json)
+preserve inputs, answers, notes, errors, timings and source hashes. The uncapped
+option remains available in the manual tester; ordinary gameplay stays off by
+default, and its enabled budget remains 512.
+
 ## Current design and experiment corrections
 
 V18 uses existing facts, not a new move selector. Tactical frames omit unrelated

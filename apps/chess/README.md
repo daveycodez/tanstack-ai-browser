@@ -67,7 +67,9 @@ parsing, random replacement, or search-engine move selector substitutes an answe
 Ordinary turns shuffle presentation order; a sole legal move needs no generation.
 
 Thinking defaults to off. Supported models expose an optional toggle with a
-512-token on-mode budget; the manual tester also offers 1,024 for diagnosis. The
+512-token on-mode budget; the manual tester also offers 1,024 or uncapped thinking
+for diagnosis. Uncapped omits the separate reasoning-token ceiling; normal runtime
+context, output, and deadline limits still apply. The
 shared game instructions do not require reasoning. LFM uses native thinking;
 Prompt API’s optional working notes are explicitly an adapter-managed extra pass.
 

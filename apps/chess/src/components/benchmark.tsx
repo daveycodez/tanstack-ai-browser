@@ -106,7 +106,7 @@ export function BenchmarkView() {
   const [thinking, setThinking] = useState(false)
   const [repetitions, setRepetitions] = useState(2)
   const [reasoningBudgetTokens, setReasoningBudgetTokens] = useState<
-    512 | 1024
+    512 | 1024 | null
   >(512)
   const [running, setRunning] = useState(false)
   const [results, setResults] = useState<BenchmarkResult[]>([])
@@ -346,16 +346,19 @@ export function BenchmarkView() {
             <label className="budget-control">
               Reasoning budget
               <select
-                value={reasoningBudgetTokens}
+                value={reasoningBudgetTokens ?? "uncapped"}
                 disabled={!reasoningSupported}
                 onChange={(event) =>
                   setReasoningBudgetTokens(
-                    Number(event.target.value) as 512 | 1024
+                    event.target.value === "uncapped"
+                      ? null
+                      : (Number(event.target.value) as 512 | 1024)
                   )
                 }
               >
                 <option value={512}>512 tokens</option>
                 <option value={1024}>1,024 tokens</option>
+                <option value="uncapped">Uncapped thinking</option>
               </select>
             </label>
             <span>

@@ -27,7 +27,10 @@ completed rows as a partial report. Controls stay disabled during a run.
 
 Optional reasoning defaults off. Native reasoning is used where supported;
 Prompt API labels its separate emulated pass **Working notes**. The normal enabled
-budget is 512 tokens, with 1,024 available for diagnosis. WebGL's total generation
+budget is 512 tokens, with 1,024 and **Uncapped thinking** available for diagnosis.
+Uncapped records `reasoningBudgetTokens: null` and omits `budgetTokens` from the
+request; it does not remove runtime context, generation, or deadline limits.
+WebGL's total generation
 ceiling is 8,192 tokens; Prompt API's browser-managed final-output limit is recorded
 as `null`. These are different capabilities. See [the reasoning audit](REASONING-AUDIT.md).
 

@@ -57,7 +57,8 @@ export type BenchmarkReport = {
     requestedThinking: boolean
     reasoningSupported: boolean
     reasoningMode: ReasoningMode
-    reasoningBudgetTokens: 512 | 1024
+    /** null means no explicit thinking-token cap. */
+    reasoningBudgetTokens: 512 | 1024 | null
     maxOutputTokens: 8192 | null
     sampling: "model defaults"
     repetitions: number

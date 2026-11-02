@@ -29,8 +29,8 @@ import type {
 export type { ModelStatus } from "@tanstack-ai-browser/webgl"
 
 export type AiMoveOptions = {
-  /** Manual diagnostic override; gameplay defaults to 512 when enabled. */
-  reasoningBudgetTokens?: 512 | 1024
+  /** Manual diagnostic override; null omits the cap. Gameplay defaults to 512. */
+  reasoningBudgetTokens?: 512 | 1024 | null
   /** Paired fixture order for manual benchmarks; normal gameplay shuffles. */
   moveOrder?: readonly string[]
   onInput?: (input: {
@@ -221,7 +221,9 @@ export async function chooseAiMove(
             reasoning: opponent.thinking
               ? {
                   level: "high" as const,
-                  budgetTokens: options?.reasoningBudgetTokens ?? 512
+                  ...(options?.reasoningBudgetTokens === null
+                    ? {}
+                    : { budgetTokens: options?.reasoningBudgetTokens ?? 512 })
                 }
               : ("off" as const)
           })
@@ -244,7 +246,9 @@ export async function chooseAiMove(
               reasoning: opponent.thinking
                 ? {
                     level: "high" as const,
-                    budgetTokens: options?.reasoningBudgetTokens ?? 512
+                    ...(options?.reasoningBudgetTokens === null
+                      ? {}
+                      : { budgetTokens: options?.reasoningBudgetTokens ?? 512 })
                   }
                 : ("off" as const)
             }),

@@ -98,6 +98,33 @@ context window of 9,216. This error was not identified as a budget hit. Do not
 normalize that browser context value to WebGL's 8,192 generated-output cap; they
 measure different things. Longer notes did not make this decision correct.
 
+## Uncapped V18 follow-up
+
+The manual tester now accepts `reasoningBudgetTokens: null`. This omits the
+`budgetTokens` property for both adapters rather than substituting a large number.
+The application still requests `{ level: "high" }`; its normal output/context and
+deadline limits remain. Source inspection confirms that the WebGL adapter does
+not introduce a default thinking cap when the property is absent, and Prompt API
+passes an undefined notes budget to its emulation.
+
+All 14 inputs matched the earlier off/512 runs exactly for each model. LFM returned
+nine legal answers, all meeting their objective, and five output-or-context
+truncations; median 81.032 s overall, 53.978 s among completed answers. Missing
+final usage on failed calls does not identify which token limit caused truncation.
+Native exact thinking counts are absent without the separate budget counter;
+complete-output token counts are not presented as exact thinking counts.
+
+Nano returned 14/14 correct answers, median 8.905 s, versus 13/14 in both earlier
+modes. Context-usage notes measurements were 274–722 tokens. Two exceeded 512, but
+both corresponding decisions had already passed. The newly corrected Rxb8 case
+used 274 notes tokens and still contained a mistaken piece-square description.
+The result does not prove that removing the cap caused the improvement. No game
+prompt or default was changed from this follow-up.
+
+See [the full findings](FINDINGS.md#uncapped-follow-up-same-14-observed-positionorder-pairs)
+and [paired comparison](results/2026-11-02-uncapped-thinking-comparison.json), with
+immutable raw reports 82 and 83, for all objectives, errors and timings.
+
 ## Public usage and provenance
 
 `AiMoveOptions.onUsage` installs TanStack AI's public `ChatMiddleware` only when an

@@ -12,7 +12,7 @@ export type BenchmarkOptions = {
   model: OpponentModel
   thinking: boolean
   repetitions: number
-  reasoningBudgetTokens?: 512 | 1024
+  reasoningBudgetTokens?: 512 | 1024 | null
   caseIds?: string[]
   signal: AbortSignal
   onResult: (result: BenchmarkResult) => void
@@ -28,9 +28,14 @@ export async function runBenchmark(
     options.repetitions > 20
   )
     throw new RangeError("Repetitions must be 1–20.")
-  const reasoningBudgetTokens = options.reasoningBudgetTokens ?? 512
-  if (reasoningBudgetTokens !== 512 && reasoningBudgetTokens !== 1024)
-    throw new RangeError("Reasoning budget must be 512 or 1024 tokens.")
+  const reasoningBudgetTokens =
+    options.reasoningBudgetTokens === undefined ? 512 : options.reasoningBudgetTokens
+  if (
+    reasoningBudgetTokens !== null &&
+    reasoningBudgetTokens !== 512 &&
+    reasoningBudgetTokens !== 1024
+  )
+    throw new RangeError("Reasoning budget must be 512, 1024, or uncapped (null).")
   const selected = options.caseIds ?? CASES.map((c) => c.id)
   const cases = CASES.filter((c) => selected.includes(c.id))
   if (!cases.length || cases.length !== new Set(selected).size)
