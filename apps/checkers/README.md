@@ -38,14 +38,15 @@ variants, and puts Prompt API first when the browser reports support. The select
 and thinking setting are saved with the current game and carried into a new game.
 Changing either cancels a pending turn and starts a reply with the new settings.
 
-The default is `LiquidAI/LFM3-1.7B-GGUF`, thinking off, with a 4096-token context.
+The default is `LiquidAI/LFM3-1.7B-GGUF`, thinking off. WebGL models use their own context limits; the game does not override context size.
 Its first turn downloads about 1.1 GB; subsequent loads reuse the browser's model cache.
 Other models download on first use. Download progress is labelled separately from cached
 loading progress, in a fixed-height turn row. Prompt API uses the browser's built-in model.
 
 The picker exposes Thinking for models that support it. Models with compulsory reasoning
-show a checked, disabled control. Enabled thinking uses an 8192-token context and a larger
-output budget; non-thinking WebGL turns retain a short JSON output budget. The turn row
+show a checked, disabled control. Every WebGL turn requests `modelOptions.maxTokens: 8192`.
+With thinking enabled, every thinking-capable model also receives `reasoning: { level: "high", budgetTokens: 512 }`.
+There are no sampling overrides. The turn row
 shows Processing during prompt prefill and Thinking during enabled reasoning. Clicking
 Thinking opens the live model text in a scrollable modal that stays open after the move.
 The browser needs WebGL 2, floating-point render targets, and OffscreenCanvas support.
@@ -56,8 +57,7 @@ performance depends on the device.
 contains only the rules engine's legal complete turns. Each prompt includes the current
 board and the last five moves from both players, oldest first. The shared WebGL adapter prompts
 for JSON; the schema and rules validate the reply before it can alter the board. It does
-not use a grammar-constrained sampler. Invalid replies get one retry, then a visible retry
-control. There is no heuristic fallback. A 120-second generation deadline excludes model
+not use a grammar-constrained sampler. Invalid replies show a manual retry control without automatically calling the model again. There is no heuristic fallback. A 120-second generation deadline excludes model
 loading. Leaving the route cancels the pending reply, and session/position guards reject
 stale replies after a restart. Same-origin tabs serialize AI turns with Web Locks.
 

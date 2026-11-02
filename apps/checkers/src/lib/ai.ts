@@ -39,7 +39,6 @@ export function loadingStoreFor(settings?: OpponentSettings): LoadingStore {
 /** Loading can finish into the browser cache after leaving the game. */
 function waitForModel(
   model: WebGlTextModel,
-  contextLength: number,
   signal: AbortSignal
 ): Promise<void> {
   signal.throwIfAborted()
@@ -50,7 +49,7 @@ function waitForModel(
   return new Promise((resolve, reject) => {
     const onAbort = () => reject(signal.reason)
     signal.addEventListener("abort", onAbort, { once: true })
-    loadModel(model, contextLength).then(
+    loadModel(model).then(
       () => {
         signal.removeEventListener("abort", onAbort)
         if (signal.aborted) reject(signal.reason)
@@ -101,7 +100,6 @@ export async function chooseAiMove(
 
   const opponent = resolveOpponent(game.opponent)
   const thinkingSupport = opponentOption(opponent.model).thinking
-  const contextLength = opponent.thinking ? 8192 : 4096
   if (opponent.model !== "prompt-api" && !hasWebGl2()) {
     throw new Error(
       "This browser cannot run the local AI. Enable hardware acceleration and use a browser with WebGL 2 and OffscreenCanvas support."
@@ -152,7 +150,7 @@ export async function chooseAiMove(
     }
     await loadPromptApiModel({ signal })
   } else {
-    await waitForModel(opponent.model, contextLength, signal)
+    await waitForModel(opponent.model, signal)
   }
   signal.throwIfAborted()
   const generationController = new AbortController()
@@ -191,7 +189,6 @@ export async function chooseAiMove(
             // Runtime catalog metadata determines the selected model's reasoning support.
             adapter: withCancellation<AnyTextAdapter>(
               webglText(opponent.model, {
-                contextLength,
                 ...(onPhase && {
                   onGenerationPhase: (phase: GenerationPhase) => {
                     if (!generationSignal.aborted) onPhase(phase)
@@ -207,11 +204,10 @@ export async function chooseAiMove(
             ),
             ...(thinkingSupport !== "none" && {
               reasoning: opponent.thinking
-                ? opponent.model === "LiquidAI/LFM3-1.7B-GGUF"
-                  ? { level: "high" as const, budgetTokens: 512 }
-                  : ("high" as const)
+                ? { level: "high" as const, budgetTokens: 512 }
                 : ("off" as const)
-            })
+            }),
+            modelOptions: { maxTokens: 8192 }
           })
     generationSignal.throwIfAborted()
     const { moveId } = outputSchema.parse(answer)
