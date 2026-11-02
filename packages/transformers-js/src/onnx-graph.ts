@@ -1296,3 +1296,206 @@ export function sinkTransposesThroughConcat(
     )
   )
 }
+
+/** The int64 values of a constant tensor (raw_data 9 or int64_data 7). */
+function int64Values(tensor: Array<Field>) {
+  const out: Array<number> = []
+  for (const f of tensor) {
+    if (f.field === 9 && f.bytes) {
+      const view = new DataView(
+        f.bytes.buffer,
+        f.bytes.byteOffset,
+        f.bytes.byteLength
+      )
+      for (let at = 0; at + 8 <= f.bytes.byteLength; at += 8)
+        out.push(Number(view.getBigInt64(at, true)))
+    } else if (f.field === 7) {
+      if (f.wire === 0) out.push(Number(BigInt.asIntN(64, f.value ?? 0n)))
+      else if (f.bytes) {
+        let at = 0
+        while (at < f.bytes.length) {
+          const [v, next] = readVarint(f.bytes, at)
+          out.push(Number(BigInt.asIntN(64, v)))
+          at = next
+        }
+      }
+    }
+  }
+  return out
+}
+
+/**
+ * Has each Scan body compute a vector-times-matrix product as one: what
+ * `ReduceSum(Mul(X, Unsqueeze(v, -1)), axes -2)` computes is
+ * `MatMul(Unsqueeze(v, -2), X)` with its row axis squeezed, without the
+ * full-size product in between. Qwen3.5's linear attention reads its
+ * 16 × 128 × 128 state twice a step this way (to recall a key's value and
+ * to answer the query), and its prompt runs one step per token on the CPU,
+ * where writing and summing that product took most of the step: prompts
+ * read ~30% faster on a Mac. ONNX Runtime's CPU adds the products in the
+ * same order either way, so Qwen3.5's outputs are bit-identical. X must
+ * have the vector's length along its second-to-last axis (the Mul only
+ * broadcasts the vector), or ONNX Runtime rejects the MatMul.
+ *
+ * Returns the edited model, or null where there was no such product.
+ */
+export function matVecInScanBodies(model: Uint8Array): Uint8Array | null {
+  const modelFields = parse(model)
+  const graphIndex = modelFields.findIndex((f) => f.field === 7)
+  const graphBytes = modelFields[graphIndex]?.bytes
+  if (!graphBytes) return null
+
+  const rewriteBody = (bytes: Uint8Array): Uint8Array | null => {
+    const graph = parse(bytes)
+    const constants = new Map<string, Array<number>>()
+    for (const f of graph) {
+      if (f.field !== 5 || !f.bytes) continue
+      const tensor = parse(f.bytes)
+      if (tensor.find((x) => x.field === 2)?.value === 7n)
+        constants.set(firstString(tensor, 8), int64Values(tensor))
+    }
+    const nodes = graph.map((f) =>
+      f.field === 1 && f.bytes ? parse(f.bytes) : null
+    )
+    const outputs = new Set(valueNames(graph, 12))
+    const producer = new Map<string, number>()
+    const consumers = new Map<string, Array<number>>()
+    nodes.forEach((node, i) => {
+      if (!node) return
+      for (const o of strings(node, 2)) if (o) producer.set(o, i)
+      for (const input of strings(node, 1)) {
+        if (input) consumers.set(input, [...(consumers.get(input) ?? []), i])
+      }
+    })
+    const axesOf = (node: Array<Field>) => {
+      const axes = strings(node, 1)[1]
+      return axes ? constants.get(axes) : intsValue(node, "axes")
+    }
+    const replaced = new Map<number, Array<Uint8Array>>()
+    const removed = new Set<number>()
+    let rowAxis: string | null = null
+    const newConstants: Array<Uint8Array> = []
+    nodes.forEach((reduce, r) => {
+      if (
+        !reduce ||
+        firstString(reduce, 4) !== "ReduceSum" ||
+        firstString(reduce, 7) !== ""
+      )
+        return
+      const axes = axesOf(reduce)
+      if (
+        axes?.length !== 1 ||
+        axes[0] !== -2 ||
+        intValue(reduce, "keepdims") !== 0
+      )
+        return
+      const [product] = strings(reduce, 1)
+      const m = producer.get(product)
+      if (
+        m === undefined ||
+        outputs.has(product) ||
+        (consumers.get(product) ?? []).length !== 1
+      )
+        return
+      const mul = nodes[m] as Array<Field>
+      if (firstString(mul, 4) !== "Mul" || firstString(mul, 7) !== "") return
+      const factors = strings(mul, 1)
+      const u = factors.findIndex((x) => {
+        const p = producer.get(x)
+        if (p === undefined) return false
+        const unsqueeze = nodes[p] as Array<Field>
+        const a = axesOf(unsqueeze)
+        return (
+          firstString(unsqueeze, 4) === "Unsqueeze" &&
+          a?.length === 1 &&
+          a[0] === -1
+        )
+      })
+      if (u < 0 || factors.length !== 2) return
+      const vector = strings(
+        nodes[producer.get(factors[u]) as number] as Array<Field>,
+        1
+      )[0]
+      const matrix = factors[1 - u]
+      const [out] = strings(reduce, 2)
+      const base = firstString(reduce, 3) || out
+      if (!rowAxis) {
+        rowAxis = `${base}/row_axis`
+        newConstants.push(int64Tensor(rowAxis, [-2]))
+      }
+      replaced.set(r, [
+        node("Unsqueeze", [vector, rowAxis], [`${base}/row`], `${base}/row`),
+        node(
+          "MatMul",
+          [`${base}/row`, matrix],
+          [`${base}/product`],
+          `${base}/MatMul`
+        ),
+        node("Squeeze", [`${base}/product`, rowAxis], [out], base)
+      ])
+      removed.add(m)
+      // The column it was broadcast from, if nothing else reads it.
+      const column = factors[u]
+      if (!outputs.has(column) && (consumers.get(column) ?? []).length === 1)
+        removed.add(producer.get(column) as number)
+    })
+    if (replaced.size === 0) return null
+    const parts: Array<Uint8Array> = []
+    graph.forEach((f, i) => {
+      if (removed.has(i)) return
+      const added = replaced.get(i)
+      if (added) parts.push(...added.map((n) => lengthField(1, n)))
+      else parts.push(f.raw)
+    })
+    for (const t of newConstants) parts.push(lengthField(5, t))
+    return concat(parts)
+  }
+
+  const rewrite = (bytes: Uint8Array, inBody: boolean): Uint8Array | null => {
+    let graph = bytes
+    let changed = false
+    if (inBody) {
+      const body = rewriteBody(graph)
+      if (body) {
+        graph = body
+        changed = true
+      }
+    }
+    const fields = parse(graph)
+    const parts = fields.map((f) => {
+      if (f.field !== 1 || !f.bytes) return f.raw
+      const node = parse(f.bytes)
+      const scan =
+        firstString(node, 4) === "Scan" && firstString(node, 7) === ""
+      let nodeChanged = false
+      const nodeParts = node.map((x) => {
+        if (x.field !== 5 || !x.bytes) return x.raw
+        const attr = parse(x.bytes)
+        const isBody = scan && firstString(attr, 1) === "body"
+        let attrChanged = false
+        const attrParts = attr.map((y) => {
+          if ((y.field !== 6 && y.field !== 11) || !y.bytes) return y.raw
+          const sub = rewrite(y.bytes, inBody || isBody)
+          if (!sub) return y.raw
+          attrChanged = true
+          return lengthField(y.field, sub)
+        })
+        if (!attrChanged) return x.raw
+        nodeChanged = true
+        return lengthField(5, concat(attrParts))
+      })
+      if (!nodeChanged) return f.raw
+      changed = true
+      return lengthField(1, concat(nodeParts))
+    })
+    return changed ? concat(parts) : null
+  }
+
+  const newGraph = rewrite(graphBytes, false)
+  if (!newGraph) return null
+  return concat(
+    modelFields.map((f, i) =>
+      i === graphIndex ? lengthField(7, newGraph) : f.raw
+    )
+  )
+}
