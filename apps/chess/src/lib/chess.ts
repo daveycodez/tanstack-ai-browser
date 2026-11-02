@@ -61,11 +61,24 @@ export type MoveCastling = {
     legalNow: boolean
   }[]
 }
+/** A possible opponent capture branch after the best immediate material recapture.
+ * Negative is conditional material loss, not a forced line or a positional score.
+ */
+export type ReplyMaterialLoss = {
+  piece: PieceType
+  square: number
+  /** Opposing source piece and square before its capture; promotion is in netMaterial. */
+  capturedBy: PieceRef
+  netMaterial: number
+}
+/** Compatibility view containing only queen/rook captures. */
+export type ReplyMajorLoss = ReplyMaterialLoss
 export type MoveContextOptions = {
   relationships?: boolean
   support?: boolean
   mobility?: boolean
   castling?: boolean
+  safety?: boolean
 }
 export type AnnotatedMove = Move & {
   piece: PieceType
@@ -79,6 +92,8 @@ export type AnnotatedMove = Move & {
     support?: MoveSupport
     mobility?: MoveMobility
     castling?: MoveCastling
+    replyMaterialLosses?: ReplyMaterialLoss[]
+    replyMajorLosses?: ReplyMajorLoss[]
     drawReason?: string
     /** Distinct opposing pieces with a legal capture of the moved piece. */
     recapture: {
@@ -600,6 +615,54 @@ function castlingAfterMove(
   }
 }
 
+function materialLossAfterReply(
+  engine: Chess,
+  candidate: ChessMove,
+  reply: ChessMove
+): ReplyMaterialLoss | undefined {
+  if (!reply.captured || reply.captured === "k") return undefined
+  const value = (piece: PieceType) => pieceValues[piece] ?? 0
+  const candidateGain =
+    (candidate.captured ? value(candidate.captured) : 0) +
+    (candidate.promotion ? value(candidate.promotion) - value("p") : 0)
+  const promotionGain = reply.promotion
+    ? value(reply.promotion) - value("p")
+    : 0
+  const attackerValue = value(reply.promotion ?? reply.piece)
+  engine.move(reply)
+  try {
+    const recaptures =
+      positionStatus(engine).status === "playing"
+        ? engine
+            .moves({ verbose: true })
+            .filter((recapture) =>
+              describe(recapture).captures.includes(indexOf(reply.to))
+            )
+        : []
+    // Material only: include a recapturing pawn's promotion, without evaluating
+    // positional strength or later play. The opponent need not choose this line.
+    const recaptureGain = Math.max(
+      0,
+      ...recaptures.map(
+        (recapture) =>
+          attackerValue +
+          (recapture.promotion ? value(recapture.promotion) - value("p") : 0)
+      )
+    )
+    const netMaterial =
+      candidateGain - value(reply.captured) - promotionGain + recaptureGain
+    if (netMaterial >= 0) return undefined
+    return {
+      piece: reply.captured,
+      square: describe(reply).captures[0],
+      capturedBy: { piece: reply.piece, square: indexOf(reply.from) },
+      netMaterial
+    }
+  } finally {
+    engine.undo()
+  }
+}
+
 /** Factual one-move outcomes; the model still chooses from every legal move. */
 export function annotatedLegalMoves(
   game: Game,
@@ -634,6 +697,11 @@ export function annotatedLegalMoves(
       const state = positionStatus(engine)
       let allowsMateInOne = false
       let replies: ChessMove[] = []
+      const replyMaterialLosses: ReplyMaterialLoss[] | undefined =
+        options.safety ? [] : undefined
+      const replyMajorLosses: ReplyMajorLoss[] | undefined = options.safety
+        ? []
+        : undefined
       const defenders = new Map<
         number,
         { piece: PieceType; value: number | null; square: number }
@@ -642,6 +710,14 @@ export function annotatedLegalMoves(
         replies = engine.moves({ verbose: true })
         for (const reply of replies) {
           if (reply.san.endsWith("#")) allowsMateInOne = true
+          if (replyMaterialLosses) {
+            const loss = materialLossAfterReply(engine, candidate, reply)
+            if (loss) {
+              replyMaterialLosses.push(loss)
+              if (loss.piece === "q" || loss.piece === "r")
+                replyMajorLosses?.push(loss)
+            }
+          }
           // An en passant reply lands elsewhere but removes the moved pawn.
           if (!describe(reply).captures.includes(indexOf(candidate.to)))
             continue
@@ -672,6 +748,9 @@ export function annotatedLegalMoves(
           checkmate: state.status === "human-won" || state.status === "ai-won",
           stalemate: state.drawReason === "Stalemate",
           allowsMateInOne,
+          ...(replyMaterialLosses
+            ? { replyMaterialLosses, replyMajorLosses }
+            : {}),
           ...(state.status === "playing" && beforeOwn && beforeEnemy
             ? {
                 relationships: relationshipsAfterMove(

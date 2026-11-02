@@ -170,7 +170,7 @@ export function BenchmarkView() {
       repetitions,
       caseIds: selectedCases.map((testCase) => testCase.id),
       reasoningBudgetTokens: 512,
-      maxOutputTokens: 8192,
+      maxOutputTokens: model === "prompt-api" ? null : 8192,
       sampling: "model defaults"
     }
     const completedResults: BenchmarkResult[] = []
@@ -323,7 +323,10 @@ export function BenchmarkView() {
               Reasoning budget: <strong>512 tokens</strong>
             </span>
             <span>
-              Output cap: <strong>8,192 tokens</strong>
+              Output cap:{" "}
+              <strong>
+                {model === "prompt-api" ? "Browser managed" : "8,192 tokens"}
+              </strong>
             </span>
             <span>{plannedTrials} trials</span>
           </div>

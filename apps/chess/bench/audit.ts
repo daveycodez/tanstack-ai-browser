@@ -6,7 +6,13 @@ import { CASES } from "./cases.ts"
 import type { BenchmarkCase } from "./types.ts"
 
 type Objective =
-  "mate" | "free-queen" | "avoid-mate" | "safe-queen" | "safe-play"
+  | "mate"
+  | "free-queen"
+  | "avoid-mate"
+  | "safe-queen"
+  | "safe-play"
+  | "major-safety"
+  | "material-safety"
 type Square = Parameters<Chess["get"]>[0]
 type Color = ReturnType<Chess["turn"]>
 type AuditRow = {
@@ -31,7 +37,12 @@ const objectives: Record<string, Objective> = {
   "castle-or-save-queen": "safe-queen",
   "holdout-knight-queen-safety": "safe-queen",
   "holdout-back-rank-defense": "avoid-mate",
-  "holdout-castle-safe-play": "safe-play"
+  "holdout-castle-safe-play": "safe-play",
+  "calibration-exposure-bishop-rook": "major-safety",
+  "calibration-exposure-rook-queen": "major-safety",
+  "calibration-exposure-defender-withdrawal": "major-safety",
+  "calibration-knight-pawn-exchange": "material-safety",
+  "observed-ne2-knight-loss": "material-safety"
 }
 const naturalHistories: Record<string, string[]> = {
   opening: ["e2e4"],
@@ -76,9 +87,58 @@ const moverIsSafe = (move: Move) =>
     (reply) => reply.captured && capturedSquare(reply) === move.to
   )
 
+const materialValues = { p: 1, n: 3, b: 3, r: 5, q: 9, k: 0 }
+function materialBalance(fen: string, color: Color): number {
+  return new Chess(fen)
+    .board()
+    .flat()
+    .reduce(
+      (sum, piece) =>
+        sum +
+        (piece
+          ? (piece.color === color ? 1 : -1) * materialValues[piece.type]
+          : 0),
+      0
+    )
+}
+/** Independent whole-board leaf counts include captures and promotions at every stage. */
+function avoidsConditionalMaterialLoss(
+  move: Move,
+  majorsOnly: boolean
+): boolean {
+  const initial = materialBalance(move.before, move.color)
+  return replies(move).every((reply) => {
+    if (new Chess(reply.after).isCheckmate()) return false
+    if (
+      !reply.captured ||
+      reply.captured === "k" ||
+      (majorsOnly && reply.captured !== "q" && reply.captured !== "r")
+    )
+      return true
+    const leaf = new Chess(reply.after)
+    const recaptures = leaf.isGameOver()
+      ? []
+      : leaf
+          .moves({ verbose: true })
+          .filter(
+            (recapture) =>
+              recapture.captured && capturedSquare(recapture) === reply.to
+          )
+    const bestImmediateMaterial = Math.max(
+      materialBalance(reply.after, move.color),
+      ...recaptures.map((recapture) =>
+        materialBalance(recapture.after, move.color)
+      )
+    )
+    return bestImmediateMaterial >= initial
+  })
+}
+
 function deriveObjective(objective: Objective, legal: Move[]): string[] {
   return legal
     .filter((move) => {
+      if (objective === "major-safety" || objective === "material-safety")
+        return avoidsConditionalMaterialLoss(move, objective === "major-safety")
       if (objective === "mate") return new Chess(move.after).isCheckmate()
       if (objective === "free-queen")
         return move.captured === "q" && moverIsSafe(move)

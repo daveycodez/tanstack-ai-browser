@@ -1,5 +1,6 @@
 import assert from "node:assert/strict"
 import { test } from "node:test"
+import { Chess } from "chess.js"
 import {
   annotatedLegalMoves,
   applyMove,
@@ -642,4 +643,189 @@ test("clears en passant on the hypothetical opposite turn and preserves game sta
   assert.equal(JSON.stringify(game), before)
   assert.deepEqual(currentThreats(game), [])
   assert.deepEqual(currentThreats(fromFen("7k/8/8/8/8/8/8/7K w - - 0 1")), [])
+})
+
+test("reply major-loss facts are opt-in, include terminal empty arrays, and do not filter moves", () => {
+  const game = sequence(newGame(), ["f2f3", "e7e5", "g2g4"])
+  assert.equal(annotated(game, "d8h4").outcome.replyMajorLosses, undefined)
+  const moves = annotatedLegalMoves(game, { safety: true })
+  assert.deepEqual(
+    moves.map((move) => move.id),
+    legalMoves(game).map((move) => move.id)
+  )
+  assert.deepEqual(
+    moves.find((move) => move.id === "d8h4")?.outcome.replyMajorLosses,
+    []
+  )
+})
+
+test("allows an actually defended queen trade while identifying an undefended queen sacrifice", () => {
+  const trade = annotated(
+    fromFen("3q3k/6p1/8/8/8/5Q2/8/7K b - - 0 40"),
+    "d8f6",
+    { safety: true }
+  )
+  assert.equal(trade.outcome.recapture.count, 1)
+  assert.deepEqual(trade.outcome.replyMajorLosses, [])
+  const scholar = fromFen(
+    "r1bqkbnr/pppp1ppp/2n5/4p2Q/2B1P3/8/PPPP1PPP/RNB1K1NR b KQkq - 3 3"
+  )
+  const hanging = annotated(scholar, "d8h4", { safety: true })
+  assert.ok(
+    hanging.outcome.replyMajorLosses?.some(
+      (loss) => loss.piece === "q" && loss.netMaterial === -9
+    )
+  )
+})
+
+test("reports an unmoved queen lost after an unrelated king move", () => {
+  const game = fromFen("7k/8/8/8/3q4/2P5/8/7K b - - 0 40")
+  const move = annotated(game, "h8g8", { safety: true })
+  assert.deepEqual(move.outcome.replyMajorLosses, [
+    {
+      piece: "q",
+      square: index("d4"),
+      capturedBy: { piece: "p", square: index("c3") },
+      netMaterial: -9
+    }
+  ])
+})
+
+test("counts only legal immediate material recaptures, excluding a pinned pawn", () => {
+  const pinned = annotated(
+    fromFen("3qk3/8/8/4p3/8/2Q5/8/4R2K b - - 0 40"),
+    "d8d4",
+    { safety: true }
+  )
+  assert.equal(pinned.outcome.replyMajorLosses?.[0]?.netMaterial, -9)
+  const unpinned = annotated(
+    fromFen("3q3k/8/8/4p3/8/2Q5/8/4R2K b - - 0 40"),
+    "d8d4",
+    { safety: true }
+  )
+  assert.deepEqual(unpinned.outcome.replyMajorLosses, [])
+})
+
+test("includes candidate material compensation instead of labeling every major capture a loss", () => {
+  const queenForRook = annotated(
+    fromFen("3q3k/8/8/8/3R4/2B1PN2/8/7K b - - 0 40"),
+    "d8d4",
+    { safety: true }
+  )
+  assert.equal(queenForRook.outcome.replyMajorLosses?.length, 3)
+  assert.ok(
+    queenForRook.outcome.replyMajorLosses?.every(
+      (loss) => loss.netMaterial === -4
+    )
+  )
+  const rookForQueen = annotated(
+    fromFen("r5k1/5p2/8/8/8/8/Q6R/7K b - - 0 40"),
+    "a8a2",
+    { safety: true }
+  )
+  assert.equal(rookForQueen.outcome.recapture.count, 1)
+  assert.deepEqual(rookForQueen.outcome.replyMajorLosses, [])
+})
+
+test("accounts for promotion gains of the candidate and the capturing opponent", () => {
+  const ownPromotion = annotated(
+    fromFen("1r5k/P7/8/8/8/8/8/7K w - - 0 40"),
+    "a7a8q",
+    { safety: true }
+  )
+  assert.equal(ownPromotion.outcome.replyMajorLosses?.[0]?.netMaterial, -1)
+  const opposing = annotated(
+    fromFen("1r5k/1P6/8/8/8/8/8/7K b - - 0 40"),
+    "b8a8",
+    { safety: true }
+  )
+  assert.deepEqual(
+    opposing.outcome.replyMajorLosses
+      ?.map((loss) => loss.netMaterial)
+      .sort((a, b) => a - b),
+    [-13, -9, -7, -7]
+  )
+  const recaptured = annotated(
+    fromFen("1rr4k/1P6/8/8/8/8/8/7K b - - 0 40"),
+    "b8a8",
+    { safety: true }
+  )
+  assert.ok(
+    recaptured.outcome.replyMajorLosses
+      ?.filter((loss) => loss.square === index("a8"))
+      .every((loss) => loss.netMaterial === -4)
+  )
+})
+
+test("includes the best legal recapturing pawn promotion material gain", () => {
+  const game = fromFen("R7/7k/8/8/8/8/1p6/2q3NK b - - 0 40")
+  const move = annotated(game, "c1a1", { safety: true })
+  assert.deepEqual(move.outcome.replyMajorLosses, [])
+  // Independent fresh-board leaf verification: Q-a1, Rxa1, bxa1=Q yields +4.
+  const engine = new Chess(game.fen)
+  const value = { p: 1, n: 3, b: 3, r: 5, q: 9, k: 0 }
+  const balance = (position: Chess) =>
+    position
+      .board()
+      .flat()
+      .reduce(
+        (sum, piece) =>
+          sum +
+          (piece ? (piece.color === "b" ? 1 : -1) * value[piece.type] : 0),
+        0
+      )
+  const before = balance(engine)
+  engine.move({ from: "c1", to: "a1" })
+  engine.move({ from: "a8", to: "a1" })
+  engine.move({ from: "b2", to: "a1", promotion: "q" })
+  assert.equal(balance(engine) - before, 4)
+})
+
+test("positive mate-defense safety agrees with all six audited casual defenses", () => {
+  const fen =
+    "r1bqkbnr/pppp1ppp/2n5/4p2Q/2B1P3/8/PPPP1PPP/RNB1K1NR b KQkq - 3 3"
+  const annotatedMoves = annotatedLegalMoves(fromFen(fen), { safety: true })
+  const safe = annotatedMoves
+    .filter(
+      (move) =>
+        !move.outcome.allowsMateInOne &&
+        move.outcome.replyMajorLosses?.length === 0
+    )
+    .map((move) => move.id)
+  assert.deepEqual(
+    new Set(safe),
+    new Set(["d8e7", "d8f6", "e8e7", "g8h6", "d7d5", "g7g6"])
+  )
+  // Independently traverse every White reply; none of these candidates permits mate.
+  for (const id of safe) {
+    const engine = new Chess(fen)
+    engine.move({ from: id.slice(0, 2), to: id.slice(2, 4) })
+    for (const reply of engine.moves({ verbose: true }))
+      assert.equal(new Chess(reply.after).isCheckmate(), false)
+  }
+})
+
+test("speculative reply-capture analysis preserves history and every other context group", () => {
+  const game = fromFen("3q3k/6p1/8/8/8/5Q2/8/7K b - - 0 40")
+  const options = {
+    relationships: true,
+    support: true,
+    mobility: true,
+    castling: true,
+    safety: true
+  }
+  const before = JSON.stringify(game)
+  const first = annotatedLegalMoves(game, options)
+  assert.equal(JSON.stringify(game), before)
+  assert.deepEqual(annotatedLegalMoves(game, options), first)
+  const withoutSafety = annotatedLegalMoves(game, { ...options, safety: false })
+  assert.deepEqual(
+    first.map((move) => {
+      const copy = { ...move, outcome: { ...move.outcome } }
+      delete copy.outcome.replyMajorLosses
+      delete copy.outcome.replyMaterialLosses
+      return copy
+    }),
+    withoutSafety
+  )
 })

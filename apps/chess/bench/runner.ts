@@ -52,11 +52,11 @@ export async function runBenchmark(
       requestedThinking: options.thinking,
       reasoningSupported,
       reasoningBudgetTokens: 512,
-      maxOutputTokens: 8192,
+      maxOutputTokens: opponent.model === "prompt-api" ? null : 8192,
       sampling: "model defaults",
       repetitions: options.repetitions,
       caseIds: cases.map((c) => c.id),
-      suiteVersion: "audited-v2",
+      suiteVersion: "audited-v3",
       outputContract: "legal-uci-enum-v1",
       promptVersion: SHARED_PROMPT_VERSION,
       orderPolicy: "recorded pair then deterministic novel permutations"

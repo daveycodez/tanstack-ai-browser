@@ -52,7 +52,7 @@ export type BenchmarkReport = {
     requestedThinking: boolean
     reasoningSupported: boolean
     reasoningBudgetTokens: 512
-    maxOutputTokens: 8192
+    maxOutputTokens: 8192 | null
     sampling: "model defaults"
     repetitions: number
     caseIds: string[]

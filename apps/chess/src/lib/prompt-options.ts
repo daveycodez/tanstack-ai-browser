@@ -73,7 +73,10 @@ const cardPieceNames: Record<PieceType, string> = {
 
 /** Literal consequences only: preserve every legal ID and the supplied order. */
 export function buildCompactChoices(
-  input: PromptStyleInput
+  input: Pick<
+    PromptStyleInput,
+    "choices" | "moves" | "currentThreatData" | "queenValue"
+  >
 ): { id: string; outcome: string }[] {
   const byId = new Map(input.moves?.map((move) => [move.id, move]))
   const value: Record<PieceType, number | null> = {

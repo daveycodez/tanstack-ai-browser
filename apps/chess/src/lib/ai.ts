@@ -94,7 +94,8 @@ export async function chooseAiMove(
   const opponent = resolveOpponent(game.opponent)
   const moves = annotatedLegalMoves(game, {
     relationships: true,
-    mobility: true
+    mobility: true,
+    safety: true
   })
   if (!moves.length) throw new Error("The AI has no legal moves.")
 
