@@ -10,6 +10,7 @@ import { buildBaseUsage, EventType, normalizeSystemPrompts } from "@tanstack/ai"
 import type {
   AdapterYieldChunk,
   ModelMessage,
+  ReasoningRequest,
   TextOptions,
   TokenUsage,
   Tool
@@ -42,6 +43,10 @@ export type ApfelTextConfig = {
   baseURL?: string
   /** Headers sent with every request, such as apfel's bearer token. */
   defaultHeaders?: Record<string, string>
+  /** Adapter-managed phases, including the optional working-note draft. */
+  onGenerationPhase?: (phase: "processing" | "generating") => void
+  /** Emulated working-note deltas, not native hidden model reasoning. */
+  onThinking?: (delta: string) => void
 }
 
 /**
@@ -65,6 +70,15 @@ export type ApfelProviderUsageDetails = {
    * after the reply ended (see the README's "Tool calls").
    */
   toolRepairMs?: number
+  reasoningEmulated?: true
+  reasoningTokenMeasurement?: "provider-usage"
+  reasoningBudgetEnforcement?: "server-output-limit"
+  thinkingTokens?: number
+  thinkingBudgetTokens?: number
+  /** Effective draft output cap, when supplied by the caller. */
+  thinkingOutputLimitTokens?: number
+  thinkingBudgetExhausted?: boolean
+  reasoningMs?: number
 }
 
 /**
@@ -85,7 +99,37 @@ function nativeModelOptions(options: ApfelModelOptions | undefined) {
   return { ...rest, ...(limit !== undefined && { max_tokens: limit }) }
 }
 
-type ApfelReasoning = never
+export type ApfelReasoning = { levels: "off" | "high"; budget: true }
+
+function reasoningOptions(request: ReasoningRequest | undefined) {
+  const budget = request?.budgetTokens
+  if (budget !== undefined && (!Number.isSafeInteger(budget) || budget < 0)) {
+    throw new RangeError("reasoning.budgetTokens must be a nonnegative safe integer.")
+  }
+  if (request?.level !== undefined && request.level !== "off" && request.level !== "high") {
+    throw new RangeError("Apfel emulated reasoning supports off or high.")
+  }
+  return { enabled: request?.level === "high", budget }
+}
+
+type DraftReasoning = {
+  notes: string
+  usage?: OpenAIUsage
+  details?: ApfelProviderUsageDetails
+}
+
+function withWorkingNotes(messages: Array<OpenAIMessage>, notes: string) {
+  if (!notes) return messages
+  const instruction = `Working notes to verify against the conversation:\n${notes}\nAnswer the original request above or make the required tool call. Do not return these notes.`
+  // Keep the real current turn and its tool-result ordering intact. A new user
+  // message here can make Apple's model answer the notes instead of the request.
+  const user = messages.map((message) => message.role).lastIndexOf("user")
+  return user < 0
+    ? [...messages, { role: "user" as const, content: instruction }]
+    : messages.map((message, index) => index === user
+      ? { ...message, content: `${message.content}\n\n${instruction}` }
+      : message)
+}
 
 type MetadataByModality = {
   text: unknown
@@ -295,7 +339,8 @@ async function errorBody(response: Response) {
 /** apfel's token counts as TanStack AI usage, with the call's timings. */
 function usageOf(
   usage: OpenAIUsage | null | undefined,
-  details?: ApfelProviderUsageDetails
+  details?: ApfelProviderUsageDetails,
+  draft?: OpenAIUsage
 ): TokenUsage | undefined {
   if (
     usage?.prompt_tokens === undefined ||
@@ -303,12 +348,17 @@ function usageOf(
   ) {
     return undefined
   }
+  const promptTokens = usage.prompt_tokens + (draft?.prompt_tokens ?? 0)
+  const completionTokens = usage.completion_tokens + (draft?.completion_tokens ?? 0)
   const result = buildBaseUsage<ApfelProviderUsageDetails>({
-    promptTokens: usage.prompt_tokens,
-    completionTokens: usage.completion_tokens,
-    totalTokens: usage.prompt_tokens + usage.completion_tokens
+    promptTokens,
+    completionTokens,
+    totalTokens: promptTokens + completionTokens
   })
-  const cachedTokens = usage.prompt_tokens_details?.cached_tokens
+  if (draft?.completion_tokens !== undefined) {
+    result.completionTokensDetails = { reasoningTokens: draft.completion_tokens }
+  }
+  const cachedTokens = (usage.prompt_tokens_details?.cached_tokens ?? 0) + (draft?.prompt_tokens_details?.cached_tokens ?? 0)
   if (cachedTokens) result.promptTokensDetails = { cachedTokens }
   if (details && Object.keys(details).length > 0) {
     result.providerUsageDetails = details
@@ -344,9 +394,13 @@ export class ApfelTextAdapter<TModel extends string> extends BaseTextAdapter<
   override readonly inputModalities = ["text"] as const
   private readonly baseURL: string
   private readonly headers: Record<string, string>
+  private readonly onGenerationPhase: ApfelTextConfig["onGenerationPhase"]
+  private readonly onThinking: ApfelTextConfig["onThinking"]
 
   constructor(config: ApfelTextConfig, model: TModel) {
     super({}, model)
+    this.onGenerationPhase = config.onGenerationPhase
+    this.onThinking = config.onThinking
     this.baseURL = (config.baseURL ?? APFEL_BASE_URL).replace(/\/+$/, "")
     this.headers = {
       ...config.defaultHeaders,
@@ -354,9 +408,107 @@ export class ApfelTextAdapter<TModel extends string> extends BaseTextAdapter<
     }
   }
 
+  /** A separate, tool-free completion; its output never enters caller history. */
+  private async *draftReasoning(
+    options: TextOptions<ApfelModelOptions>,
+    signal: AbortSignal | undefined,
+    send: typeof fetch,
+    budget: number | undefined,
+    draft: DraftReasoning
+  ): AsyncGenerator<AdapterYieldChunk> {
+    signal?.throwIfAborted()
+    const began = performance.now()
+    const modelOptions = nativeModelOptions(options.modelOptions)
+    // A thinking budget can narrow a caller's cap, but never raises it.
+    const limit = budget === undefined ? modelOptions.max_tokens
+      : modelOptions.max_tokens === undefined ? budget : Math.min(budget, modelOptions.max_tokens)
+    draft.details = {
+      reasoningEmulated: true,
+      reasoningTokenMeasurement: "provider-usage",
+      reasoningBudgetEnforcement: "server-output-limit",
+      ...(budget !== undefined && { thinkingBudgetTokens: budget }),
+      ...(limit !== undefined && { thinkingOutputLimitTokens: limit }),
+      thinkingBudgetExhausted: false
+    }
+    this.onGenerationPhase?.("generating")
+    signal?.throwIfAborted()
+    if (limit === 0) {
+      draft.details.thinkingTokens = 0
+      draft.details.thinkingBudgetExhausted = budget === 0
+      draft.details.reasoningMs = performance.now() - began
+      return
+    }
+    const controller = new AbortController()
+    const cancel = () => controller.abort(signal?.reason)
+    signal?.addEventListener("abort", cancel, { once: true })
+    const id = nextId("reasoning")
+    const event = { messageId: id, model: this.model }
+    let opened = false
+    let finish: FinishReason = null
+    try {
+      options.logger.request(`activity=reasoning-draft provider=apfel model=${this.model} stream=true`, { provider: "apfel", model: this.model })
+      const response = await send(`${this.baseURL}/chat/completions`, {
+        method: "POST",
+        headers: this.headers,
+        body: JSON.stringify({
+          ...modelOptions,
+          ...(limit !== undefined && { max_tokens: limit }),
+          model: this.model,
+          stream: true,
+          stream_options: { include_usage: true },
+          messages: [
+            ...systemMessages(options.systemPrompts),
+            ...toOpenAIMessages(options.messages),
+            { role: "user", content: "Write short working notes for the next response. Use facts already available in the conversation. Do not call tools or give the final response yet." }
+          ]
+        }),
+        signal: controller.signal
+      })
+      signal?.throwIfAborted()
+      if (!response.ok || !response.body) {
+        throw new Error(`apfel returned HTTP ${response.status}: ${await errorBody(response)}`)
+      }
+      for await (const data of sseData(response.body)) {
+        signal?.throwIfAborted()
+        if (data === "[DONE]") break
+        const chunk = JSON.parse(data) as OpenAIChunk
+        if (chunk.error) throw new Error(chunk.error.message ?? "apfel sent an error.")
+        draft.usage = chunk.usage ?? draft.usage
+        const choice = chunk.choices?.[0]
+        finish = choice?.finish_reason ?? finish
+        const delta = choice?.delta?.content ?? choice?.delta?.reasoning_content
+        if (!delta) continue
+        if (!opened) {
+          opened = true
+          yield { ...event, type: EventType.REASONING_START, timestamp: Date.now() }
+          yield { ...event, type: EventType.REASONING_MESSAGE_START, role: "reasoning", timestamp: Date.now() }
+        }
+        draft.notes += delta
+        this.onThinking?.(delta)
+        yield { ...event, type: EventType.REASONING_MESSAGE_CONTENT, delta, timestamp: Date.now() }
+      }
+      signal?.throwIfAborted()
+      draft.details.thinkingTokens = draft.usage?.completion_tokens
+      // Use the server's finish reason: its usage accounting can include tokens
+      // beyond the configured generation cap, so count comparisons are unreliable.
+      draft.details.thinkingBudgetExhausted = budget !== undefined && finish === "length" && limit === budget
+      draft.details.reasoningMs = performance.now() - began
+      if (opened) {
+        yield { ...event, type: EventType.REASONING_MESSAGE_END, timestamp: Date.now() }
+        yield { ...event, type: EventType.REASONING_END, timestamp: Date.now() }
+      }
+    } finally {
+      signal?.removeEventListener("abort", cancel)
+      // Close only the draft transport, including when a consumer leaves early.
+      controller.abort()
+    }
+  }
+
   async *chatStream(
     options: TextOptions<ApfelModelOptions>
   ): AsyncIterable<AdapterYieldChunk> {
+    const emulation = reasoningOptions(options.reasoning)
+    this.onGenerationPhase?.("processing")
     const runId = options.runId ?? nextId("run")
     const threadId = options.threadId
     const messageId = nextId("msg")
@@ -395,7 +547,17 @@ export class ApfelTextAdapter<TModel extends string> extends BaseTextAdapter<
     )
     const sentAt = performance.now()
     let response: Response
+    const draft: DraftReasoning = { notes: "" }
     try {
+      if (emulation.enabled) yield* this.draftReasoning(options, signal, send, emulation.budget, draft)
+      else this.onGenerationPhase?.("generating")
+    } catch (error) {
+      if (signal?.aborted) return
+      yield runError(`apfel's reasoning draft failed: ${errorText(error)}`)
+      return
+    }
+    try {
+      signal?.throwIfAborted()
       response = await send(url, {
         method: "POST",
         headers: this.headers,
@@ -405,10 +567,10 @@ export class ApfelTextAdapter<TModel extends string> extends BaseTextAdapter<
           stream: true,
           // Token counts, for the stats.
           stream_options: { include_usage: true },
-          messages: [
+          messages: withWorkingNotes([
             ...systemMessages(options.systemPrompts),
             ...toOpenAIMessages(options.messages)
-          ],
+          ], draft.notes),
           ...(tools.length > 0 && {
             tools,
             ...toolChoice(options.toolChoice)
@@ -667,8 +829,9 @@ export class ApfelTextAdapter<TModel extends string> extends BaseTextAdapter<
     endText()
     yield* events.splice(0)
 
+    Object.assign(details, draft.details)
     if (repairMs > 0) details.toolRepairMs = repairMs
-    const finishUsage = usageOf(usage, details)
+    const finishUsage = usageOf(usage, details, draft.usage)
     yield {
       type: EventType.RUN_FINISHED,
       runId,
@@ -765,6 +928,8 @@ export class ApfelTextAdapter<TModel extends string> extends BaseTextAdapter<
     const { chatOptions, outputSchema } = options
     const signal = chatOptions.abortController?.signal ?? (chatOptions.request as RequestInit | undefined)?.signal ?? undefined
     signal?.throwIfAborted()
+    const emulation = reasoningOptions(chatOptions.reasoning)
+    this.onGenerationPhase?.("processing")
     const model = this.model
     const send = chatOptions.wrapFetch ? chatOptions.wrapFetch(fetch) : fetch
     chatOptions.logger.request(
@@ -772,17 +937,24 @@ export class ApfelTextAdapter<TModel extends string> extends BaseTextAdapter<
       { provider: "apfel", model }
     )
     let response: Response
+    const draft: DraftReasoning = { notes: "" }
+    if (emulation.enabled) {
+      for await (const event of this.draftReasoning(chatOptions, signal, send, emulation.budget, draft)) {
+        void event // Structured output exposes notes through onThinking instead.
+      }
+    } else this.onGenerationPhase?.("generating")
     try {
+      signal?.throwIfAborted()
       response = await send(`${this.baseURL}/chat/completions`, {
         method: "POST",
         headers: this.headers,
         body: JSON.stringify({
           ...nativeModelOptions(chatOptions.modelOptions),
           model,
-          messages: [
+          messages: withWorkingNotes([
             ...systemMessages(chatOptions.systemPrompts),
             ...toOpenAIMessages(chatOptions.messages)
-          ],
+          ], draft.notes),
           response_format: {
             type: "json_schema",
             json_schema: { name: "output", schema: outputSchema }
@@ -818,7 +990,7 @@ export class ApfelTextAdapter<TModel extends string> extends BaseTextAdapter<
       ""
     ).trim()
     const json = rawText.replace(/^```(?:json)?\s*|\s*```$/g, "")
-    const usage = usageOf(completion.usage)
+    const usage = usageOf(completion.usage, draft.details, draft.usage)
     try {
       return {
         data: JSON.parse(json) as unknown,

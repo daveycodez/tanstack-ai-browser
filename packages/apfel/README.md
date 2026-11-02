@@ -25,7 +25,26 @@ if (await isApfelAvailable("apple-foundationmodel", config)) {
 }
 ```
 
-`baseURL` is apfel's OpenAI-compatible API, up to `/v1`; `APFEL_BASE_URL` is apfel's default address. `defaultHeaders` adds headers to every request, such as a bearer token. Apple's model doesn't reason, so `chat({ reasoning })` is a type error with this adapter.
+`baseURL` is apfel's OpenAI-compatible API, up to `/v1`; `APFEL_BASE_URL` is apfel's default address. `defaultHeaders` adds headers to every request, such as a bearer token. Omitted reasoning or `reasoning: "off"` preserves ordinary single-pass behavior. `"high"` opts into adapter-emulated working notes, described below.
+
+## Opt-in emulated reasoning
+
+```ts
+chat({
+  adapter: apfelText("apple-foundationmodel"),
+  messages,
+  threadId,
+  reasoning: { level: "high", budgetTokens: 512 }
+})
+```
+
+This is an adapter-owned draft/final flow, not native hidden reasoning or a change to Apple's model. A separate tool-free request streams short working notes, then the final request uses those notes while preserving native JSON Schema output and existing tool-call repair. Notes stay out of caller history. Streaming emits AGUI reasoning events; `apfelText(model, { onThinking, onGenerationPhase })` also exposes note deltas and `"processing"`/`"generating"` phases, including for structured output.
+
+An explicit `budgetTokens` becomes the draft request's server-enforced `max_tokens`. If the caller's `modelOptions.maxTokens` (or `max_tokens`) is smaller, the draft uses that smaller cap. The final request keeps the original caller settings. These are two separate completions; `maxTokens` is not an aggregate ceiling over their combined usage. With no budget, the draft follows the caller's output cap or the model/server default. No fallback token limit or sampling override is added. A zero budget skips the draft. Draft truncation at its limit is expected; the final response still runs, with its own cap and schema.
+
+Caller cancellation stops either pass through `abortController` or `request.signal`; closing a reasoning stream also closes its draft request. Draft failures propagate without silently retrying or falling back to a final answer. Since apfel is stateless, no draft session is retained and no upstream runtime patch is needed.
+
+When the server reports usage, totals include draft and final requests, and `completionTokensDetails.reasoningTokens` identifies draft output. `usage.providerUsageDetails` marks `reasoningEmulated: true`, `reasoningTokenMeasurement: "provider-usage"`, and `reasoningBudgetEnforcement: "server-output-limit"`, with `thinkingTokens`, `thinkingBudgetTokens`, `thinkingOutputLimitTokens`, `thinkingBudgetExhausted`, and `reasoningMs`. Counts come from apfel's usage, without character-based estimates or clamping to the requested cap. Provider accounting can differ from the generation limit: the live v1.16.0 test reported 67 completion tokens for a draft with `max_tokens: 64`. `thinkingBudgetExhausted` follows the server's `length` finish reason, rather than comparing these counts. Older server/OS versions may report approximate counts. Working notes consume context in the final request, so large budgets leave less room for the conversation and answer.
 
 ## Tool calls
 
