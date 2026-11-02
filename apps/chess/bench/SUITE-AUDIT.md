@@ -1,8 +1,8 @@
-# Chess fixture audit: suite v3
+# Chess fixture audit: audited-v6
 
-This audit precedes further prompt tuning. The suite has 25 cases: 22 calibration cases and three holdouts. The five newest
+This audit precedes further prompt tuning. The suite has 30 cases: 27 calibration cases and three holdouts, with 20 scored cases and 10 ungraded diagnostics. The ten recent
 calibration cases cover exposure of a different piece, defender withdrawal, a losing
-knight-for-pawn exchange, and the user's actual quiet knight loss. The holdouts
+knight-for-pawn exchange, the user's actual quiet knight loss, an observed missed free bishop, a later missed knight recapture, a promotion-defense position, an exact phone queen-for-rook loss, and a five-ply bishop opportunity. The holdouts
 must remain out of prompt selection. Freeze the chosen profile before running them;
 once their results influence another change, they are calibration data and a future
 confirmation needs fresh cases. No model was called to construct or audit these cases.
@@ -30,7 +30,7 @@ complete duplicate-free legal permutation; every expected/signal ID is legal.
 
 Natural examples carry replayable legal history: opening, Fool's Mate, Scholar's Mate
 defense, the duplicate opening mobility diagnostic, mate versus castling, and the
-castling holdout, plus the exact observed game through White 29.Bxh7. Replay must reproduce the entire FEN, including clocks and rights.
+castling holdout, plus exact observed games through White 29.Bxh7, White 17.Bxb8, White 25.Nxf5, and White 72.h7. Replay must reproduce the entire FEN, including clocks and rights.
 The other 18 cases are constructed teaching positions, not asserted game transcripts.
 Their neutral clocks are halfmove 0/fullmove 40. Those clocks avoid the impossible
 appearance of a sparse endgame on move 1, but are not proof that the position can
@@ -64,6 +64,22 @@ unrecaptured queen/rook capture; signals must exercise their named factual predi
   pawn recapture still leaves net-1; retaking the enemy queen can compensate the line.
   Unsupported pieces with no legal enemy capture incur no loss. These possible lines
   are conditional, not forced outcomes or evaluations of positional compensation.
+- **Safe immediate capture value:** among actual captures that cannot be recaptured
+  immediately, permit no opponent mate or negative conditional capture exchange of
+  another own piece; accept every tie for the highest captured piece value. This is
+  an explicit one-turn opportunity contract, not professional engine-best play. The
+  audited fixture has no competing immediate mate. Quiet safe moves can be sensible
+  elsewhere but do not satisfy this particular opportunity test.
+- **Direct or forcing capture opportunity:** accept the best immediate safe free
+  captures and a capture-check whose every legal opponent evasion permits a safe
+  follow-up capture giving at least that much total material. The knight case
+  independently checks all three king evasions. This is a local nonexclusive
+  tactical contract; it does not require the largest first-ply capture.
+- **Immediate promotion safety:** require no immediate mate or uncompensated major
+  loss, then accept either no legal opponent promotion next turn (capture, block,
+  or check delay), or every legal promotion being immediately capturable. This is
+  explicitly a one-reply criterion, not a long-term guarantee. Taking the pawn is a
+  separate neutral signal; it is not the sole accepted defense.
 - **Broad casual safe play:** reject allowing mate next turn or an immediately
   unrecapturable nonpawn-piece loss not compensated by material captured/promoted
   by the candidate. Castling and many ordinary moves are accepted. This excludes
@@ -77,33 +93,38 @@ unrecaptured queen/rook capture; signals must exercise their named factual predi
 
 ## Case inventory
 
-| Case                                     | Partition   | Setup                   | Legal | Accepted | Declared purpose                                      |
-| ---------------------------------------- | ----------- | ----------------------- | ----: | -------: | ----------------------------------------------------- |
-| opening                                  | calibration | legal history           |    20 | ungraded | opening/list-order variety                            |
-| mate-in-one                              | calibration | legal history           |    30 |        1 | all immediate mates                                   |
-| free-queen                               | calibration | synthetic               |    22 |        1 | unrecapturable queen capture                          |
-| stop-immediate-mate                      | calibration | legal history           |    28 |        6 | mate prevention without free major loss               |
-| stalemate-trap                           | calibration | synthetic               |    29 |        2 | take any immediate mate instead of drawing            |
-| defended-trade                           | calibration | synthetic               |    20 |       10 | all queen-safe candidates                             |
-| context-queen-escape                     | calibration | synthetic               |    41 | ungraded | queen escapes a pawn attack                           |
-| context-interposition                    | calibration | synthetic               |    31 | ungraded | bishop blocks a rook's line to queen                  |
-| context-create-threat                    | calibration | synthetic               |    18 | ungraded | defended attacker threatens queen                     |
-| context-support-attacked                 | calibration | synthetic               |    30 | ungraded | new bishop support; rook remains capturable           |
-| context-pawn-mobility                    | calibration | legal history           |    20 | ungraded | central double push opens bishop/queen                |
-| context-castle-now                       | calibration | synthetic               |    26 | ungraded | actual castle; alternatives remain reasonable         |
-| context-castle-rights                    | calibration | synthetic               |    16 | ungraded | safe rook move permanently loses a right              |
-| context-castle-blocked                   | calibration | synthetic               |    36 | ungraded | bishop clears one occupied path                       |
-| context-castle-unsafe                    | calibration | synthetic               |    20 | ungraded | empty paths with attacked transit squares             |
-| castle-or-win                            | calibration | legal history           |    35 |        1 | mate outranks an available castle                     |
-| castle-or-save-queen                     | calibration | synthetic               |    45 |       20 | queen safety outranks an available castle             |
-| calibration-exposure-bishop-rook         | calibration | synthetic               |    27 |       19 | major safety after a knight exposes a different rook  |
-| calibration-exposure-rook-queen          | calibration | synthetic               |    26 |       18 | major safety despite a reciprocal future attack       |
-| calibration-exposure-defender-withdrawal | calibration | synthetic               |    24 |       16 | major safety after losing a legal recapturer          |
-| calibration-knight-pawn-exchange         | calibration | synthetic               |    12 |       10 | all-piece material safety for a knight-for-pawn trade |
-| observed-ne2-knight-loss                 | calibration | exact user-game history |    26 |       17 | all-piece safety before the quiet Ne2 rook threat     |
-| holdout-knight-queen-safety              | holdout     | synthetic               |    36 |       12 | fresh knight attack; nonqueen defense also accepted   |
-| holdout-back-rank-defense                | holdout     | synthetic               |    20 |        5 | distinct mate pattern with multiple defenses          |
-| holdout-castle-safe-play                 | holdout     | legal history           |    36 |       31 | broad safe play including a legal castle              |
+| Case                                     | Partition   | Setup                    | Legal | Accepted | Declared purpose                                            |
+| ---------------------------------------- | ----------- | ------------------------ | ----: | -------: | ----------------------------------------------------------- |
+| opening                                  | calibration | legal history            |    20 | ungraded | opening/list-order variety                                  |
+| mate-in-one                              | calibration | legal history            |    30 |        1 | all immediate mates                                         |
+| free-queen                               | calibration | synthetic                |    22 |        1 | unrecapturable queen capture                                |
+| stop-immediate-mate                      | calibration | legal history            |    28 |        6 | mate prevention without free major loss                     |
+| stalemate-trap                           | calibration | synthetic                |    29 |        2 | take any immediate mate instead of drawing                  |
+| defended-trade                           | calibration | synthetic                |    20 |       10 | all queen-safe candidates                                   |
+| context-queen-escape                     | calibration | synthetic                |    41 | ungraded | queen escapes a pawn attack                                 |
+| context-interposition                    | calibration | synthetic                |    31 | ungraded | bishop blocks a rook's line to queen                        |
+| context-create-threat                    | calibration | synthetic                |    18 | ungraded | defended attacker threatens queen                           |
+| context-support-attacked                 | calibration | synthetic                |    30 | ungraded | new bishop support; rook remains capturable                 |
+| context-pawn-mobility                    | calibration | legal history            |    20 | ungraded | central double push opens bishop/queen                      |
+| context-castle-now                       | calibration | synthetic                |    26 | ungraded | actual castle; alternatives remain reasonable               |
+| context-castle-rights                    | calibration | synthetic                |    16 | ungraded | safe rook move permanently loses a right                    |
+| context-castle-blocked                   | calibration | synthetic                |    36 | ungraded | bishop clears one occupied path                             |
+| context-castle-unsafe                    | calibration | synthetic                |    20 | ungraded | empty paths with attacked transit squares                   |
+| castle-or-win                            | calibration | legal history            |    35 |        1 | mate outranks an available castle                           |
+| castle-or-save-queen                     | calibration | synthetic                |    45 |       20 | queen safety outranks an available castle                   |
+| calibration-exposure-bishop-rook         | calibration | synthetic                |    27 |       19 | major safety after a knight exposes a different rook        |
+| calibration-exposure-rook-queen          | calibration | synthetic                |    26 |       18 | major safety despite a reciprocal future attack             |
+| calibration-exposure-defender-withdrawal | calibration | synthetic                |    24 |       16 | major safety after losing a legal recapturer                |
+| calibration-knight-pawn-exchange         | calibration | synthetic                |    12 |       10 | all-piece material safety for a knight-for-pawn trade       |
+| observed-ne2-knight-loss                 | calibration | exact user-game history  |    26 |       17 | all-piece safety before the quiet Ne2 rook threat           |
+| observed-free-bishop-before-a4           | calibration | exact user-game history  |    35 |        1 | highest safe immediate capture before the pawn push         |
+| observed-free-knight-after-nxf5          | calibration | exact user-game history  |    24 |        2 | direct Qxf5 or forcing Qxf2+ capture opportunity            |
+| observed-free-pawn-on-h7                 | calibration | exact user-game history  |    23 |       10 | broad immediate promotion defense; pawn capture is a signal |
+| observed-phone-queen-check-loss          | calibration | exact phone-game history |    43 |       29 | material safety; checking queen trade is not justified      |
+| observed-free-bishop-on-a6               | calibration | exact user-game history  |    22 |        1 | sole safe bishop capture after the five-ply opening         |
+| holdout-knight-queen-safety              | holdout     | synthetic                |    36 |       12 | fresh knight attack; nonqueen defense also accepted         |
+| holdout-back-rank-defense                | holdout     | synthetic                |    20 |        5 | distinct mate pattern with multiple defenses                |
+| holdout-castle-safe-play                 | holdout     | legal history            |    36 |       31 | broad safe play including a legal castle                    |
 
 The castling holdout deliberately accepts 31 moves, including castling, rather than
 requiring one opening favorite. The knight-threat holdout accepts a forcing rook
@@ -160,3 +181,85 @@ The application retains `replyMajorLosses` as its queen/rook compatibility view;
 `replyMaterialLosses` covers all actual nonking captures. Both are factual opt-in
 context, not move filters. The three original holdouts are unchanged; they were not
 used to construct or select these new cases or inspect model responses.
+
+## Missed bishop opportunity versus the later queen rescue
+
+The new observed capture case replays 33 legal plies, through White 17.Bxb8. In that
+position Black can play `Ra8xb8`, taking a bishop worth3. The rook has no immediate
+legal capturer, there is no White mate in one, and no other negative immediate
+material-exchange branch exists. `17...a4` is quiet and does not take that available
+piece; the safe-capture-value objective identifies this first missed opportunity.
+The tempting `Qxe2+` also captures a piece worth3 but loses the queen to `Qxe2` or
+`Kxe2`, so it does not qualify. Every equally valuable safe capture would be accepted;
+there happens to be only one in this exact board.
+
+After `17...a4 18.bxa4`, the position has materially changed. The pawn on a4 now
+attacks Black's queen on b5. `18...Rxb8` still wins the bishop3, but `axb5` takes the
+queen9; even `...cxb5` only recovers a pawn1, leaving immediate net-5. `18...Qxa4`
+is a legal safe queen rescue and pawn capture, not the same missed opportunity.
+A unit counterexample preserves that distinction; the later position is deliberately
+not graded as requiring `Rxb8`. No prompt or runtime rule was changed for this case.
+
+## Corrected knight opportunity: a smaller checking capture can win more
+
+The knight regression replays49plies through White25.Nxf5. Direct `Qxf5` is a safe
+knight capture for3. The earlier immediate-capture-only grade incorrectly rejected
+`Qxf2+` as only a pawn1. That check has exactly three legal White evasions: `Kd3`,
+`Kd1`, and `Kc1`. After every one, Black can safely play `Qxf5`, with no legal queen
+recapture, negative immediate exchange, or White mate in one. The total gain is4.
+Both `Qxf5` and `Qxf2+` are now accepted. Quiet moves still do not meet this capture
+opportunity objective. The correction follows exhaustive legal-evasion proof, not
+an assumption that a model selecting the smaller first capture made a mistake.
+
+The unit test checks all three lines independently with fresh `Chess` instances
+and whole-board material counts. A direct-capture preference must not be presented
+as the only intelligent continuation when a forced sequence yields more.
+
+## Corrected h7 grade: capture is not the only valid promotion defense
+
+The h7 case replays143plies through White72.h7. `Qxh7+` safely takes the pawn and
+removes its promotion possibility, but grading only that capture was too narrow.
+The corrected immediate promotion-safety objective accepts10legal moves. `Kb1`,
+`Kb2`, and `Ka3` retain the queen on the h-file; `Qf6` provides a diagonal to h8;
+`Qh1`, `Qh2`, `Qh3`, and `Qh6` retain the h-file capture. After any legal promotion,
+the promoted piece can be captured immediately in these lines. `Qd8+` delays
+promotion because White must answer check. The pawn capture remains a separate
+signal, not a mandatory favorite. This one-reply definition does not claim that
+all ten positions are strategically equal or secure indefinitely.
+
+The actual `Qf2` allows all four promotions without an immediate Black capture of
+the promoted piece, and fails the corrected objective. `Qh8` from h4 is illegal:
+the White pawn on h7 blocks the queen's path. Unit counterexamples preserve those
+facts and multiple valid defenses.
+
+## Exact phone queen-check loss and defended-exchange counterexample
+
+The phone case replays35legal plies before18...Qxf1+. That capture takes a rook5,
+but either `Qd1xf1` or `Kg1xf1` legally takes the unprotected queen9, immediate
+net-4. The broad material-safety grade accepts29of43legal moves rather than forcing
+a particular retreat. It preserves `Qxh5`: after `Qd1xh5`, Black can recapture with
+`g6xh5`, so the defended queen exchange still gains the bishop3 and is accepted.
+
+White's pawn on e7 does not justify the queen sacrifice. `Kxe7` is legal, and even
+if White were allowed to promote immediately, Black's king can capture every
+promoted piece on e8. A separate synthetic unit counterexample shows that a queen
+protected by its own king cannot be captured by the enemy king. No synthetic
+phone-game reconstruction was added to the benchmark: the case uses exact history.
+
+## Five-ply bishop opportunity
+
+The latest short game is exactly1.e4 g6 2.f3 Nc6 3.Ba6, with Black to move. Black
+has22legal moves, but `b7xa6` is the only capture and wins a bishop3 safely. There
+is no checking or forcing-capture alternative in this initial board. The actual
+`3...d6` is quiet. This remains a narrowly declared immediate capture-opportunity
+case, with no professional engine-best claim and no provider-specific objective.
+
+## Historical reports and regrading
+
+Original raw model reports remain unchanged. Older records that marked `Qxf2+`
+wrong in the knight case or required `Qxh7+` as the sole h7 answer used overly
+narrow objectives. They must not be cited as those models making chess mistakes.
+The corrected expected sets are exported independently for FEN-matched post-hoc
+analysis; derived summaries and errata should identify the changed objective and
+retain the original result. Regrading recorded answers is not a new model run.
+The three holdouts remain unchanged and are not used to choose these corrections.

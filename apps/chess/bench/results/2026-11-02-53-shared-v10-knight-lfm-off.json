@@ -1,0 +1,529 @@
+{
+  "schemaVersion": 4,
+  "choiceIndexBase": 0,
+  "runId": "5ec9a24f-6de8-4b82-a518-8be30a3f206b",
+  "startedAt": "2026-11-02T08:53:47.635Z",
+  "finishedAt": "2026-11-02T08:53:58.250Z",
+  "revision": "05a0afb8d66b3c4eb4897b1ac66ac29db6b745e6-dirty",
+  "partial": false,
+  "config": {
+    "model": "LiquidAI/LFM3-1.7B-GGUF",
+    "thinking": false,
+    "requestedThinking": false,
+    "reasoningSupported": true,
+    "reasoningMode": "off",
+    "reasoningBudgetTokens": 512,
+    "maxOutputTokens": 8192,
+    "sampling": "model defaults",
+    "repetitions": 4,
+    "caseIds": [
+      "observed-free-knight-after-nxf5"
+    ],
+    "suiteVersion": "audited-v5",
+    "outputContract": "legal-uci-enum-v1",
+    "promptVersion": "shared-v10",
+    "orderPolicy": "recorded pair then deterministic novel permutations"
+  },
+  "results": [
+    {
+      "trial": 1,
+      "repetition": 1,
+      "caseId": "observed-free-knight-after-nxf5",
+      "label": "Observed game: recapture the knight after Nxf5",
+      "fen": "1B2kbnN/4p1pp/1pp5/2q2N2/8/2P3P1/R2K1P1P/7R b - - 0 25",
+      "objective": "Exact replay through White25.Nxf5. Black queen c5 can immediately recapture the knight f5 for3 without a legal recapture, White mate, or another negative material branch. Qxf2 is also a free capture but only a pawn1; h5 is quiet. Accept every tie for the highest safe immediate captured-piece value, not a professional long-term favorite.",
+      "expectedMoveIds": [
+        "c5f5"
+      ],
+      "partition": "calibration",
+      "legal": true,
+      "passed": false,
+      "signal": null,
+      "index": 0,
+      "total": 24,
+      "seconds": 5.432700000047683,
+      "choices": [
+        {
+          "id": "g8f6",
+          "outcome": "g8f6 | knight g8-f6 | KNIGHT LEAVES HOME SQUARE"
+        },
+        {
+          "id": "c5d6",
+          "outcome": "c5d6 | queen c5-d6 | CHECK; DANGER TO BLACK: after this move White bishop (3) on b8 can take Black queen (9) on d6; possible immediate exchange net -6; Black also threatens White bishop (3) on b8 on the unchanged board; White moves next"
+        },
+        {
+          "id": "c5e3",
+          "outcome": "c5e3 | queen c5-e3 | CHECK; DANGER TO BLACK: after this move White knight (3) on f5 can take Black queen (9) on e3; possible immediate exchange net -9; Black also threatens White pawn (1) on g3 on the unchanged board; White moves next"
+        },
+        {
+          "id": "c5c3",
+          "outcome": "c5c3 | queen c5-c3 | CAPTURES pawn (1); CHECK; DANGER TO BLACK: after this move White king (royal) on d2 can take Black queen (9) on c3; possible immediate exchange net -8; Black also threatens White pawn (1) on g3 on the unchanged board; White moves next"
+        },
+        {
+          "id": "h7h6",
+          "outcome": "h7h6 | pawn h7-h6 | COMPENSATING RECAPTURE AVAILABLE"
+        },
+        {
+          "id": "g7g5",
+          "outcome": "g7g5 | pawn g7-g5 | ORDINARY MOVE"
+        },
+        {
+          "id": "h7h5",
+          "outcome": "h7h5 | pawn h7-h5 | ORDINARY MOVE"
+        },
+        {
+          "id": "c5d4",
+          "outcome": "c5d4 | queen c5-d4 | CHECK; DANGER TO BLACK: after this move White knight (3) on f5 can take Black queen (9) on d4; possible immediate exchange net -9"
+        },
+        {
+          "id": "g7g6",
+          "outcome": "g7g6 | pawn g7-g6 | COMPENSATING RECAPTURE AVAILABLE"
+        },
+        {
+          "id": "e8d7",
+          "outcome": "e8d7 | king e8-d7 | ORDINARY MOVE"
+        },
+        {
+          "id": "c5b5",
+          "outcome": "c5b5 | queen c5-b5 | ORDINARY MOVE"
+        },
+        {
+          "id": "c5e5",
+          "outcome": "c5e5 | queen c5-e5 | DANGER TO BLACK: after this move White bishop (3) on b8 can take Black queen (9) on e5; possible immediate exchange net -9; Black also threatens White bishop (3) on b8 on the unchanged board; White moves next"
+        },
+        {
+          "id": "c5a3",
+          "outcome": "c5a3 | queen c5-a3 | DANGER TO BLACK: after this move White rook (5) on a2 can take Black queen (9) on a3; possible immediate exchange net -9; Black also threatens White rook (5) on a2 on the unchanged board; White moves next"
+        },
+        {
+          "id": "c5d5",
+          "outcome": "c5d5 | queen c5-d5 | CHECK"
+        },
+        {
+          "id": "c5b4",
+          "outcome": "c5b4 | queen c5-b4 | DANGER TO BLACK: after this move White pawn (1) on c3 can take Black queen (9) on b4; possible immediate exchange net -9"
+        },
+        {
+          "id": "c5f2",
+          "outcome": "c5f2 | queen c5-f2 | CAPTURES pawn (1); MOVED PIECE CANNOT BE LEGALLY RECAPTURED NEXT TURN; CHECK"
+        },
+        {
+          "id": "e8d8",
+          "outcome": "e8d8 | king e8-d8 | ORDINARY MOVE"
+        },
+        {
+          "id": "c5a5",
+          "outcome": "c5a5 | queen c5-a5 | DANGER TO BLACK: after this move White rook (5) on a2 can take Black queen (9) on a5; possible immediate exchange net -4; Black also threatens White rook (5) on a2 on the unchanged board; White moves next"
+        },
+        {
+          "id": "g8h6",
+          "outcome": "g8h6 | knight g8-h6 | KNIGHT LEAVES HOME SQUARE"
+        },
+        {
+          "id": "c5f5",
+          "outcome": "c5f5 | queen c5-f5 | CAPTURES knight (3); MOVED PIECE CANNOT BE LEGALLY RECAPTURED NEXT TURN"
+        },
+        {
+          "id": "e7e5",
+          "outcome": "e7e5 | pawn e7-e5 | PAWN ADVANCES ON CENTRAL FILE"
+        },
+        {
+          "id": "b6b5",
+          "outcome": "b6b5 | pawn b6-b5 | ORDINARY MOVE"
+        },
+        {
+          "id": "e7e6",
+          "outcome": "e7e6 | pawn e7-e6 | PAWN ADVANCES ON CENTRAL FILE"
+        },
+        {
+          "id": "c5c4",
+          "outcome": "c5c4 | queen c5-c4 | ORDINARY MOVE"
+        }
+      ],
+      "thinkingChars": 0,
+      "reasoningText": "",
+      "condition": "Source: same user-provided game as observed-free-bishop-before-a4, extended legally to49plies through White25.Nxf5. Actual Black25...h5 missed the available Qxf5 recapture.",
+      "prompt": "Black to move. Play a fun, sensible casual game. Choose one legal card.\nPriorities: CHECKMATE now; prevent White's mate and answer check; save a threatened queen or take a free queen; take a safe material gain, preferring a larger gain over a smaller gain or a quiet move; otherwise CASTLE when listed; otherwise develop a knight/bishop or advance a central pawn.\nA check alone is not a reason to move. Consider conditional exchange losses before taking material. Protection is not immunity. Pawn 1, knight/bishop 3, rook 5, queen 9.\nBlack pieces (you):\nKing: e8\nQueens: c5\nRooks: none\nBishops: f8\nKnights: g8\nPawns: e7, g7, h7, b6, c6\nWhite pieces (opponent):\nKing: d2\nQueens: none\nRooks: a2, h1\nBishops: b8\nKnights: h8, f5\nPawns: c3, g3, f2, h2\nBlack in check: no.\nCurrent White capture possibilities on the unchanged board:\nBlack pawn (1) on e7 can be captured by White knight (3) on f5.\nBlack pawn (1) on g7 can be captured by White knight (3) on f5.\nLegal CASTLE IDs now: none.\nRecent 8 moves (oldest first):\nBlack: Qb1+ (c2b1)\nWhite: Kd2 (e1d2)\nBlack: Qb5 (b1b5)\nWhite: Qf5 (f3f5)\nBlack: Bxf5 (c8f5)\nWhite: Nd4 (e2d4)\nBlack: Qc5 (b5c5)\nWhite: Nxf5 (d4f5)\nHOW TO READ THE CARDS:\nThe board above is the position now. Each card describes a separate possible position after only that Black move. Its DANGER and exchange facts apply only to that move; destinations and threats from different cards do not occur together. CHECK on a card means that move checks White. Black in check above describes now.\nALL LEGAL CARDS (random order, no ranking):\ng8f6 | knight g8-f6 | KNIGHT LEAVES HOME SQUARE\nc5d6 | queen c5-d6 | CHECK; DANGER TO BLACK: after this move White bishop (3) on b8 can take Black queen (9) on d6; possible immediate exchange net -6; Black also threatens White bishop (3) on b8 on the unchanged board; White moves next\nc5e3 | queen c5-e3 | CHECK; DANGER TO BLACK: after this move White knight (3) on f5 can take Black queen (9) on e3; possible immediate exchange net -9; Black also threatens White pawn (1) on g3 on the unchanged board; White moves next\nc5c3 | queen c5-c3 | CAPTURES pawn (1); CHECK; DANGER TO BLACK: after this move White king (royal) on d2 can take Black queen (9) on c3; possible immediate exchange net -8; Black also threatens White pawn (1) on g3 on the unchanged board; White moves next\nh7h6 | pawn h7-h6 | COMPENSATING RECAPTURE AVAILABLE\ng7g5 | pawn g7-g5 | ORDINARY MOVE\nh7h5 | pawn h7-h5 | ORDINARY MOVE\nc5d4 | queen c5-d4 | CHECK; DANGER TO BLACK: after this move White knight (3) on f5 can take Black queen (9) on d4; possible immediate exchange net -9\ng7g6 | pawn g7-g6 | COMPENSATING RECAPTURE AVAILABLE\ne8d7 | king e8-d7 | ORDINARY MOVE\nc5b5 | queen c5-b5 | ORDINARY MOVE\nc5e5 | queen c5-e5 | DANGER TO BLACK: after this move White bishop (3) on b8 can take Black queen (9) on e5; possible immediate exchange net -9; Black also threatens White bishop (3) on b8 on the unchanged board; White moves next\nc5a3 | queen c5-a3 | DANGER TO BLACK: after this move White rook (5) on a2 can take Black queen (9) on a3; possible immediate exchange net -9; Black also threatens White rook (5) on a2 on the unchanged board; White moves next\nc5d5 | queen c5-d5 | CHECK\nc5b4 | queen c5-b4 | DANGER TO BLACK: after this move White pawn (1) on c3 can take Black queen (9) on b4; possible immediate exchange net -9\nc5f2 | queen c5-f2 | CAPTURES pawn (1); MOVED PIECE CANNOT BE LEGALLY RECAPTURED NEXT TURN; CHECK\ne8d8 | king e8-d8 | ORDINARY MOVE\nc5a5 | queen c5-a5 | DANGER TO BLACK: after this move White rook (5) on a2 can take Black queen (9) on a5; possible immediate exchange net -4; Black also threatens White rook (5) on a2 on the unchanged board; White moves next\ng8h6 | knight g8-h6 | KNIGHT LEAVES HOME SQUARE\nc5f5 | queen c5-f5 | CAPTURES knight (3); MOVED PIECE CANNOT BE LEGALLY RECAPTURED NEXT TURN\ne7e5 | pawn e7-e5 | PAWN ADVANCES ON CENTRAL FILE\nb6b5 | pawn b6-b5 | ORDINARY MOVE\ne7e6 | pawn e7-e6 | PAWN ADVANCES ON CENTRAL FILE\nc5c4 | queen c5-c4 | ORDINARY MOVE\nAVAILABLE IMMEDIATE OPPORTUNITIES:\nAvailable captures with no immediate legal recapture of the moved piece: c5f2 captures pawn (1); c5f5 captures knight (3). Checked replies show no net material loss or White mate in one.\nURGENT POSITION FACTS:\nMATERIAL-SAFE CHOICES FOR THE NEXT TURN: g8f6, h7h6, g7g5, h7h5, g7g6, e8d7, c5b5, c5d5, c5f2, e8d8, g8h6, c5f5, e7e5, b6b5, e7e6, c5c4. No checked immediate capture exchange loses Black material; White has no mate in one.\nURGENT RESPONSE PRIORITY:\nAfter addressing the king and any attacked queen, prefer a MATERIAL-SAFE choice. When there is no urgent threat, castle if a listed castle is MATERIAL-SAFE.\nAfter addressing the king and any attacked queen, prefer a larger safe capture over a smaller capture or an ordinary castling/development move.\nReturn exactly one JSON object: key moveId, value the chosen legal ID. Stop after its closing brace.",
+      "systemPrompt": "Play Black using the supplied chess facts. Take immediate mate first; otherwise prevent mate and protect an attacked queen. Next, choose a larger safe material gain over a smaller gain or a quiet move: a safe knight or bishop gain (3) outweighs a pawn gain (1). A check alone earns no bonus. Castle or develop when no better immediate gain exists. The schema lists every legal move; neither enum order nor card order recommends a move.",
+      "rawAnswer": "g8f6",
+      "moveId": "g8f6"
+    },
+    {
+      "trial": 2,
+      "repetition": 2,
+      "caseId": "observed-free-knight-after-nxf5",
+      "label": "Observed game: recapture the knight after Nxf5",
+      "fen": "1B2kbnN/4p1pp/1pp5/2q2N2/8/2P3P1/R2K1P1P/7R b - - 0 25",
+      "objective": "Exact replay through White25.Nxf5. Black queen c5 can immediately recapture the knight f5 for3 without a legal recapture, White mate, or another negative material branch. Qxf2 is also a free capture but only a pawn1; h5 is quiet. Accept every tie for the highest safe immediate captured-piece value, not a professional long-term favorite.",
+      "expectedMoveIds": [
+        "c5f5"
+      ],
+      "partition": "calibration",
+      "legal": true,
+      "passed": false,
+      "signal": null,
+      "index": 12,
+      "total": 24,
+      "seconds": 1.3841999999284744,
+      "choices": [
+        {
+          "id": "c5b4",
+          "outcome": "c5b4 | queen c5-b4 | DANGER TO BLACK: after this move White pawn (1) on c3 can take Black queen (9) on b4; possible immediate exchange net -9"
+        },
+        {
+          "id": "c5e5",
+          "outcome": "c5e5 | queen c5-e5 | DANGER TO BLACK: after this move White bishop (3) on b8 can take Black queen (9) on e5; possible immediate exchange net -9; Black also threatens White bishop (3) on b8 on the unchanged board; White moves next"
+        },
+        {
+          "id": "e8d8",
+          "outcome": "e8d8 | king e8-d8 | ORDINARY MOVE"
+        },
+        {
+          "id": "c5d5",
+          "outcome": "c5d5 | queen c5-d5 | CHECK"
+        },
+        {
+          "id": "g7g5",
+          "outcome": "g7g5 | pawn g7-g5 | ORDINARY MOVE"
+        },
+        {
+          "id": "h7h5",
+          "outcome": "h7h5 | pawn h7-h5 | ORDINARY MOVE"
+        },
+        {
+          "id": "e7e5",
+          "outcome": "e7e5 | pawn e7-e5 | PAWN ADVANCES ON CENTRAL FILE"
+        },
+        {
+          "id": "c5d4",
+          "outcome": "c5d4 | queen c5-d4 | CHECK; DANGER TO BLACK: after this move White knight (3) on f5 can take Black queen (9) on d4; possible immediate exchange net -9"
+        },
+        {
+          "id": "h7h6",
+          "outcome": "h7h6 | pawn h7-h6 | COMPENSATING RECAPTURE AVAILABLE"
+        },
+        {
+          "id": "c5a5",
+          "outcome": "c5a5 | queen c5-a5 | DANGER TO BLACK: after this move White rook (5) on a2 can take Black queen (9) on a5; possible immediate exchange net -4; Black also threatens White rook (5) on a2 on the unchanged board; White moves next"
+        },
+        {
+          "id": "g7g6",
+          "outcome": "g7g6 | pawn g7-g6 | COMPENSATING RECAPTURE AVAILABLE"
+        },
+        {
+          "id": "b6b5",
+          "outcome": "b6b5 | pawn b6-b5 | ORDINARY MOVE"
+        },
+        {
+          "id": "c5f2",
+          "outcome": "c5f2 | queen c5-f2 | CAPTURES pawn (1); MOVED PIECE CANNOT BE LEGALLY RECAPTURED NEXT TURN; CHECK"
+        },
+        {
+          "id": "e8d7",
+          "outcome": "e8d7 | king e8-d7 | ORDINARY MOVE"
+        },
+        {
+          "id": "c5d6",
+          "outcome": "c5d6 | queen c5-d6 | CHECK; DANGER TO BLACK: after this move White bishop (3) on b8 can take Black queen (9) on d6; possible immediate exchange net -6; Black also threatens White bishop (3) on b8 on the unchanged board; White moves next"
+        },
+        {
+          "id": "c5c3",
+          "outcome": "c5c3 | queen c5-c3 | CAPTURES pawn (1); CHECK; DANGER TO BLACK: after this move White king (royal) on d2 can take Black queen (9) on c3; possible immediate exchange net -8; Black also threatens White pawn (1) on g3 on the unchanged board; White moves next"
+        },
+        {
+          "id": "g8f6",
+          "outcome": "g8f6 | knight g8-f6 | KNIGHT LEAVES HOME SQUARE"
+        },
+        {
+          "id": "c5f5",
+          "outcome": "c5f5 | queen c5-f5 | CAPTURES knight (3); MOVED PIECE CANNOT BE LEGALLY RECAPTURED NEXT TURN"
+        },
+        {
+          "id": "c5b5",
+          "outcome": "c5b5 | queen c5-b5 | ORDINARY MOVE"
+        },
+        {
+          "id": "g8h6",
+          "outcome": "g8h6 | knight g8-h6 | KNIGHT LEAVES HOME SQUARE"
+        },
+        {
+          "id": "c5a3",
+          "outcome": "c5a3 | queen c5-a3 | DANGER TO BLACK: after this move White rook (5) on a2 can take Black queen (9) on a3; possible immediate exchange net -9; Black also threatens White rook (5) on a2 on the unchanged board; White moves next"
+        },
+        {
+          "id": "c5e3",
+          "outcome": "c5e3 | queen c5-e3 | CHECK; DANGER TO BLACK: after this move White knight (3) on f5 can take Black queen (9) on e3; possible immediate exchange net -9; Black also threatens White pawn (1) on g3 on the unchanged board; White moves next"
+        },
+        {
+          "id": "e7e6",
+          "outcome": "e7e6 | pawn e7-e6 | PAWN ADVANCES ON CENTRAL FILE"
+        },
+        {
+          "id": "c5c4",
+          "outcome": "c5c4 | queen c5-c4 | ORDINARY MOVE"
+        }
+      ],
+      "thinkingChars": 0,
+      "reasoningText": "",
+      "condition": "Source: same user-provided game as observed-free-bishop-before-a4, extended legally to49plies through White25.Nxf5. Actual Black25...h5 missed the available Qxf5 recapture.",
+      "prompt": "Black to move. Play a fun, sensible casual game. Choose one legal card.\nPriorities: CHECKMATE now; prevent White's mate and answer check; save a threatened queen or take a free queen; take a safe material gain, preferring a larger gain over a smaller gain or a quiet move; otherwise CASTLE when listed; otherwise develop a knight/bishop or advance a central pawn.\nA check alone is not a reason to move. Consider conditional exchange losses before taking material. Protection is not immunity. Pawn 1, knight/bishop 3, rook 5, queen 9.\nBlack pieces (you):\nKing: e8\nQueens: c5\nRooks: none\nBishops: f8\nKnights: g8\nPawns: e7, g7, h7, b6, c6\nWhite pieces (opponent):\nKing: d2\nQueens: none\nRooks: a2, h1\nBishops: b8\nKnights: h8, f5\nPawns: c3, g3, f2, h2\nBlack in check: no.\nCurrent White capture possibilities on the unchanged board:\nBlack pawn (1) on e7 can be captured by White knight (3) on f5.\nBlack pawn (1) on g7 can be captured by White knight (3) on f5.\nLegal CASTLE IDs now: none.\nRecent 8 moves (oldest first):\nBlack: Qb1+ (c2b1)\nWhite: Kd2 (e1d2)\nBlack: Qb5 (b1b5)\nWhite: Qf5 (f3f5)\nBlack: Bxf5 (c8f5)\nWhite: Nd4 (e2d4)\nBlack: Qc5 (b5c5)\nWhite: Nxf5 (d4f5)\nHOW TO READ THE CARDS:\nThe board above is the position now. Each card describes a separate possible position after only that Black move. Its DANGER and exchange facts apply only to that move; destinations and threats from different cards do not occur together. CHECK on a card means that move checks White. Black in check above describes now.\nALL LEGAL CARDS (random order, no ranking):\nc5b4 | queen c5-b4 | DANGER TO BLACK: after this move White pawn (1) on c3 can take Black queen (9) on b4; possible immediate exchange net -9\nc5e5 | queen c5-e5 | DANGER TO BLACK: after this move White bishop (3) on b8 can take Black queen (9) on e5; possible immediate exchange net -9; Black also threatens White bishop (3) on b8 on the unchanged board; White moves next\ne8d8 | king e8-d8 | ORDINARY MOVE\nc5d5 | queen c5-d5 | CHECK\ng7g5 | pawn g7-g5 | ORDINARY MOVE\nh7h5 | pawn h7-h5 | ORDINARY MOVE\ne7e5 | pawn e7-e5 | PAWN ADVANCES ON CENTRAL FILE\nc5d4 | queen c5-d4 | CHECK; DANGER TO BLACK: after this move White knight (3) on f5 can take Black queen (9) on d4; possible immediate exchange net -9\nh7h6 | pawn h7-h6 | COMPENSATING RECAPTURE AVAILABLE\nc5a5 | queen c5-a5 | DANGER TO BLACK: after this move White rook (5) on a2 can take Black queen (9) on a5; possible immediate exchange net -4; Black also threatens White rook (5) on a2 on the unchanged board; White moves next\ng7g6 | pawn g7-g6 | COMPENSATING RECAPTURE AVAILABLE\nb6b5 | pawn b6-b5 | ORDINARY MOVE\nc5f2 | queen c5-f2 | CAPTURES pawn (1); MOVED PIECE CANNOT BE LEGALLY RECAPTURED NEXT TURN; CHECK\ne8d7 | king e8-d7 | ORDINARY MOVE\nc5d6 | queen c5-d6 | CHECK; DANGER TO BLACK: after this move White bishop (3) on b8 can take Black queen (9) on d6; possible immediate exchange net -6; Black also threatens White bishop (3) on b8 on the unchanged board; White moves next\nc5c3 | queen c5-c3 | CAPTURES pawn (1); CHECK; DANGER TO BLACK: after this move White king (royal) on d2 can take Black queen (9) on c3; possible immediate exchange net -8; Black also threatens White pawn (1) on g3 on the unchanged board; White moves next\ng8f6 | knight g8-f6 | KNIGHT LEAVES HOME SQUARE\nc5f5 | queen c5-f5 | CAPTURES knight (3); MOVED PIECE CANNOT BE LEGALLY RECAPTURED NEXT TURN\nc5b5 | queen c5-b5 | ORDINARY MOVE\ng8h6 | knight g8-h6 | KNIGHT LEAVES HOME SQUARE\nc5a3 | queen c5-a3 | DANGER TO BLACK: after this move White rook (5) on a2 can take Black queen (9) on a3; possible immediate exchange net -9; Black also threatens White rook (5) on a2 on the unchanged board; White moves next\nc5e3 | queen c5-e3 | CHECK; DANGER TO BLACK: after this move White knight (3) on f5 can take Black queen (9) on e3; possible immediate exchange net -9; Black also threatens White pawn (1) on g3 on the unchanged board; White moves next\ne7e6 | pawn e7-e6 | PAWN ADVANCES ON CENTRAL FILE\nc5c4 | queen c5-c4 | ORDINARY MOVE\nAVAILABLE IMMEDIATE OPPORTUNITIES:\nAvailable captures with no immediate legal recapture of the moved piece: c5f2 captures pawn (1); c5f5 captures knight (3). Checked replies show no net material loss or White mate in one.\nURGENT POSITION FACTS:\nMATERIAL-SAFE CHOICES FOR THE NEXT TURN: e8d8, c5d5, g7g5, h7h5, e7e5, h7h6, g7g6, b6b5, c5f2, e8d7, g8f6, c5f5, c5b5, g8h6, e7e6, c5c4. No checked immediate capture exchange loses Black material; White has no mate in one.\nURGENT RESPONSE PRIORITY:\nAfter addressing the king and any attacked queen, prefer a MATERIAL-SAFE choice. When there is no urgent threat, castle if a listed castle is MATERIAL-SAFE.\nAfter addressing the king and any attacked queen, prefer a larger safe capture over a smaller capture or an ordinary castling/development move.\nReturn exactly one JSON object: key moveId, value the chosen legal ID. Stop after its closing brace.",
+      "systemPrompt": "Play Black using the supplied chess facts. Take immediate mate first; otherwise prevent mate and protect an attacked queen. Next, choose a larger safe material gain over a smaller gain or a quiet move: a safe knight or bishop gain (3) outweighs a pawn gain (1). A check alone earns no bonus. Castle or develop when no better immediate gain exists. The schema lists every legal move; neither enum order nor card order recommends a move.",
+      "rawAnswer": "c5f2",
+      "moveId": "c5f2"
+    },
+    {
+      "trial": 3,
+      "repetition": 3,
+      "caseId": "observed-free-knight-after-nxf5",
+      "label": "Observed game: recapture the knight after Nxf5",
+      "fen": "1B2kbnN/4p1pp/1pp5/2q2N2/8/2P3P1/R2K1P1P/7R b - - 0 25",
+      "objective": "Exact replay through White25.Nxf5. Black queen c5 can immediately recapture the knight f5 for3 without a legal recapture, White mate, or another negative material branch. Qxf2 is also a free capture but only a pawn1; h5 is quiet. Accept every tie for the highest safe immediate captured-piece value, not a professional long-term favorite.",
+      "expectedMoveIds": [
+        "c5f5"
+      ],
+      "partition": "calibration",
+      "legal": true,
+      "passed": false,
+      "signal": null,
+      "index": 0,
+      "total": 24,
+      "seconds": 1.341600000023842,
+      "choices": [
+        {
+          "id": "g8f6",
+          "outcome": "g8f6 | knight g8-f6 | KNIGHT LEAVES HOME SQUARE"
+        },
+        {
+          "id": "c5b4",
+          "outcome": "c5b4 | queen c5-b4 | DANGER TO BLACK: after this move White pawn (1) on c3 can take Black queen (9) on b4; possible immediate exchange net -9"
+        },
+        {
+          "id": "g7g5",
+          "outcome": "g7g5 | pawn g7-g5 | ORDINARY MOVE"
+        },
+        {
+          "id": "c5a5",
+          "outcome": "c5a5 | queen c5-a5 | DANGER TO BLACK: after this move White rook (5) on a2 can take Black queen (9) on a5; possible immediate exchange net -4; Black also threatens White rook (5) on a2 on the unchanged board; White moves next"
+        },
+        {
+          "id": "e7e5",
+          "outcome": "e7e5 | pawn e7-e5 | PAWN ADVANCES ON CENTRAL FILE"
+        },
+        {
+          "id": "c5b5",
+          "outcome": "c5b5 | queen c5-b5 | ORDINARY MOVE"
+        },
+        {
+          "id": "c5c3",
+          "outcome": "c5c3 | queen c5-c3 | CAPTURES pawn (1); CHECK; DANGER TO BLACK: after this move White king (royal) on d2 can take Black queen (9) on c3; possible immediate exchange net -8; Black also threatens White pawn (1) on g3 on the unchanged board; White moves next"
+        },
+        {
+          "id": "c5d5",
+          "outcome": "c5d5 | queen c5-d5 | CHECK"
+        },
+        {
+          "id": "c5e3",
+          "outcome": "c5e3 | queen c5-e3 | CHECK; DANGER TO BLACK: after this move White knight (3) on f5 can take Black queen (9) on e3; possible immediate exchange net -9; Black also threatens White pawn (1) on g3 on the unchanged board; White moves next"
+        },
+        {
+          "id": "e7e6",
+          "outcome": "e7e6 | pawn e7-e6 | PAWN ADVANCES ON CENTRAL FILE"
+        },
+        {
+          "id": "c5a3",
+          "outcome": "c5a3 | queen c5-a3 | DANGER TO BLACK: after this move White rook (5) on a2 can take Black queen (9) on a3; possible immediate exchange net -9; Black also threatens White rook (5) on a2 on the unchanged board; White moves next"
+        },
+        {
+          "id": "e8d8",
+          "outcome": "e8d8 | king e8-d8 | ORDINARY MOVE"
+        },
+        {
+          "id": "h7h5",
+          "outcome": "h7h5 | pawn h7-h5 | ORDINARY MOVE"
+        },
+        {
+          "id": "c5f5",
+          "outcome": "c5f5 | queen c5-f5 | CAPTURES knight (3); MOVED PIECE CANNOT BE LEGALLY RECAPTURED NEXT TURN"
+        },
+        {
+          "id": "e8d7",
+          "outcome": "e8d7 | king e8-d7 | ORDINARY MOVE"
+        },
+        {
+          "id": "c5c4",
+          "outcome": "c5c4 | queen c5-c4 | ORDINARY MOVE"
+        },
+        {
+          "id": "c5d6",
+          "outcome": "c5d6 | queen c5-d6 | CHECK; DANGER TO BLACK: after this move White bishop (3) on b8 can take Black queen (9) on d6; possible immediate exchange net -6; Black also threatens White bishop (3) on b8 on the unchanged board; White moves next"
+        },
+        {
+          "id": "g7g6",
+          "outcome": "g7g6 | pawn g7-g6 | COMPENSATING RECAPTURE AVAILABLE"
+        },
+        {
+          "id": "h7h6",
+          "outcome": "h7h6 | pawn h7-h6 | COMPENSATING RECAPTURE AVAILABLE"
+        },
+        {
+          "id": "g8h6",
+          "outcome": "g8h6 | knight g8-h6 | KNIGHT LEAVES HOME SQUARE"
+        },
+        {
+          "id": "c5e5",
+          "outcome": "c5e5 | queen c5-e5 | DANGER TO BLACK: after this move White bishop (3) on b8 can take Black queen (9) on e5; possible immediate exchange net -9; Black also threatens White bishop (3) on b8 on the unchanged board; White moves next"
+        },
+        {
+          "id": "b6b5",
+          "outcome": "b6b5 | pawn b6-b5 | ORDINARY MOVE"
+        },
+        {
+          "id": "c5d4",
+          "outcome": "c5d4 | queen c5-d4 | CHECK; DANGER TO BLACK: after this move White knight (3) on f5 can take Black queen (9) on d4; possible immediate exchange net -9"
+        },
+        {
+          "id": "c5f2",
+          "outcome": "c5f2 | queen c5-f2 | CAPTURES pawn (1); MOVED PIECE CANNOT BE LEGALLY RECAPTURED NEXT TURN; CHECK"
+        }
+      ],
+      "thinkingChars": 0,
+      "reasoningText": "",
+      "condition": "Source: same user-provided game as observed-free-bishop-before-a4, extended legally to49plies through White25.Nxf5. Actual Black25...h5 missed the available Qxf5 recapture.",
+      "prompt": "Black to move. Play a fun, sensible casual game. Choose one legal card.\nPriorities: CHECKMATE now; prevent White's mate and answer check; save a threatened queen or take a free queen; take a safe material gain, preferring a larger gain over a smaller gain or a quiet move; otherwise CASTLE when listed; otherwise develop a knight/bishop or advance a central pawn.\nA check alone is not a reason to move. Consider conditional exchange losses before taking material. Protection is not immunity. Pawn 1, knight/bishop 3, rook 5, queen 9.\nBlack pieces (you):\nKing: e8\nQueens: c5\nRooks: none\nBishops: f8\nKnights: g8\nPawns: e7, g7, h7, b6, c6\nWhite pieces (opponent):\nKing: d2\nQueens: none\nRooks: a2, h1\nBishops: b8\nKnights: h8, f5\nPawns: c3, g3, f2, h2\nBlack in check: no.\nCurrent White capture possibilities on the unchanged board:\nBlack pawn (1) on e7 can be captured by White knight (3) on f5.\nBlack pawn (1) on g7 can be captured by White knight (3) on f5.\nLegal CASTLE IDs now: none.\nRecent 8 moves (oldest first):\nBlack: Qb1+ (c2b1)\nWhite: Kd2 (e1d2)\nBlack: Qb5 (b1b5)\nWhite: Qf5 (f3f5)\nBlack: Bxf5 (c8f5)\nWhite: Nd4 (e2d4)\nBlack: Qc5 (b5c5)\nWhite: Nxf5 (d4f5)\nHOW TO READ THE CARDS:\nThe board above is the position now. Each card describes a separate possible position after only that Black move. Its DANGER and exchange facts apply only to that move; destinations and threats from different cards do not occur together. CHECK on a card means that move checks White. Black in check above describes now.\nALL LEGAL CARDS (random order, no ranking):\ng8f6 | knight g8-f6 | KNIGHT LEAVES HOME SQUARE\nc5b4 | queen c5-b4 | DANGER TO BLACK: after this move White pawn (1) on c3 can take Black queen (9) on b4; possible immediate exchange net -9\ng7g5 | pawn g7-g5 | ORDINARY MOVE\nc5a5 | queen c5-a5 | DANGER TO BLACK: after this move White rook (5) on a2 can take Black queen (9) on a5; possible immediate exchange net -4; Black also threatens White rook (5) on a2 on the unchanged board; White moves next\ne7e5 | pawn e7-e5 | PAWN ADVANCES ON CENTRAL FILE\nc5b5 | queen c5-b5 | ORDINARY MOVE\nc5c3 | queen c5-c3 | CAPTURES pawn (1); CHECK; DANGER TO BLACK: after this move White king (royal) on d2 can take Black queen (9) on c3; possible immediate exchange net -8; Black also threatens White pawn (1) on g3 on the unchanged board; White moves next\nc5d5 | queen c5-d5 | CHECK\nc5e3 | queen c5-e3 | CHECK; DANGER TO BLACK: after this move White knight (3) on f5 can take Black queen (9) on e3; possible immediate exchange net -9; Black also threatens White pawn (1) on g3 on the unchanged board; White moves next\ne7e6 | pawn e7-e6 | PAWN ADVANCES ON CENTRAL FILE\nc5a3 | queen c5-a3 | DANGER TO BLACK: after this move White rook (5) on a2 can take Black queen (9) on a3; possible immediate exchange net -9; Black also threatens White rook (5) on a2 on the unchanged board; White moves next\ne8d8 | king e8-d8 | ORDINARY MOVE\nh7h5 | pawn h7-h5 | ORDINARY MOVE\nc5f5 | queen c5-f5 | CAPTURES knight (3); MOVED PIECE CANNOT BE LEGALLY RECAPTURED NEXT TURN\ne8d7 | king e8-d7 | ORDINARY MOVE\nc5c4 | queen c5-c4 | ORDINARY MOVE\nc5d6 | queen c5-d6 | CHECK; DANGER TO BLACK: after this move White bishop (3) on b8 can take Black queen (9) on d6; possible immediate exchange net -6; Black also threatens White bishop (3) on b8 on the unchanged board; White moves next\ng7g6 | pawn g7-g6 | COMPENSATING RECAPTURE AVAILABLE\nh7h6 | pawn h7-h6 | COMPENSATING RECAPTURE AVAILABLE\ng8h6 | knight g8-h6 | KNIGHT LEAVES HOME SQUARE\nc5e5 | queen c5-e5 | DANGER TO BLACK: after this move White bishop (3) on b8 can take Black queen (9) on e5; possible immediate exchange net -9; Black also threatens White bishop (3) on b8 on the unchanged board; White moves next\nb6b5 | pawn b6-b5 | ORDINARY MOVE\nc5d4 | queen c5-d4 | CHECK; DANGER TO BLACK: after this move White knight (3) on f5 can take Black queen (9) on d4; possible immediate exchange net -9\nc5f2 | queen c5-f2 | CAPTURES pawn (1); MOVED PIECE CANNOT BE LEGALLY RECAPTURED NEXT TURN; CHECK\nAVAILABLE IMMEDIATE OPPORTUNITIES:\nAvailable captures with no immediate legal recapture of the moved piece: c5f5 captures knight (3); c5f2 captures pawn (1). Checked replies show no net material loss or White mate in one.\nURGENT POSITION FACTS:\nMATERIAL-SAFE CHOICES FOR THE NEXT TURN: g8f6, g7g5, e7e5, c5b5, c5d5, e7e6, e8d8, h7h5, c5f5, e8d7, c5c4, g7g6, h7h6, g8h6, b6b5, c5f2. No checked immediate capture exchange loses Black material; White has no mate in one.\nURGENT RESPONSE PRIORITY:\nAfter addressing the king and any attacked queen, prefer a MATERIAL-SAFE choice. When there is no urgent threat, castle if a listed castle is MATERIAL-SAFE.\nAfter addressing the king and any attacked queen, prefer a larger safe capture over a smaller capture or an ordinary castling/development move.\nReturn exactly one JSON object: key moveId, value the chosen legal ID. Stop after its closing brace.",
+      "systemPrompt": "Play Black using the supplied chess facts. Take immediate mate first; otherwise prevent mate and protect an attacked queen. Next, choose a larger safe material gain over a smaller gain or a quiet move: a safe knight or bishop gain (3) outweighs a pawn gain (1). A check alone earns no bonus. Castle or develop when no better immediate gain exists. The schema lists every legal move; neither enum order nor card order recommends a move.",
+      "rawAnswer": "g8f6",
+      "moveId": "g8f6"
+    },
+    {
+      "trial": 4,
+      "repetition": 4,
+      "caseId": "observed-free-knight-after-nxf5",
+      "label": "Observed game: recapture the knight after Nxf5",
+      "fen": "1B2kbnN/4p1pp/1pp5/2q2N2/8/2P3P1/R2K1P1P/7R b - - 0 25",
+      "objective": "Exact replay through White25.Nxf5. Black queen c5 can immediately recapture the knight f5 for3 without a legal recapture, White mate, or another negative material branch. Qxf2 is also a free capture but only a pawn1; h5 is quiet. Accept every tie for the highest safe immediate captured-piece value, not a professional long-term favorite.",
+      "expectedMoveIds": [
+        "c5f5"
+      ],
+      "partition": "calibration",
+      "legal": true,
+      "passed": false,
+      "signal": null,
+      "index": 7,
+      "total": 24,
+      "seconds": 1.3663000000715255,
+      "choices": [
+        {
+          "id": "e8d8",
+          "outcome": "e8d8 | king e8-d8 | ORDINARY MOVE"
+        },
+        {
+          "id": "c5a5",
+          "outcome": "c5a5 | queen c5-a5 | DANGER TO BLACK: after this move White rook (5) on a2 can take Black queen (9) on a5; possible immediate exchange net -4; Black also threatens White rook (5) on a2 on the unchanged board; White moves next"
+        },
+        {
+          "id": "e8d7",
+          "outcome": "e8d7 | king e8-d7 | ORDINARY MOVE"
+        },
+        {
+          "id": "c5b4",
+          "outcome": "c5b4 | queen c5-b4 | DANGER TO BLACK: after this move White pawn (1) on c3 can take Black queen (9) on b4; possible immediate exchange net -9"
+        },
+        {
+          "id": "e7e5",
+          "outcome": "e7e5 | pawn e7-e5 | PAWN ADVANCES ON CENTRAL FILE"
+        },
+        {
+          "id": "g7g6",
+          "outcome": "g7g6 | pawn g7-g6 | COMPENSATING RECAPTURE AVAILABLE"
+        },
+        {
+          "id": "c5d5",
+          "outcome": "c5d5 | queen c5-d5 | CHECK"
+        },
+        {
+          "id": "c5f2",
+          "outcome": "c5f2 | queen c5-f2 | CAPTURES pawn (1); MOVED PIECE CANNOT BE LEGALLY RECAPTURED NEXT TURN; CHECK"
+        },
+        {
+          "id": "e7e6",
+          "outcome": "e7e6 | pawn e7-e6 | PAWN ADVANCES ON CENTRAL FILE"
+        },
+        {
+          "id": "c5d4",
+          "outcome": "c5d4 | queen c5-d4 | CHECK; DANGER TO BLACK: after this move White knight (3) on f5 can take Black queen (9) on d4; possible immediate exchange net -9"
+        },
+        {
+          "id": "c5d6",
+          "outcome": "c5d6 | queen c5-d6 | CHECK; DANGER TO BLACK: after this move White bishop (3) on b8 can take Black queen (9) on d6; possible immediate exchange net -6; Black also threatens White bishop (3) on b8 on the unchanged board; White moves next"
+        },
+        {
+          "id": "g7g5",
+          "outcome": "g7g5 | pawn g7-g5 | ORDINARY MOVE"
+        },
+        {
+          "id": "c5e5",
+          "outcome": "c5e5 | queen c5-e5 | DANGER TO BLACK: after this move White bishop (3) on b8 can take Black queen (9) on e5; possible immediate exchange net -9; Black also threatens White bishop (3) on b8 on the unchanged board; White moves next"
+        },
+        {
+          "id": "g8h6",
+          "outcome": "g8h6 | knight g8-h6 | KNIGHT LEAVES HOME SQUARE"
+        },
+        {
+          "id": "b6b5",
+          "outcome": "b6b5 | pawn b6-b5 | ORDINARY MOVE"
+        },
+        {
+          "id": "h7h6",
+          "outcome": "h7h6 | pawn h7-h6 | COMPENSATING RECAPTURE AVAILABLE"
+        },
+        {
+          "id": "c5a3",
+          "outcome": "c5a3 | queen c5-a3 | DANGER TO BLACK: after this move White rook (5) on a2 can take Black queen (9) on a3; possible immediate exchange net -9; Black also threatens White rook (5) on a2 on the unchanged board; White moves next"
+        },
+        {
+          "id": "h7h5",
+          "outcome": "h7h5 | pawn h7-h5 | ORDINARY MOVE"
+        },
+        {
+          "id": "c5c3",
+          "outcome": "c5c3 | queen c5-c3 | CAPTURES pawn (1); CHECK; DANGER TO BLACK: after this move White king (royal) on d2 can take Black queen (9) on c3; possible immediate exchange net -8; Black also threatens White pawn (1) on g3 on the unchanged board; White moves next"
+        },
+        {
+          "id": "c5f5",
+          "outcome": "c5f5 | queen c5-f5 | CAPTURES knight (3); MOVED PIECE CANNOT BE LEGALLY RECAPTURED NEXT TURN"
+        },
+        {
+          "id": "g8f6",
+          "outcome": "g8f6 | knight g8-f6 | KNIGHT LEAVES HOME SQUARE"
+        },
+        {
+          "id": "c5c4",
+          "outcome": "c5c4 | queen c5-c4 | ORDINARY MOVE"
+        },
+        {
+          "id": "c5e3",
+          "outcome": "c5e3 | queen c5-e3 | CHECK; DANGER TO BLACK: after this move White knight (3) on f5 can take Black queen (9) on e3; possible immediate exchange net -9; Black also threatens White pawn (1) on g3 on the unchanged board; White moves next"
+        },
+        {
+          "id": "c5b5",
+          "outcome": "c5b5 | queen c5-b5 | ORDINARY MOVE"
+        }
+      ],
+      "thinkingChars": 0,
+      "reasoningText": "",
+      "condition": "Source: same user-provided game as observed-free-bishop-before-a4, extended legally to49plies through White25.Nxf5. Actual Black25...h5 missed the available Qxf5 recapture.",
+      "prompt": "Black to move. Play a fun, sensible casual game. Choose one legal card.\nPriorities: CHECKMATE now; prevent White's mate and answer check; save a threatened queen or take a free queen; take a safe material gain, preferring a larger gain over a smaller gain or a quiet move; otherwise CASTLE when listed; otherwise develop a knight/bishop or advance a central pawn.\nA check alone is not a reason to move. Consider conditional exchange losses before taking material. Protection is not immunity. Pawn 1, knight/bishop 3, rook 5, queen 9.\nBlack pieces (you):\nKing: e8\nQueens: c5\nRooks: none\nBishops: f8\nKnights: g8\nPawns: e7, g7, h7, b6, c6\nWhite pieces (opponent):\nKing: d2\nQueens: none\nRooks: a2, h1\nBishops: b8\nKnights: h8, f5\nPawns: c3, g3, f2, h2\nBlack in check: no.\nCurrent White capture possibilities on the unchanged board:\nBlack pawn (1) on e7 can be captured by White knight (3) on f5.\nBlack pawn (1) on g7 can be captured by White knight (3) on f5.\nLegal CASTLE IDs now: none.\nRecent 8 moves (oldest first):\nBlack: Qb1+ (c2b1)\nWhite: Kd2 (e1d2)\nBlack: Qb5 (b1b5)\nWhite: Qf5 (f3f5)\nBlack: Bxf5 (c8f5)\nWhite: Nd4 (e2d4)\nBlack: Qc5 (b5c5)\nWhite: Nxf5 (d4f5)\nHOW TO READ THE CARDS:\nThe board above is the position now. Each card describes a separate possible position after only that Black move. Its DANGER and exchange facts apply only to that move; destinations and threats from different cards do not occur together. CHECK on a card means that move checks White. Black in check above describes now.\nALL LEGAL CARDS (random order, no ranking):\ne8d8 | king e8-d8 | ORDINARY MOVE\nc5a5 | queen c5-a5 | DANGER TO BLACK: after this move White rook (5) on a2 can take Black queen (9) on a5; possible immediate exchange net -4; Black also threatens White rook (5) on a2 on the unchanged board; White moves next\ne8d7 | king e8-d7 | ORDINARY MOVE\nc5b4 | queen c5-b4 | DANGER TO BLACK: after this move White pawn (1) on c3 can take Black queen (9) on b4; possible immediate exchange net -9\ne7e5 | pawn e7-e5 | PAWN ADVANCES ON CENTRAL FILE\ng7g6 | pawn g7-g6 | COMPENSATING RECAPTURE AVAILABLE\nc5d5 | queen c5-d5 | CHECK\nc5f2 | queen c5-f2 | CAPTURES pawn (1); MOVED PIECE CANNOT BE LEGALLY RECAPTURED NEXT TURN; CHECK\ne7e6 | pawn e7-e6 | PAWN ADVANCES ON CENTRAL FILE\nc5d4 | queen c5-d4 | CHECK; DANGER TO BLACK: after this move White knight (3) on f5 can take Black queen (9) on d4; possible immediate exchange net -9\nc5d6 | queen c5-d6 | CHECK; DANGER TO BLACK: after this move White bishop (3) on b8 can take Black queen (9) on d6; possible immediate exchange net -6; Black also threatens White bishop (3) on b8 on the unchanged board; White moves next\ng7g5 | pawn g7-g5 | ORDINARY MOVE\nc5e5 | queen c5-e5 | DANGER TO BLACK: after this move White bishop (3) on b8 can take Black queen (9) on e5; possible immediate exchange net -9; Black also threatens White bishop (3) on b8 on the unchanged board; White moves next\ng8h6 | knight g8-h6 | KNIGHT LEAVES HOME SQUARE\nb6b5 | pawn b6-b5 | ORDINARY MOVE\nh7h6 | pawn h7-h6 | COMPENSATING RECAPTURE AVAILABLE\nc5a3 | queen c5-a3 | DANGER TO BLACK: after this move White rook (5) on a2 can take Black queen (9) on a3; possible immediate exchange net -9; Black also threatens White rook (5) on a2 on the unchanged board; White moves next\nh7h5 | pawn h7-h5 | ORDINARY MOVE\nc5c3 | queen c5-c3 | CAPTURES pawn (1); CHECK; DANGER TO BLACK: after this move White king (royal) on d2 can take Black queen (9) on c3; possible immediate exchange net -8; Black also threatens White pawn (1) on g3 on the unchanged board; White moves next\nc5f5 | queen c5-f5 | CAPTURES knight (3); MOVED PIECE CANNOT BE LEGALLY RECAPTURED NEXT TURN\ng8f6 | knight g8-f6 | KNIGHT LEAVES HOME SQUARE\nc5c4 | queen c5-c4 | ORDINARY MOVE\nc5e3 | queen c5-e3 | CHECK; DANGER TO BLACK: after this move White knight (3) on f5 can take Black queen (9) on e3; possible immediate exchange net -9; Black also threatens White pawn (1) on g3 on the unchanged board; White moves next\nc5b5 | queen c5-b5 | ORDINARY MOVE\nAVAILABLE IMMEDIATE OPPORTUNITIES:\nAvailable captures with no immediate legal recapture of the moved piece: c5f2 captures pawn (1); c5f5 captures knight (3). Checked replies show no net material loss or White mate in one.\nURGENT POSITION FACTS:\nMATERIAL-SAFE CHOICES FOR THE NEXT TURN: e8d8, e8d7, e7e5, g7g6, c5d5, c5f2, e7e6, g7g5, g8h6, b6b5, h7h6, h7h5, c5f5, g8f6, c5c4, c5b5. No checked immediate capture exchange loses Black material; White has no mate in one.\nURGENT RESPONSE PRIORITY:\nAfter addressing the king and any attacked queen, prefer a MATERIAL-SAFE choice. When there is no urgent threat, castle if a listed castle is MATERIAL-SAFE.\nAfter addressing the king and any attacked queen, prefer a larger safe capture over a smaller capture or an ordinary castling/development move.\nReturn exactly one JSON object: key moveId, value the chosen legal ID. Stop after its closing brace.",
+      "systemPrompt": "Play Black using the supplied chess facts. Take immediate mate first; otherwise prevent mate and protect an attacked queen. Next, choose a larger safe material gain over a smaller gain or a quiet move: a safe knight or bishop gain (3) outweighs a pawn gain (1). A check alone earns no bonus. Castle or develop when no better immediate gain exists. The schema lists every legal move; neither enum order nor card order recommends a move.",
+      "rawAnswer": "c5f2",
+      "moveId": "c5f2"
+    }
+  ],
+  "summary": {
+    "total": 4,
+    "legal": 4,
+    "passed": 0,
+    "scored": 4,
+    "firstOption": 2,
+    "medianSeconds": 1.3752499999999999
+  }
+}

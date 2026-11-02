@@ -13,6 +13,9 @@ type Objective =
   | "safe-play"
   | "major-safety"
   | "material-safety"
+  | "safe-capture-value"
+  | "capture-opportunity"
+  | "promotion-safety"
 type Square = Parameters<Chess["get"]>[0]
 type Color = ReturnType<Chess["turn"]>
 type AuditRow = {
@@ -42,7 +45,12 @@ const objectives: Record<string, Objective> = {
   "calibration-exposure-rook-queen": "major-safety",
   "calibration-exposure-defender-withdrawal": "major-safety",
   "calibration-knight-pawn-exchange": "material-safety",
-  "observed-ne2-knight-loss": "material-safety"
+  "observed-ne2-knight-loss": "material-safety",
+  "observed-free-bishop-before-a4": "safe-capture-value",
+  "observed-free-knight-after-nxf5": "capture-opportunity",
+  "observed-free-pawn-on-h7": "promotion-safety",
+  "observed-phone-queen-check-loss": "material-safety",
+  "observed-free-bishop-on-a6": "safe-capture-value"
 }
 const naturalHistories: Record<string, string[]> = {
   opening: ["e2e4"],
@@ -134,7 +142,95 @@ function avoidsConditionalMaterialLoss(
   })
 }
 
+function safeImmediateCaptures(legal: Move[]): Move[] {
+  return legal.filter(
+    (move) =>
+      move.captured &&
+      moverIsSafe(move) &&
+      avoidsConditionalMaterialLoss(move, false)
+  )
+}
+/** A capture-check may win more on every legal evasion than a direct capture. */
+function hasForcingCaptureGain(move: Move, minimumGain: number): boolean {
+  if (
+    !move.captured ||
+    !new Chess(move.after).isCheck() ||
+    !avoidsConditionalMaterialLoss(move, false)
+  )
+    return false
+  const evasions = replies(move)
+  if (!evasions.length) return false
+  const baseline = materialBalance(move.before, move.color)
+  return evasions.every((evasion) =>
+    movesAt(evasion.after).some(
+      (followup) =>
+        followup.captured &&
+        moverIsSafe(followup) &&
+        avoidsConditionalMaterialLoss(followup, false) &&
+        materialBalance(followup.after, move.color) - baseline >= minimumGain
+    )
+  )
+}
+/** One White reply only: delaying by check is allowed, not a long-term guarantee. */
+function answersImmediatePromotion(move: Move): boolean {
+  if (!avoidsConditionalMaterialLoss(move, true)) return false
+  return replies(move)
+    .filter((reply) => reply.promotion)
+    .every((promotion) => {
+      const leaf = new Chess(promotion.after)
+      return (
+        !leaf.isGameOver() &&
+        leaf
+          .moves({ verbose: true })
+          .some(
+            (capture) =>
+              capture.captured && capturedSquare(capture) === promotion.to
+          )
+      )
+    })
+}
+
 function deriveObjective(objective: Objective, legal: Move[]): string[] {
+  if (objective === "promotion-safety")
+    return legal.filter(answersImmediatePromotion).map(idOf)
+  if (objective === "capture-opportunity") {
+    const captures = safeImmediateCaptures(legal)
+    const highestValue = Math.max(
+      0,
+      ...captures.map((move) =>
+        move.captured ? materialValues[move.captured] : 0
+      )
+    )
+    return legal
+      .filter(
+        (move) =>
+          (move.captured &&
+            materialValues[move.captured] === highestValue &&
+            captures.some((capture) => idOf(capture) === idOf(move))) ||
+          hasForcingCaptureGain(move, highestValue)
+      )
+      .map(idOf)
+  }
+  if (objective === "safe-capture-value") {
+    const safeCaptures = legal.filter(
+      (move) =>
+        move.captured &&
+        moverIsSafe(move) &&
+        avoidsConditionalMaterialLoss(move, false)
+    )
+    const highestValue = Math.max(
+      0,
+      ...safeCaptures.map((move) =>
+        move.captured ? materialValues[move.captured] : 0
+      )
+    )
+    return safeCaptures
+      .filter(
+        (move) =>
+          move.captured && materialValues[move.captured] === highestValue
+      )
+      .map(idOf)
+  }
   return legal
     .filter((move) => {
       if (objective === "major-safety" || objective === "material-safety")
@@ -184,14 +280,17 @@ function freeMajorCaptures(fen: string, color?: Color): string[] {
 
 function structuralAudit(test: BenchmarkCase, row: AuditRow) {
   const engine = new Chess(test.fen)
-  const board = engine.board().flat()
+  const board = engine
+    .board()
+    .flat()
+    .filter((piece) => piece !== null)
   for (const color of ["w", "b"] as const) {
     const own = board.filter((piece) => piece?.color === color)
     if (own.filter((piece) => piece?.type === "k").length !== 1)
       row.errors.push(`${color}: expected exactly one king`)
     const pawns = own.filter((piece) => piece?.type === "p")
     if (pawns.length > 8) row.errors.push(`${color}: too many pawns`)
-    if (pawns.some((piece) => /[18]$/.test(piece!.square)))
+    if (pawns.some((piece) => /[18]$/.test(piece.square)))
       row.errors.push(`${color}: pawn on promotion rank`)
     if (own.length > 16) row.errors.push(`${color}: more than sixteen pieces`)
     const baseline: Record<string, number> = { q: 1, r: 2, b: 2, n: 2 }
@@ -206,7 +305,7 @@ function structuralAudit(test: BenchmarkCase, row: AuditRow) {
   }
   const kings = board.filter((piece) => piece?.type === "k")
   if (kings.length === 2) {
-    const [first, second] = kings.map((piece) => piece!.square)
+    const [first, second] = kings.map((piece) => piece.square)
     if (
       Math.abs(first.charCodeAt(0) - second.charCodeAt(0)) <= 1 &&
       Math.abs(Number(first[1]) - Number(second[1])) <= 1
@@ -454,6 +553,10 @@ export function auditCases(cases: BenchmarkCase[] = CASES): AuditRow[] {
       )
         row.errors.push(
           "Broad castling objective does not accept an available castle"
+        )
+      if (objective === "safe-capture-value" && row.mates.length)
+        row.errors.push(
+          "Free-capture-value fixture has a competing immediate mate"
         )
       signalAudit(test, legal, row)
     } catch (error) {
