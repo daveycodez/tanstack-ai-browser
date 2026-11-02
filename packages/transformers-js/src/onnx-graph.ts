@@ -555,3 +555,947 @@ export function readQuantizedEmbedding(model: Uint8Array): QuantizedEmbedding | 
     ...(zeros?.external && { zeros: zeros.external })
   }
 }
+
+/**
+ * A node's subgraphs, by attribute name: AttributeProto `g` (6) and `graphs`
+ * (11), as If, Loop and Scan hold them.
+ */
+function subgraphs(node: Array<Field>) {
+  const out: Array<{ name: string; graph: Uint8Array }> = []
+  for (const a of node) {
+    if (a.field !== 5 || !a.bytes) continue
+    const attr = parse(a.bytes)
+    const name = firstString(attr, 1)
+    for (const f of attr) {
+      if ((f.field === 6 || f.field === 11) && f.bytes) out.push({ name, graph: f.bytes })
+    }
+  }
+  return out
+}
+
+/**
+ * Ops whose cost grows with their input's size alone (elementwise, casts,
+ * layout, reductions): on the CPU they take about as long as the GPU's
+ * dispatches and transfers would. No matrix multiplies or convolutions.
+ */
+const LINEAR_OPS = new Set([
+  "Abs",
+  "Add",
+  "Cast",
+  "Concat",
+  "Div",
+  "Erf",
+  "Exp",
+  "Expand",
+  "Flatten",
+  "Identity",
+  "Log",
+  "Max",
+  "Min",
+  "Mul",
+  "Neg",
+  "Pow",
+  "Reciprocal",
+  "ReduceMax",
+  "ReduceMean",
+  "ReduceMin",
+  "ReduceSum",
+  "ReduceSumSquare",
+  "Relu",
+  "Reshape",
+  "Sigmoid",
+  "Slice",
+  "Softplus",
+  "Split",
+  "Sqrt",
+  "Squeeze",
+  "Sub",
+  "Tanh",
+  "Transpose",
+  "Unsqueeze"
+])
+
+/** ONNX's float32 and int64 element types. */
+const FLOAT = 1
+const INT64 = 7
+
+/** The element type in a ValueInfoProto (type 2, tensor_type 1, elem_type 1). */
+function elementType(info: Array<Field>) {
+  const type = info.find((f) => f.field === 2)?.bytes
+  const tensor = type && parse(type).find((f) => f.field === 1)?.bytes
+  const elem = tensor && parse(tensor).find((f) => f.field === 1)?.value
+  return elem === undefined ? undefined : Number(elem)
+}
+
+/** A node's int attribute, if it has it. */
+function intValue(node: Array<Field>, name: string) {
+  for (const a of node) {
+    if (a.field !== 5 || !a.bytes) continue
+    const attr = parse(a.bytes)
+    if (firstString(attr, 1) !== name) continue
+    const value = attr.find((x) => x.field === 3)?.value
+    return value === undefined ? undefined : Number(BigInt.asIntN(64, value))
+  }
+  return undefined
+}
+
+/**
+ * The largest constant the CPU's nodes get a copy of. ONNX Runtime keeps a
+ * constant that both devices read on the CPU and copies it to the GPU for
+ * every step that reads it there: Qwen3.5's decoding branch reads the same
+ * scales and biases as the prompt branch's float32 work, and every token
+ * sent them again (78 more transfers a token, 4% slower writing). Nodes that
+ * read a larger constant stay on the GPU.
+ */
+const CPU_CONSTANT_BYTES = 1 << 20
+
+/** A constant's size in bytes: its raw data, or its length in an external file. */
+function constantBytes(tensor: Array<Field>) {
+  const raw = tensor.find((x) => x.field === 9)?.bytes
+  if (raw) return raw.length
+  for (const x of tensor) {
+    if (x.field !== 13 || !x.bytes) continue
+    const entry = parse(x.bytes)
+    if (firstString(entry, 1) === "length") return Number(firstString(entry, 2))
+  }
+  return dims(tensor).reduce((p, d) => p * d, 1) * 8
+}
+
+const isScan = (node: Array<Field>) =>
+  firstString(node, 4) === "Scan" && firstString(node, 7) === ""
+
+/**
+ * Has ONNX Runtime's WebGPU provider leave Scan loops, and the float32 work
+ * around them, to the CPU. Returns the edited model and the names to give
+ * the provider as forceCpuNodeNames, or null for a model without a Scan.
+ *
+ * ONNX Runtime runs Scan itself on the CPU. With its body on the GPU, every
+ * step of the loop sent the body's state to the GPU and read it back
+ * (Qwen3.5: 82 GB of buffers for a 2,048-token prompt), so the nodes in
+ * every Scan body, nested graphs included, go to the CPU. So does each
+ * Scan's float32 island: the linear-cost ops (LINEAR_OPS) joined to the Scan
+ * through float32 tensors made in its graph, up to and including the casts
+ * from and to float16. Qwen3.5 casts its prompt branch's float16 query, key
+ * and value to float32 for the loop and normalizes and gates the loop's
+ * output in float32: on the GPU, ten full-size float32 buffers per layer
+ * (fourteen live at a 512-token step's peak, 59 MB); the CPU holds them
+ * briefly instead, and what crosses to the GPU and back is float16.
+ *
+ * The nodes are renamed (`~0`, `~1`, ...): the provider's option holds 8,192
+ * characters, which Qwen3.5's 700-odd node names would overflow.
+ */
+export function moveScansToCpu(
+  model: Uint8Array
+): { model: Uint8Array; cpuNodeNames: Array<string> } | null {
+  const modelFields = parse(model)
+  const graphIndex = modelFields.findIndex((f) => f.field === 7)
+  const graphBytes = modelFields[graphIndex]?.bytes
+  if (!graphBytes) return null
+
+  // Node names in use, and initializers in any graph (constants a subgraph
+  // may read from outside).
+  const taken = new Set<string>()
+  const constants = new Map<string, Array<Field>>()
+  const collect = (bytes: Uint8Array) => {
+    for (const f of parse(bytes)) {
+      if (f.field === 5 && f.bytes) {
+        const tensor = parse(f.bytes)
+        constants.set(firstString(tensor, 8), tensor)
+      }
+      if (f.field !== 1 || !f.bytes) continue
+      const node = parse(f.bytes)
+      taken.add(firstString(node, 3))
+      for (const sub of subgraphs(node)) collect(sub.graph)
+    }
+  }
+  collect(graphBytes)
+  const cpuNodeNames: Array<string> = []
+  let counter = 0
+  const freshName = () => {
+    let name: string
+    do name = `~${(counter++).toString(36)}`
+    while (taken.has(name))
+    cpuNodeNames.push(name)
+    return name
+  }
+
+  const rewrite = (
+    bytes: Uint8Array,
+    inBody: boolean,
+    outerTypes: Map<string, number>
+  ): Uint8Array | null => {
+    const graph = parse(bytes)
+    const nodes = graph.map((f) =>
+      f.field === 1 && f.bytes ? parse(f.bytes) : null
+    )
+    const cpu = new Set<number>()
+    if (!inBody) nodes.forEach((node, i) => node && isScan(node) && cpu.add(i))
+
+    // Element types: the graph's own and its parents' initializers and value
+    // infos, then in graph order (nodes are sorted topologically) what a Cast
+    // makes, a Scan's from its body (opset 9+: the body's inputs and outputs
+    // line up with the node's), and the others' from their inputs.
+    const types = new Map(outerTypes)
+    for (const f of graph) {
+      if (!f.bytes) continue
+      if (f.field === 5) {
+        const tensor = parse(f.bytes)
+        const type = tensor.find((x) => x.field === 2)?.value
+        if (type !== undefined) types.set(firstString(tensor, 8), Number(type))
+      } else if (f.field === 11 || f.field === 12 || f.field === 13) {
+        const info = parse(f.bytes)
+        const type = elementType(info)
+        if (type !== undefined) types.set(firstString(info, 1), type)
+      }
+    }
+    for (const node of nodes) {
+      if (!node) continue
+      const op = firstString(node, 4)
+      const inputs = strings(node, 1)
+      const outputs = strings(node, 2)
+      const set = (names: Array<string>, found: Array<number | undefined>) => {
+        if (found.length !== names.length) return
+        names.forEach((name, i) => {
+          const type = found[i]
+          if (name && type !== undefined) types.set(name, type)
+        })
+      }
+      if (op === "Cast") {
+        set(outputs.slice(0, 1), [intValue(node, "to")])
+      } else if (isScan(node)) {
+        const body = subgraphs(node).find((s) => s.name === "body")?.graph
+        if (!body) continue
+        const bodyGraph = parse(body)
+        const typesOf = (field: number) =>
+          bodyGraph
+            .filter((f) => f.field === field && f.bytes)
+            .map((f) => elementType(parse(f.bytes as Uint8Array)))
+        set(inputs, typesOf(11))
+        set(outputs, typesOf(12))
+      } else if (LINEAR_OPS.has(op)) {
+        const type = inputs.map((i) => types.get(i)).find((t) => t !== undefined && t !== INT64)
+        set(outputs, outputs.map(() => type))
+      }
+    }
+
+    if (cpu.size > 0) {
+      const producer = new Map<string, number>()
+      const consumers = new Map<string, Array<number>>()
+      nodes.forEach((node, i) => {
+        if (!node) return
+        for (const output of strings(node, 2))
+          if (output) producer.set(output, i)
+        for (const input of strings(node, 1)) {
+          if (input) consumers.set(input, [...(consumers.get(input) ?? []), i])
+        }
+      })
+      const joinsCpu = (tensor: string) => {
+        const from = producer.get(tensor)
+        if (from === undefined || types.get(tensor) !== FLOAT) return false
+        return (
+          cpu.has(from) || (consumers.get(tensor) ?? []).some((c) => cpu.has(c))
+        )
+      }
+      // Nothing that reads a value from outside the graph or makes one of
+      // its outputs: those stay where the rest of the model has them. (Qwen3.5
+      // reads its state in and writes it out on the GPU when decoding; read
+      // or made on the CPU here, every token copied each layer's state to
+      // the CPU and back.)
+      const outputs = new Set(valueNames(graph, 12))
+      const tooLarge = (tensor: string) => {
+        const constant = constants.get(tensor)
+        return constant !== undefined && constantBytes(constant) > CPU_CONSTANT_BYTES
+      }
+      const fromOutside = (tensor: string) =>
+        tensor !== "" && !producer.has(tensor) && !constants.has(tensor)
+      for (let grew = true; grew; ) {
+        grew = false
+        nodes.forEach((node, i) => {
+          if (!node || cpu.has(i) || !LINEAR_OPS.has(firstString(node, 4))) return
+          if (strings(node, 2).some((o) => outputs.has(o))) return
+          if (strings(node, 1).some((x) => fromOutside(x) || tooLarge(x))) return
+          if ([...strings(node, 1), ...strings(node, 2)].some(joinsCpu)) {
+            cpu.add(i)
+            grew = true
+          }
+        })
+      }
+    }
+
+    let changed = false
+    const copies = new Map<string, Uint8Array>()
+    const parts = graph.map((f, i) => {
+      const node = nodes[i]
+      if (!node) return f.raw
+      const scan = isScan(node)
+      let nodeChanged = false
+      const fields = node.map((x) => {
+        if (x.field !== 5 || !x.bytes) return x.raw
+        const attr = parse(x.bytes)
+        const body = scan && firstString(attr, 1) === "body"
+        let attrChanged = false
+        const attrParts = attr.map((y) => {
+          if ((y.field !== 6 && y.field !== 11) || !y.bytes) return y.raw
+          const sub = rewrite(y.bytes, inBody || body, types)
+          if (!sub) return y.raw
+          attrChanged = true
+          return lengthField(y.field, sub)
+        })
+        if (!attrChanged) return x.raw
+        nodeChanged = true
+        return lengthField(5, concat(attrParts))
+      })
+      if (inBody || (cpu.has(i) && !scan)) {
+        const name = stringField(3, freshName())
+        const at = node.findIndex((x) => x.field === 3)
+        if (at >= 0) fields[at] = name
+        else fields.push(name)
+        nodeChanged = true
+      }
+      if (cpu.has(i) && !scan) {
+        // Constants from copies of their own (see CPU_CONSTANT_BYTES).
+        node.forEach((x, k) => {
+          const input = x.field === 1 && x.bytes ? fromText.decode(x.bytes) : ""
+          const constant = constants.get(input)
+          if (!constant) return
+          const copy = `${input}/cpu`
+          if (!copies.has(copy)) {
+            copies.set(copy, concat([...constant.filter((t) => t.field !== 8).map((t) => t.raw), stringField(8, copy)]))
+          }
+          fields[k] = stringField(1, copy)
+        })
+      }
+      if (!nodeChanged) return f.raw
+      changed = true
+      return lengthField(1, concat(fields))
+    })
+    for (const tensor of copies.values()) parts.push(lengthField(5, tensor))
+    return changed ? concat(parts) : null
+  }
+
+  const newGraph = rewrite(graphBytes, false, new Map())
+  if (!newGraph) return null
+  return {
+    model: concat(
+      modelFields.map((f, i) =>
+        i === graphIndex ? lengthField(7, newGraph) : f.raw
+      )
+    ),
+    cpuNodeNames
+  }
+}
+
+/** A node's ints attribute (AttributeProto ints 8, packed or not), if it has it. */
+function intsValue(node: Array<Field>, name: string) {
+  for (const a of node) {
+    if (a.field !== 5 || !a.bytes) continue
+    const attr = parse(a.bytes)
+    if (firstString(attr, 1) !== name) continue
+    const out: Array<number> = []
+    for (const f of attr) {
+      if (f.field !== 8) continue
+      if (f.wire === 0) out.push(Number(BigInt.asIntN(64, f.value ?? 0n)))
+      else if (f.bytes) {
+        let at = 0
+        while (at < f.bytes.length) {
+          const [v, next] = readVarint(f.bytes, at)
+          out.push(Number(BigInt.asIntN(64, v)))
+          at = next
+        }
+      }
+    }
+    return out
+  }
+  return undefined
+}
+
+/** An ints attribute (AttributeProto: name 1, ints 8, type 20 = INTS). */
+const intsAttribute = (name: string, values: Array<number>) =>
+  concat([
+    stringField(1, name),
+    ...values.map((v) => varintField(8, BigInt(v))),
+    varintField(20, 7n)
+  ])
+
+/** Ops that work element by element, so a Transpose commutes with them. */
+const ELEMENTWISE = new Set(["Cast", "Mul", "Add", "Sub", "Div"])
+
+/**
+ * Folds the Transposes in front of and behind a Scan into the axes it scans:
+ * a Scan over axis 2 of `Transpose(x, [0, 2, 1, 3])` reads the same slices
+ * as a Scan over axis 1 of `x`, and a Transpose of what it stacks along an
+ * axis is what it would stack along another. Qwen3.5 transposes its query,
+ * key and value (and the gates) for its linear-attention loop and the
+ * loop's output back: on the GPU, a copy of each for nothing, and ONNX
+ * Runtime's Scan transposed each again on the CPU to scan its first axis.
+ * Casts and multiplies by a constant between the Transpose and the Scan
+ * stay, on the untransposed tensor. The slices the loop sees are the same
+ * and in the same order, so its results are too.
+ *
+ * Returns the edited model, or null if no Scan had such a Transpose.
+ */
+export function foldScanTransposes(model: Uint8Array): Uint8Array | null {
+  const modelFields = parse(model)
+  const graphIndex = modelFields.findIndex((f) => f.field === 7)
+  const graphBytes = modelFields[graphIndex]?.bytes
+  if (!graphBytes) return null
+
+  // Initializers' dims in every graph: constants a subgraph reads from outside.
+  const constantDims = new Map<string, Array<number>>()
+  const collect = (bytes: Uint8Array) => {
+    for (const f of parse(bytes)) {
+      if (f.field === 5 && f.bytes) {
+        const tensor = parse(f.bytes)
+        constantDims.set(firstString(tensor, 8), dims(tensor))
+      } else if (f.field === 1 && f.bytes) {
+        for (const sub of subgraphs(parse(f.bytes))) collect(sub.graph)
+      }
+    }
+  }
+  collect(graphBytes)
+  const isScalar = (name: string) =>
+    constantDims.get(name)?.every((d) => d === 1) ?? false
+  /** Whether a permutation without position `at` keeps the other axes in order. */
+  const keepsOrder = (perm: Array<number>, at: number) => {
+    const rest = perm.filter((_, i) => i !== at)
+    return rest.every((axis, i) => i === 0 || axis > rest[i - 1])
+  }
+
+  const rewrite = (bytes: Uint8Array): Uint8Array | null => {
+    const graph = parse(bytes)
+    const nodes = graph.map((f) =>
+      f.field === 1 && f.bytes ? parse(f.bytes) : null
+    )
+    const outputs = new Set(valueNames(graph, 12))
+    const producer = new Map<string, number>()
+    const consumers = new Map<string, Array<number>>()
+    nodes.forEach((node, i) => {
+      if (!node) return
+      for (const o of strings(node, 2)) if (o) producer.set(o, i)
+      for (const input of strings(node, 1)) {
+        if (input) consumers.set(input, [...(consumers.get(input) ?? []), i])
+      }
+    })
+    /** Whether `tensor` is read by node `i` alone. */
+    const onlyFor = (tensor: string, i: number) =>
+      !outputs.has(tensor) &&
+      (consumers.get(tensor) ?? []).every((c) => c === i)
+
+    const removed = new Set<number>()
+    /** New inputs for nodes, by index. */
+    const newInputs = new Map<number, Array<string>>()
+    const newScans = new Map<number, Uint8Array>()
+    const staleInfo = new Set<string>()
+
+    nodes.forEach((node, s) => {
+      if (
+        !node ||
+        firstString(node, 4) !== "Scan" ||
+        firstString(node, 7) !== ""
+      )
+        return
+      const inputs = strings(node, 1)
+      const outs = strings(node, 2)
+      const scanCount = intValue(node, "num_scan_inputs") ?? 0
+      const stateCount = inputs.length - scanCount
+      const inAxes =
+        intsValue(node, "scan_input_axes") ??
+        inputs.slice(stateCount).map(() => 0)
+      const outAxes =
+        intsValue(node, "scan_output_axes") ??
+        outs.slice(stateCount).map(() => 0)
+      let changed = false
+      const scanInputs = [...inputs]
+      inAxes.forEach((axis, j) => {
+        let tensor = inputs[stateCount + j]
+        let reader = s
+        /** Tensors whose shape changes: the chain's, up to the Transpose's. */
+        const reshaped: Array<string> = []
+        // Back through elementwise ops with a constant scalar, to a Transpose.
+        for (;;) {
+          const p = producer.get(tensor)
+          if (p === undefined || removed.has(p) || !onlyFor(tensor, reader))
+            return
+          const prev = nodes[p] as Array<Field>
+          const op = firstString(prev, 4)
+          const ins = strings(prev, 1)
+          if (op === "Transpose") {
+            const perm = intsValue(prev, "perm")
+            if (
+              !perm ||
+              axis < 0 ||
+              axis >= perm.length ||
+              !keepsOrder(perm, axis)
+            )
+              return
+            // The reader now takes the Transpose's input.
+            const readerInputs =
+              reader === s
+                ? scanInputs
+                : (newInputs.get(reader) ??
+                  strings(nodes[reader] as Array<Field>, 1))
+            const at = readerInputs.indexOf(tensor)
+            readerInputs[at] = ins[0]
+            if (reader !== s) newInputs.set(reader, readerInputs)
+            inAxes[j] = perm[axis]
+            removed.add(p)
+            for (const name of [...reshaped, tensor]) staleInfo.add(name)
+            changed = true
+            return
+          }
+          if (!ELEMENTWISE.has(op) || firstString(prev, 7) !== "") return
+          const variable = ins.filter((i) => !isScalar(i))
+          if (variable.length !== 1 || (op !== "Cast" && ins.length !== 2))
+            return
+          reshaped.push(tensor)
+          reader = p
+          tensor = variable[0]
+        }
+      })
+      const scanOutputs = [...outs]
+      outAxes.forEach((axis, k) => {
+        const tensor = outs[stateCount + k]
+        const readers = consumers.get(tensor) ?? []
+        if (!tensor || outputs.has(tensor) || readers.length !== 1) return
+        const next = nodes[readers[0]] as Array<Field>
+        const perm =
+          firstString(next, 4) === "Transpose"
+            ? intsValue(next, "perm")
+            : undefined
+        const at = perm?.indexOf(axis) ?? -1
+        if (!perm || at < 0 || !keepsOrder(perm, at)) return
+        scanOutputs[stateCount + k] = strings(next, 2)[0]
+        outAxes[k] = at
+        removed.add(readers[0])
+        staleInfo.add(tensor)
+        changed = true
+      })
+      if (!changed) return
+      newScans.set(
+        s,
+        concat([
+          ...scanInputs.map((i) => stringField(1, i)),
+          ...scanOutputs.map((o) => stringField(2, o)),
+          ...node
+            .filter((f) => {
+              if (f.field === 1 || f.field === 2) return false
+              if (f.field !== 5 || !f.bytes) return true
+              const name = firstString(parse(f.bytes), 1)
+              return name !== "scan_input_axes" && name !== "scan_output_axes"
+            })
+            .map((f) => f.raw),
+          lengthField(5, intsAttribute("scan_input_axes", inAxes)),
+          lengthField(5, intsAttribute("scan_output_axes", outAxes))
+        ])
+      )
+    })
+
+    let changed = removed.size > 0
+    const parts: Array<Uint8Array> = []
+    graph.forEach((f, i) => {
+      const node = nodes[i]
+      if (removed.has(i)) return
+      if (
+        f.field === 13 &&
+        f.bytes &&
+        staleInfo.has(firstString(parse(f.bytes), 1))
+      )
+        return
+      if (!node) return void parts.push(f.raw)
+      const scan = newScans.get(i)
+      if (scan) return void parts.push(lengthField(1, scan))
+      const ins = newInputs.get(i)
+      let fields = ins
+        ? [
+            ...ins.map((x) => stringField(1, x)),
+            ...node.filter((x) => x.field !== 1).map((x) => x.raw)
+          ]
+        : node.map((x) => x.raw)
+      // Subgraphs (If branches hold the Scans).
+      let subChanged = false
+      fields = fields.map((raw) => {
+        const [x] = parse(raw)
+        if (x.field !== 5 || !x.bytes) return raw
+        const attr = parse(x.bytes)
+        let attrChanged = false
+        const attrParts = attr.map((y) => {
+          if ((y.field !== 6 && y.field !== 11) || !y.bytes) return y.raw
+          const sub = rewrite(y.bytes)
+          if (!sub) return y.raw
+          attrChanged = true
+          return lengthField(y.field, sub)
+        })
+        if (!attrChanged) return raw
+        subChanged = true
+        return lengthField(5, concat(attrParts))
+      })
+      if (ins || subChanged) changed = true
+      parts.push(ins || subChanged ? lengthField(1, concat(fields)) : f.raw)
+    })
+    return changed ? concat(parts) : null
+  }
+
+  const newGraph = rewrite(graphBytes)
+  if (!newGraph) return null
+  return concat(
+    modelFields.map((f, i) =>
+      i === graphIndex ? lengthField(7, newGraph) : f.raw
+    )
+  )
+}
+
+/**
+ * Moves a Transpose that only Concats read below them: Concat(Transpose(x),
+ * y) along an axis is Transpose(Concat(x, Transpose⁻¹(y))) along the axis
+ * it came from. Where the Concat feeds a convolution, ONNX Runtime's WebGPU
+ * provider then cancels that Transpose against the one it adds to run the
+ * convolution channels-last. Qwen3.5's linear attention transposes its
+ * projected query, key and value to channels-first, appends them to the
+ * convolution's carried state, and the provider transposed the result
+ * straight back: two full-size copies per layer, neither needed.
+ *
+ * Returns the edited model, or null if no Transpose qualified.
+ */
+export function sinkTransposesThroughConcat(
+  model: Uint8Array
+): Uint8Array | null {
+  const modelFields = parse(model)
+  const graphIndex = modelFields.findIndex((f) => f.field === 7)
+  const graphBytes = modelFields[graphIndex]?.bytes
+  if (!graphBytes) return null
+
+  const rewrite = (bytes: Uint8Array): Uint8Array | null => {
+    const graph = parse(bytes)
+    const nodes = graph.map((f) =>
+      f.field === 1 && f.bytes ? parse(f.bytes) : null
+    )
+    const outputs = new Set(valueNames(graph, 12))
+    const consumers = new Map<string, Array<number>>()
+    nodes.forEach((node, i) => {
+      for (const input of node ? strings(node, 1) : []) {
+        if (input) consumers.set(input, [...(consumers.get(input) ?? []), i])
+      }
+    })
+    const isConv = (i: number) => {
+      const node = nodes[i]
+      return (
+        !!node && firstString(node, 4) === "Conv" && firstString(node, 7) === ""
+      )
+    }
+
+    const removed = new Set<number>()
+    const replaced = new Map<number, Array<Uint8Array>>()
+    const staleInfo = new Set<string>()
+    nodes.forEach((transpose, t) => {
+      if (
+        !transpose ||
+        firstString(transpose, 4) !== "Transpose" ||
+        firstString(transpose, 7) !== ""
+      )
+        return
+      const perm = intsValue(transpose, "perm")
+      const [input] = strings(transpose, 1)
+      const [output] = strings(transpose, 2)
+      const readers = consumers.get(output) ?? []
+      if (!perm || !input || outputs.has(output) || readers.length === 0) return
+      const concats = readers.every(
+        (r) =>
+          !replaced.has(r) &&
+          nodes[r] !== null &&
+          firstString(nodes[r] as Array<Field>, 4) === "Concat"
+      )
+      // Only where a convolution reads one of the Concats.
+      const feedsConv = readers.some((r) =>
+        strings(nodes[r] as Array<Field>, 2).some((o) =>
+          (consumers.get(o) ?? []).some(isConv)
+        )
+      )
+      if (!concats || !feedsConv) return
+      const inverse = perm.map((_, i) => perm.indexOf(i))
+      for (const r of readers) {
+        const concat = nodes[r] as Array<Field>
+        const rank = perm.length
+        const axis = intValue(concat, "axis") ?? 0
+        const normalized = axis < 0 ? axis + rank : axis
+        if (normalized < 0 || normalized >= rank) return
+      }
+      removed.add(t)
+      staleInfo.add(output)
+      for (const r of readers) {
+        const concat = nodes[r] as Array<Field>
+        const axis = intValue(concat, "axis") ?? 0
+        const normalized = axis < 0 ? axis + perm.length : axis
+        const [concatOut] = strings(concat, 2)
+        const concatName = firstString(concat, 3) || concatOut
+        const added: Array<Uint8Array> = []
+        const inputs = strings(concat, 1).map((x, k) => {
+          if (x === output) return input
+          const back = `${concatName}/input${k}/transposed`
+          added.push(
+            node("Transpose", [x], [back], `${back}/Transpose`, [
+              intsAttribute("perm", inverse)
+            ])
+          )
+          return back
+        })
+        const joined = `${concatOut}/before_transpose`
+        added.push(
+          node("Concat", inputs, [joined], concatName, [
+            intAttribute("axis", perm[normalized])
+          ]),
+          node("Transpose", [joined], [concatOut], `${concatName}/transposed`, [
+            intsAttribute("perm", perm)
+          ])
+        )
+        staleInfo.add(concatOut)
+        replaced.set(r, added)
+      }
+    })
+
+    let changed = removed.size > 0
+    const parts: Array<Uint8Array> = []
+    graph.forEach((f, i) => {
+      const node = nodes[i]
+      if (removed.has(i)) return
+      if (
+        f.field === 13 &&
+        f.bytes &&
+        staleInfo.has(firstString(parse(f.bytes), 1))
+      )
+        return
+      const added = replaced.get(i)
+      if (added) return void parts.push(...added.map((n) => lengthField(1, n)))
+      if (!node) return void parts.push(f.raw)
+      let subChanged = false
+      const fields = node.map((x) => {
+        if (x.field !== 5 || !x.bytes) return x.raw
+        const attr = parse(x.bytes)
+        let attrChanged = false
+        const attrParts = attr.map((y) => {
+          if ((y.field !== 6 && y.field !== 11) || !y.bytes) return y.raw
+          const sub = rewrite(y.bytes)
+          if (!sub) return y.raw
+          attrChanged = true
+          return lengthField(y.field, sub)
+        })
+        if (!attrChanged) return x.raw
+        subChanged = true
+        return lengthField(5, concat(attrParts))
+      })
+      if (subChanged) changed = true
+      parts.push(subChanged ? lengthField(1, concat(fields)) : f.raw)
+    })
+    return changed ? concat(parts) : null
+  }
+
+  const newGraph = rewrite(graphBytes)
+  if (!newGraph) return null
+  return concat(
+    modelFields.map((f, i) =>
+      i === graphIndex ? lengthField(7, newGraph) : f.raw
+    )
+  )
+}
+
+/** The int64 values of a constant tensor (raw_data 9 or int64_data 7). */
+function int64Values(tensor: Array<Field>) {
+  const out: Array<number> = []
+  for (const f of tensor) {
+    if (f.field === 9 && f.bytes) {
+      const view = new DataView(
+        f.bytes.buffer,
+        f.bytes.byteOffset,
+        f.bytes.byteLength
+      )
+      for (let at = 0; at + 8 <= f.bytes.byteLength; at += 8)
+        out.push(Number(view.getBigInt64(at, true)))
+    } else if (f.field === 7) {
+      if (f.wire === 0) out.push(Number(BigInt.asIntN(64, f.value ?? 0n)))
+      else if (f.bytes) {
+        let at = 0
+        while (at < f.bytes.length) {
+          const [v, next] = readVarint(f.bytes, at)
+          out.push(Number(BigInt.asIntN(64, v)))
+          at = next
+        }
+      }
+    }
+  }
+  return out
+}
+
+/**
+ * Has each Scan body compute a vector-times-matrix product as one: what
+ * `ReduceSum(Mul(X, Unsqueeze(v, -1)), axes -2)` computes is
+ * `MatMul(Unsqueeze(v, -2), X)` with its row axis squeezed, without the
+ * full-size product in between. Qwen3.5's linear attention reads its
+ * 16 × 128 × 128 state twice a step this way (to recall a key's value and
+ * to answer the query), and its prompt runs one step per token on the CPU,
+ * where writing and summing that product took most of the step: prompts
+ * read ~30% faster on a Mac. ONNX Runtime's CPU adds the products in the
+ * same order either way, so Qwen3.5's outputs are bit-identical. X must
+ * have the vector's length along its second-to-last axis (the Mul only
+ * broadcasts the vector), or ONNX Runtime rejects the MatMul.
+ *
+ * Returns the edited model, or null where there was no such product.
+ */
+export function matVecInScanBodies(model: Uint8Array): Uint8Array | null {
+  const modelFields = parse(model)
+  const graphIndex = modelFields.findIndex((f) => f.field === 7)
+  const graphBytes = modelFields[graphIndex]?.bytes
+  if (!graphBytes) return null
+
+  const rewriteBody = (bytes: Uint8Array): Uint8Array | null => {
+    const graph = parse(bytes)
+    const constants = new Map<string, Array<number>>()
+    for (const f of graph) {
+      if (f.field !== 5 || !f.bytes) continue
+      const tensor = parse(f.bytes)
+      if (tensor.find((x) => x.field === 2)?.value === 7n)
+        constants.set(firstString(tensor, 8), int64Values(tensor))
+    }
+    const nodes = graph.map((f) =>
+      f.field === 1 && f.bytes ? parse(f.bytes) : null
+    )
+    const outputs = new Set(valueNames(graph, 12))
+    const producer = new Map<string, number>()
+    const consumers = new Map<string, Array<number>>()
+    nodes.forEach((node, i) => {
+      if (!node) return
+      for (const o of strings(node, 2)) if (o) producer.set(o, i)
+      for (const input of strings(node, 1)) {
+        if (input) consumers.set(input, [...(consumers.get(input) ?? []), i])
+      }
+    })
+    const axesOf = (node: Array<Field>) => {
+      const axes = strings(node, 1)[1]
+      return axes ? constants.get(axes) : intsValue(node, "axes")
+    }
+    const replaced = new Map<number, Array<Uint8Array>>()
+    const removed = new Set<number>()
+    let rowAxis: string | null = null
+    const newConstants: Array<Uint8Array> = []
+    nodes.forEach((reduce, r) => {
+      if (
+        !reduce ||
+        firstString(reduce, 4) !== "ReduceSum" ||
+        firstString(reduce, 7) !== ""
+      )
+        return
+      const axes = axesOf(reduce)
+      if (
+        axes?.length !== 1 ||
+        axes[0] !== -2 ||
+        intValue(reduce, "keepdims") !== 0
+      )
+        return
+      const [product] = strings(reduce, 1)
+      const m = producer.get(product)
+      if (
+        m === undefined ||
+        outputs.has(product) ||
+        (consumers.get(product) ?? []).length !== 1
+      )
+        return
+      const mul = nodes[m] as Array<Field>
+      if (firstString(mul, 4) !== "Mul" || firstString(mul, 7) !== "") return
+      const factors = strings(mul, 1)
+      const u = factors.findIndex((x) => {
+        const p = producer.get(x)
+        if (p === undefined) return false
+        const unsqueeze = nodes[p] as Array<Field>
+        const a = axesOf(unsqueeze)
+        return (
+          firstString(unsqueeze, 4) === "Unsqueeze" &&
+          a?.length === 1 &&
+          a[0] === -1
+        )
+      })
+      if (u < 0 || factors.length !== 2) return
+      const vector = strings(
+        nodes[producer.get(factors[u]) as number] as Array<Field>,
+        1
+      )[0]
+      const matrix = factors[1 - u]
+      const [out] = strings(reduce, 2)
+      const base = firstString(reduce, 3) || out
+      if (!rowAxis) {
+        rowAxis = `${base}/row_axis`
+        newConstants.push(int64Tensor(rowAxis, [-2]))
+      }
+      replaced.set(r, [
+        node("Unsqueeze", [vector, rowAxis], [`${base}/row`], `${base}/row`),
+        node(
+          "MatMul",
+          [`${base}/row`, matrix],
+          [`${base}/product`],
+          `${base}/MatMul`
+        ),
+        node("Squeeze", [`${base}/product`, rowAxis], [out], base)
+      ])
+      removed.add(m)
+      // The column it was broadcast from, if nothing else reads it.
+      const column = factors[u]
+      if (!outputs.has(column) && (consumers.get(column) ?? []).length === 1)
+        removed.add(producer.get(column) as number)
+    })
+    if (replaced.size === 0) return null
+    const parts: Array<Uint8Array> = []
+    graph.forEach((f, i) => {
+      if (removed.has(i)) return
+      const added = replaced.get(i)
+      if (added) parts.push(...added.map((n) => lengthField(1, n)))
+      else parts.push(f.raw)
+    })
+    for (const t of newConstants) parts.push(lengthField(5, t))
+    return concat(parts)
+  }
+
+  const rewrite = (bytes: Uint8Array, inBody: boolean): Uint8Array | null => {
+    let graph = bytes
+    let changed = false
+    if (inBody) {
+      const body = rewriteBody(graph)
+      if (body) {
+        graph = body
+        changed = true
+      }
+    }
+    const fields = parse(graph)
+    const parts = fields.map((f) => {
+      if (f.field !== 1 || !f.bytes) return f.raw
+      const node = parse(f.bytes)
+      const scan =
+        firstString(node, 4) === "Scan" && firstString(node, 7) === ""
+      let nodeChanged = false
+      const nodeParts = node.map((x) => {
+        if (x.field !== 5 || !x.bytes) return x.raw
+        const attr = parse(x.bytes)
+        const isBody = scan && firstString(attr, 1) === "body"
+        let attrChanged = false
+        const attrParts = attr.map((y) => {
+          if ((y.field !== 6 && y.field !== 11) || !y.bytes) return y.raw
+          const sub = rewrite(y.bytes, inBody || isBody)
+          if (!sub) return y.raw
+          attrChanged = true
+          return lengthField(y.field, sub)
+        })
+        if (!attrChanged) return x.raw
+        nodeChanged = true
+        return lengthField(5, concat(attrParts))
+      })
+      if (!nodeChanged) return f.raw
+      changed = true
+      return lengthField(1, concat(nodeParts))
+    })
+    return changed ? concat(parts) : null
+  }
+
+  const newGraph = rewrite(graphBytes, false)
+  if (!newGraph) return null
+  return concat(
+    modelFields.map((f, i) =>
+      i === graphIndex ? lengthField(7, newGraph) : f.raw
+    )
+  )
+}
