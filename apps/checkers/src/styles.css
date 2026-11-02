@@ -106,7 +106,10 @@
   list-style: none;
   cursor: pointer;
 }
-.theme-trigger:hover, .theme-select[data-open="true"] .theme-trigger { background: var(--secondary); }
+.theme-select[data-open="true"] .theme-trigger { background: var(--secondary); }
+@media (hover: hover) {
+  .theme-trigger:hover { background: var(--secondary); }
+}
 .theme-trigger:focus-visible, .theme-menu button:focus-visible { outline: 2px solid var(--focus); outline-offset: 3px; }
 .theme-trigger:focus:not(:focus-visible), .theme-menu button:focus:not(:focus-visible) { outline: none; }
 .theme-moon { display: none; }
@@ -141,7 +144,10 @@
   color: var(--ink);
   font-size: 13px;
 }
-.theme-menu button:hover, .theme-menu button:focus-visible { background: var(--hover); }
+.theme-menu button:focus-visible { background: var(--hover); }
+@media (hover: hover) {
+  .theme-menu button:hover { background: var(--hover); }
+}
 .theme-option-label { display: flex; align-items: center; gap: 10px; }
 .theme-option-label > svg { flex-shrink: 0; color: var(--muted); }
 .theme-check { visibility: hidden; color: var(--coral); }
@@ -328,15 +334,19 @@ a {
   color: #fff;
   box-shadow: 0 3px 0 #1b2c43;
 }
-.button-primary:hover:not(:disabled) {
-  background: #364d6b;
+@media (hover: hover) {
+  .button-primary:hover:not(:disabled) {
+    background: #364d6b;
+  }
 }
 .button-secondary {
   background: var(--secondary);
   border-color: var(--border);
 }
-.button-secondary:hover:not(:disabled) {
-  background: var(--secondary-hover);
+@media (hover: hover) {
+  .button-secondary:hover:not(:disabled) {
+    background: var(--secondary-hover);
+  }
 }
 .button-small {
   min-height: 40px;
@@ -513,8 +523,10 @@ a {
   gap: 9px;
   align-items: center;
 }
-.text-button:hover {
-  color: var(--ink);
+@media (hover: hover) {
+  .text-button:hover {
+    color: var(--ink);
+  }
 }
 .game-main {
   width: min(925px, 100%);
@@ -559,15 +571,17 @@ a {
 .square-target {
   cursor: pointer;
 }
-.square-movable:hover .piece {
-  transform: translateY(-2px);
+@media (hover: hover) {
+  .square-movable:hover .piece {
+    transform: translateY(-2px);
+  }
 }
 .square-dimmed .piece {
   opacity: 0.75;
   filter: saturate(0.75);
 }
 .square-selected .piece {
-  transform: translateY(-3px);
+  transform: translateY(-2px);
   box-shadow: 0 3px 7px #26364c40;
 }
 .square-last:before {
@@ -1360,14 +1374,18 @@ a {
   border-radius: 6px;
   cursor: pointer;
 }
-.opponent-option:hover {
-  background: var(--hover);
+@media (hover: hover) {
+  .opponent-option:hover {
+    background: var(--hover);
+  }
 }
 .opponent-option-selected {
   background: var(--selected);
 }
-.opponent-option-selected:hover {
-  background: var(--active);
+@media (hover: hover) {
+  .opponent-option-selected:hover {
+    background: var(--active);
+  }
 }
 .opponent-option input,
 .opponent-thinking input {
@@ -1496,9 +1514,11 @@ a {
   background: transparent;
   color: var(--muted);
 }
-.thinking-dialog-close:hover {
-  background: var(--hover);
-  color: var(--ink);
+@media (hover: hover) {
+  .thinking-dialog-close:hover {
+    background: var(--hover);
+    color: var(--ink);
+  }
 }
 .thinking-dialog-content {
   height: min(55svh, 440px);
@@ -1549,8 +1569,10 @@ a {
   cursor: pointer;
   white-space: nowrap;
 }
-.thinking-button:hover {
-  color: var(--ink);
+@media (hover: hover) {
+  .thinking-button:hover {
+    color: var(--ink);
+  }
 }
 
 

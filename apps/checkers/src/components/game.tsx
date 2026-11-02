@@ -81,7 +81,7 @@ export function GameView({
     (piece) => piece?.side === "human"
   ).length
   const aiPieces = board.filter((piece) => piece?.side === "ai").length
-  const captureRequired = moves.some((move) => move.captures.length > 0)
+  const captureRequired = presentedMoves.some((move) => move.captures.length > 0)
   const progress =
     ai.progress === undefined
       ? undefined
@@ -274,7 +274,7 @@ export function GameView({
                     : presentedMoves.some((move) => move.path[0] === square))
                 const movable = canMove && turnMovable
                 const dimmed =
-                  active && piece?.side === turn && !turnMovable
+                  active && captureRequired && piece?.side === turn && !turnMovable
                 const capturePiece =
                   canMove &&
                   captureRequired &&
