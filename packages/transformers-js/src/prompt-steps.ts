@@ -6,10 +6,16 @@
  * and 256-token steps late in a 7,600-token prompt took ~2.6 s there. A Mac
  * reads 256 tokens in ~0.1 s. So steps are sized from how fast the last one
  * went, the same way for every model and device.
+ *
+ * A step's GPU memory grows with its tokens, so a target of 0.75 s rather
+ * than 1.5: Qwen3.5-2B on a Mac (~550 tokens/s) reads in ~450-token steps
+ * instead of ~1,000, as fast, with its prompt peak 1,290 MB instead of
+ * 1,443 at 2,048 tokens. LFM3 reads 1,024 tokens in ~0.3 s, so its steps
+ * still reach MAX_PROMPT_STEP.
  */
 
 /** How long one step of reading a prompt should take. */
-export const PROMPT_STEP_MS = 1500
+export const PROMPT_STEP_MS = 750
 /** Tokens in a step before any has been timed, which an iPhone handles. */
 export const FIRST_PROMPT_STEP = 256
 /** Steps shorter than this are mostly fixed costs, too short to time. */

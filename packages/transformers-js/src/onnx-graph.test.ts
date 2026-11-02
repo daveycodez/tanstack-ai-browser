@@ -3,6 +3,7 @@ import { describe, test } from "node:test"
 import {
   chunkLargeMatMulNBits,
   foldScanTransposes,
+  matVecInScanBodies,
   moveScansToCpu,
   readQuantizedEmbedding,
   scoreLastTokenOnly,
@@ -713,5 +714,105 @@ describe("sinkTransposesThroughConcat", () => {
 
   test("only where a convolution reads one of the Concats", () => {
     assert.equal(sinkTransposesThroughConcat(convModel(false)), null)
+  })
+})
+
+/** An int64 tensor with raw data (data_type 7). */
+const int64s = (name: string, values: Array<number>) => {
+  const raw = new Uint8Array(values.length * 8)
+  values.forEach((v, i) => new DataView(raw.buffer).setBigInt64(i * 8, BigInt(v), true))
+  return join(int(1, values.length), int(2, 7), bytes(8, name), bytes(9, raw))
+}
+
+/**
+ * Qwen3.5's recurrence step, cut down: the state read with a key (and the
+ * key's column kept for an outer product) and with a query, each as
+ * ReduceSum(Mul(state, Unsqueeze(vector, -1)), -2), in a Scan's body; and
+ * the same product outside any Scan.
+ */
+function matVecModel() {
+  const body = graphOf(
+    [
+      nodeProto("Unsqueeze", ["k_in", "neg_one"], ["k_col"], "k_col"),
+      nodeProto("Mul", ["state_in", "k_col"], ["state_k"], "state_k"),
+      nodeProto("ReduceSum", ["state_k", "neg_two"], ["kv"], "kv", [intAttr("keepdims", 0)]),
+      nodeProto("Mul", ["k_col", "kv"], ["state_out"], "outer"),
+      nodeProto("Unsqueeze", ["q_in", "neg_one"], ["q_col"], "q_col"),
+      nodeProto("Mul", ["q_col", "state_out"], ["state_q"], "state_q"),
+      nodeProto("ReduceSum", ["state_q", "neg_two"], ["y_out"], "y", [intAttr("keepdims", 0)])
+    ],
+    {
+      inits: [int64s("neg_one", [-1]), int64s("neg_two", [-2])],
+      inputs: [typed("state_in", 1), typed("k_in", 1), typed("q_in", 1)],
+      outputs: [typed("state_out", 1), typed("y_out", 1)]
+    }
+  )
+  return branchModel([
+    nodeProto("Scan", ["state", "k", "q"], ["state_end", "ys"], "Scan", [
+      graphAttr("body", body),
+      intAttr("num_scan_inputs", 2)
+    ]),
+    nodeProto("Unsqueeze", ["v", "axes"], ["v_col"], "v_col"),
+    nodeProto("Mul", ["m", "v_col"], ["mv"], "mv"),
+    nodeProto("ReduceSum", ["mv", "axes2"], ["out"], "outside", [intAttr("keepdims", 0)])
+  ])
+}
+
+describe("matVecInScanBodies", () => {
+  test("a Scan body's ReduceSum(Mul(X, Unsqueeze(v, -1)), -2) becomes a MatMul", () => {
+    const edited = matVecInScanBodies(matVecModel())
+    assert.ok(edited)
+    const branch = promptBranch(edited)
+    const scan = branch.nodes.find((n) => n.op === "Scan") as ReadNode
+    const body = readGraph(scan.graphs.body)
+    assert.deepEqual(
+      body.nodes.map((n) => `${n.op}(${n.inputs.join(",")}) -> ${n.outputs.join(",")}`),
+      [
+        // The key's column stays for the outer product; the query's goes.
+        "Unsqueeze(k_in,neg_one) -> k_col",
+        "Unsqueeze(k_in,kv/row_axis) -> kv/row",
+        "MatMul(kv/row,state_in) -> kv/product",
+        "Squeeze(kv/product,kv/row_axis) -> kv",
+        "Mul(k_col,kv) -> state_out",
+        "Unsqueeze(q_in,kv/row_axis) -> y/row",
+        "MatMul(y/row,state_out) -> y/product",
+        "Squeeze(y/product,kv/row_axis) -> y_out"
+      ]
+    )
+    const rowAxis = read(scan.graphs.body)
+      .filter((f) => f.field === 5)
+      .map((f) => read(f.body))
+      .find((t) => texts(t, 8)[0] === "kv/row_axis")
+    const raw = rowAxis?.find((x) => x.field === 9)?.body ?? new Uint8Array(8)
+    assert.equal(new DataView(raw.buffer, raw.byteOffset).getBigInt64(0, true), -2n)
+    // Outside a Scan's body, nothing changes.
+    assert.deepEqual(
+      branch.nodes.map((n) => n.op),
+      ["Scan", "Unsqueeze", "Mul", "ReduceSum"]
+    )
+  })
+
+  test("not where the sum keeps its axis or runs along another", () => {
+    const body = (axes: number, keepdims: number) =>
+      graphOf(
+        [
+          nodeProto("Unsqueeze", ["k_in", "neg_one"], ["k_col"], "k_col"),
+          nodeProto("Mul", ["state_in", "k_col"], ["p"], "p"),
+          nodeProto("ReduceSum", ["p", "axes"], ["y_out"], "y", [intAttr("keepdims", keepdims)])
+        ],
+        { inits: [int64s("neg_one", [-1]), int64s("axes", [axes])] }
+      )
+    for (const [axes, keepdims] of [
+      [-2, 1],
+      [-1, 0]
+    ]) {
+      const model = branchModel([
+        nodeProto("Scan", ["state", "k"], ["state_end", "ys"], "Scan", [
+          graphAttr("body", body(axes, keepdims)),
+          intAttr("num_scan_inputs", 1)
+        ])
+      ])
+      assert.equal(matVecInScanBodies(model), null)
+    }
   })
 })

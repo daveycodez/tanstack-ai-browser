@@ -29,6 +29,7 @@ import { embedRows } from "./disk-embedding.js"
 import {
   chunkLargeMatMulNBits,
   foldScanTransposes,
+  matVecInScanBodies,
   moveScansToCpu,
   readQuantizedEmbedding,
   scoreLastTokenOnly,
@@ -147,8 +148,9 @@ type Ort = {
  * only, and on the CPU, large multiplies split (see CPU_MATMUL_BYTES). A
  * 4-bit embedding session is replaced by a lookup on disk
  * (diskEmbeddingSession). On the GPU, Transposes around Scan loops are
- * folded into the loops' axes or cancelled, and the loops and the float32
- * work around them stay on the CPU (withCpuNodes).
+ * folded into the loops' axes or cancelled, the loops' vector-matrix
+ * products become MatMuls, and the loops and the float32 work around them
+ * stay on the CPU (withCpuNodes).
  */
 function editModels(ort: Ort) {
   const session = ort.InferenceSession
@@ -178,13 +180,15 @@ function editModels(ort: Ort) {
     if (folded) edited = folded
     const sunk = sinkTransposesThroughConcat(edited)
     if (sunk) edited = sunk
+    const matVec = matVecInScanBodies(edited)
+    if (matVec) edited = matVec
     const placed = moveScansToCpu(edited)
     if (placed) edited = placed.model
     const cpuNodes = placed?.cpuNodeNames ?? []
     if (DEBUG && (trimmed || lastOnly || chunked || cpuNodes.length > 0)) {
       ctx.postMessage({
         type: "log",
-        text: `[model]${trimmed ? ` rotary tables cut to ${modelEdits.positions.toLocaleString("en-US")} positions;` : ""}${lastOnly ? " scores for the last token only;" : ""}${chunked ? " large matrix multiplies split for the CPU;" : ""}${folded ? " Transposes folded into Scan axes;" : ""}${sunk ? " Transposes moved below Concats;" : ""}${cpuNodes.length > 0 ? ` ${cpuNodes.length} nodes of Scan loops on the CPU` : ""}`
+        text: `[model]${trimmed ? ` rotary tables cut to ${modelEdits.positions.toLocaleString("en-US")} positions;` : ""}${lastOnly ? " scores for the last token only;" : ""}${chunked ? " large matrix multiplies split for the CPU;" : ""}${folded ? " Transposes folded into Scan axes;" : ""}${sunk ? " Transposes moved below Concats;" : ""}${matVec ? " Scan bodies' vector-matrix products as MatMuls;" : ""}${cpuNodes.length > 0 ? ` ${cpuNodes.length} nodes of Scan loops on the CPU` : ""}`
       })
     }
     const [options, ...more] = rest
