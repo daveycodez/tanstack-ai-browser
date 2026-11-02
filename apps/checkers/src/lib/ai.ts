@@ -182,7 +182,17 @@ export async function chooseAiMove(
       opponent.model === "prompt-api"
         ? await chat({
             ...options,
-            adapter: withCancellation(promptApiText(), generationController)
+            adapter: withCancellation(promptApiText({
+              ...(onPhase && { onGenerationPhase: (phase: GenerationPhase) => {
+                if (!generationSignal.aborted) onPhase(phase)
+              } }),
+              ...(onThinking && { onThinking: (delta: string) => {
+                if (!generationSignal.aborted) onThinking(delta)
+              } })
+            }), generationController),
+            reasoning: opponent.thinking
+              ? { level: "high" as const, budgetTokens: 512 }
+              : ("off" as const)
           })
         : await chat({
             ...options,

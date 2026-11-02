@@ -922,7 +922,7 @@ a {
 }
 @media (max-width: 680px) {
   .app-shell {
-    padding: 24px 22px;
+    padding: 22px 18px;
   }
   .brand {
     font-size: 20px;
@@ -1006,9 +1006,6 @@ a {
     max-width: 325px;
     margin: auto;
     line-height: 1.7;
-  }
-  .game-shell {
-    padding: 22px 18px;
   }
   .game-header {
     margin-bottom: 26px;
@@ -1109,9 +1106,8 @@ a {
   }
 }
 @media (max-width: 375px) {
-  .menu-shell {
-    padding-left: 18px;
-    padding-right: 18px;
+  .app-shell {
+    padding: 19px 12px;
   }
   .menu-main {
     padding-top: 34px;
@@ -1130,9 +1126,6 @@ a {
   .menu-details {
     gap: 8px;
     font-size: 9px;
-  }
-  .game-shell {
-    padding: 19px 12px;
   }
   .game-header {
     margin-bottom: 22px;

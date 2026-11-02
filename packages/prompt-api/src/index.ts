@@ -26,3 +26,5 @@ export type {
 } from "./model.js"
 export { destroyPromptApiSessions } from "./sessions.js"
 export type { Store } from "./store.js"
+
+export type { PromptApiReasoning, PromptApiReasoningUsage } from "./reasoning.js"

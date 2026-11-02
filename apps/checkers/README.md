@@ -46,6 +46,10 @@ loading progress, in a fixed-height turn row. Prompt API uses the browser's buil
 The picker exposes Thinking for models that support it. Models with compulsory reasoning
 show a checked, disabled control. Every WebGL turn requests `modelOptions.maxTokens: 8192`.
 With thinking enabled, every thinking-capable model also receives `reasoning: { level: "high", budgetTokens: 512 }`.
+Prompt API exposes the same toggle through adapter-emulated working notes: an isolated
+draft is streamed and measured against the 512-unit context-usage budget before a
+native schema-constrained final response. This is a best-effort budget rather than
+a native thinking-token cap; off uses the existing single-pass path.
 There are no sampling overrides. The turn row
 shows Processing during prompt prefill and Thinking during enabled reasoning. Clicking
 Thinking opens the live model text in a scrollable modal that stays open after the move.
@@ -55,9 +59,8 @@ performance depends on the device.
 
 `chat()` uses the selected model's supported reasoning mode and a Zod structured output schema whose `moveId` enum
 contains only the rules engine's legal complete turns. Each prompt includes the current
-board and the last five moves from both players, oldest first. The shared WebGL adapter prompts
-for JSON; the schema and rules validate the reply before it can alter the board. It does
-not use a grammar-constrained sampler. Invalid replies show a manual retry control without automatically calling the model again. There is no heuristic fallback. A 120-second generation deadline excludes model
+board and the last five moves from both players, oldest first. The WebGL adapter uses
+schema-constrained decoding; schema and rules validation happen before a reply can alter the board. Invalid replies show a manual retry control without automatically calling the model again. There is no heuristic fallback. A 120-second generation deadline excludes model
 loading. Leaving the route cancels the pending reply, and session/position guards reject
 stale replies after a restart. Same-origin tabs serialize AI turns with Web Locks.
 
