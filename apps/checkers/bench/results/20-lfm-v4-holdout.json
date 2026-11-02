@@ -1,0 +1,2964 @@
+{
+  "schemaVersion": 1,
+  "runId": "a4603688-1dcf-4427-a144-f7a955a50737",
+  "startedAt": "2026-11-02T13:00:23.349Z",
+  "finishedAt": "2026-11-02T13:00:30.665Z",
+  "revision": "48a5178+working",
+  "partial": false,
+  "config": {
+    "model": "LiquidAI/LFM3-1.7B-GGUF",
+    "thinking": false,
+    "reasoningMode": "off",
+    "reasoningBudgetTokens": 512,
+    "maxOutputTokens": 8192,
+    "sampling": "model defaults",
+    "repetitions": 2,
+    "caseIds": [
+      "win-unseen-endgame",
+      "defense-unseen",
+      "exchange-unseen",
+      "promotion-unseen",
+      "endgame-holdout-a",
+      "endgame-holdout-b"
+    ],
+    "suiteVersion": "checkers-audited-v3",
+    "promptVersion": "shared-v4",
+    "outcomeVersion": "legal-replies-v2",
+    "orderPolicy": "case/repetition seeded permutations, identical across models and prompt versions",
+    "outputContract": "legal-action-label-enum"
+  },
+  "results": [
+    {
+      "trial": 1,
+      "repetition": 1,
+      "caseId": "win-unseen-endgame",
+      "label": "Holdout: finish the endgame",
+      "objective": "Take any immediate rules-engine win rather than prolonging a won position.",
+      "partition": "holdout",
+      "expectedMoveIds": [
+        "f6xd4xf2"
+      ],
+      "position": {
+        "id": "current",
+        "sessionId": "benchmark-win-unseen-endgame",
+        "board": [
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          {
+            "side": "ai",
+            "king": false
+          },
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          {
+            "side": "human",
+            "king": false
+          },
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          {
+            "side": "ai",
+            "king": false
+          },
+          null,
+          null,
+          {
+            "side": "ai",
+            "king": true
+          },
+          null,
+          null,
+          null,
+          {
+            "side": "human",
+            "king": false
+          },
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          {
+            "side": "ai",
+            "king": true
+          },
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null
+        ],
+        "initialBoard": [
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          {
+            "side": "ai",
+            "king": false
+          },
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          {
+            "side": "human",
+            "king": false
+          },
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          {
+            "side": "ai",
+            "king": false
+          },
+          null,
+          null,
+          {
+            "side": "ai",
+            "king": true
+          },
+          null,
+          null,
+          null,
+          {
+            "side": "human",
+            "king": false
+          },
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          {
+            "side": "ai",
+            "king": true
+          },
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null
+        ],
+        "initialTurn": "ai",
+        "aiFailures": [],
+        "turn": "ai",
+        "status": "playing",
+        "history": [],
+        "updatedAt": 0,
+        "quietMoves": 0,
+        "positions": [
+          "ai:.....................a......h........a..A...h...........A......."
+        ],
+        "opponent": {
+          "model": "LiquidAI/LFM3-1.7B-GGUF",
+          "thinking": false
+        }
+      },
+      "legal": true,
+      "passed": true,
+      "signal": null,
+      "inference": true,
+      "index": 1,
+      "seconds": 0.6645,
+      "choices": [
+        {
+          "id": "f4xd2",
+          "label": "Jump man f4 over e3 to d2",
+          "outcome": "Jump man f4 over e3 to d2 | Take Red man e3 (1 points); Checked exchange net: Black gains 1 points; No immediate Red win; Red's legal jump chains: maximum 1 Black pieces; maximum 1 points; another Black piece is exposed; Worst checked exchange: Red e5xg7, best Black response d2-c1; net Black +1 points including this move; Red has 1 legal complete replies from 1 pieces; Man distance to crowning 3 to 1 ranks."
+        },
+        {
+          "id": "f6xd4xf2",
+          "label": "Jump man f6 over e5 to d4 over e3 to f2",
+          "outcome": "Jump man f6 over e5 to d4 over e3 to f2 | WIN NOW: Red has no legal turn."
+        }
+      ],
+      "reasoningText": "",
+      "prompt": "Black to move. Use the checked outcomes below to choose a sensible casual move.\nAmerican rules: Black men advance toward rank 1; Red men toward rank 8. A jump goes two diagonal squares over an adjacent enemy and removes it. Men jump forward only. A king is a crowned checker: it steps or jumps diagonally both ways and can be captured. Captures and complete multi-jumps are compulsory; crowning ends the turn. All listed actions are legal.\nBOARD NOW:\nBlack (you): man f6, man f4, king a3, king a1.\nRed (human): man e5, man e3.\nMaterial: Black 4 pieces; Red 2 pieces; balance 4 points.\nCapture required now: yes; every card is a complete capture. Quiet turns 0/80; third repetition draws.\nLAST 5 TURNS (oldest first):\nnone\nHOW TO READ OUTCOMES:\nEach card is a separate possible next board. Red moves next. Exchange points use man=1, king=2 and include this move, every legal Red reply, and Black's best immediate material response; the displayed net is the worst of those checked branches, not a deeper evaluation. King distance is only a quiet activity hint, not safety. King escape facts count actual Red replies with no legal Black capture of that king on the following turn; fewer replies alone is not a benefit if Black loses material. Returning to an earlier square can be necessary.\nALL LEGAL ACTIONS (unranked order):\nJump man f4 over e3 to d2 | Take Red man e3 (1 points); Checked exchange net: Black gains 1 points; No immediate Red win; Red's legal jump chains: maximum 1 Black pieces; maximum 1 points; another Black piece is exposed; Worst checked exchange: Red e5xg7, best Black response d2-c1; net Black +1 points including this move; Red has 1 legal complete replies from 1 pieces; Man distance to crowning 3 to 1 ranks.\nJump man f6 over e5 to d4 over e3 to f2 | WIN NOW: Red has no legal turn.\nBLACK CAN WIN NOW: Jump man f6 over e5 to d4 over e3 to f2.\nReturn exactly one JSON object with key \"move\" and the exact action label before the | on the chosen card. Copy the entire label and stop after the closing brace.",
+      "systemPrompt": "Choose one legal Black action using the verified checkers outcomes. Win now or force a win; otherwise prevent Red's immediate win. Prefer higher nonnegative checked material gains. Take free captures and crown a man now before ordinary quiet development when safe. Prevent free Red promotions when no better exchange exists. Avoid a draw when ahead; prefer an available draw when behind unless a listed win exists. When no tactic decides, favor safe quiet progress: advance men or use kings together to restrict safe escapes. Avoid needless reversals; a retreat can still be necessary. Each card is a separate alternative. Card order is not a recommendation.",
+      "rawAnswer": "{\"move\":\"Jump man f6 over e5 to d4 over e3 to f2\"}",
+      "usage": {
+        "promptTokens": 725,
+        "completionTokens": 22,
+        "totalTokens": 747,
+        "providerUsageDetails": {
+          "firstTokenMs": 272.2000000476837,
+          "promptMs": 270.5,
+          "decodeMs": 386.10000002384186,
+          "decodeTokens": 21
+        }
+      },
+      "moveId": "f6xd4xf2"
+    },
+    {
+      "trial": 2,
+      "repetition": 2,
+      "caseId": "win-unseen-endgame",
+      "label": "Holdout: finish the endgame",
+      "objective": "Take any immediate rules-engine win rather than prolonging a won position.",
+      "partition": "holdout",
+      "expectedMoveIds": [
+        "f6xd4xf2"
+      ],
+      "position": {
+        "id": "current",
+        "sessionId": "benchmark-win-unseen-endgame",
+        "board": [
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          {
+            "side": "ai",
+            "king": false
+          },
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          {
+            "side": "human",
+            "king": false
+          },
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          {
+            "side": "ai",
+            "king": false
+          },
+          null,
+          null,
+          {
+            "side": "ai",
+            "king": true
+          },
+          null,
+          null,
+          null,
+          {
+            "side": "human",
+            "king": false
+          },
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          {
+            "side": "ai",
+            "king": true
+          },
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null
+        ],
+        "initialBoard": [
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          {
+            "side": "ai",
+            "king": false
+          },
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          {
+            "side": "human",
+            "king": false
+          },
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          {
+            "side": "ai",
+            "king": false
+          },
+          null,
+          null,
+          {
+            "side": "ai",
+            "king": true
+          },
+          null,
+          null,
+          null,
+          {
+            "side": "human",
+            "king": false
+          },
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          {
+            "side": "ai",
+            "king": true
+          },
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null
+        ],
+        "initialTurn": "ai",
+        "aiFailures": [],
+        "turn": "ai",
+        "status": "playing",
+        "history": [],
+        "updatedAt": 0,
+        "quietMoves": 0,
+        "positions": [
+          "ai:.....................a......h........a..A...h...........A......."
+        ],
+        "opponent": {
+          "model": "LiquidAI/LFM3-1.7B-GGUF",
+          "thinking": false
+        }
+      },
+      "legal": true,
+      "passed": true,
+      "signal": null,
+      "inference": true,
+      "index": 0,
+      "seconds": 0.6847999999523163,
+      "choices": [
+        {
+          "id": "f6xd4xf2",
+          "label": "Jump man f6 over e5 to d4 over e3 to f2",
+          "outcome": "Jump man f6 over e5 to d4 over e3 to f2 | WIN NOW: Red has no legal turn."
+        },
+        {
+          "id": "f4xd2",
+          "label": "Jump man f4 over e3 to d2",
+          "outcome": "Jump man f4 over e3 to d2 | Take Red man e3 (1 points); Checked exchange net: Black gains 1 points; No immediate Red win; Red's legal jump chains: maximum 1 Black pieces; maximum 1 points; another Black piece is exposed; Worst checked exchange: Red e5xg7, best Black response d2-c1; net Black +1 points including this move; Red has 1 legal complete replies from 1 pieces; Man distance to crowning 3 to 1 ranks."
+        }
+      ],
+      "reasoningText": "",
+      "prompt": "Black to move. Use the checked outcomes below to choose a sensible casual move.\nAmerican rules: Black men advance toward rank 1; Red men toward rank 8. A jump goes two diagonal squares over an adjacent enemy and removes it. Men jump forward only. A king is a crowned checker: it steps or jumps diagonally both ways and can be captured. Captures and complete multi-jumps are compulsory; crowning ends the turn. All listed actions are legal.\nBOARD NOW:\nBlack (you): man f6, man f4, king a3, king a1.\nRed (human): man e5, man e3.\nMaterial: Black 4 pieces; Red 2 pieces; balance 4 points.\nCapture required now: yes; every card is a complete capture. Quiet turns 0/80; third repetition draws.\nLAST 5 TURNS (oldest first):\nnone\nHOW TO READ OUTCOMES:\nEach card is a separate possible next board. Red moves next. Exchange points use man=1, king=2 and include this move, every legal Red reply, and Black's best immediate material response; the displayed net is the worst of those checked branches, not a deeper evaluation. King distance is only a quiet activity hint, not safety. King escape facts count actual Red replies with no legal Black capture of that king on the following turn; fewer replies alone is not a benefit if Black loses material. Returning to an earlier square can be necessary.\nALL LEGAL ACTIONS (unranked order):\nJump man f6 over e5 to d4 over e3 to f2 | WIN NOW: Red has no legal turn.\nJump man f4 over e3 to d2 | Take Red man e3 (1 points); Checked exchange net: Black gains 1 points; No immediate Red win; Red's legal jump chains: maximum 1 Black pieces; maximum 1 points; another Black piece is exposed; Worst checked exchange: Red e5xg7, best Black response d2-c1; net Black +1 points including this move; Red has 1 legal complete replies from 1 pieces; Man distance to crowning 3 to 1 ranks.\nBLACK CAN WIN NOW: Jump man f6 over e5 to d4 over e3 to f2.\nReturn exactly one JSON object with key \"move\" and the exact action label before the | on the chosen card. Copy the entire label and stop after the closing brace.",
+      "systemPrompt": "Choose one legal Black action using the verified checkers outcomes. Win now or force a win; otherwise prevent Red's immediate win. Prefer higher nonnegative checked material gains. Take free captures and crown a man now before ordinary quiet development when safe. Prevent free Red promotions when no better exchange exists. Avoid a draw when ahead; prefer an available draw when behind unless a listed win exists. When no tactic decides, favor safe quiet progress: advance men or use kings together to restrict safe escapes. Avoid needless reversals; a retreat can still be necessary. Each card is a separate alternative. Card order is not a recommendation.",
+      "rawAnswer": "{\"move\":\"Jump man f6 over e5 to d4 over e3 to f2\"}",
+      "usage": {
+        "promptTokens": 725,
+        "completionTokens": 22,
+        "totalTokens": 747,
+        "providerUsageDetails": {
+          "firstTokenMs": 267.2000000476837,
+          "promptMs": 265.40000009536743,
+          "decodeMs": 410,
+          "decodeTokens": 21
+        }
+      },
+      "moveId": "f6xd4xf2"
+    },
+    {
+      "trial": 3,
+      "repetition": 1,
+      "caseId": "defense-unseen",
+      "label": "Holdout: respond to a terminal threat",
+      "objective": "Choose a candidate leaving no legal Red reply that immediately wins.",
+      "partition": "holdout",
+      "expectedMoveIds": [
+        "e5-f4"
+      ],
+      "position": {
+        "id": "current",
+        "sessionId": "benchmark-defense-unseen",
+        "board": [
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          {
+            "side": "human",
+            "king": false
+          },
+          null,
+          null,
+          null,
+          {
+            "side": "ai",
+            "king": false
+          },
+          null,
+          {
+            "side": "human",
+            "king": false
+          },
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          {
+            "side": "human",
+            "king": false
+          },
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          {
+            "side": "human",
+            "king": false
+          },
+          null,
+          null,
+          null,
+          null,
+          null
+        ],
+        "initialBoard": [
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          {
+            "side": "human",
+            "king": false
+          },
+          null,
+          null,
+          null,
+          {
+            "side": "ai",
+            "king": false
+          },
+          null,
+          {
+            "side": "human",
+            "king": false
+          },
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          {
+            "side": "human",
+            "king": false
+          },
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          {
+            "side": "human",
+            "king": false
+          },
+          null,
+          null,
+          null,
+          null,
+          null
+        ],
+        "initialTurn": "ai",
+        "aiFailures": [],
+        "turn": "ai",
+        "status": "playing",
+        "history": [],
+        "updatedAt": 0,
+        "quietMoves": 0,
+        "positions": [
+          "ai:........................h...a.h.............h.............h....."
+        ],
+        "opponent": {
+          "model": "LiquidAI/LFM3-1.7B-GGUF",
+          "thinking": false
+        }
+      },
+      "legal": true,
+      "passed": true,
+      "signal": null,
+      "inference": true,
+      "index": 1,
+      "seconds": 0.46710000002384183,
+      "choices": [
+        {
+          "id": "e5-d4",
+          "label": "Move man e5 to d4",
+          "outcome": "Move man e5 to d4 | No capture; Checked exchange net: Black loses 1 points; RED CAN WIN NEXT: e3xc5; Red's legal jump chains: maximum 1 Black pieces; maximum 1 points; the moved piece is exposed; Worst checked exchange: Red e3xc5; net Black -1 points including this move; Red has 1 legal complete replies from 1 pieces; Man distance to crowning 4 to 3 ranks."
+        },
+        {
+          "id": "e5-f4",
+          "label": "Move man e5 to f4",
+          "outcome": "Move man e5 to f4 | No capture; Checked exchange net: Black breaks even at 0 points; No immediate Red win; Red has no immediate legal capture; Red has 6 legal complete replies from 4 pieces; Man distance to crowning 4 to 3 ranks."
+        }
+      ],
+      "reasoningText": "",
+      "prompt": "Black to move. Use the checked outcomes below to choose a sensible casual move.\nAmerican rules: Black men advance toward rank 1; Red men toward rank 8. A jump goes two diagonal squares over an adjacent enemy and removes it. Men jump forward only. A king is a crowned checker: it steps or jumps diagonally both ways and can be captured. Captures and complete multi-jumps are compulsory; crowning ends the turn. All listed actions are legal.\nBOARD NOW:\nBlack (you): man e5.\nRed (human): man a5, man g5, man e3, man c1.\nMaterial: Black 1 pieces; Red 4 pieces; balance -3 points.\nCapture required now: no. Quiet turns 0/80; third repetition draws.\nLAST 5 TURNS (oldest first):\nnone\nHOW TO READ OUTCOMES:\nEach card is a separate possible next board. Red moves next. Exchange points use man=1, king=2 and include this move, every legal Red reply, and Black's best immediate material response; the displayed net is the worst of those checked branches, not a deeper evaluation. King distance is only a quiet activity hint, not safety. King escape facts count actual Red replies with no legal Black capture of that king on the following turn; fewer replies alone is not a benefit if Black loses material. Returning to an earlier square can be necessary.\nALL LEGAL ACTIONS (unranked order):\nMove man e5 to d4 | No capture; Checked exchange net: Black loses 1 points; RED CAN WIN NEXT: e3xc5; Red's legal jump chains: maximum 1 Black pieces; maximum 1 points; the moved piece is exposed; Worst checked exchange: Red e3xc5; net Black -1 points including this move; Red has 1 legal complete replies from 1 pieces; Man distance to crowning 4 to 3 ranks.\nMove man e5 to f4 | No capture; Checked exchange net: Black breaks even at 0 points; No immediate Red win; Red has no immediate legal capture; Red has 6 legal complete replies from 4 pieces; Man distance to crowning 4 to 3 ranks.\nCHOICES WITH NO IMMEDIATE RED WIN: Move man e5 to f4.\nNON-LOSING CHECKED EXCHANGES: Move man e5 to f4. These have no immediate Red win and no material loss within the checked reply and response.\nSAFE QUIET PROGRESS: Move man e5 to f4. These advance a man or bring a king closer without a checked loss or simply undoing its previous move. This is an activity hint, not a forced win; prefer purposeful progress when no tactic decides.\nReturn exactly one JSON object with key \"move\" and the exact action label before the | on the chosen card. Copy the entire label and stop after the closing brace.",
+      "systemPrompt": "Choose one legal Black action using the verified checkers outcomes. Win now or force a win; otherwise prevent Red's immediate win. Prefer higher nonnegative checked material gains. Take free captures and crown a man now before ordinary quiet development when safe. Prevent free Red promotions when no better exchange exists. Avoid a draw when ahead; prefer an available draw when behind unless a listed win exists. When no tactic decides, favor safe quiet progress: advance men or use kings together to restrict safe escapes. Avoid needless reversals; a retreat can still be necessary. Each card is a separate alternative. Card order is not a recommendation.",
+      "rawAnswer": "{\"move\":\"Move man e5 to f4\"}",
+      "usage": {
+        "promptTokens": 809,
+        "completionTokens": 12,
+        "totalTokens": 821,
+        "providerUsageDetails": {
+          "firstTokenMs": 295.39999997615814,
+          "promptMs": 293.40000009536743,
+          "decodeMs": 168,
+          "decodeTokens": 11
+        }
+      },
+      "moveId": "e5-f4"
+    },
+    {
+      "trial": 4,
+      "repetition": 2,
+      "caseId": "defense-unseen",
+      "label": "Holdout: respond to a terminal threat",
+      "objective": "Choose a candidate leaving no legal Red reply that immediately wins.",
+      "partition": "holdout",
+      "expectedMoveIds": [
+        "e5-f4"
+      ],
+      "position": {
+        "id": "current",
+        "sessionId": "benchmark-defense-unseen",
+        "board": [
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          {
+            "side": "human",
+            "king": false
+          },
+          null,
+          null,
+          null,
+          {
+            "side": "ai",
+            "king": false
+          },
+          null,
+          {
+            "side": "human",
+            "king": false
+          },
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          {
+            "side": "human",
+            "king": false
+          },
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          {
+            "side": "human",
+            "king": false
+          },
+          null,
+          null,
+          null,
+          null,
+          null
+        ],
+        "initialBoard": [
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          {
+            "side": "human",
+            "king": false
+          },
+          null,
+          null,
+          null,
+          {
+            "side": "ai",
+            "king": false
+          },
+          null,
+          {
+            "side": "human",
+            "king": false
+          },
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          {
+            "side": "human",
+            "king": false
+          },
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          {
+            "side": "human",
+            "king": false
+          },
+          null,
+          null,
+          null,
+          null,
+          null
+        ],
+        "initialTurn": "ai",
+        "aiFailures": [],
+        "turn": "ai",
+        "status": "playing",
+        "history": [],
+        "updatedAt": 0,
+        "quietMoves": 0,
+        "positions": [
+          "ai:........................h...a.h.............h.............h....."
+        ],
+        "opponent": {
+          "model": "LiquidAI/LFM3-1.7B-GGUF",
+          "thinking": false
+        }
+      },
+      "legal": true,
+      "passed": true,
+      "signal": null,
+      "inference": true,
+      "index": 1,
+      "seconds": 0.17210000002384185,
+      "choices": [
+        {
+          "id": "e5-d4",
+          "label": "Move man e5 to d4",
+          "outcome": "Move man e5 to d4 | No capture; Checked exchange net: Black loses 1 points; RED CAN WIN NEXT: e3xc5; Red's legal jump chains: maximum 1 Black pieces; maximum 1 points; the moved piece is exposed; Worst checked exchange: Red e3xc5; net Black -1 points including this move; Red has 1 legal complete replies from 1 pieces; Man distance to crowning 4 to 3 ranks."
+        },
+        {
+          "id": "e5-f4",
+          "label": "Move man e5 to f4",
+          "outcome": "Move man e5 to f4 | No capture; Checked exchange net: Black breaks even at 0 points; No immediate Red win; Red has no immediate legal capture; Red has 6 legal complete replies from 4 pieces; Man distance to crowning 4 to 3 ranks."
+        }
+      ],
+      "reasoningText": "",
+      "prompt": "Black to move. Use the checked outcomes below to choose a sensible casual move.\nAmerican rules: Black men advance toward rank 1; Red men toward rank 8. A jump goes two diagonal squares over an adjacent enemy and removes it. Men jump forward only. A king is a crowned checker: it steps or jumps diagonally both ways and can be captured. Captures and complete multi-jumps are compulsory; crowning ends the turn. All listed actions are legal.\nBOARD NOW:\nBlack (you): man e5.\nRed (human): man a5, man g5, man e3, man c1.\nMaterial: Black 1 pieces; Red 4 pieces; balance -3 points.\nCapture required now: no. Quiet turns 0/80; third repetition draws.\nLAST 5 TURNS (oldest first):\nnone\nHOW TO READ OUTCOMES:\nEach card is a separate possible next board. Red moves next. Exchange points use man=1, king=2 and include this move, every legal Red reply, and Black's best immediate material response; the displayed net is the worst of those checked branches, not a deeper evaluation. King distance is only a quiet activity hint, not safety. King escape facts count actual Red replies with no legal Black capture of that king on the following turn; fewer replies alone is not a benefit if Black loses material. Returning to an earlier square can be necessary.\nALL LEGAL ACTIONS (unranked order):\nMove man e5 to d4 | No capture; Checked exchange net: Black loses 1 points; RED CAN WIN NEXT: e3xc5; Red's legal jump chains: maximum 1 Black pieces; maximum 1 points; the moved piece is exposed; Worst checked exchange: Red e3xc5; net Black -1 points including this move; Red has 1 legal complete replies from 1 pieces; Man distance to crowning 4 to 3 ranks.\nMove man e5 to f4 | No capture; Checked exchange net: Black breaks even at 0 points; No immediate Red win; Red has no immediate legal capture; Red has 6 legal complete replies from 4 pieces; Man distance to crowning 4 to 3 ranks.\nCHOICES WITH NO IMMEDIATE RED WIN: Move man e5 to f4.\nNON-LOSING CHECKED EXCHANGES: Move man e5 to f4. These have no immediate Red win and no material loss within the checked reply and response.\nSAFE QUIET PROGRESS: Move man e5 to f4. These advance a man or bring a king closer without a checked loss or simply undoing its previous move. This is an activity hint, not a forced win; prefer purposeful progress when no tactic decides.\nReturn exactly one JSON object with key \"move\" and the exact action label before the | on the chosen card. Copy the entire label and stop after the closing brace.",
+      "systemPrompt": "Choose one legal Black action using the verified checkers outcomes. Win now or force a win; otherwise prevent Red's immediate win. Prefer higher nonnegative checked material gains. Take free captures and crown a man now before ordinary quiet development when safe. Prevent free Red promotions when no better exchange exists. Avoid a draw when ahead; prefer an available draw when behind unless a listed win exists. When no tactic decides, favor safe quiet progress: advance men or use kings together to restrict safe escapes. Avoid needless reversals; a retreat can still be necessary. Each card is a separate alternative. Card order is not a recommendation.",
+      "rawAnswer": "{\"move\":\"Move man e5 to f4\"}",
+      "usage": {
+        "promptTokens": 809,
+        "completionTokens": 12,
+        "totalTokens": 821,
+        "promptTokensDetails": {
+          "cachedTokens": 809
+        },
+        "providerUsageDetails": {
+          "firstTokenMs": 5.5,
+          "promptMs": 3.8000000715255737,
+          "decodeMs": 162.69999992847443,
+          "decodeTokens": 11
+        }
+      },
+      "moveId": "e5-f4"
+    },
+    {
+      "trial": 5,
+      "repetition": 1,
+      "caseId": "exchange-unseen",
+      "label": "Holdout: compare an unfamiliar exchange",
+      "objective": "Use complete legal capture replies and Black's best immediate response to choose the highest worst material delta, without allowing Red an immediate win.",
+      "partition": "holdout",
+      "expectedMoveIds": [
+        "f4xd2"
+      ],
+      "position": {
+        "id": "current",
+        "sessionId": "benchmark-exchange-unseen",
+        "board": [
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          {
+            "side": "ai",
+            "king": false
+          },
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          {
+            "side": "human",
+            "king": false
+          },
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          {
+            "side": "ai",
+            "king": true
+          },
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          {
+            "side": "ai",
+            "king": false
+          },
+          null,
+          null,
+          {
+            "side": "ai",
+            "king": true
+          },
+          null,
+          null,
+          null,
+          {
+            "side": "human",
+            "king": false
+          },
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null
+        ],
+        "initialBoard": [
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          {
+            "side": "ai",
+            "king": false
+          },
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          {
+            "side": "human",
+            "king": false
+          },
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          {
+            "side": "ai",
+            "king": true
+          },
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          {
+            "side": "ai",
+            "king": false
+          },
+          null,
+          null,
+          {
+            "side": "ai",
+            "king": true
+          },
+          null,
+          null,
+          null,
+          {
+            "side": "human",
+            "king": false
+          },
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null
+        ],
+        "initialTurn": "ai",
+        "aiFailures": [],
+        "turn": "ai",
+        "status": "playing",
+        "history": [],
+        "updatedAt": 0,
+        "quietMoves": 0,
+        "positions": [
+          "ai:.......a.............h......A........a..A...h..................."
+        ],
+        "opponent": {
+          "model": "LiquidAI/LFM3-1.7B-GGUF",
+          "thinking": false
+        }
+      },
+      "legal": true,
+      "passed": true,
+      "signal": null,
+      "inference": true,
+      "index": 1,
+      "seconds": 0.5183000000715255,
+      "choices": [
+        {
+          "id": "e5xg7",
+          "label": "Jump king e5 over f6 to g7",
+          "outcome": "Jump king e5 over f6 to g7 | Take Red man f6 (1 points); Checked exchange net: Black breaks even at 0 points; No immediate Red win; Red's legal jump chains: maximum 1 Black pieces; maximum 1 points; another Black piece is exposed; Worst checked exchange: Red e3xg5, best Black response g7-f8; net Black 0 points including this move; Red has 1 legal complete replies from 1 pieces."
+        },
+        {
+          "id": "f4xd2",
+          "label": "Jump man f4 over e3 to d2",
+          "outcome": "Jump man f4 over e3 to d2 | Take Red man e3 (1 points); Checked exchange net: Black gains 2 points; No immediate Red win; Red has no immediate legal capture; Red has 2 legal complete replies from 1 pieces; Man distance to crowning 3 to 1 ranks."
+        }
+      ],
+      "reasoningText": "",
+      "prompt": "Black to move. Use the checked outcomes below to choose a sensible casual move.\nAmerican rules: Black men advance toward rank 1; Red men toward rank 8. A jump goes two diagonal squares over an adjacent enemy and removes it. Men jump forward only. A king is a crowned checker: it steps or jumps diagonally both ways and can be captured. Captures and complete multi-jumps are compulsory; crowning ends the turn. All listed actions are legal.\nBOARD NOW:\nBlack (you): man h8, king e5, man f4, king a3.\nRed (human): man f6, man e3.\nMaterial: Black 4 pieces; Red 2 pieces; balance 4 points.\nCapture required now: yes; every card is a complete capture. Quiet turns 0/80; third repetition draws.\nLAST 5 TURNS (oldest first):\nnone\nHOW TO READ OUTCOMES:\nEach card is a separate possible next board. Red moves next. Exchange points use man=1, king=2 and include this move, every legal Red reply, and Black's best immediate material response; the displayed net is the worst of those checked branches, not a deeper evaluation. King distance is only a quiet activity hint, not safety. King escape facts count actual Red replies with no legal Black capture of that king on the following turn; fewer replies alone is not a benefit if Black loses material. Returning to an earlier square can be necessary.\nALL LEGAL ACTIONS (unranked order):\nJump king e5 over f6 to g7 | Take Red man f6 (1 points); Checked exchange net: Black breaks even at 0 points; No immediate Red win; Red's legal jump chains: maximum 1 Black pieces; maximum 1 points; another Black piece is exposed; Worst checked exchange: Red e3xg5, best Black response g7-f8; net Black 0 points including this move; Red has 1 legal complete replies from 1 pieces.\nJump man f4 over e3 to d2 | Take Red man e3 (1 points); Checked exchange net: Black gains 2 points; No immediate Red win; Red has no immediate legal capture; Red has 2 legal complete replies from 1 pieces; Man distance to crowning 3 to 1 ranks.\nFREE CAPTURES: Jump man f4 over e3 to d2. These take material without any immediate legal Red capture or immediate Red win.\nReturn exactly one JSON object with key \"move\" and the exact action label before the | on the chosen card. Copy the entire label and stop after the closing brace.",
+      "systemPrompt": "Choose one legal Black action using the verified checkers outcomes. Win now or force a win; otherwise prevent Red's immediate win. Prefer higher nonnegative checked material gains. Take free captures and crown a man now before ordinary quiet development when safe. Prevent free Red promotions when no better exchange exists. Avoid a draw when ahead; prefer an available draw when behind unless a listed win exists. When no tactic decides, favor safe quiet progress: advance men or use kings together to restrict safe escapes. Avoid needless reversals; a retreat can still be necessary. Each card is a separate alternative. Card order is not a recommendation.",
+      "rawAnswer": "{\"move\":\"Jump man f4 over e3 to d2\"}",
+      "usage": {
+        "promptTokens": 757,
+        "completionTokens": 16,
+        "totalTokens": 773,
+        "providerUsageDetails": {
+          "firstTokenMs": 267.90000009536743,
+          "promptMs": 265.3000000715256,
+          "decodeMs": 241.19999992847443,
+          "decodeTokens": 15
+        }
+      },
+      "moveId": "f4xd2"
+    },
+    {
+      "trial": 6,
+      "repetition": 2,
+      "caseId": "exchange-unseen",
+      "label": "Holdout: compare an unfamiliar exchange",
+      "objective": "Use complete legal capture replies and Black's best immediate response to choose the highest worst material delta, without allowing Red an immediate win.",
+      "partition": "holdout",
+      "expectedMoveIds": [
+        "f4xd2"
+      ],
+      "position": {
+        "id": "current",
+        "sessionId": "benchmark-exchange-unseen",
+        "board": [
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          {
+            "side": "ai",
+            "king": false
+          },
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          {
+            "side": "human",
+            "king": false
+          },
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          {
+            "side": "ai",
+            "king": true
+          },
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          {
+            "side": "ai",
+            "king": false
+          },
+          null,
+          null,
+          {
+            "side": "ai",
+            "king": true
+          },
+          null,
+          null,
+          null,
+          {
+            "side": "human",
+            "king": false
+          },
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null
+        ],
+        "initialBoard": [
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          {
+            "side": "ai",
+            "king": false
+          },
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          {
+            "side": "human",
+            "king": false
+          },
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          {
+            "side": "ai",
+            "king": true
+          },
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          {
+            "side": "ai",
+            "king": false
+          },
+          null,
+          null,
+          {
+            "side": "ai",
+            "king": true
+          },
+          null,
+          null,
+          null,
+          {
+            "side": "human",
+            "king": false
+          },
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null
+        ],
+        "initialTurn": "ai",
+        "aiFailures": [],
+        "turn": "ai",
+        "status": "playing",
+        "history": [],
+        "updatedAt": 0,
+        "quietMoves": 0,
+        "positions": [
+          "ai:.......a.............h......A........a..A...h..................."
+        ],
+        "opponent": {
+          "model": "LiquidAI/LFM3-1.7B-GGUF",
+          "thinking": false
+        }
+      },
+      "legal": true,
+      "passed": true,
+      "signal": null,
+      "inference": true,
+      "index": 0,
+      "seconds": 0.5175,
+      "choices": [
+        {
+          "id": "f4xd2",
+          "label": "Jump man f4 over e3 to d2",
+          "outcome": "Jump man f4 over e3 to d2 | Take Red man e3 (1 points); Checked exchange net: Black gains 2 points; No immediate Red win; Red has no immediate legal capture; Red has 2 legal complete replies from 1 pieces; Man distance to crowning 3 to 1 ranks."
+        },
+        {
+          "id": "e5xg7",
+          "label": "Jump king e5 over f6 to g7",
+          "outcome": "Jump king e5 over f6 to g7 | Take Red man f6 (1 points); Checked exchange net: Black breaks even at 0 points; No immediate Red win; Red's legal jump chains: maximum 1 Black pieces; maximum 1 points; another Black piece is exposed; Worst checked exchange: Red e3xg5, best Black response g7-f8; net Black 0 points including this move; Red has 1 legal complete replies from 1 pieces."
+        }
+      ],
+      "reasoningText": "",
+      "prompt": "Black to move. Use the checked outcomes below to choose a sensible casual move.\nAmerican rules: Black men advance toward rank 1; Red men toward rank 8. A jump goes two diagonal squares over an adjacent enemy and removes it. Men jump forward only. A king is a crowned checker: it steps or jumps diagonally both ways and can be captured. Captures and complete multi-jumps are compulsory; crowning ends the turn. All listed actions are legal.\nBOARD NOW:\nBlack (you): man h8, king e5, man f4, king a3.\nRed (human): man f6, man e3.\nMaterial: Black 4 pieces; Red 2 pieces; balance 4 points.\nCapture required now: yes; every card is a complete capture. Quiet turns 0/80; third repetition draws.\nLAST 5 TURNS (oldest first):\nnone\nHOW TO READ OUTCOMES:\nEach card is a separate possible next board. Red moves next. Exchange points use man=1, king=2 and include this move, every legal Red reply, and Black's best immediate material response; the displayed net is the worst of those checked branches, not a deeper evaluation. King distance is only a quiet activity hint, not safety. King escape facts count actual Red replies with no legal Black capture of that king on the following turn; fewer replies alone is not a benefit if Black loses material. Returning to an earlier square can be necessary.\nALL LEGAL ACTIONS (unranked order):\nJump man f4 over e3 to d2 | Take Red man e3 (1 points); Checked exchange net: Black gains 2 points; No immediate Red win; Red has no immediate legal capture; Red has 2 legal complete replies from 1 pieces; Man distance to crowning 3 to 1 ranks.\nJump king e5 over f6 to g7 | Take Red man f6 (1 points); Checked exchange net: Black breaks even at 0 points; No immediate Red win; Red's legal jump chains: maximum 1 Black pieces; maximum 1 points; another Black piece is exposed; Worst checked exchange: Red e3xg5, best Black response g7-f8; net Black 0 points including this move; Red has 1 legal complete replies from 1 pieces.\nFREE CAPTURES: Jump man f4 over e3 to d2. These take material without any immediate legal Red capture or immediate Red win.\nReturn exactly one JSON object with key \"move\" and the exact action label before the | on the chosen card. Copy the entire label and stop after the closing brace.",
+      "systemPrompt": "Choose one legal Black action using the verified checkers outcomes. Win now or force a win; otherwise prevent Red's immediate win. Prefer higher nonnegative checked material gains. Take free captures and crown a man now before ordinary quiet development when safe. Prevent free Red promotions when no better exchange exists. Avoid a draw when ahead; prefer an available draw when behind unless a listed win exists. When no tactic decides, favor safe quiet progress: advance men or use kings together to restrict safe escapes. Avoid needless reversals; a retreat can still be necessary. Each card is a separate alternative. Card order is not a recommendation.",
+      "rawAnswer": "{\"move\":\"Jump man f4 over e3 to d2\"}",
+      "usage": {
+        "promptTokens": 757,
+        "completionTokens": 16,
+        "totalTokens": 773,
+        "providerUsageDetails": {
+          "firstTokenMs": 262.89999997615814,
+          "promptMs": 261.10000002384186,
+          "decodeMs": 246.79999995231628,
+          "decodeTokens": 15
+        }
+      },
+      "moveId": "f4xd2"
+    },
+    {
+      "trial": 7,
+      "repetition": 1,
+      "caseId": "promotion-unseen",
+      "label": "Holdout: safe kinging opportunity",
+      "objective": "Take any immediate promotion that keeps the new king uncapturable on Red's next turn and has no checked material loss or immediate Red win.",
+      "partition": "holdout",
+      "expectedMoveIds": [
+        "b2-c1"
+      ],
+      "position": {
+        "id": "current",
+        "sessionId": "benchmark-promotion-unseen",
+        "board": [
+          null,
+          null,
+          null,
+          {
+            "side": "human",
+            "king": true
+          },
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          {
+            "side": "ai",
+            "king": false
+          },
+          null,
+          null,
+          null,
+          {
+            "side": "human",
+            "king": false
+          },
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          {
+            "side": "ai",
+            "king": true
+          },
+          null,
+          {
+            "side": "human",
+            "king": true
+          },
+          null,
+          null,
+          null,
+          {
+            "side": "ai",
+            "king": false
+          },
+          null,
+          null,
+          {
+            "side": "human",
+            "king": false
+          },
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          {
+            "side": "ai",
+            "king": false
+          },
+          null,
+          {
+            "side": "human",
+            "king": false
+          },
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null
+        ],
+        "initialBoard": [
+          null,
+          null,
+          null,
+          {
+            "side": "human",
+            "king": true
+          },
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          {
+            "side": "ai",
+            "king": false
+          },
+          null,
+          null,
+          null,
+          {
+            "side": "human",
+            "king": false
+          },
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          {
+            "side": "ai",
+            "king": true
+          },
+          null,
+          {
+            "side": "human",
+            "king": true
+          },
+          null,
+          null,
+          null,
+          {
+            "side": "ai",
+            "king": false
+          },
+          null,
+          null,
+          {
+            "side": "human",
+            "king": false
+          },
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          {
+            "side": "ai",
+            "king": false
+          },
+          null,
+          {
+            "side": "human",
+            "king": false
+          },
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null
+        ],
+        "initialTurn": "ai",
+        "aiFailures": [],
+        "turn": "ai",
+        "status": "playing",
+        "history": [],
+        "updatedAt": 0,
+        "quietMoves": 0,
+        "positions": [
+          "ai:...H.............a...h...........A.H...a..h......a.h............"
+        ],
+        "opponent": {
+          "model": "LiquidAI/LFM3-1.7B-GGUF",
+          "thinking": false
+        }
+      },
+      "legal": true,
+      "passed": true,
+      "signal": null,
+      "inference": true,
+      "index": 2,
+      "seconds": 0.7605,
+      "choices": [
+        {
+          "id": "h4-g3",
+          "label": "Move man h4 to g3",
+          "outcome": "Move man h4 to g3 | No capture; Checked exchange net: Black loses 2 points; No immediate Red win; Red's legal jump chains: maximum 2 Black pieces; maximum 3 points; another Black piece is exposed; Worst checked exchange: Red c3xa5xc7, best Black response b2-a1; net Black -2 points including this move; Red has 1 legal complete replies from 1 pieces; Man distance to crowning 3 to 2 ranks."
+        },
+        {
+          "id": "b6-a5",
+          "label": "Move man b6 to a5",
+          "outcome": "Move man b6 to a5 | No capture; Checked exchange net: Black gains 1 points; No immediate Red win; Red has no immediate legal capture; Red has 8 legal complete replies from 4 pieces; Man distance to crowning 5 to 4 ranks."
+        },
+        {
+          "id": "b2-c1",
+          "label": "Move man b2 to c1; become king",
+          "outcome": "Move man b2 to c1; become king | No capture; Black gains a king; Checked exchange net: Black gains 1 points; No immediate Red win; Red's legal jump chains: maximum 2 Black pieces; maximum 3 points; another Black piece is exposed; Worst checked exchange: Red c3xa5xc7, best Black response c1xe3xc5; net Black +1 points including this move; Red has 1 legal complete replies from 1 pieces; After EVERY legal Red reply, Black has a capture worth at least 3 points on its next turn; Black can capture Red king d4 on its next turn whichever legal reply Red chooses."
+        },
+        {
+          "id": "b4-c5",
+          "label": "Move king b4 to c5",
+          "outcome": "Move king b4 to c5 | No capture; Checked exchange net: Black gains 1 points; No immediate Red win; Red has no immediate legal capture; Red has 8 legal complete replies from 5 pieces; Red king safe replies: d8 8/8, d4 3/8; King distance to nearest Red 1 to 1 diagonal steps."
+        },
+        {
+          "id": "b6-c5",
+          "label": "Move man b6 to c5",
+          "outcome": "Move man b6 to c5 | No capture; Checked exchange net: Black breaks even at 0 points; No immediate Red win; Red's legal jump chains: maximum 1 Black pieces; maximum 2 points; the moved piece is exposed; Worst checked exchange: Red d4xb6, best Black response b2-a1; net Black 0 points including this move; Red has 2 legal complete replies from 2 pieces; Man distance to crowning 5 to 4 ranks."
+        },
+        {
+          "id": "b2-a1",
+          "label": "Move man b2 to a1; become king",
+          "outcome": "Move man b2 to a1; become king | No capture; Black gains a king; Checked exchange net: Black loses 2 points; No immediate Red win; Red's legal jump chains: maximum 2 Black pieces; maximum 3 points; another Black piece is exposed; Worst checked exchange: Red c3xa5xc7, best Black response h4-g3; net Black -2 points including this move; Red has 1 legal complete replies from 1 pieces."
+        },
+        {
+          "id": "b4-a3",
+          "label": "Move king b4 to a3",
+          "outcome": "Move king b4 to a3 | No capture; Checked exchange net: Black gains 1 points; No immediate Red win; Red has no immediate legal capture; Red has 9 legal complete replies from 5 pieces; Red king safe replies: d8 9/9, d4 7/9; King distance to nearest Red 1 to 2 diagonal steps."
+        },
+        {
+          "id": "b4-a5",
+          "label": "Move king b4 to a5",
+          "outcome": "Move king b4 to a5 | No capture; Checked exchange net: Black gains 1 points; No immediate Red win; Red has no immediate legal capture; Red has 9 legal complete replies from 5 pieces; Red king safe replies: d8 9/9, d4 7/9; King distance to nearest Red 1 to 2 diagonal steps."
+        }
+      ],
+      "reasoningText": "",
+      "prompt": "Black to move. Use the checked outcomes below to choose a sensible casual move.\nAmerican rules: Black men advance toward rank 1; Red men toward rank 8. A jump goes two diagonal squares over an adjacent enemy and removes it. Men jump forward only. A king is a crowned checker: it steps or jumps diagonally both ways and can be captured. Captures and complete multi-jumps are compulsory; crowning ends the turn. All listed actions are legal.\nBOARD NOW:\nBlack (you): man b6, king b4, man h4, man b2.\nRed (human): king d8, man f6, king d4, man c3, man d2.\nMaterial: Black 4 pieces; Red 5 pieces; balance -2 points.\nCapture required now: no. Quiet turns 0/80; third repetition draws.\nLAST 5 TURNS (oldest first):\nnone\nHOW TO READ OUTCOMES:\nEach card is a separate possible next board. Red moves next. Exchange points use man=1, king=2 and include this move, every legal Red reply, and Black's best immediate material response; the displayed net is the worst of those checked branches, not a deeper evaluation. King distance is only a quiet activity hint, not safety. King escape facts count actual Red replies with no legal Black capture of that king on the following turn; fewer replies alone is not a benefit if Black loses material. Returning to an earlier square can be necessary.\nALL LEGAL ACTIONS (unranked order):\nMove man h4 to g3 | No capture; Checked exchange net: Black loses 2 points; No immediate Red win; Red's legal jump chains: maximum 2 Black pieces; maximum 3 points; another Black piece is exposed; Worst checked exchange: Red c3xa5xc7, best Black response b2-a1; net Black -2 points including this move; Red has 1 legal complete replies from 1 pieces; Man distance to crowning 3 to 2 ranks.\nMove man b6 to a5 | No capture; Checked exchange net: Black gains 1 points; No immediate Red win; Red has no immediate legal capture; Red has 8 legal complete replies from 4 pieces; Man distance to crowning 5 to 4 ranks.\nMove man b2 to c1; become king | No capture; Black gains a king; Checked exchange net: Black gains 1 points; No immediate Red win; Red's legal jump chains: maximum 2 Black pieces; maximum 3 points; another Black piece is exposed; Worst checked exchange: Red c3xa5xc7, best Black response c1xe3xc5; net Black +1 points including this move; Red has 1 legal complete replies from 1 pieces; After EVERY legal Red reply, Black has a capture worth at least 3 points on its next turn; Black can capture Red king d4 on its next turn whichever legal reply Red chooses.\nMove king b4 to c5 | No capture; Checked exchange net: Black gains 1 points; No immediate Red win; Red has no immediate legal capture; Red has 8 legal complete replies from 5 pieces; Red king safe replies: d8 8/8, d4 3/8; King distance to nearest Red 1 to 1 diagonal steps.\nMove man b6 to c5 | No capture; Checked exchange net: Black breaks even at 0 points; No immediate Red win; Red's legal jump chains: maximum 1 Black pieces; maximum 2 points; the moved piece is exposed; Worst checked exchange: Red d4xb6, best Black response b2-a1; net Black 0 points including this move; Red has 2 legal complete replies from 2 pieces; Man distance to crowning 5 to 4 ranks.\nMove man b2 to a1; become king | No capture; Black gains a king; Checked exchange net: Black loses 2 points; No immediate Red win; Red's legal jump chains: maximum 2 Black pieces; maximum 3 points; another Black piece is exposed; Worst checked exchange: Red c3xa5xc7, best Black response h4-g3; net Black -2 points including this move; Red has 1 legal complete replies from 1 pieces.\nMove king b4 to a3 | No capture; Checked exchange net: Black gains 1 points; No immediate Red win; Red has no immediate legal capture; Red has 9 legal complete replies from 5 pieces; Red king safe replies: d8 9/9, d4 7/9; King distance to nearest Red 1 to 2 diagonal steps.\nMove king b4 to a5 | No capture; Checked exchange net: Black gains 1 points; No immediate Red win; Red has no immediate legal capture; Red has 9 legal complete replies from 5 pieces; Red king safe replies: d8 9/9, d4 7/9; King distance to nearest Red 1 to 2 diagonal steps.\nNON-LOSING CHECKED EXCHANGES: Move man b6 to a5; Move man b2 to c1; become king; Move king b4 to c5; Move man b6 to c5; Move king b4 to a3; Move king b4 to a5. These have no immediate Red win and no material loss within the checked reply and response.\nCROWN A MAN NOW WITHOUT A CHECKED LOSS: Move man b2 to c1; become king. Prefer a safe crown now over ordinary quiet moves.\nCAPTURE OPPORTUNITIES AFTER EVERY RED REPLY: Move man b2 to c1; become king. These preserve a legal Black capture on the following turn against every Red reply; this is not a claim of a deeper win.\nReturn exactly one JSON object with key \"move\" and the exact action label before the | on the chosen card. Copy the entire label and stop after the closing brace.",
+      "systemPrompt": "Choose one legal Black action using the verified checkers outcomes. Win now or force a win; otherwise prevent Red's immediate win. Prefer higher nonnegative checked material gains. Take free captures and crown a man now before ordinary quiet development when safe. Prevent free Red promotions when no better exchange exists. Avoid a draw when ahead; prefer an available draw when behind unless a listed win exists. When no tactic decides, favor safe quiet progress: advance men or use kings together to restrict safe escapes. Avoid needless reversals; a retreat can still be necessary. Each card is a separate alternative. Card order is not a recommendation.",
+      "rawAnswer": "{\"move\":\"Move man b2 to c1; become king\"}",
+      "usage": {
+        "promptTokens": 1527,
+        "completionTokens": 15,
+        "totalTokens": 1542,
+        "providerUsageDetails": {
+          "firstTokenMs": 496.39999997615814,
+          "promptMs": 492.89999997615814,
+          "decodeMs": 254.89999997615814,
+          "decodeTokens": 14
+        }
+      },
+      "moveId": "b2-c1"
+    },
+    {
+      "trial": 8,
+      "repetition": 2,
+      "caseId": "promotion-unseen",
+      "label": "Holdout: safe kinging opportunity",
+      "objective": "Take any immediate promotion that keeps the new king uncapturable on Red's next turn and has no checked material loss or immediate Red win.",
+      "partition": "holdout",
+      "expectedMoveIds": [
+        "b2-c1"
+      ],
+      "position": {
+        "id": "current",
+        "sessionId": "benchmark-promotion-unseen",
+        "board": [
+          null,
+          null,
+          null,
+          {
+            "side": "human",
+            "king": true
+          },
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          {
+            "side": "ai",
+            "king": false
+          },
+          null,
+          null,
+          null,
+          {
+            "side": "human",
+            "king": false
+          },
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          {
+            "side": "ai",
+            "king": true
+          },
+          null,
+          {
+            "side": "human",
+            "king": true
+          },
+          null,
+          null,
+          null,
+          {
+            "side": "ai",
+            "king": false
+          },
+          null,
+          null,
+          {
+            "side": "human",
+            "king": false
+          },
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          {
+            "side": "ai",
+            "king": false
+          },
+          null,
+          {
+            "side": "human",
+            "king": false
+          },
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null
+        ],
+        "initialBoard": [
+          null,
+          null,
+          null,
+          {
+            "side": "human",
+            "king": true
+          },
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          {
+            "side": "ai",
+            "king": false
+          },
+          null,
+          null,
+          null,
+          {
+            "side": "human",
+            "king": false
+          },
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          {
+            "side": "ai",
+            "king": true
+          },
+          null,
+          {
+            "side": "human",
+            "king": true
+          },
+          null,
+          null,
+          null,
+          {
+            "side": "ai",
+            "king": false
+          },
+          null,
+          null,
+          {
+            "side": "human",
+            "king": false
+          },
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          {
+            "side": "ai",
+            "king": false
+          },
+          null,
+          {
+            "side": "human",
+            "king": false
+          },
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null
+        ],
+        "initialTurn": "ai",
+        "aiFailures": [],
+        "turn": "ai",
+        "status": "playing",
+        "history": [],
+        "updatedAt": 0,
+        "quietMoves": 0,
+        "positions": [
+          "ai:...H.............a...h...........A.H...a..h......a.h............"
+        ],
+        "opponent": {
+          "model": "LiquidAI/LFM3-1.7B-GGUF",
+          "thinking": false
+        }
+      },
+      "legal": true,
+      "passed": true,
+      "signal": null,
+      "inference": true,
+      "index": 2,
+      "seconds": 0.7791999999284744,
+      "choices": [
+        {
+          "id": "b4-a3",
+          "label": "Move king b4 to a3",
+          "outcome": "Move king b4 to a3 | No capture; Checked exchange net: Black gains 1 points; No immediate Red win; Red has no immediate legal capture; Red has 9 legal complete replies from 5 pieces; Red king safe replies: d8 9/9, d4 7/9; King distance to nearest Red 1 to 2 diagonal steps."
+        },
+        {
+          "id": "b2-a1",
+          "label": "Move man b2 to a1; become king",
+          "outcome": "Move man b2 to a1; become king | No capture; Black gains a king; Checked exchange net: Black loses 2 points; No immediate Red win; Red's legal jump chains: maximum 2 Black pieces; maximum 3 points; another Black piece is exposed; Worst checked exchange: Red c3xa5xc7, best Black response h4-g3; net Black -2 points including this move; Red has 1 legal complete replies from 1 pieces."
+        },
+        {
+          "id": "b2-c1",
+          "label": "Move man b2 to c1; become king",
+          "outcome": "Move man b2 to c1; become king | No capture; Black gains a king; Checked exchange net: Black gains 1 points; No immediate Red win; Red's legal jump chains: maximum 2 Black pieces; maximum 3 points; another Black piece is exposed; Worst checked exchange: Red c3xa5xc7, best Black response c1xe3xc5; net Black +1 points including this move; Red has 1 legal complete replies from 1 pieces; After EVERY legal Red reply, Black has a capture worth at least 3 points on its next turn; Black can capture Red king d4 on its next turn whichever legal reply Red chooses."
+        },
+        {
+          "id": "b4-c5",
+          "label": "Move king b4 to c5",
+          "outcome": "Move king b4 to c5 | No capture; Checked exchange net: Black gains 1 points; No immediate Red win; Red has no immediate legal capture; Red has 8 legal complete replies from 5 pieces; Red king safe replies: d8 8/8, d4 3/8; King distance to nearest Red 1 to 1 diagonal steps."
+        },
+        {
+          "id": "b6-c5",
+          "label": "Move man b6 to c5",
+          "outcome": "Move man b6 to c5 | No capture; Checked exchange net: Black breaks even at 0 points; No immediate Red win; Red's legal jump chains: maximum 1 Black pieces; maximum 2 points; the moved piece is exposed; Worst checked exchange: Red d4xb6, best Black response b2-a1; net Black 0 points including this move; Red has 2 legal complete replies from 2 pieces; Man distance to crowning 5 to 4 ranks."
+        },
+        {
+          "id": "h4-g3",
+          "label": "Move man h4 to g3",
+          "outcome": "Move man h4 to g3 | No capture; Checked exchange net: Black loses 2 points; No immediate Red win; Red's legal jump chains: maximum 2 Black pieces; maximum 3 points; another Black piece is exposed; Worst checked exchange: Red c3xa5xc7, best Black response b2-a1; net Black -2 points including this move; Red has 1 legal complete replies from 1 pieces; Man distance to crowning 3 to 2 ranks."
+        },
+        {
+          "id": "b6-a5",
+          "label": "Move man b6 to a5",
+          "outcome": "Move man b6 to a5 | No capture; Checked exchange net: Black gains 1 points; No immediate Red win; Red has no immediate legal capture; Red has 8 legal complete replies from 4 pieces; Man distance to crowning 5 to 4 ranks."
+        },
+        {
+          "id": "b4-a5",
+          "label": "Move king b4 to a5",
+          "outcome": "Move king b4 to a5 | No capture; Checked exchange net: Black gains 1 points; No immediate Red win; Red has no immediate legal capture; Red has 9 legal complete replies from 5 pieces; Red king safe replies: d8 9/9, d4 7/9; King distance to nearest Red 1 to 2 diagonal steps."
+        }
+      ],
+      "reasoningText": "",
+      "prompt": "Black to move. Use the checked outcomes below to choose a sensible casual move.\nAmerican rules: Black men advance toward rank 1; Red men toward rank 8. A jump goes two diagonal squares over an adjacent enemy and removes it. Men jump forward only. A king is a crowned checker: it steps or jumps diagonally both ways and can be captured. Captures and complete multi-jumps are compulsory; crowning ends the turn. All listed actions are legal.\nBOARD NOW:\nBlack (you): man b6, king b4, man h4, man b2.\nRed (human): king d8, man f6, king d4, man c3, man d2.\nMaterial: Black 4 pieces; Red 5 pieces; balance -2 points.\nCapture required now: no. Quiet turns 0/80; third repetition draws.\nLAST 5 TURNS (oldest first):\nnone\nHOW TO READ OUTCOMES:\nEach card is a separate possible next board. Red moves next. Exchange points use man=1, king=2 and include this move, every legal Red reply, and Black's best immediate material response; the displayed net is the worst of those checked branches, not a deeper evaluation. King distance is only a quiet activity hint, not safety. King escape facts count actual Red replies with no legal Black capture of that king on the following turn; fewer replies alone is not a benefit if Black loses material. Returning to an earlier square can be necessary.\nALL LEGAL ACTIONS (unranked order):\nMove king b4 to a3 | No capture; Checked exchange net: Black gains 1 points; No immediate Red win; Red has no immediate legal capture; Red has 9 legal complete replies from 5 pieces; Red king safe replies: d8 9/9, d4 7/9; King distance to nearest Red 1 to 2 diagonal steps.\nMove man b2 to a1; become king | No capture; Black gains a king; Checked exchange net: Black loses 2 points; No immediate Red win; Red's legal jump chains: maximum 2 Black pieces; maximum 3 points; another Black piece is exposed; Worst checked exchange: Red c3xa5xc7, best Black response h4-g3; net Black -2 points including this move; Red has 1 legal complete replies from 1 pieces.\nMove man b2 to c1; become king | No capture; Black gains a king; Checked exchange net: Black gains 1 points; No immediate Red win; Red's legal jump chains: maximum 2 Black pieces; maximum 3 points; another Black piece is exposed; Worst checked exchange: Red c3xa5xc7, best Black response c1xe3xc5; net Black +1 points including this move; Red has 1 legal complete replies from 1 pieces; After EVERY legal Red reply, Black has a capture worth at least 3 points on its next turn; Black can capture Red king d4 on its next turn whichever legal reply Red chooses.\nMove king b4 to c5 | No capture; Checked exchange net: Black gains 1 points; No immediate Red win; Red has no immediate legal capture; Red has 8 legal complete replies from 5 pieces; Red king safe replies: d8 8/8, d4 3/8; King distance to nearest Red 1 to 1 diagonal steps.\nMove man b6 to c5 | No capture; Checked exchange net: Black breaks even at 0 points; No immediate Red win; Red's legal jump chains: maximum 1 Black pieces; maximum 2 points; the moved piece is exposed; Worst checked exchange: Red d4xb6, best Black response b2-a1; net Black 0 points including this move; Red has 2 legal complete replies from 2 pieces; Man distance to crowning 5 to 4 ranks.\nMove man h4 to g3 | No capture; Checked exchange net: Black loses 2 points; No immediate Red win; Red's legal jump chains: maximum 2 Black pieces; maximum 3 points; another Black piece is exposed; Worst checked exchange: Red c3xa5xc7, best Black response b2-a1; net Black -2 points including this move; Red has 1 legal complete replies from 1 pieces; Man distance to crowning 3 to 2 ranks.\nMove man b6 to a5 | No capture; Checked exchange net: Black gains 1 points; No immediate Red win; Red has no immediate legal capture; Red has 8 legal complete replies from 4 pieces; Man distance to crowning 5 to 4 ranks.\nMove king b4 to a5 | No capture; Checked exchange net: Black gains 1 points; No immediate Red win; Red has no immediate legal capture; Red has 9 legal complete replies from 5 pieces; Red king safe replies: d8 9/9, d4 7/9; King distance to nearest Red 1 to 2 diagonal steps.\nNON-LOSING CHECKED EXCHANGES: Move king b4 to a3; Move man b2 to c1; become king; Move king b4 to c5; Move man b6 to c5; Move man b6 to a5; Move king b4 to a5. These have no immediate Red win and no material loss within the checked reply and response.\nCROWN A MAN NOW WITHOUT A CHECKED LOSS: Move man b2 to c1; become king. Prefer a safe crown now over ordinary quiet moves.\nCAPTURE OPPORTUNITIES AFTER EVERY RED REPLY: Move man b2 to c1; become king. These preserve a legal Black capture on the following turn against every Red reply; this is not a claim of a deeper win.\nReturn exactly one JSON object with key \"move\" and the exact action label before the | on the chosen card. Copy the entire label and stop after the closing brace.",
+      "systemPrompt": "Choose one legal Black action using the verified checkers outcomes. Win now or force a win; otherwise prevent Red's immediate win. Prefer higher nonnegative checked material gains. Take free captures and crown a man now before ordinary quiet development when safe. Prevent free Red promotions when no better exchange exists. Avoid a draw when ahead; prefer an available draw when behind unless a listed win exists. When no tactic decides, favor safe quiet progress: advance men or use kings together to restrict safe escapes. Avoid needless reversals; a retreat can still be necessary. Each card is a separate alternative. Card order is not a recommendation.",
+      "rawAnswer": "{\"move\":\"Move man b2 to c1; become king\"}",
+      "usage": {
+        "promptTokens": 1527,
+        "completionTokens": 15,
+        "totalTokens": 1542,
+        "providerUsageDetails": {
+          "firstTokenMs": 498.39999997615814,
+          "promptMs": 495.7999999523163,
+          "decodeMs": 274.5,
+          "decodeTokens": 14
+        }
+      },
+      "moveId": "b2-c1"
+    },
+    {
+      "trial": 9,
+      "repetition": 1,
+      "caseId": "endgame-holdout-a",
+      "label": "Holdout: force capture of a particular king",
+      "objective": "Create a Black capture opportunity after every legal nonterminal Red reply; accept all ties for the highest minimum captured value (man 1, king 2).",
+      "partition": "holdout",
+      "expectedMoveIds": [
+        "f6-e5"
+      ],
+      "position": {
+        "id": "current",
+        "sessionId": "benchmark-endgame-holdout-a",
+        "board": [
+          null,
+          null,
+          null,
+          null,
+          null,
+          {
+            "side": "human",
+            "king": true
+          },
+          null,
+          null,
+          {
+            "side": "human",
+            "king": false
+          },
+          null,
+          null,
+          null,
+          {
+            "side": "ai",
+            "king": true
+          },
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          {
+            "side": "ai",
+            "king": true
+          },
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          {
+            "side": "ai",
+            "king": true
+          },
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null
+        ],
+        "initialBoard": [
+          null,
+          null,
+          null,
+          null,
+          null,
+          {
+            "side": "human",
+            "king": true
+          },
+          null,
+          null,
+          {
+            "side": "human",
+            "king": false
+          },
+          null,
+          null,
+          null,
+          {
+            "side": "ai",
+            "king": true
+          },
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          {
+            "side": "ai",
+            "king": true
+          },
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          {
+            "side": "ai",
+            "king": true
+          },
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null
+        ],
+        "initialTurn": "ai",
+        "aiFailures": [],
+        "turn": "ai",
+        "status": "playing",
+        "history": [],
+        "updatedAt": 0,
+        "quietMoves": 0,
+        "positions": [
+          "ai:.....H..h...A........A...............A.........................."
+        ],
+        "opponent": {
+          "model": "LiquidAI/LFM3-1.7B-GGUF",
+          "thinking": false
+        }
+      },
+      "legal": true,
+      "passed": true,
+      "signal": null,
+      "inference": true,
+      "index": 1,
+      "seconds": 0.7805,
+      "choices": [
+        {
+          "id": "f4-g3",
+          "label": "Move king f4 to g3",
+          "outcome": "Move king f4 to g3 | No capture; Checked exchange net: Black loses 2 points; No immediate Red win; Red's legal jump chains: maximum 1 Black pieces; maximum 2 points; another Black piece is exposed; Worst checked exchange: Red f8xd6, best Black response f6-e7; net Black -2 points including this move; Red has 1 legal complete replies from 1 pieces; Red king safe replies: f8 1/1; King distance to nearest Red 4 to 5 diagonal steps."
+        },
+        {
+          "id": "f6-e5",
+          "label": "Move king f6 to e5",
+          "outcome": "Move king f6 to e5 | No capture; Checked exchange net: Black breaks even at 0 points; No immediate Red win; Red's legal jump chains: maximum 1 Black pieces; maximum 2 points; another Black piece is exposed; Worst checked exchange: Red f8xd6, best Black response e5xc7; net Black 0 points including this move; Red has 1 legal complete replies from 1 pieces; After EVERY legal Red reply, Black has a capture worth at least 2 points on its next turn; Black can capture Red king f8 on its next turn whichever legal reply Red chooses; Red king safe replies: f8 0/1; King distance to nearest Red 2 to 3 diagonal steps."
+        },
+        {
+          "id": "e7-d8",
+          "label": "Move king e7 to d8",
+          "outcome": "Move king e7 to d8 | No capture; Checked exchange net: Black loses 1 points; No immediate Red win; Red has no immediate legal capture; Red has 3 legal complete replies from 2 pieces; Red can crown a man on 1 next-turn choices; Red king safe replies: f8 2/3; King distance to nearest Red 1 to 2 diagonal steps."
+        },
+        {
+          "id": "f4-g5",
+          "label": "Move king f4 to g5",
+          "outcome": "Move king f4 to g5 | No capture; Checked exchange net: Black loses 2 points; No immediate Red win; Red's legal jump chains: maximum 1 Black pieces; maximum 2 points; another Black piece is exposed; Worst checked exchange: Red f8xd6, best Black response f6-e7; net Black -2 points including this move; Red has 1 legal complete replies from 1 pieces; Red king safe replies: f8 1/1; King distance to nearest Red 4 to 3 diagonal steps."
+        },
+        {
+          "id": "f6-g7",
+          "label": "Move king f6 to g7",
+          "outcome": "Move king f6 to g7 | No capture; Checked exchange net: Black loses 2 points; No immediate Red win; Red's legal jump chains: maximum 1 Black pieces; maximum 2 points; the moved piece is exposed; Worst checked exchange: Red f8xd6, best Black response g7-f8; net Black -2 points including this move; Red has 2 legal complete replies from 1 pieces; Red king safe replies: f8 2/2; King distance to nearest Red 2 to 1 diagonal steps."
+        },
+        {
+          "id": "e7-d6",
+          "label": "Move king e7 to d6",
+          "outcome": "Move king e7 to d6 | No capture; Checked exchange net: Black loses 1 points; No immediate Red win; Red has no immediate legal capture; Red has 3 legal complete replies from 2 pieces; Red can crown a man on 1 next-turn choices; Red king safe replies: f8 1/3; King distance to nearest Red 1 to 2 diagonal steps."
+        },
+        {
+          "id": "f4-e5",
+          "label": "Move king f4 to e5",
+          "outcome": "Move king f4 to e5 | No capture; Checked exchange net: Black loses 4 points; No immediate Red win; Red's legal jump chains: maximum 2 Black pieces; maximum 4 points; the moved piece is exposed; Worst checked exchange: Red f8xd6xf4, best Black response f6-e7; net Black -4 points including this move; Red has 1 legal complete replies from 1 pieces; Red king safe replies: f8 1/1; King distance to nearest Red 4 to 3 diagonal steps."
+        },
+        {
+          "id": "f4-e3",
+          "label": "Move king f4 to e3",
+          "outcome": "Move king f4 to e3 | No capture; Checked exchange net: Black loses 2 points; No immediate Red win; Red's legal jump chains: maximum 1 Black pieces; maximum 2 points; another Black piece is exposed; Worst checked exchange: Red f8xd6, best Black response f6-e7; net Black -2 points including this move; Red has 1 legal complete replies from 1 pieces; Red king safe replies: f8 1/1; King distance to nearest Red 4 to 4 diagonal steps."
+        },
+        {
+          "id": "f6-g5",
+          "label": "Move king f6 to g5",
+          "outcome": "Move king f6 to g5 | No capture; Checked exchange net: Black loses 2 points; No immediate Red win; Red's legal jump chains: maximum 1 Black pieces; maximum 2 points; another Black piece is exposed; Worst checked exchange: Red f8xd6, best Black response g5-f6; net Black -2 points including this move; Red has 1 legal complete replies from 1 pieces; Red king safe replies: f8 1/1; King distance to nearest Red 2 to 3 diagonal steps."
+        }
+      ],
+      "reasoningText": "",
+      "prompt": "Black to move. Use the checked outcomes below to choose a sensible casual move.\nAmerican rules: Black men advance toward rank 1; Red men toward rank 8. A jump goes two diagonal squares over an adjacent enemy and removes it. Men jump forward only. A king is a crowned checker: it steps or jumps diagonally both ways and can be captured. Captures and complete multi-jumps are compulsory; crowning ends the turn. All listed actions are legal.\nBOARD NOW:\nBlack (you): king e7, king f6, king f4.\nRed (human): king f8, man a7.\nMaterial: Black 3 pieces; Red 2 pieces; balance 3 points.\nCapture required now: no. Quiet turns 0/80; third repetition draws.\nLAST 5 TURNS (oldest first):\nnone\nHOW TO READ OUTCOMES:\nEach card is a separate possible next board. Red moves next. Exchange points use man=1, king=2 and include this move, every legal Red reply, and Black's best immediate material response; the displayed net is the worst of those checked branches, not a deeper evaluation. King distance is only a quiet activity hint, not safety. King escape facts count actual Red replies with no legal Black capture of that king on the following turn; fewer replies alone is not a benefit if Black loses material. Returning to an earlier square can be necessary.\nALL LEGAL ACTIONS (unranked order):\nMove king f4 to g3 | No capture; Checked exchange net: Black loses 2 points; No immediate Red win; Red's legal jump chains: maximum 1 Black pieces; maximum 2 points; another Black piece is exposed; Worst checked exchange: Red f8xd6, best Black response f6-e7; net Black -2 points including this move; Red has 1 legal complete replies from 1 pieces; Red king safe replies: f8 1/1; King distance to nearest Red 4 to 5 diagonal steps.\nMove king f6 to e5 | No capture; Checked exchange net: Black breaks even at 0 points; No immediate Red win; Red's legal jump chains: maximum 1 Black pieces; maximum 2 points; another Black piece is exposed; Worst checked exchange: Red f8xd6, best Black response e5xc7; net Black 0 points including this move; Red has 1 legal complete replies from 1 pieces; After EVERY legal Red reply, Black has a capture worth at least 2 points on its next turn; Black can capture Red king f8 on its next turn whichever legal reply Red chooses; Red king safe replies: f8 0/1; King distance to nearest Red 2 to 3 diagonal steps.\nMove king e7 to d8 | No capture; Checked exchange net: Black loses 1 points; No immediate Red win; Red has no immediate legal capture; Red has 3 legal complete replies from 2 pieces; Red can crown a man on 1 next-turn choices; Red king safe replies: f8 2/3; King distance to nearest Red 1 to 2 diagonal steps.\nMove king f4 to g5 | No capture; Checked exchange net: Black loses 2 points; No immediate Red win; Red's legal jump chains: maximum 1 Black pieces; maximum 2 points; another Black piece is exposed; Worst checked exchange: Red f8xd6, best Black response f6-e7; net Black -2 points including this move; Red has 1 legal complete replies from 1 pieces; Red king safe replies: f8 1/1; King distance to nearest Red 4 to 3 diagonal steps.\nMove king f6 to g7 | No capture; Checked exchange net: Black loses 2 points; No immediate Red win; Red's legal jump chains: maximum 1 Black pieces; maximum 2 points; the moved piece is exposed; Worst checked exchange: Red f8xd6, best Black response g7-f8; net Black -2 points including this move; Red has 2 legal complete replies from 1 pieces; Red king safe replies: f8 2/2; King distance to nearest Red 2 to 1 diagonal steps.\nMove king e7 to d6 | No capture; Checked exchange net: Black loses 1 points; No immediate Red win; Red has no immediate legal capture; Red has 3 legal complete replies from 2 pieces; Red can crown a man on 1 next-turn choices; Red king safe replies: f8 1/3; King distance to nearest Red 1 to 2 diagonal steps.\nMove king f4 to e5 | No capture; Checked exchange net: Black loses 4 points; No immediate Red win; Red's legal jump chains: maximum 2 Black pieces; maximum 4 points; the moved piece is exposed; Worst checked exchange: Red f8xd6xf4, best Black response f6-e7; net Black -4 points including this move; Red has 1 legal complete replies from 1 pieces; Red king safe replies: f8 1/1; King distance to nearest Red 4 to 3 diagonal steps.\nMove king f4 to e3 | No capture; Checked exchange net: Black loses 2 points; No immediate Red win; Red's legal jump chains: maximum 1 Black pieces; maximum 2 points; another Black piece is exposed; Worst checked exchange: Red f8xd6, best Black response f6-e7; net Black -2 points including this move; Red has 1 legal complete replies from 1 pieces; Red king safe replies: f8 1/1; King distance to nearest Red 4 to 4 diagonal steps.\nMove king f6 to g5 | No capture; Checked exchange net: Black loses 2 points; No immediate Red win; Red's legal jump chains: maximum 1 Black pieces; maximum 2 points; another Black piece is exposed; Worst checked exchange: Red f8xd6, best Black response g5-f6; net Black -2 points including this move; Red has 1 legal complete replies from 1 pieces; Red king safe replies: f8 1/1; King distance to nearest Red 2 to 3 diagonal steps.\nNON-LOSING CHECKED EXCHANGES: Move king f6 to e5. These have no immediate Red win and no material loss within the checked reply and response.\nCAPTURE OPPORTUNITIES AFTER EVERY RED REPLY: Move king f6 to e5. These preserve a legal Black capture on the following turn against every Red reply; this is not a claim of a deeper win.\nReturn exactly one JSON object with key \"move\" and the exact action label before the | on the chosen card. Copy the entire label and stop after the closing brace.",
+      "systemPrompt": "Choose one legal Black action using the verified checkers outcomes. Win now or force a win; otherwise prevent Red's immediate win. Prefer higher nonnegative checked material gains. Take free captures and crown a man now before ordinary quiet development when safe. Prevent free Red promotions when no better exchange exists. Avoid a draw when ahead; prefer an available draw when behind unless a listed win exists. When no tactic decides, favor safe quiet progress: advance men or use kings together to restrict safe escapes. Avoid needless reversals; a retreat can still be necessary. Each card is a separate alternative. Card order is not a recommendation.",
+      "rawAnswer": "{\"move\":\"Move king f6 to e5\"}",
+      "usage": {
+        "promptTokens": 1713,
+        "completionTokens": 12,
+        "totalTokens": 1725,
+        "providerUsageDetails": {
+          "firstTokenMs": 584.3999999761581,
+          "promptMs": 581.8999999761581,
+          "decodeMs": 188.69999992847443,
+          "decodeTokens": 11
+        }
+      },
+      "moveId": "f6-e5"
+    },
+    {
+      "trial": 10,
+      "repetition": 2,
+      "caseId": "endgame-holdout-a",
+      "label": "Holdout: force capture of a particular king",
+      "objective": "Create a Black capture opportunity after every legal nonterminal Red reply; accept all ties for the highest minimum captured value (man 1, king 2).",
+      "partition": "holdout",
+      "expectedMoveIds": [
+        "f6-e5"
+      ],
+      "position": {
+        "id": "current",
+        "sessionId": "benchmark-endgame-holdout-a",
+        "board": [
+          null,
+          null,
+          null,
+          null,
+          null,
+          {
+            "side": "human",
+            "king": true
+          },
+          null,
+          null,
+          {
+            "side": "human",
+            "king": false
+          },
+          null,
+          null,
+          null,
+          {
+            "side": "ai",
+            "king": true
+          },
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          {
+            "side": "ai",
+            "king": true
+          },
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          {
+            "side": "ai",
+            "king": true
+          },
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null
+        ],
+        "initialBoard": [
+          null,
+          null,
+          null,
+          null,
+          null,
+          {
+            "side": "human",
+            "king": true
+          },
+          null,
+          null,
+          {
+            "side": "human",
+            "king": false
+          },
+          null,
+          null,
+          null,
+          {
+            "side": "ai",
+            "king": true
+          },
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          {
+            "side": "ai",
+            "king": true
+          },
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          {
+            "side": "ai",
+            "king": true
+          },
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null
+        ],
+        "initialTurn": "ai",
+        "aiFailures": [],
+        "turn": "ai",
+        "status": "playing",
+        "history": [],
+        "updatedAt": 0,
+        "quietMoves": 0,
+        "positions": [
+          "ai:.....H..h...A........A...............A.........................."
+        ],
+        "opponent": {
+          "model": "LiquidAI/LFM3-1.7B-GGUF",
+          "thinking": false
+        }
+      },
+      "legal": true,
+      "passed": true,
+      "signal": null,
+      "inference": true,
+      "index": 3,
+      "seconds": 0.7839000000953674,
+      "choices": [
+        {
+          "id": "f6-g5",
+          "label": "Move king f6 to g5",
+          "outcome": "Move king f6 to g5 | No capture; Checked exchange net: Black loses 2 points; No immediate Red win; Red's legal jump chains: maximum 1 Black pieces; maximum 2 points; another Black piece is exposed; Worst checked exchange: Red f8xd6, best Black response g5-f6; net Black -2 points including this move; Red has 1 legal complete replies from 1 pieces; Red king safe replies: f8 1/1; King distance to nearest Red 2 to 3 diagonal steps."
+        },
+        {
+          "id": "f4-g5",
+          "label": "Move king f4 to g5",
+          "outcome": "Move king f4 to g5 | No capture; Checked exchange net: Black loses 2 points; No immediate Red win; Red's legal jump chains: maximum 1 Black pieces; maximum 2 points; another Black piece is exposed; Worst checked exchange: Red f8xd6, best Black response f6-e7; net Black -2 points including this move; Red has 1 legal complete replies from 1 pieces; Red king safe replies: f8 1/1; King distance to nearest Red 4 to 3 diagonal steps."
+        },
+        {
+          "id": "e7-d6",
+          "label": "Move king e7 to d6",
+          "outcome": "Move king e7 to d6 | No capture; Checked exchange net: Black loses 1 points; No immediate Red win; Red has no immediate legal capture; Red has 3 legal complete replies from 2 pieces; Red can crown a man on 1 next-turn choices; Red king safe replies: f8 1/3; King distance to nearest Red 1 to 2 diagonal steps."
+        },
+        {
+          "id": "f6-e5",
+          "label": "Move king f6 to e5",
+          "outcome": "Move king f6 to e5 | No capture; Checked exchange net: Black breaks even at 0 points; No immediate Red win; Red's legal jump chains: maximum 1 Black pieces; maximum 2 points; another Black piece is exposed; Worst checked exchange: Red f8xd6, best Black response e5xc7; net Black 0 points including this move; Red has 1 legal complete replies from 1 pieces; After EVERY legal Red reply, Black has a capture worth at least 2 points on its next turn; Black can capture Red king f8 on its next turn whichever legal reply Red chooses; Red king safe replies: f8 0/1; King distance to nearest Red 2 to 3 diagonal steps."
+        },
+        {
+          "id": "f4-e3",
+          "label": "Move king f4 to e3",
+          "outcome": "Move king f4 to e3 | No capture; Checked exchange net: Black loses 2 points; No immediate Red win; Red's legal jump chains: maximum 1 Black pieces; maximum 2 points; another Black piece is exposed; Worst checked exchange: Red f8xd6, best Black response f6-e7; net Black -2 points including this move; Red has 1 legal complete replies from 1 pieces; Red king safe replies: f8 1/1; King distance to nearest Red 4 to 4 diagonal steps."
+        },
+        {
+          "id": "f4-e5",
+          "label": "Move king f4 to e5",
+          "outcome": "Move king f4 to e5 | No capture; Checked exchange net: Black loses 4 points; No immediate Red win; Red's legal jump chains: maximum 2 Black pieces; maximum 4 points; the moved piece is exposed; Worst checked exchange: Red f8xd6xf4, best Black response f6-e7; net Black -4 points including this move; Red has 1 legal complete replies from 1 pieces; Red king safe replies: f8 1/1; King distance to nearest Red 4 to 3 diagonal steps."
+        },
+        {
+          "id": "e7-d8",
+          "label": "Move king e7 to d8",
+          "outcome": "Move king e7 to d8 | No capture; Checked exchange net: Black loses 1 points; No immediate Red win; Red has no immediate legal capture; Red has 3 legal complete replies from 2 pieces; Red can crown a man on 1 next-turn choices; Red king safe replies: f8 2/3; King distance to nearest Red 1 to 2 diagonal steps."
+        },
+        {
+          "id": "f6-g7",
+          "label": "Move king f6 to g7",
+          "outcome": "Move king f6 to g7 | No capture; Checked exchange net: Black loses 2 points; No immediate Red win; Red's legal jump chains: maximum 1 Black pieces; maximum 2 points; the moved piece is exposed; Worst checked exchange: Red f8xd6, best Black response g7-f8; net Black -2 points including this move; Red has 2 legal complete replies from 1 pieces; Red king safe replies: f8 2/2; King distance to nearest Red 2 to 1 diagonal steps."
+        },
+        {
+          "id": "f4-g3",
+          "label": "Move king f4 to g3",
+          "outcome": "Move king f4 to g3 | No capture; Checked exchange net: Black loses 2 points; No immediate Red win; Red's legal jump chains: maximum 1 Black pieces; maximum 2 points; another Black piece is exposed; Worst checked exchange: Red f8xd6, best Black response f6-e7; net Black -2 points including this move; Red has 1 legal complete replies from 1 pieces; Red king safe replies: f8 1/1; King distance to nearest Red 4 to 5 diagonal steps."
+        }
+      ],
+      "reasoningText": "",
+      "prompt": "Black to move. Use the checked outcomes below to choose a sensible casual move.\nAmerican rules: Black men advance toward rank 1; Red men toward rank 8. A jump goes two diagonal squares over an adjacent enemy and removes it. Men jump forward only. A king is a crowned checker: it steps or jumps diagonally both ways and can be captured. Captures and complete multi-jumps are compulsory; crowning ends the turn. All listed actions are legal.\nBOARD NOW:\nBlack (you): king e7, king f6, king f4.\nRed (human): king f8, man a7.\nMaterial: Black 3 pieces; Red 2 pieces; balance 3 points.\nCapture required now: no. Quiet turns 0/80; third repetition draws.\nLAST 5 TURNS (oldest first):\nnone\nHOW TO READ OUTCOMES:\nEach card is a separate possible next board. Red moves next. Exchange points use man=1, king=2 and include this move, every legal Red reply, and Black's best immediate material response; the displayed net is the worst of those checked branches, not a deeper evaluation. King distance is only a quiet activity hint, not safety. King escape facts count actual Red replies with no legal Black capture of that king on the following turn; fewer replies alone is not a benefit if Black loses material. Returning to an earlier square can be necessary.\nALL LEGAL ACTIONS (unranked order):\nMove king f6 to g5 | No capture; Checked exchange net: Black loses 2 points; No immediate Red win; Red's legal jump chains: maximum 1 Black pieces; maximum 2 points; another Black piece is exposed; Worst checked exchange: Red f8xd6, best Black response g5-f6; net Black -2 points including this move; Red has 1 legal complete replies from 1 pieces; Red king safe replies: f8 1/1; King distance to nearest Red 2 to 3 diagonal steps.\nMove king f4 to g5 | No capture; Checked exchange net: Black loses 2 points; No immediate Red win; Red's legal jump chains: maximum 1 Black pieces; maximum 2 points; another Black piece is exposed; Worst checked exchange: Red f8xd6, best Black response f6-e7; net Black -2 points including this move; Red has 1 legal complete replies from 1 pieces; Red king safe replies: f8 1/1; King distance to nearest Red 4 to 3 diagonal steps.\nMove king e7 to d6 | No capture; Checked exchange net: Black loses 1 points; No immediate Red win; Red has no immediate legal capture; Red has 3 legal complete replies from 2 pieces; Red can crown a man on 1 next-turn choices; Red king safe replies: f8 1/3; King distance to nearest Red 1 to 2 diagonal steps.\nMove king f6 to e5 | No capture; Checked exchange net: Black breaks even at 0 points; No immediate Red win; Red's legal jump chains: maximum 1 Black pieces; maximum 2 points; another Black piece is exposed; Worst checked exchange: Red f8xd6, best Black response e5xc7; net Black 0 points including this move; Red has 1 legal complete replies from 1 pieces; After EVERY legal Red reply, Black has a capture worth at least 2 points on its next turn; Black can capture Red king f8 on its next turn whichever legal reply Red chooses; Red king safe replies: f8 0/1; King distance to nearest Red 2 to 3 diagonal steps.\nMove king f4 to e3 | No capture; Checked exchange net: Black loses 2 points; No immediate Red win; Red's legal jump chains: maximum 1 Black pieces; maximum 2 points; another Black piece is exposed; Worst checked exchange: Red f8xd6, best Black response f6-e7; net Black -2 points including this move; Red has 1 legal complete replies from 1 pieces; Red king safe replies: f8 1/1; King distance to nearest Red 4 to 4 diagonal steps.\nMove king f4 to e5 | No capture; Checked exchange net: Black loses 4 points; No immediate Red win; Red's legal jump chains: maximum 2 Black pieces; maximum 4 points; the moved piece is exposed; Worst checked exchange: Red f8xd6xf4, best Black response f6-e7; net Black -4 points including this move; Red has 1 legal complete replies from 1 pieces; Red king safe replies: f8 1/1; King distance to nearest Red 4 to 3 diagonal steps.\nMove king e7 to d8 | No capture; Checked exchange net: Black loses 1 points; No immediate Red win; Red has no immediate legal capture; Red has 3 legal complete replies from 2 pieces; Red can crown a man on 1 next-turn choices; Red king safe replies: f8 2/3; King distance to nearest Red 1 to 2 diagonal steps.\nMove king f6 to g7 | No capture; Checked exchange net: Black loses 2 points; No immediate Red win; Red's legal jump chains: maximum 1 Black pieces; maximum 2 points; the moved piece is exposed; Worst checked exchange: Red f8xd6, best Black response g7-f8; net Black -2 points including this move; Red has 2 legal complete replies from 1 pieces; Red king safe replies: f8 2/2; King distance to nearest Red 2 to 1 diagonal steps.\nMove king f4 to g3 | No capture; Checked exchange net: Black loses 2 points; No immediate Red win; Red's legal jump chains: maximum 1 Black pieces; maximum 2 points; another Black piece is exposed; Worst checked exchange: Red f8xd6, best Black response f6-e7; net Black -2 points including this move; Red has 1 legal complete replies from 1 pieces; Red king safe replies: f8 1/1; King distance to nearest Red 4 to 5 diagonal steps.\nNON-LOSING CHECKED EXCHANGES: Move king f6 to e5. These have no immediate Red win and no material loss within the checked reply and response.\nCAPTURE OPPORTUNITIES AFTER EVERY RED REPLY: Move king f6 to e5. These preserve a legal Black capture on the following turn against every Red reply; this is not a claim of a deeper win.\nReturn exactly one JSON object with key \"move\" and the exact action label before the | on the chosen card. Copy the entire label and stop after the closing brace.",
+      "systemPrompt": "Choose one legal Black action using the verified checkers outcomes. Win now or force a win; otherwise prevent Red's immediate win. Prefer higher nonnegative checked material gains. Take free captures and crown a man now before ordinary quiet development when safe. Prevent free Red promotions when no better exchange exists. Avoid a draw when ahead; prefer an available draw when behind unless a listed win exists. When no tactic decides, favor safe quiet progress: advance men or use kings together to restrict safe escapes. Avoid needless reversals; a retreat can still be necessary. Each card is a separate alternative. Card order is not a recommendation.",
+      "rawAnswer": "{\"move\":\"Move king f6 to e5\"}",
+      "usage": {
+        "promptTokens": 1713,
+        "completionTokens": 12,
+        "totalTokens": 1725,
+        "providerUsageDetails": {
+          "firstTokenMs": 580.2000000476837,
+          "promptMs": 577.6000000238419,
+          "decodeMs": 195.29999995231628,
+          "decodeTokens": 11
+        }
+      },
+      "moveId": "f6-e5"
+    },
+    {
+      "trial": 11,
+      "repetition": 1,
+      "caseId": "endgame-holdout-b",
+      "label": "Holdout: ensure a capture against every reply",
+      "objective": "Create a Black capture opportunity after every legal nonterminal Red reply; accept all ties for the highest minimum captured value (man 1, king 2).",
+      "partition": "holdout",
+      "expectedMoveIds": [
+        "b6-c5"
+      ],
+      "position": {
+        "id": "current",
+        "sessionId": "benchmark-endgame-holdout-b",
+        "board": [
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          {
+            "side": "ai",
+            "king": true
+          },
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          {
+            "side": "human",
+            "king": true
+          },
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          {
+            "side": "ai",
+            "king": true
+          },
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          {
+            "side": "human",
+            "king": false
+          },
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null
+        ],
+        "initialBoard": [
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          {
+            "side": "ai",
+            "king": true
+          },
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          {
+            "side": "human",
+            "king": true
+          },
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          {
+            "side": "ai",
+            "king": true
+          },
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          {
+            "side": "human",
+            "king": false
+          },
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null
+        ],
+        "initialTurn": "ai",
+        "aiFailures": [],
+        "turn": "ai",
+        "status": "playing",
+        "history": [],
+        "updatedAt": 0,
+        "quietMoves": 0,
+        "positions": [
+          "ai:.................A......H..............A...............h........"
+        ],
+        "opponent": {
+          "model": "LiquidAI/LFM3-1.7B-GGUF",
+          "thinking": false
+        }
+      },
+      "legal": true,
+      "passed": true,
+      "signal": null,
+      "inference": true,
+      "index": 1,
+      "seconds": 0.588,
+      "choices": [
+        {
+          "id": "h4-g3",
+          "label": "Move king h4 to g3",
+          "outcome": "Move king h4 to g3 | No capture; Checked exchange net: Black loses 2 points; No immediate Red win; Red's legal jump chains: maximum 1 Black pieces; maximum 2 points; the moved piece is exposed; Worst checked exchange: Red a5xc7, best Black response g3-f4; net Black -2 points including this move; Red has 2 legal complete replies from 2 pieces; Red king safe replies: a5 2/2; King distance to nearest Red 2 to 1 diagonal steps."
+        },
+        {
+          "id": "b6-c5",
+          "label": "Move king b6 to c5",
+          "outcome": "Move king b6 to c5 | No capture; Checked exchange net: Black gains 1 points; No immediate Red win; Red has no immediate legal capture; Red has 3 legal complete replies from 2 pieces; After EVERY legal Red reply, Black has a capture worth at least 1 points on its next turn; Red king safe replies: a5 1/3; King distance to nearest Red 1 to 2 diagonal steps."
+        },
+        {
+          "id": "b6-a7",
+          "label": "Move king b6 to a7",
+          "outcome": "Move king b6 to a7 | No capture; Checked exchange net: Black breaks even at 0 points; No immediate Red win; Red has no immediate legal capture; Red has 3 legal complete replies from 2 pieces; Red king safe replies: a5 2/3; King distance to nearest Red 1 to 2 diagonal steps."
+        },
+        {
+          "id": "h4-g5",
+          "label": "Move king h4 to g5",
+          "outcome": "Move king h4 to g5 | No capture; Checked exchange net: Black loses 2 points; No immediate Red win; Red's legal jump chains: maximum 1 Black pieces; maximum 2 points; another Black piece is exposed; Worst checked exchange: Red a5xc7, best Black response g5-f6; net Black -2 points including this move; Red has 1 legal complete replies from 1 pieces; Red king safe replies: a5 1/1; King distance to nearest Red 2 to 3 diagonal steps."
+        },
+        {
+          "id": "b6-c7",
+          "label": "Move king b6 to c7",
+          "outcome": "Move king b6 to c7 | No capture; Checked exchange net: Black breaks even at 0 points; No immediate Red win; Red has no immediate legal capture; Red has 3 legal complete replies from 2 pieces; Red king safe replies: a5 2/3; King distance to nearest Red 1 to 2 diagonal steps."
+        }
+      ],
+      "reasoningText": "",
+      "prompt": "Black to move. Use the checked outcomes below to choose a sensible casual move.\nAmerican rules: Black men advance toward rank 1; Red men toward rank 8. A jump goes two diagonal squares over an adjacent enemy and removes it. Men jump forward only. A king is a crowned checker: it steps or jumps diagonally both ways and can be captured. Captures and complete multi-jumps are compulsory; crowning ends the turn. All listed actions are legal.\nBOARD NOW:\nBlack (you): king b6, king h4.\nRed (human): king a5, man h2.\nMaterial: Black 2 pieces; Red 2 pieces; balance 1 points.\nCapture required now: no. Quiet turns 0/80; third repetition draws.\nLAST 5 TURNS (oldest first):\nnone\nHOW TO READ OUTCOMES:\nEach card is a separate possible next board. Red moves next. Exchange points use man=1, king=2 and include this move, every legal Red reply, and Black's best immediate material response; the displayed net is the worst of those checked branches, not a deeper evaluation. King distance is only a quiet activity hint, not safety. King escape facts count actual Red replies with no legal Black capture of that king on the following turn; fewer replies alone is not a benefit if Black loses material. Returning to an earlier square can be necessary.\nALL LEGAL ACTIONS (unranked order):\nMove king h4 to g3 | No capture; Checked exchange net: Black loses 2 points; No immediate Red win; Red's legal jump chains: maximum 1 Black pieces; maximum 2 points; the moved piece is exposed; Worst checked exchange: Red a5xc7, best Black response g3-f4; net Black -2 points including this move; Red has 2 legal complete replies from 2 pieces; Red king safe replies: a5 2/2; King distance to nearest Red 2 to 1 diagonal steps.\nMove king b6 to c5 | No capture; Checked exchange net: Black gains 1 points; No immediate Red win; Red has no immediate legal capture; Red has 3 legal complete replies from 2 pieces; After EVERY legal Red reply, Black has a capture worth at least 1 points on its next turn; Red king safe replies: a5 1/3; King distance to nearest Red 1 to 2 diagonal steps.\nMove king b6 to a7 | No capture; Checked exchange net: Black breaks even at 0 points; No immediate Red win; Red has no immediate legal capture; Red has 3 legal complete replies from 2 pieces; Red king safe replies: a5 2/3; King distance to nearest Red 1 to 2 diagonal steps.\nMove king h4 to g5 | No capture; Checked exchange net: Black loses 2 points; No immediate Red win; Red's legal jump chains: maximum 1 Black pieces; maximum 2 points; another Black piece is exposed; Worst checked exchange: Red a5xc7, best Black response g5-f6; net Black -2 points including this move; Red has 1 legal complete replies from 1 pieces; Red king safe replies: a5 1/1; King distance to nearest Red 2 to 3 diagonal steps.\nMove king b6 to c7 | No capture; Checked exchange net: Black breaks even at 0 points; No immediate Red win; Red has no immediate legal capture; Red has 3 legal complete replies from 2 pieces; Red king safe replies: a5 2/3; King distance to nearest Red 1 to 2 diagonal steps.\nNON-LOSING CHECKED EXCHANGES: Move king b6 to c5; Move king b6 to a7; Move king b6 to c7. These have no immediate Red win and no material loss within the checked reply and response.\nCAPTURE OPPORTUNITIES AFTER EVERY RED REPLY: Move king b6 to c5. These preserve a legal Black capture on the following turn against every Red reply; this is not a claim of a deeper win.\nReturn exactly one JSON object with key \"move\" and the exact action label before the | on the chosen card. Copy the entire label and stop after the closing brace.",
+      "systemPrompt": "Choose one legal Black action using the verified checkers outcomes. Win now or force a win; otherwise prevent Red's immediate win. Prefer higher nonnegative checked material gains. Take free captures and crown a man now before ordinary quiet development when safe. Prevent free Red promotions when no better exchange exists. Avoid a draw when ahead; prefer an available draw when behind unless a listed win exists. When no tactic decides, favor safe quiet progress: advance men or use kings together to restrict safe escapes. Avoid needless reversals; a retreat can still be necessary. Each card is a separate alternative. Card order is not a recommendation.",
+      "rawAnswer": "{\"move\":\"Move king b6 to c5\"}",
+      "usage": {
+        "promptTokens": 1138,
+        "completionTokens": 12,
+        "totalTokens": 1150,
+        "providerUsageDetails": {
+          "firstTokenMs": 402.7999999523163,
+          "promptMs": 400.5,
+          "decodeMs": 176.70000004768372,
+          "decodeTokens": 11
+        }
+      },
+      "moveId": "b6-c5"
+    },
+    {
+      "trial": 12,
+      "repetition": 2,
+      "caseId": "endgame-holdout-b",
+      "label": "Holdout: ensure a capture against every reply",
+      "objective": "Create a Black capture opportunity after every legal nonterminal Red reply; accept all ties for the highest minimum captured value (man 1, king 2).",
+      "partition": "holdout",
+      "expectedMoveIds": [
+        "b6-c5"
+      ],
+      "position": {
+        "id": "current",
+        "sessionId": "benchmark-endgame-holdout-b",
+        "board": [
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          {
+            "side": "ai",
+            "king": true
+          },
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          {
+            "side": "human",
+            "king": true
+          },
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          {
+            "side": "ai",
+            "king": true
+          },
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          {
+            "side": "human",
+            "king": false
+          },
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null
+        ],
+        "initialBoard": [
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          {
+            "side": "ai",
+            "king": true
+          },
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          {
+            "side": "human",
+            "king": true
+          },
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          {
+            "side": "ai",
+            "king": true
+          },
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          {
+            "side": "human",
+            "king": false
+          },
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null
+        ],
+        "initialTurn": "ai",
+        "aiFailures": [],
+        "turn": "ai",
+        "status": "playing",
+        "history": [],
+        "updatedAt": 0,
+        "quietMoves": 0,
+        "positions": [
+          "ai:.................A......H..............A...............h........"
+        ],
+        "opponent": {
+          "model": "LiquidAI/LFM3-1.7B-GGUF",
+          "thinking": false
+        }
+      },
+      "legal": true,
+      "passed": true,
+      "signal": null,
+      "inference": true,
+      "index": 2,
+      "seconds": 0.5903000000715256,
+      "choices": [
+        {
+          "id": "b6-a7",
+          "label": "Move king b6 to a7",
+          "outcome": "Move king b6 to a7 | No capture; Checked exchange net: Black breaks even at 0 points; No immediate Red win; Red has no immediate legal capture; Red has 3 legal complete replies from 2 pieces; Red king safe replies: a5 2/3; King distance to nearest Red 1 to 2 diagonal steps."
+        },
+        {
+          "id": "h4-g5",
+          "label": "Move king h4 to g5",
+          "outcome": "Move king h4 to g5 | No capture; Checked exchange net: Black loses 2 points; No immediate Red win; Red's legal jump chains: maximum 1 Black pieces; maximum 2 points; another Black piece is exposed; Worst checked exchange: Red a5xc7, best Black response g5-f6; net Black -2 points including this move; Red has 1 legal complete replies from 1 pieces; Red king safe replies: a5 1/1; King distance to nearest Red 2 to 3 diagonal steps."
+        },
+        {
+          "id": "b6-c5",
+          "label": "Move king b6 to c5",
+          "outcome": "Move king b6 to c5 | No capture; Checked exchange net: Black gains 1 points; No immediate Red win; Red has no immediate legal capture; Red has 3 legal complete replies from 2 pieces; After EVERY legal Red reply, Black has a capture worth at least 1 points on its next turn; Red king safe replies: a5 1/3; King distance to nearest Red 1 to 2 diagonal steps."
+        },
+        {
+          "id": "b6-c7",
+          "label": "Move king b6 to c7",
+          "outcome": "Move king b6 to c7 | No capture; Checked exchange net: Black breaks even at 0 points; No immediate Red win; Red has no immediate legal capture; Red has 3 legal complete replies from 2 pieces; Red king safe replies: a5 2/3; King distance to nearest Red 1 to 2 diagonal steps."
+        },
+        {
+          "id": "h4-g3",
+          "label": "Move king h4 to g3",
+          "outcome": "Move king h4 to g3 | No capture; Checked exchange net: Black loses 2 points; No immediate Red win; Red's legal jump chains: maximum 1 Black pieces; maximum 2 points; the moved piece is exposed; Worst checked exchange: Red a5xc7, best Black response g3-f4; net Black -2 points including this move; Red has 2 legal complete replies from 2 pieces; Red king safe replies: a5 2/2; King distance to nearest Red 2 to 1 diagonal steps."
+        }
+      ],
+      "reasoningText": "",
+      "prompt": "Black to move. Use the checked outcomes below to choose a sensible casual move.\nAmerican rules: Black men advance toward rank 1; Red men toward rank 8. A jump goes two diagonal squares over an adjacent enemy and removes it. Men jump forward only. A king is a crowned checker: it steps or jumps diagonally both ways and can be captured. Captures and complete multi-jumps are compulsory; crowning ends the turn. All listed actions are legal.\nBOARD NOW:\nBlack (you): king b6, king h4.\nRed (human): king a5, man h2.\nMaterial: Black 2 pieces; Red 2 pieces; balance 1 points.\nCapture required now: no. Quiet turns 0/80; third repetition draws.\nLAST 5 TURNS (oldest first):\nnone\nHOW TO READ OUTCOMES:\nEach card is a separate possible next board. Red moves next. Exchange points use man=1, king=2 and include this move, every legal Red reply, and Black's best immediate material response; the displayed net is the worst of those checked branches, not a deeper evaluation. King distance is only a quiet activity hint, not safety. King escape facts count actual Red replies with no legal Black capture of that king on the following turn; fewer replies alone is not a benefit if Black loses material. Returning to an earlier square can be necessary.\nALL LEGAL ACTIONS (unranked order):\nMove king b6 to a7 | No capture; Checked exchange net: Black breaks even at 0 points; No immediate Red win; Red has no immediate legal capture; Red has 3 legal complete replies from 2 pieces; Red king safe replies: a5 2/3; King distance to nearest Red 1 to 2 diagonal steps.\nMove king h4 to g5 | No capture; Checked exchange net: Black loses 2 points; No immediate Red win; Red's legal jump chains: maximum 1 Black pieces; maximum 2 points; another Black piece is exposed; Worst checked exchange: Red a5xc7, best Black response g5-f6; net Black -2 points including this move; Red has 1 legal complete replies from 1 pieces; Red king safe replies: a5 1/1; King distance to nearest Red 2 to 3 diagonal steps.\nMove king b6 to c5 | No capture; Checked exchange net: Black gains 1 points; No immediate Red win; Red has no immediate legal capture; Red has 3 legal complete replies from 2 pieces; After EVERY legal Red reply, Black has a capture worth at least 1 points on its next turn; Red king safe replies: a5 1/3; King distance to nearest Red 1 to 2 diagonal steps.\nMove king b6 to c7 | No capture; Checked exchange net: Black breaks even at 0 points; No immediate Red win; Red has no immediate legal capture; Red has 3 legal complete replies from 2 pieces; Red king safe replies: a5 2/3; King distance to nearest Red 1 to 2 diagonal steps.\nMove king h4 to g3 | No capture; Checked exchange net: Black loses 2 points; No immediate Red win; Red's legal jump chains: maximum 1 Black pieces; maximum 2 points; the moved piece is exposed; Worst checked exchange: Red a5xc7, best Black response g3-f4; net Black -2 points including this move; Red has 2 legal complete replies from 2 pieces; Red king safe replies: a5 2/2; King distance to nearest Red 2 to 1 diagonal steps.\nNON-LOSING CHECKED EXCHANGES: Move king b6 to a7; Move king b6 to c5; Move king b6 to c7. These have no immediate Red win and no material loss within the checked reply and response.\nCAPTURE OPPORTUNITIES AFTER EVERY RED REPLY: Move king b6 to c5. These preserve a legal Black capture on the following turn against every Red reply; this is not a claim of a deeper win.\nReturn exactly one JSON object with key \"move\" and the exact action label before the | on the chosen card. Copy the entire label and stop after the closing brace.",
+      "systemPrompt": "Choose one legal Black action using the verified checkers outcomes. Win now or force a win; otherwise prevent Red's immediate win. Prefer higher nonnegative checked material gains. Take free captures and crown a man now before ordinary quiet development when safe. Prevent free Red promotions when no better exchange exists. Avoid a draw when ahead; prefer an available draw when behind unless a listed win exists. When no tactic decides, favor safe quiet progress: advance men or use kings together to restrict safe escapes. Avoid needless reversals; a retreat can still be necessary. Each card is a separate alternative. Card order is not a recommendation.",
+      "rawAnswer": "{\"move\":\"Move king b6 to c5\"}",
+      "usage": {
+        "promptTokens": 1138,
+        "completionTokens": 12,
+        "totalTokens": 1150,
+        "providerUsageDetails": {
+          "firstTokenMs": 404.59999990463257,
+          "promptMs": 402.40000009536743,
+          "decodeMs": 175.70000004768372,
+          "decodeTokens": 11
+        }
+      },
+      "moveId": "b6-c5"
+    }
+  ],
+  "summary": {
+    "total": 12,
+    "inferred": 12,
+    "legal": 12,
+    "scored": 12,
+    "passed": 12,
+    "firstOption": 2,
+    "medianSeconds": 0.6274000000357628
+  }
+}

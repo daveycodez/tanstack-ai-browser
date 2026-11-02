@@ -1,5 +1,5 @@
 import { chat } from "@tanstack/ai"
-import type { AnyTextAdapter } from "@tanstack/ai"
+import type { AnyTextAdapter, ChatMiddleware, UsageInfo } from "@tanstack/ai"
 import {
   loadPromptApiModel,
   promptApiStatus,
@@ -13,7 +13,9 @@ import {
   webglText
 } from "@tanstack-ai-browser/webgl"
 import { z } from "zod"
-import { legalMoves, squareName } from "./checkers"
+import { legalMoves } from "./checkers"
+import { buildMovePrompt, SHARED_PROMPT_VERSION } from "./shared-prompt"
+import type { PromptInput, PromptVersion } from "./shared-prompt"
 import type { Game } from "./checkers"
 import { opponentOption, resolveOpponent } from "./opponents"
 import type { OpponentSettings } from "./opponents"
@@ -25,6 +27,18 @@ import type {
 } from "@tanstack-ai-browser/webgl"
 
 export type { ModelStatus } from "@tanstack-ai-browser/webgl"
+
+export type AiMoveOptions = {
+  promptVersion?: PromptVersion
+  reasoningBudgetTokens?: number
+  moveOrder?: readonly string[]
+  onInput?: (input: PromptInput) => void
+  onAnswer?: (rawAnswer: string) => void
+  onUsage?: (usage: UsageInfo) => void
+}
+export const GAME_PROMPT_VERSION: PromptVersion = SHARED_PROMPT_VERSION
+export const MAX_OUTPUT_TOKENS = 8192
+export const REASONING_BUDGET_TOKENS = 512
 
 export const MODEL = "LiquidAI/LFM3-1.7B-GGUF" as const
 type LoadingStore = Pick<Store<ModelStatus>, "get" | "subscribe">
@@ -65,16 +79,19 @@ function waitForModel(
 
 function withCancellation<T extends AnyTextAdapter>(
   adapter: T,
-  abortController: AbortController
+  abortController: AbortController,
+  onAnswer?: (rawAnswer: string) => void
 ): T {
   const structuredOutput = adapter.structuredOutput.bind(adapter)
   // TanStack AI 1.0.0 does not forward abortController to structured finalization.
-  adapter.structuredOutput = (options) => {
+  adapter.structuredOutput = async (options) => {
     abortController.signal.throwIfAborted()
-    return structuredOutput({
+    const result = await structuredOutput({
       ...options,
       chatOptions: { ...options.chatOptions, abortController }
     })
+    if (!abortController.signal.aborted) onAnswer?.(result.rawText)
+    return result
   }
   return adapter
 }
@@ -84,7 +101,8 @@ export async function chooseAiMove(
   game: Game,
   abortController: AbortController,
   onPhase?: (phase: GenerationPhase) => void,
-  onThinking?: (delta: string) => void
+  onThinking?: (delta: string) => void,
+  diagnostics?: AiMoveOptions
 ): Promise<string> {
   const { signal } = abortController
   signal.throwIfAborted()
@@ -96,7 +114,23 @@ export async function chooseAiMove(
   }
   const moves = legalMoves(game.board, "ai")
   if (!moves.length) throw new Error("The AI has no legal moves.")
-  if (moves.length === 1) return moves[0].id
+  if (moves.length === 1 && !diagnostics?.onInput) return moves[0].id
+  if (diagnostics?.moveOrder) {
+    const order = new Map(diagnostics.moveOrder.map((id, index) => [id, index]))
+    if (order.size !== moves.length || diagnostics.moveOrder.length !== moves.length || moves.some(move => !order.has(move.id))) throw new Error("The requested order must contain every legal move exactly once.")
+    moves.sort((a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0))
+  } else {
+    for (let index = moves.length - 1; index > 0; index--) {
+      const other = Math.floor(Math.random() * (index + 1))
+      ;[moves[index], moves[other]] = [moves[other], moves[index]]
+    }
+  }
+  const input = buildMovePrompt(game, moves, diagnostics?.promptVersion ?? GAME_PROMPT_VERSION)
+  diagnostics?.onInput?.(input)
+  if (moves.length === 1) {
+    diagnostics?.onAnswer?.(JSON.stringify(input.version === "baseline-v1" ? { moveId: input.choices[0].label } : { move: input.choices[0].label }))
+    return moves[0].id
+  }
 
   const opponent = resolveOpponent(game.opponent)
   const thinkingSupport = opponentOption(opponent.model).thinking
@@ -106,42 +140,12 @@ export async function chooseAiMove(
     )
   }
 
-  const ids = moves.map((move) => move.id) as [string, ...string[]]
-  const outputSchema = z.object({ moveId: z.enum(ids) })
-  const pieces = (side: "human" | "ai") =>
-    game.board
-      .flatMap((piece, index) =>
-        piece?.side === side
-          ? `${squareName(index)}${piece.king ? "K" : ""}`
-          : []
-      )
-      .join(", ")
-  const prompt = [
-    "Play American checkers as AI. Human moves toward rank 8; AI moves toward rank 1. K means king. Men move and capture forward; kings move and capture in both directions. Captures are compulsory; multi-jumps are complete turns. Choose the strongest supplied legal move, preserving material and seeking promotion. Do not invent moves.",
-    `AI pieces: ${pieces("ai")}`,
-    `Human pieces: ${pieces("human")}`,
-    "Last 5 moves (oldest first):",
-    ...(game.history.length
-      ? game.history
-          .slice(-5)
-          .map(
-            (move) =>
-              `${move.side === "human" ? "Human" : "AI"}: ${move.notation}`
-          )
-      : ["none"]),
-    "Legal moves (id: path; number captured; promotion):",
-    ...moves.map(
-      (move) =>
-        `${move.id}: ${move.path.map(squareName).join("-")}; ${move.captures.length}; ${move.promotes ? "king" : "-"}`
-    ),
-    "Return only JSON with moveId equal to one of these legal ids."
-  ].join("\n")
-  // Leave space for the template, the enum schema, and the short JSON reply.
-  if (prompt.length + JSON.stringify(ids).length > 10_000) {
-    throw new Error(
-      "This position has too many legal variations for the local AI context."
-    )
-  }
+  const labels = input.choices.map(choice => choice.label) as [string, ...string[]]
+  const outputSchema = input.version === "baseline-v1"
+    ? z.object({ moveId: z.enum(labels) })
+    : z.strictObject({ move: z.enum(labels) })
+  const reasoningBudgetTokens = diagnostics?.reasoningBudgetTokens ?? REASONING_BUDGET_TOKENS
+  if (!Number.isSafeInteger(reasoningBudgetTokens) || reasoningBudgetTokens < 0) throw new RangeError("Reasoning budget must be a nonnegative safe integer.")
 
   if (opponent.model === "prompt-api") {
     if (activeWebGlModel) {
@@ -168,10 +172,15 @@ export async function chooseAiMove(
     onPhase?.("processing")
     const options = {
       threadId: `checkers-${game.sessionId}`,
+      ...(input.systemPrompt && { systemPrompts: [input.systemPrompt] }),
+      ...(diagnostics?.onUsage && { middleware: [{
+        name: "checkers-usage",
+        onUsage(_context, usage) { if (!generationSignal.aborted) diagnostics.onUsage?.(usage) }
+      } satisfies ChatMiddleware] }),
       messages: [
         {
           role: "user" as const,
-          content: prompt
+          content: input.prompt
         }
       ],
       outputSchema,
@@ -189,9 +198,9 @@ export async function chooseAiMove(
               ...(onThinking && { onThinking: (delta: string) => {
                 if (!generationSignal.aborted) onThinking(delta)
               } })
-            }), generationController),
+            }), generationController, diagnostics?.onAnswer),
             reasoning: opponent.thinking
-              ? { level: "high" as const, budgetTokens: 512 }
+              ? { level: "high" as const, budgetTokens: reasoningBudgetTokens }
               : ("off" as const)
           })
         : await chat({
@@ -210,18 +219,21 @@ export async function chooseAiMove(
                   }
                 })
               }),
-              generationController
+              generationController,
+              diagnostics?.onAnswer
             ),
             ...(thinkingSupport !== "none" && {
               reasoning: opponent.thinking
-                ? { level: "high" as const, budgetTokens: 512 }
+                ? { level: "high" as const, budgetTokens: reasoningBudgetTokens }
                 : ("off" as const)
             }),
-            modelOptions: { maxTokens: 8192 }
+            modelOptions: { maxTokens: MAX_OUTPUT_TOKENS }
           })
     generationSignal.throwIfAborted()
-    const { moveId } = outputSchema.parse(answer)
-    if (!legalMoves(game.board, "ai").some((move) => move.id === moveId)) {
+    const parsed = outputSchema.parse(answer)
+    const label = "move" in parsed ? parsed.move : parsed.moveId
+    const moveId = input.choices.find(choice => choice.label === label)?.id
+    if (!moveId || !legalMoves(game.board, "ai").some((move) => move.id === moveId)) {
       throw new Error("The AI chose an illegal move.")
     }
     return moveId

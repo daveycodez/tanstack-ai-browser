@@ -76,12 +76,34 @@ The browser needs WebGL 2, floating-point render targets, and OffscreenCanvas su
 Hardware-accelerated desktop and mobile browsers are the intended targets; actual
 performance depends on the device.
 
-`chat()` uses the selected model's supported reasoning mode and a Zod structured output schema whose `moveId` enum
-contains only the rules engine's legal complete turns. Each prompt includes the current
-board and the last five moves from both players, oldest first. The WebGL adapter uses
-schema-constrained decoding; schema and rules validation happen before a reply can alter the board. Invalid replies show a manual retry control without automatically calling the model again. There is no heuristic fallback. A 120-second generation deadline excludes model
+`chat()` uses the selected model's supported reasoning mode and strict Zod structured output.
+Each prompt includes the current
+board and the last five moves from both players, oldest first. One shared prompt is used
+for every model. Its descriptive action-label enum contains every legal complete turn;
+the model chooses the label and the rules validate its exact existing move ID.
+Move cards include captures, safe crowning, complete opponent jump chains, terminal
+wins/draws, and a bounded reply/response material check (man 1, king 2). Quiet king cards
+also show actual escape coverage and next-turn capture opportunities. These are factual
+short-horizon observations, not a deep positional evaluation or an expert solver.
+The WebGL adapter uses schema-constrained decoding; schema and rules validation happen
+before a reply can alter the board. Invalid replies show a manual retry control without automatically calling the model again. There is no heuristic fallback. A 120-second generation deadline excludes model
 loading. Leaving the route cancels the pending reply, and session/position guards reject
 stale replies after a restart. Same-origin tabs serialize AI turns with Web Locks.
+
+## Full turn log and manual benchmark
+
+The bottom of `/game` lists every turn and provides **Copy log**. Its JSON reconstructs
+before/after boards and retains actual AI prompts, move-card outcomes, chosen/raw answer,
+model settings, timings, usage, optional reasoning, and failed attempts. Forced moves are
+identified as having no model inference. Older saves are replayed when possible and
+missing historical AI diagnostics stay explicitly unavailable. Logs remain on-device;
+copying is an explicit user action.
+
+`/bench` is a separate manual benchmark page sharing the game's origin and model cache.
+Inference runs only when **Run benchmark** is pressed. The original coordinate prompt is
+retained as a before comparison. Both models use the same shared prompt and seeded
+choice orders; no sampling settings are overridden. See [the benchmark guide](bench/README.md),
+[the independent fixture audit](bench/SUITE-AUDIT.md), and [measured findings](bench/FINDINGS.md).
 
 ## Check and deploy
 

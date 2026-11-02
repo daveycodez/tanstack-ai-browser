@@ -5,6 +5,8 @@ import { resolveOpponent } from "../lib/opponents"
 import type { OpponentSettings } from "../lib/opponents"
 import { usePromptApiAvailable } from "../lib/use-prompt-api"
 import { GameView } from "../components/game"
+import { TurnLog } from "../components/turn-log"
+import turnLogStyles from "../components/turn-log.css?url"
 import { ConfirmNewGame } from "../components/confirm-new-game"
 import { ThinkingDialog } from "../components/thinking-dialog"
 import {
@@ -18,7 +20,7 @@ import { useAiTurn } from "../lib/use-ai-turn"
 
 export const Route = createFileRoute("/game")({
   component: GamePage,
-  head: () => ({ meta: [{ title: "Play · Checkers" }] })
+  head: () => ({ meta: [{ title: "Play · Checkers" }], links: [{ rel: "stylesheet", href: turnLogStyles }] })
 })
 
 function GamePage() {
@@ -137,6 +139,7 @@ function GamePage() {
           void navigate({ to: "/" })
         }}
       />
+      <TurnLog game={game} />
       {thinkingOpen && (
         <ThinkingDialog
           text={ai.thoughts}
