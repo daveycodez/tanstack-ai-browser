@@ -1,10 +1,11 @@
 # Draft: concise move context for a casual model opponent
 
-This is a vocabulary/design proposal, not a claim that every category is already
-implemented. Current prompts include immediate captures, check/mate/draw, recapture
+The core vocabulary is now implemented as independently optional benchmark variants.
+It remains experimental: additional context is disabled in normal gameplay pending
+regression evidence. Current prompts include immediate captures, check/mate/draw, recapture
 risk, conditional exchange material, promotion/castling and next-turn mate danger.
 The tested attack-relationship foundation in `annotatedLegalMoves(game,
-{relationships:true})` is opt-in and is not yet enabled in normal AI prompts.
+{relationships:true})` is opt-in and is not enabled in normal AI prompts.
 
 ## Principles
 
@@ -72,3 +73,11 @@ opening pawn pushes, newly opened bishop/queen mobility, king/rook rights lost f
 castling with blockers or attacked transit squares, and actual castling. Compare option
 ordering and prompt length as well as decisions. Keep no-thinking latency and varied
 casual play as goals; do not turn metadata into a hidden move selector.
+
+## Evaluation outcome
+
+Verbose annotation groups did not reliably improve LFM3. The selected LFM3 GGUF
+profile instead uses compact factual action cards, a current-threat summary, conditional
+castling emphasis, and immediate win/safe-queen-capture highlights. It keeps all legal
+choices and model-default sampling, with thinking off. See FINDINGS.md for the actual
+paired results, failed variants, fixture corrections, and limits.

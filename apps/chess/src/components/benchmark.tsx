@@ -1,4 +1,10 @@
-import { useEffect, useMemo, useRef, useState } from "react"
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore
+} from "react"
 import type { FormEvent } from "react"
 import { promptApiAvailability } from "@tanstack-ai-browser/prompt-api"
 import {
@@ -8,6 +14,8 @@ import {
   opponentOption
 } from "../lib/opponents"
 import type { OpponentModel } from "../lib/opponents"
+import { CONTEXT_VARIANTS } from "../lib/context-options"
+import { PROMPT_STYLES, defaultPromptStyleFor } from "../lib/prompt-options"
 import { CASES } from "../../bench/cases"
 import { runBenchmark } from "../../bench/runner"
 import type { BenchmarkReport, BenchmarkResult } from "../../bench/types"
@@ -24,14 +32,23 @@ function median(values: number[]) {
     : (sorted[middle - 1] + sorted[middle]) / 2
 }
 
+const subscribeReady = () => () => undefined
+const clientReady = () => true
+const serverReady = () => false
+
 export function BenchmarkView() {
   const [model, setModel] = useState<OpponentModel>(DEFAULT_OPPONENT.model)
   const [promptAvailable, setPromptAvailable] = useState(false)
   const [fixture, setFixture] = useState("all")
+  const [contextVariantId, setContextVariantId] = useState("baseline")
+  const [promptStyleId, setPromptStyleId] = useState<string>(() =>
+    defaultPromptStyleFor(DEFAULT_OPPONENT.model)
+  )
   const [thinking, setThinking] = useState(false)
   const [queenValue, setQueenValue] = useState(9)
   const [repetitions, setRepetitions] = useState(2)
   const [running, setRunning] = useState(false)
+  const ready = useSyncExternalStore(subscribeReady, clientReady, serverReady)
   const [results, setResults] = useState<BenchmarkResult[]>([])
   const [report, setReport] = useState<BenchmarkReport>()
   const [partialReport, setPartialReport] = useState<Record<string, unknown>>()
@@ -45,10 +62,61 @@ export function BenchmarkView() {
   const effectiveThinking =
     support === "required" || (support === "optional" && thinking)
   const scored = results.filter((result) => result.passed !== null)
+  const signaled = results.filter((result) => result.signal !== null)
+  const selectedCases =
+    fixture === "casual-suite"
+      ? CASES.filter(
+          (testCase) =>
+            testCase.suite === "core" ||
+            [
+              "context-castle-now",
+              "castle-or-win",
+              "castle-or-save-queen"
+            ].includes(testCase.id)
+        )
+      : fixture === "core-suite"
+        ? CASES.filter((testCase) => testCase.suite === "core")
+        : fixture === "context-suite"
+          ? CASES.filter((testCase) => testCase.suite === "context")
+          : fixture === "all"
+            ? CASES
+            : CASES.filter((testCase) => testCase.id === fixture)
+  const selectedVariants =
+    contextVariantId === "all-variants"
+      ? CONTEXT_VARIANTS
+      : CONTEXT_VARIANTS.filter((variant) => variant.id === contextVariantId)
+  const selectedStyles =
+    promptStyleId === "highlight-compare"
+      ? PROMPT_STYLES.filter(
+          (style) =>
+            style.id === "compact-safe-castle" ||
+            style.id === "compact-highlights" ||
+            style.id === "compact-copy"
+        )
+      : promptStyleId === "compact-compare"
+        ? PROMPT_STYLES.filter(
+            (style) =>
+              style.id === "compact" || style.id === "compact-safe-castle"
+          )
+        : promptStyleId === "all-styles" || promptStyleId === "baseline-compact"
+          ? PROMPT_STYLES.filter(
+              (style) =>
+                promptStyleId !== "baseline-compact" ||
+                style.id === "baseline" ||
+                style.id === "compact"
+            )
+          : PROMPT_STYLES.filter((style) => style.id === promptStyleId)
+  const plannedTrials =
+    selectedCases.length *
+    selectedVariants.length *
+    selectedStyles.length *
+    (Number.isFinite(repetitions) ? repetitions : 0)
   const grouped = useMemo(() => {
     const groups = new Map<string, BenchmarkResult[]>()
-    for (const result of results)
-      groups.set(result.caseId, [...(groups.get(result.caseId) ?? []), result])
+    for (const result of results) {
+      const key = `${result.promptStyleId}:${result.variantId}:${result.caseId}`
+      groups.set(key, [...(groups.get(key) ?? []), result])
+    }
     return Array.from(groups.values())
   }, [results])
 
@@ -78,8 +146,17 @@ export function BenchmarkView() {
       thinking: effectiveThinking,
       queenValue,
       repetitions,
-      caseIds:
-        fixture === "all" ? CASES.map((testCase) => testCase.id) : [fixture],
+      caseIds: selectedCases.map((testCase) => testCase.id),
+      contextVariantId,
+      promptStyleId,
+      promptStyles: selectedStyles.map((style) => ({
+        id: style.id,
+        label: style.label
+      })),
+      contextVariants: selectedVariants.map((variant) => ({
+        id: variant.id,
+        features: variant.features
+      })),
       reasoningBudgetTokens: 1024,
       maxOutputTokens: 8192,
       sampling: "model defaults"
@@ -104,6 +181,8 @@ export function BenchmarkView() {
         queenValue,
         repetitions,
         caseIds: config.caseIds,
+        contextVariantId,
+        promptStyleId,
         signal: active.signal,
         onResult: (result) => {
           completedResults.push(result)
@@ -162,7 +241,7 @@ export function BenchmarkView() {
         <span className="manual-badge">Manual diagnostic</span>
       </header>
       <form className="controls-panel" onSubmit={start}>
-        <fieldset disabled={running}>
+        <fieldset disabled={running || !ready}>
           <legend>Run configuration</legend>
           <div className="control-grid">
             <label className="model-control">
@@ -186,13 +265,70 @@ export function BenchmarkView() {
                 ))}
               </select>
             </label>
-            <label>
+            <label className="style-control">
+              Prompt style
+              <select
+                value={promptStyleId}
+                onChange={(event) => setPromptStyleId(event.target.value)}
+              >
+                {PROMPT_STYLES.map((style) => (
+                  <option key={style.id} value={style.id}>
+                    {style.label}
+                  </option>
+                ))}
+                <option value="highlight-compare">
+                  Selected + highlights + copy decoding
+                </option>
+                <option value="compact-compare">
+                  Compact + safe castling (paired)
+                </option>
+                <option value="baseline-compact">
+                  Baseline + compact (paired)
+                </option>
+                <option value="all-styles">
+                  All styles (sequential comparison)
+                </option>
+              </select>
+            </label>
+            <label className="context-control">
+              Context variant
+              <select
+                value={contextVariantId}
+                onChange={(event) => setContextVariantId(event.target.value)}
+              >
+                {CONTEXT_VARIANTS.map((variant) => (
+                  <option key={variant.id} value={variant.id}>
+                    {variant.label}
+                  </option>
+                ))}
+                <option value="all-variants">
+                  All variants (sequential sweep)
+                </option>
+              </select>
+            </label>
+            <label className="fixture-control">
               Position
               <select
                 value={fixture}
                 onChange={(event) => setFixture(event.target.value)}
               >
-                <option value="all">All positions</option>
+                <option value="all">All positions ({CASES.length})</option>
+                <option value="casual-suite">
+                  Casual gameplay priorities (9)
+                </option>
+                <option value="core-suite">
+                  Original regression suite (
+                  {CASES.filter((testCase) => testCase.suite === "core").length}
+                  )
+                </option>
+                <option value="context-suite">
+                  Context and priority fixtures (
+                  {
+                    CASES.filter((testCase) => testCase.suite === "context")
+                      .length
+                  }
+                  )
+                </option>
                 {CASES.map((testCase) => (
                   <option key={testCase.id} value={testCase.id}>
                     {testCase.label}
@@ -252,7 +388,11 @@ export function BenchmarkView() {
           </div>
         </fieldset>
         <div className="run-actions">
-          <button className="button primary" type="submit" disabled={running}>
+          <button
+            className="button primary"
+            type="submit"
+            disabled={running || !ready}
+          >
             Run benchmark
           </button>
           <button
@@ -271,7 +411,10 @@ export function BenchmarkView() {
           This tool runs only when you press Run. Models may download on first
           use. Results are printed in this page; your saved game is untouched.
           Queen priority is an experimental weight override for this run; the
-          game’s standard queen value stays 9.
+          game’s standard queen value stays 9. Context variants add factual move
+          information without ranking or replacing the model’s choice. Prompt
+          style independently changes how priorities and context are explained.
+          This configuration runs {plannedTrials} trials sequentially.
         </p>
       </form>
       <section className="run-status" aria-label="Run status">
@@ -290,10 +433,10 @@ export function BenchmarkView() {
       )}
       <section className="results-section" aria-labelledby="summary-heading">
         <div className="section-heading">
-          <h2 id="summary-heading">Position summary</h2>
+          <h2 id="summary-heading">Style, context, and position summary</h2>
           <p>
             {results.length
-              ? `${results.filter((result) => result.legal).length}/${results.length} legal · ${scored.filter((result) => result.passed).length}/${scored.length} tactical passes`
+              ? `${results.filter((result) => result.legal).length}/${results.length} legal · ${scored.filter((result) => result.passed).length}/${scored.length} tactical passes · ${signaled.filter((result) => result.signal).length}/${signaled.length} context selections`
               : "No results yet"}
           </p>
         </div>
@@ -301,8 +444,11 @@ export function BenchmarkView() {
           <table className="summary-table">
             <thead>
               <tr>
+                <th scope="col">Prompt style</th>
+                <th scope="col">Context</th>
                 <th scope="col">Position</th>
                 <th scope="col">Tactical passes</th>
+                <th scope="col">Context selections</th>
                 <th scope="col">Legal choices</th>
                 <th scope="col">Median time</th>
                 <th scope="col">First-option choices</th>
@@ -315,12 +461,21 @@ export function BenchmarkView() {
                     (trial) => trial.passed !== null
                   )
                   return (
-                    <tr key={trials[0].caseId}>
+                    <tr
+                      key={`${trials[0].promptStyleId}:${trials[0].variantId}:${trials[0].caseId}`}
+                    >
+                      <td>{trials[0].promptStyleLabel}</td>
+                      <td>{trials[0].variantLabel}</td>
                       <td className="position-label">{trials[0].label}</td>
                       <td>
                         {evaluated.length
                           ? `${evaluated.filter((trial) => trial.passed).length} / ${evaluated.length}`
                           : "Diagnostic only"}
+                      </td>
+                      <td>
+                        {trials.some((trial) => trial.signal !== null)
+                          ? `${trials.filter((trial) => trial.signal === true).length} / ${trials.filter((trial) => trial.signal !== null).length}`
+                          : "—"}
                       </td>
                       <td>
                         {trials.filter((trial) => trial.legal).length} /{" "}
@@ -338,7 +493,7 @@ export function BenchmarkView() {
                 })
               ) : (
                 <tr className="empty-row">
-                  <td colSpan={5}>
+                  <td colSpan={8}>
                     Each position’s results will appear here as trials finish.
                   </td>
                 </tr>
@@ -349,7 +504,12 @@ export function BenchmarkView() {
         <p className="table-note">
           A tactical pass matches the fixture’s expected move. First-option
           choices help expose an ordering bias; they are not inherently
-          failures.
+          failures. Context selections record the described behavior separately:
+          selecting support or losing a castling right is not automatically good
+          or bad chess. Diagnostic context fixtures do not receive tactical
+          pass/fail grades. Castling priority fixtures separately grade taking
+          an immediate mate or saving an attacked queen when castling is also
+          legal.
         </p>
       </section>
       <section className="results-section" aria-labelledby="trials-heading">
@@ -366,6 +526,7 @@ export function BenchmarkView() {
                 <th scope="col">Selected move</th>
                 <th scope="col">Choice</th>
                 <th scope="col">Tactics</th>
+                <th scope="col">Context signal</th>
                 <th scope="col">Time</th>
                 <th scope="col">Error</th>
               </tr>
@@ -376,6 +537,9 @@ export function BenchmarkView() {
                   <tr>
                     <td className="position-label">
                       {result.trial}. {result.label}
+                      <span className="variant-label">
+                        {result.promptStyleLabel} / {result.variantLabel}
+                      </span>
                     </td>
                     <td>
                       <span
@@ -405,14 +569,47 @@ export function BenchmarkView() {
                             : "Fail"}
                       </span>
                     </td>
+                    <td>
+                      <span className="badge neutral">
+                        {result.signal === null
+                          ? "—"
+                          : result.signal
+                            ? "Selected"
+                            : "Not selected"}
+                      </span>
+                    </td>
                     <td className="numeric">{seconds(result.seconds)}</td>
                     <td className="error-cell">{result.error ?? "—"}</td>
                   </tr>
                   <tr className="detail-row">
-                    <td colSpan={7}>
+                    <td colSpan={8}>
                       <details>
                         <summary>Inspect choices and raw answer</summary>
                         <div className="trial-detail">
+                          <section>
+                            <h3>Fixture objective and grading</h3>
+                            <pre>
+                              {
+                                CASES.find(
+                                  (testCase) => testCase.id === result.caseId
+                                )?.description
+                              }
+                            </pre>
+                          </section>
+                          {CASES.find(
+                            (testCase) => testCase.id === result.caseId
+                          )?.signalDescription && (
+                            <section>
+                              <h3>Context signal interpretation</h3>
+                              <pre>
+                                {
+                                  CASES.find(
+                                    (testCase) => testCase.id === result.caseId
+                                  )?.signalDescription
+                                }
+                              </pre>
+                            </section>
+                          )}
                           {result.condition && (
                             <section>
                               <h3>Condition</h3>
@@ -457,7 +654,7 @@ export function BenchmarkView() {
             ) : (
               <tbody>
                 <tr className="empty-row">
-                  <td colSpan={7}>No trials have run.</td>
+                  <td colSpan={8}>No trials have run.</td>
                 </tr>
               </tbody>
             )}

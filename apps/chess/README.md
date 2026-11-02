@@ -94,3 +94,9 @@ prints the exact prompts, choices and results as JSON on the page. It never read
 and model benchmarks are not run by automated tests. No files are downloaded.
 
 See [benchmark instructions](bench/README.md) and [recorded findings](bench/FINDINGS.md).
+
+The evaluated LFM3 GGUF opponent now uses compact move cards, current-threat summaries,
+and factual immediate-win/freequeen highlights. It prefers available castling in calm
+positions while keeping check, mate danger, queen rescue and clear material opportunities
+higher priority. All legal moves stay available and the model chooses; no search engine
+selects its turn. Other models retain baseline prompts pending their own evaluations.

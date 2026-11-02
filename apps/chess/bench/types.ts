@@ -9,9 +9,17 @@ export type BenchmarkCase = {
   expectedMoveIds: string[] | null
   orders: string[][]
   condition?: string
+  suite?: "core" | "context"
+  signalMoveIds?: string[]
+  signalDescription?: string
 }
 export type BenchmarkResult = {
   trial: number
+  promptStyleId: string
+  promptStyleLabel: string
+  variantId: string
+  variantLabel: string
+  signal: boolean | null
   repetition: number
   caseId: string
   label: string
@@ -31,7 +39,7 @@ export type BenchmarkResult = {
   condition?: string
 }
 export type BenchmarkReport = {
-  schemaVersion: 1
+  schemaVersion: 3
   choiceIndexBase: 0
   runId: string
   startedAt: string
@@ -46,8 +54,40 @@ export type BenchmarkReport = {
     caseIds: string[]
     reasoningBudgetTokens: 1024
     maxOutputTokens: 8192
-    sampling: "model defaults"
+    sampling: "model defaults" | "profile overrides"
+    orderPolicy: string
+    promptStyleId: string
+    promptStyles: { id: string; label: string; repetitionPenalty?: number }[]
+    contextVariantId: string
+    contextVariants: {
+      id: string
+      features: {
+        relationships: boolean
+        support: boolean
+        mobility: boolean
+        castling: boolean
+      }
+    }[]
   }
+  promptComparisons?: {
+    referenceStyleId: string
+    promptStyleId: string
+    pairedTactics: number
+    improved: number
+    regressed: number
+    unchanged: number
+    legalityRegressions: number
+  }[]
+  comparisons?: {
+    variantId: string
+    pairedTactics: number
+    improved: number
+    regressed: number
+    unchanged: number
+    legalityRegressions: number
+    medianPromptChars: number | null
+    medianSeconds: number | null
+  }[]
   results: BenchmarkResult[]
   summary: {
     total: number

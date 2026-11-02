@@ -498,3 +498,43 @@
   line-height: 1.7;
   background: #edf2f8;
 }
+
+.benchmark-shell .variant-label {
+  display: block;
+  font-size: 11px;
+  color: #718299;
+  font-weight: 400;
+  margin-top: 4px;
+}
+.benchmark-shell .control-grid {
+  grid-template-columns: minmax(220px, 1.5fr) repeat(
+      2,
+      minmax(150px, 1fr)
+    ) minmax(180px, 1.2fr) repeat(2, minmax(95px, 0.6fr));
+}
+.benchmark-shell .summary-table {
+  min-width: 900px;
+}
+.benchmark-shell .trials-table {
+  min-width: 1050px;
+}
+@media (max-width: 1100px) {
+  .benchmark-shell .control-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .benchmark-shell .model-control {
+    grid-column: 1 / -1;
+  }
+}
+@media (max-width: 600px) {
+  .benchmark-shell .control-grid .context-control,
+  .benchmark-shell .control-grid .fixture-control {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (max-width: 600px) {
+  .benchmark-shell .control-grid .style-control {
+    grid-column: 1 / -1;
+  }
+}

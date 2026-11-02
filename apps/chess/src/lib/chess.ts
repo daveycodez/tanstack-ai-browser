@@ -24,6 +24,49 @@ export type MoveRelationships = {
   newThreats: { target: PieceRef; attackers: PieceRef[] }[]
   resolvedThreats: { piece: PieceType; square: number; fromSquare: number }[]
 }
+export type MoveSupport = {
+  movedPieceGeometricDefenders: PieceRef[]
+  conditionalRecaptures: {
+    captureId: string
+    attacker: PieceRef
+    defenders: PieceRef[]
+  }[]
+  addedFriendlySupport: { target: PieceRef; supporters: PieceRef[] }[]
+}
+export type MoveMobility = {
+  pawnAdvance?: { squares: 1 | 2; centralSquaresControlled: number[] }
+  leavesMinorHomeSquare: boolean
+  changedOtherPieces: {
+    piece: PieceType
+    fromSquare: number
+    square: number
+    before: number
+    after: number
+    newSquares: number[]
+  }[]
+}
+export type CastlingWing = "kingside" | "queenside"
+export type MoveCastling = {
+  performed?: CastlingWing
+  lostRights: { side: Side; wing: CastlingWing }[]
+  paths: {
+    side: Side
+    wing: CastlingWing
+    rightBefore: boolean
+    rightAfter: boolean
+    blockersBefore: number[]
+    blockersAfter: number[]
+    clearedSquares: number[]
+    pathClear: boolean
+    legalNow: boolean
+  }[]
+}
+export type MoveContextOptions = {
+  relationships?: boolean
+  support?: boolean
+  mobility?: boolean
+  castling?: boolean
+}
 export type AnnotatedMove = Move & {
   piece: PieceType
   captured?: PieceType
@@ -33,6 +76,9 @@ export type AnnotatedMove = Move & {
     stalemate: boolean
     allowsMateInOne: boolean
     relationships?: MoveRelationships
+    support?: MoveSupport
+    mobility?: MoveMobility
+    castling?: MoveCastling
     drawReason?: string
     /** Distinct opposing pieces with a legal capture of the moved piece. */
     recapture: {
@@ -212,12 +258,11 @@ function captureMapFromMoves(moves: ChessMove[]): CaptureMap {
 }
 
 /** Captures if this color moved on the unchanged board, with its own king safe. */
-function hypotheticalCaptures(engine: Chess, color: "w" | "b"): CaptureMap {
+function hypotheticalEngine(engine: Chess, color: "w" | "b"): Chess {
   const fields = engine.fen().split(" ")
   if (fields[1] !== color) fields[3] = "-"
   fields[1] = color
-  const clone = new Chess(fields.join(" "))
-  return captureMapFromMoves(clone.moves({ verbose: true }))
+  return new Chess(fields.join(" "))
 }
 
 function relationshipsAfterMove(
@@ -225,21 +270,12 @@ function relationshipsAfterMove(
   candidate: ChessMove,
   beforeOwn: CaptureMap,
   beforeEnemy: CaptureMap,
+  afterOwn: CaptureMap,
   afterEnemy: CaptureMap,
   recapturers: Map<number, { piece: PieceType; square: number }>
 ): MoveRelationships {
   const origin = indexOf(candidate.from)
-  const destination = indexOf(candidate.to)
-  const rankStart = Math.floor(origin / 8) * 8
-  const relocate = (square: number): number => {
-    if (square === origin) return destination
-    if (candidate.isKingsideCastle() && square === rankStart + 7)
-      return rankStart + 5
-    if (candidate.isQueensideCastle() && square === rankStart)
-      return rankStart + 3
-    return square
-  }
-  const afterOwn = hypotheticalCaptures(engine, candidate.color)
+  const relocate = (square: number) => relocatedSquare(candidate, square)
   const newThreats: MoveRelationships["newThreats"] = []
   for (const [square, threat] of afterOwn) {
     const previous = new Set(
@@ -271,10 +307,303 @@ function relationshipsAfterMove(
   }
 }
 
+/** Opponent capture threats if that color moved on the unchanged current board.
+ * Kings/check are separate, and pinned captures are excluded.
+ */
+export function currentThreats(
+  game: Game
+): { target: PieceRef; attackers: PieceRef[] }[] {
+  if (game.status !== "playing") return []
+  const engine = restore(game)
+  const opponent = engine.turn() === "w" ? "b" : "w"
+  const captures = captureMapFromMoves(
+    hypotheticalEngine(engine, opponent).moves({ verbose: true })
+  )
+  return [...captures].map(([square, threat]) => ({
+    target: { piece: threat.piece, square },
+    attackers: [...threat.attackers.values()]
+  }))
+}
+
+type ChessSquare = Parameters<Chess["get"]>[0]
+const asSquare = (index: number) => squareName(index) as ChessSquare
+
+function relocatedSquare(candidate: ChessMove, square: number): number {
+  const origin = indexOf(candidate.from)
+  if (square === origin) return indexOf(candidate.to)
+  const rankStart = Math.floor(origin / 8) * 8
+  if (candidate.isKingsideCastle() && square === rankStart + 7)
+    return rankStart + 5
+  if (candidate.isQueensideCastle() && square === rankStart)
+    return rankStart + 3
+  return square
+}
+
+/** Friendly geometric coverage, excluding placements that expose the own king.
+ * This models coverage of a friendly square, not a legal self-capture.
+ */
+function geometricSupport(engine: Chess, color: "w" | "b"): CaptureMap {
+  const result: CaptureMap = new Map()
+  const board = engine.board().flat()
+  const king = board.findIndex(
+    (piece) => piece?.color === color && piece.type === "k"
+  )
+  const enemy = color === "w" ? "b" : "w"
+  const clone = new Chess(engine.fen())
+  for (let square = 0; square < 64; square++) {
+    const target = board[square]
+    if (!target || target.color !== color || target.type === "k") continue
+    const attackers = new Map<number, PieceRef>()
+    for (const source of engine.attackers(asSquare(square), color)) {
+      const supporter = engine.get(source)
+      if (!supporter) continue
+      clone.remove(source)
+      clone.remove(asSquare(square))
+      clone.put(supporter, asSquare(square))
+      const kingSquare = supporter.type === "k" ? square : king
+      const safe =
+        kingSquare >= 0 && !clone.isAttacked(asSquare(kingSquare), enemy)
+      clone.remove(asSquare(square))
+      clone.put(target, asSquare(square))
+      clone.put(supporter, source)
+      if (safe)
+        attackers.set(indexOf(source), {
+          piece: supporter.type,
+          square: indexOf(source)
+        })
+    }
+    if (attackers.size) result.set(square, { piece: target.type, attackers })
+  }
+  return result
+}
+
+function supportAfterMove(
+  engine: Chess,
+  candidate: ChessMove,
+  before: CaptureMap,
+  replies: ChessMove[]
+): MoveSupport {
+  const destination = indexOf(candidate.to)
+  const after = geometricSupport(engine, candidate.color)
+  const conditionalRecaptures: MoveSupport["conditionalRecaptures"] = []
+  for (const capture of replies) {
+    if (!describe(capture).captures.includes(destination)) continue
+    engine.move(capture)
+    try {
+      const defenders = new Map<number, PieceRef>()
+      if (positionStatus(engine).status === "playing") {
+        for (const recapture of engine.moves({ verbose: true })) {
+          if (
+            recapture.captured === "k" ||
+            !describe(recapture).captures.includes(indexOf(capture.to))
+          )
+            continue
+          const square = indexOf(recapture.from)
+          defenders.set(square, { piece: recapture.piece, square })
+        }
+      }
+      conditionalRecaptures.push({
+        captureId: describe(capture).id,
+        attacker: {
+          piece: capture.promotion ?? capture.piece,
+          square: indexOf(capture.to)
+        },
+        defenders: [...defenders.values()]
+      })
+    } finally {
+      engine.undo()
+    }
+  }
+  const addedFriendlySupport: MoveSupport["addedFriendlySupport"] = []
+  for (const [square, target] of after) {
+    const originalSquare = [...before.keys()].find(
+      (source) => relocatedSquare(candidate, source) === square
+    )
+    const previous = new Set(
+      [
+        ...(originalSquare === undefined
+          ? []
+          : (before.get(originalSquare)?.attackers.keys() ?? []))
+      ].map((source) => relocatedSquare(candidate, source))
+    )
+    const supporters = [...target.attackers.values()].filter(
+      (piece) => !previous.has(piece.square)
+    )
+    if (supporters.length)
+      addedFriendlySupport.push({
+        target: { piece: target.piece, square },
+        supporters
+      })
+  }
+  return {
+    movedPieceGeometricDefenders: [
+      ...(after.get(destination)?.attackers.values() ?? [])
+    ],
+    conditionalRecaptures,
+    addedFriendlySupport
+  }
+}
+
+function mobilityAfterMove(
+  candidate: ChessMove,
+  beforeBoard: ReturnType<Chess["board"]>,
+  beforeMoves: ChessMove[],
+  afterMoves: ChessMove[]
+): MoveMobility {
+  const destinations = (moves: ChessMove[], from: number) =>
+    new Set(
+      moves
+        .filter((move) => indexOf(move.from) === from && move.captured !== "k")
+        .map((move) => indexOf(move.to))
+    )
+  const changedOtherPieces: MoveMobility["changedOtherPieces"] = []
+  beforeBoard.flat().forEach((piece, fromSquare) => {
+    if (
+      piece?.color !== candidate.color ||
+      fromSquare === indexOf(candidate.from)
+    )
+      return
+    const square = relocatedSquare(candidate, fromSquare)
+    if (square !== fromSquare) return // The castling rook also moved.
+    const before = destinations(beforeMoves, fromSquare)
+    const after = destinations(afterMoves, square)
+    const newSquares = [...after].filter(
+      (destination) => !before.has(destination)
+    )
+    if (before.size !== after.size || newSquares.length)
+      changedOtherPieces.push({
+        piece: piece.type,
+        fromSquare,
+        square,
+        before: before.size,
+        after: after.size,
+        newSquares
+      })
+  })
+  const destination = indexOf(candidate.to)
+  const row = Math.floor(destination / 8)
+  const column = destination % 8
+  const controlled = [-1, 1]
+    .filter((offset) => column + offset >= 0 && column + offset < 8)
+    .map(
+      (offset) =>
+        (row + (candidate.color === "w" ? -1 : 1)) * 8 + column + offset
+    )
+  const central = new Set([
+    indexOf("d4"),
+    indexOf("e4"),
+    indexOf("d5"),
+    indexOf("e5")
+  ])
+  const home = candidate.color === "w" ? "1" : "8"
+  const homeFiles =
+    candidate.piece === "n"
+      ? ["b", "g"]
+      : candidate.piece === "b"
+        ? ["c", "f"]
+        : []
+  return {
+    ...(candidate.piece === "p"
+      ? {
+          pawnAdvance: {
+            squares: candidate.isBigPawn() ? (2 as const) : (1 as const),
+            centralSquaresControlled: controlled.filter((square) =>
+              central.has(square)
+            )
+          }
+        }
+      : {}),
+    leavesMinorHomeSquare: homeFiles.some(
+      (file) => candidate.from === file + home
+    ),
+    changedOtherPieces
+  }
+}
+
+type CastleSnapshot = {
+  side: Side
+  wing: CastlingWing
+  right: boolean
+  blockers: number[]
+  legal: boolean
+}
+function castlingSnapshot(
+  engine: Chess,
+  ownMoves: ChessMove[],
+  otherMoves: ChessMove[]
+): CastleSnapshot[] {
+  const rights = engine.fen().split(" ")[2]
+  const board = engine.board().flat()
+  return (["w", "b"] as const).flatMap((color) =>
+    (["kingside", "queenside"] as const).map((wing) => {
+      const start = color === "w" ? 56 : 0
+      const path = wing === "kingside" ? [5, 6] : [1, 2, 3]
+      const key = wing === "kingside" ? "k" : "q"
+      const moves = color === engine.turn() ? ownMoves : otherMoves
+      return {
+        side: sideOf(color),
+        wing,
+        right: rights.includes(color === "w" ? key.toUpperCase() : key),
+        blockers: path
+          .map((column) => start + column)
+          .filter((square) => board[square]),
+        legal: moves.some(
+          (move) =>
+            move.color === color &&
+            (wing === "kingside"
+              ? move.isKingsideCastle()
+              : move.isQueensideCastle())
+        )
+      }
+    })
+  )
+}
+function castlingAfterMove(
+  candidate: ChessMove,
+  before: CastleSnapshot[],
+  after: CastleSnapshot[]
+): MoveCastling {
+  const performed = candidate.isKingsideCastle()
+    ? "kingside"
+    : candidate.isQueensideCastle()
+      ? "queenside"
+      : undefined
+  return {
+    ...(performed ? { performed } : {}),
+    lostRights: before
+      .filter(
+        (path, index) =>
+          path.right &&
+          !after[index].right &&
+          !(performed && path.side === sideOf(candidate.color))
+      )
+      .map(({ side, wing }) => ({ side, wing })),
+    paths: before.flatMap((path, index) => {
+      const next = after[index]
+      if (!path.right && !next.right) return []
+      return [
+        {
+          side: path.side,
+          wing: path.wing,
+          rightBefore: path.right,
+          rightAfter: next.right,
+          blockersBefore: path.blockers,
+          blockersAfter: next.blockers,
+          clearedSquares: path.blockers.filter(
+            (square) => !next.blockers.includes(square)
+          ),
+          pathClear: !next.blockers.length,
+          legalNow: next.right && next.legal
+        }
+      ]
+    })
+  }
+}
+
 /** Factual one-move outcomes; the model still chooses from every legal move. */
 export function annotatedLegalMoves(
   game: Game,
-  options: { relationships?: boolean } = {}
+  options: MoveContextOptions = {}
 ): AnnotatedMove[] {
   if (game.status !== "playing") return []
   const engine = restore(game)
@@ -282,8 +611,21 @@ export function annotatedLegalMoves(
   const beforeOwn = options.relationships
     ? captureMapFromMoves(candidates)
     : undefined
+  const beforeOtherMoves =
+    options.relationships || options.castling
+      ? hypotheticalEngine(engine, engine.turn() === "w" ? "b" : "w").moves({
+          verbose: true
+        })
+      : []
   const beforeEnemy = options.relationships
-    ? hypotheticalCaptures(engine, engine.turn() === "w" ? "b" : "w")
+    ? captureMapFromMoves(beforeOtherMoves)
+    : undefined
+  const beforeSupport = options.support
+    ? geometricSupport(engine, engine.turn())
+    : undefined
+  const beforeBoard = options.mobility ? engine.board() : undefined
+  const beforeCastling = options.castling
+    ? castlingSnapshot(engine, candidates, beforeOtherMoves)
     : undefined
   return candidates.map((candidate): AnnotatedMove => {
     const move = describe(candidate)
@@ -311,6 +653,11 @@ export function annotatedLegalMoves(
           })
         }
       }
+      const ownAfterMoves =
+        state.status === "playing" &&
+        (options.relationships || options.mobility || options.castling)
+          ? hypotheticalEngine(engine, candidate.color).moves({ verbose: true })
+          : []
       const lowest = [...defenders.values()].sort(
         (left, right) =>
           (left.value ?? Infinity) - (right.value ?? Infinity) ||
@@ -332,8 +679,38 @@ export function annotatedLegalMoves(
                   candidate,
                   beforeOwn,
                   beforeEnemy,
+                  captureMapFromMoves(ownAfterMoves),
                   captureMapFromMoves(replies),
                   defenders
+                )
+              }
+            : {}),
+          ...(state.status === "playing" && beforeSupport
+            ? {
+                support: supportAfterMove(
+                  engine,
+                  candidate,
+                  beforeSupport,
+                  replies
+                )
+              }
+            : {}),
+          ...(state.status === "playing" && beforeBoard
+            ? {
+                mobility: mobilityAfterMove(
+                  candidate,
+                  beforeBoard,
+                  candidates,
+                  ownAfterMoves
+                )
+              }
+            : {}),
+          ...(beforeCastling
+            ? {
+                castling: castlingAfterMove(
+                  candidate,
+                  beforeCastling,
+                  castlingSnapshot(engine, replies, ownAfterMoves)
                 )
               }
             : {}),

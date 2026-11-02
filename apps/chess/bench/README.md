@@ -18,7 +18,8 @@ read or write the current saved game, and it is not linked from the game UI.
 
 The tester prints results directly on the page. It never downloads result files.
 
-The default full run is six fixtures with two repetitions each: 12 local generations,
+The default full run is seventeen fixtures with two repetitions each: 34 local generations.
+Select Original regression suite for the original six fixtures and 12 turns. The default is
 thinking off, standard queen priority 9. Nothing runs until **Run benchmark** is
 pressed. A first use of a different model can download its weights. Prompt API is
 listed only when the browser reports support. There is no hosted API or API key.
@@ -34,14 +35,14 @@ server startup, positions, exact prompt, ordered outcome choices, raw model answ
 normalized legal move, tactical result, latency and reasoning character count. Reports
 stay in-page; nothing writes to Downloads. A `-dirty` revision means tracked source
 changes existed at server startup. Restart Vite after checking out a different revision.
-New reports declare `schemaVersion: 1` and `choiceIndexBase: 0`; invalid choices use
+New reports declare `schemaVersion: 3` and `choiceIndexBase: 0`; invalid choices use
 index -1. Historical raw runs in `results/` preserve their original formats.
 
 ## Fixtures and grading
 
 `cases.ts` preserves the same positions and exact option orders as the original
 12-trial outcome test. Repetition 1 and 2 replay its respective order; further
-repetitions cycle those recorded orders. This makes settings comparisons paired by
+repetitions use deterministic novel permutations keyed by fixture and repetition. This makes settings comparisons paired by
 position and presentation order. Normal game turns continue to shuffle their moves.
 
 | Fixture                           | Meaning of a tactical pass                                                                                     |
@@ -57,6 +58,19 @@ The defense fixture accepts some sacrifices that avoid immediate mate. The queen
 fixture tests one-ply material safety, not long-term best play. These small checks are
 signals of basic board awareness, not an Elo estimate or proof of human strength.
 A first-option choice is recorded separately; it is not inherently a failure.
+
+## Context comparison
+
+Context variants are Baseline, Relationships, Support, Mobility, Castling, and All
+context. Each group is independently optional, and normal gameplay retains the Baseline context variant
+unless evidence supports a rollout. All variants runs a paired sequential sweep:
+fixture → repetition → variant, with identical positions and choice orders.
+At the defaults this is 204 local calls. Reports include per-variant paired tactical
+improvements/regressions, legality changes, prompt size, latency and separately recorded
+context selections. Context selections are diagnostic, not a best-move grade.
+
+The tester disables controls until hydration so selected settings cannot silently
+reset while starting a run. It never downloads reports and never runs through `test`.
 
 ## Queen priority experiment
 
@@ -85,3 +99,36 @@ Optional tool typecheck:
 ```sh
 pnpm nx run chess:bench-check
 ```
+
+## Evaluated casual profiles
+
+LFM3 GGUF starts with `compact-highlights`, the evaluated game profile. Other models
+keep baseline. Prompt style is independent of the four optional context groups.
+Styles include original baseline, longer casual/structured instructions, compact
+cards, rejected strong castling, conditional castling, highlights, and copy decoding.
+The copy-decoding profile alone sets repetition penalty 1.0; other profiles use model
+defaults. Reports record the override per profile. Thinking remains off unless selected.
+
+Use **Casual gameplay priorities (9)** to focus on the original six cases plus ordinary
+castling, mate-before castling, and save queen-before castling. Comparison presets run paired
+styles on identical positions/orders. Reports include separate prompt and context
+comparisons; context selection rates are descriptive, not general best-move grades.
+
+The nine diagnostic context positions were corrected after auditing mating/free-major
+piece confounds; their initial historical runs must not be interpreted as failed chess
+when the model chose an immediate win instead of the named signal.
+
+Selected profile details and limits:
+
+- `compact-highlights` is selected only for LFM3 GGUF, with thinking off and normal
+  sampling. It uses current threat facts, compact action cards, conditional castling
+  emphasis, and immediate-win/safe-queen-capture highlights.
+- `compact-castle` is the rejected overly strong castling reminder. It remains for
+  regression comparisons; it can castle while a queen needs rescue.
+- `compact-safe-castle` gates that reminder by factual urgency; highlights builds on it.
+- `compact-copy` has exactly the highlights prompt and changes repetition penalty to 1.0.
+  That override did not improve the final paired sample and is not the game default.
+- The independent prompt/style comparison and per-profile sampling override are printed
+  in report metadata. No candidate is removed or programmatically selected by a profile.
+- Model inference is manual only. Normal Nx test/build/CI checks never execute these
+  model benchmarks. The unit tests cover deterministic chess and prompt semantics.

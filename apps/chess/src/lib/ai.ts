@@ -13,7 +13,17 @@ import {
   webglText
 } from "@tanstack-ai-browser/webgl"
 import { z } from "zod"
-import { annotatedLegalMoves } from "./chess"
+import { annotatedLegalMoves, currentThreats, squareName } from "./chess"
+import { BASE_CONTEXT_FEATURES } from "./context-options"
+import {
+  buildCompactChoices,
+  buildStyledPrompt,
+  defaultPromptStyleFor,
+  PROMPT_STYLES
+} from "./prompt-options"
+import type { PromptStyleInput } from "./prompt-options"
+import type { PromptStyleId } from "./prompt-options"
+import type { ContextFeatures } from "./context-options"
 import { formatMoveOutcome } from "./ai-outcomes"
 import { describePosition } from "./ai-position"
 import { resolveMoveId } from "./ai-move"
@@ -30,6 +40,8 @@ import type {
 export type { ModelStatus } from "@tanstack-ai-browser/webgl"
 
 export type AiMoveOptions = {
+  promptStyle?: PromptStyleId
+  contextFeatures?: ContextFeatures
   /** Manual benchmark priority override; the game uses standard queen value 9. */
   queenValue?: number
   /** Exact fixture order for paired manual trials; normal play shuffles moves. */
@@ -115,7 +127,21 @@ export async function chooseAiMove(
   if (!Number.isInteger(queenValue) || queenValue < 9 || queenValue > 30) {
     throw new RangeError("Queen priority must be an integer from 9 to 30.")
   }
-  const moves = annotatedLegalMoves(game)
+  const contextFeatures = options?.contextFeatures ?? BASE_CONTEXT_FEATURES
+  const opponent = resolveOpponent(game.opponent)
+  const promptStyle =
+    options?.promptStyle ?? defaultPromptStyleFor(opponent.model)
+  const profile = PROMPT_STYLES.find((style) => style.id === promptStyle)
+  const moves = annotatedLegalMoves(
+    game,
+    promptStyle === "compact" ||
+      promptStyle === "compact-castle" ||
+      promptStyle === "compact-safe-castle" ||
+      promptStyle === "compact-highlights" ||
+      promptStyle === "compact-copy"
+      ? { ...contextFeatures, relationships: true, mobility: true }
+      : contextFeatures
+  )
   if (!moves.length) throw new Error("The AI has no legal moves.")
 
   if (options?.moveOrder) {
@@ -140,9 +166,9 @@ export async function chooseAiMove(
       ;[moves[index], moves[other]] = [moves[other], moves[index]]
     }
   }
-  const choices = moves.map((move) => ({
+  let choices = moves.map((move) => ({
     id: move.id,
-    outcome: formatMoveOutcome(move, game.turn, queenValue)
+    outcome: formatMoveOutcome(move, game.turn, queenValue, contextFeatures)
   }))
   if (moves.length === 1) {
     options?.onInput?.({
@@ -154,7 +180,6 @@ export async function chooseAiMove(
     return moves[0].id
   }
 
-  const opponent = resolveOpponent(game.opponent)
   const thinkingSupport = opponentOption(opponent.model).thinking
   if (opponent.model !== "prompt-api" && !hasWebGl2()) {
     throw new Error(
@@ -164,7 +189,7 @@ export async function chooseAiMove(
 
   // Validate legal membership after generation; an enum can invite option copying.
   const outputSchema = z.object({ moveId: z.string() })
-  const prompt = [
+  const baselinePrompt = [
     "Play a casual game of standard chess as Black (AI). White is the human. It is Black to move. Choose a sensible supplied legal move using the board and immediate outcome facts. Take an immediate checkmate when available. Avoid moves marked as letting the opponent checkmate next turn. Avoid stalemate when you can still play for a win. For captures, consider the captured piece, your moving piece, and the recapture risk. Only the supplied moves are legal; captures are optional. Do not invent moves.",
     "UCI is from-square + to-square + optional promotion piece (q/r/b/n). Return the exact move ID at the start of one legal choice.",
     `Piece values: pawn 1, knight 3, bishop 3, rook 5, queen ${queenValue}; king is royal. Each outcome describes the immediate result. Legal recapturers counts distinct opposing pieces that could legally capture your moved piece on the next turn; cheapest gives the lowest-value one. Zero means no immediate legal recapture. These facts do not rank the moves.`,
@@ -190,6 +215,67 @@ export async function chooseAiMove(
     ...choices.map((choice) => choice.outcome),
     "Return only JSON with moveId equal to exactly one supplied UCI string."
   ].join("\n")
+  let prompt = baselinePrompt
+  if (promptStyle !== "baseline") {
+    const pieceNames = {
+      p: "pawn",
+      n: "knight",
+      b: "bishop",
+      r: "rook",
+      q: "queen",
+      k: "king"
+    } as const
+    const pieceValues = { p: 1, n: 3, b: 3, r: 5, q: queenValue, k: "royal" }
+    const pieceLabel = (piece: {
+      piece: keyof typeof pieceNames
+      square: number
+    }) =>
+      `${pieceNames[piece.piece]} (${pieceValues[piece.piece]}) on ${squareName(piece.square)}`
+    const currentThreatData = currentThreats(game)
+    const promptInput: PromptStyleInput = {
+      baselinePrompt,
+      moves,
+      currentThreatData,
+      board: describePosition(game),
+      choices,
+      recentMoves: game.history
+        .slice(-8)
+        .map(
+          (move) =>
+            `${move.side === "human" ? "White" : "Black"}: ${move.notation} (${move.id})`
+        ),
+      currentThreats: currentThreatData.map(
+        (threat) =>
+          `Black ${pieceLabel(threat.target)} can be captured by White ${threat.attackers.map(pieceLabel).join(", ")}.`
+      ),
+      castlingMoves: moves.flatMap((move) =>
+        move.notation.startsWith("O-O")
+          ? [
+              {
+                id: move.id,
+                wing: move.notation.startsWith("O-O-O")
+                  ? ("queenside" as const)
+                  : ("kingside" as const)
+              }
+            ]
+          : []
+      ),
+      inCheck: game.inCheck,
+      queenValue,
+      thinking: opponent.thinking && thinkingSupport !== "none"
+    }
+    if (
+      promptStyle === "compact" ||
+      promptStyle === "compact-castle" ||
+      promptStyle === "compact-safe-castle" ||
+      promptStyle === "compact-highlights" ||
+      promptStyle === "compact-copy"
+    ) {
+      choices = buildCompactChoices(promptInput)
+      promptInput.choices = choices
+    }
+    prompt = buildStyledPrompt(promptStyle, promptInput)
+  }
   // Leave space for the template, the output schema, and the short JSON reply.
   if (prompt.length > 10_000) {
     throw new Error(
@@ -263,7 +349,12 @@ export async function chooseAiMove(
                 ? { level: "high" as const, budgetTokens: 1024 }
                 : ("off" as const)
             }),
-            modelOptions: { maxTokens: 8192 }
+            modelOptions: {
+              maxTokens: 8192,
+              ...(profile?.repetitionPenalty !== undefined && {
+                repetition_penalty: profile.repetitionPenalty
+              })
+            }
           })
     generationSignal.throwIfAborted()
     const { moveId } = outputSchema.parse(answer)
