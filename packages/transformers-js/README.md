@@ -63,3 +63,12 @@ export default defineConfig({
 ```
 
 **Status:** early (0.x); the API may change. See the [repository README](https://github.com/daveycodez/tanstack-ai-browser#readme).
+
+
+### Constrained structured output and guided tools
+
+`chat({ outputSchema })` forwards the schema to the adapter-owned worker. A shared tokenizer-aware constraint interpreter masks logits through Transformers.js's public `logits_processor` hook before sampling; no Transformers.js source patches or custom runtime builds are required. Thinking remains separate from the constrained JSON answer. `reasoning: { level: "high", budgetTokens: 512 }` closes reasoning at the requested ceiling and then activates the schema; compulsory-thinking models open their thinking block even when the template leaves the marker to generation.
+
+`modelOptions.maxTokens` limits total output, including thinking, and takes precedence over the legacy `max_new_tokens` alias. Omitting both uses a declared model generation limit when present, otherwise remaining model context. The adapter does not shorten the model's context unless the caller sets `contextLength`.
+
+Auto tools retain the model's native routing and answer protocol. Parsed calls must name a declared tool and match its argument schema before any tool-call event is emitted; invalid arguments are regenerated under the selected tool's constrained schema. Required and named choices use guided selection/arguments. Arguments are emitted as normal TanStack AI tool-call events. Unsupported schemas, constraint dead ends, and truncated structured responses fail explicitly; no unconstrained repair or automatic retry is added.

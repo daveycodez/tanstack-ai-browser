@@ -270,10 +270,13 @@ export async function* generate(request: {
   chat: Array<ChatTurn>
   tools: Array<ToolSpec>
   thinking?: boolean
+  thinkingBudgetTokens?: number
+  outputSchema?: object
   sampling: Sampling
   maxTokens?: number
   contextLength?: number
   thinkingOpen: string
+  thinkingClose: string
   signal?: AbortSignal
 }): AsyncGenerator<string, GenerationEnd> {
   const { id, signal } = request
@@ -303,11 +306,14 @@ export async function* generate(request: {
     tools: request.tools,
     ...(request.thinking !== undefined && { thinking: request.thinking }),
     sampling: request.sampling,
+    ...(request.thinkingBudgetTokens !== undefined && { thinkingBudgetTokens: request.thinkingBudgetTokens }),
+    ...(request.outputSchema !== undefined && { outputSchema: request.outputSchema }),
     ...(request.maxTokens !== undefined && { maxTokens: request.maxTokens }),
     ...(request.contextLength !== undefined && {
       contextLength: request.contextLength
     }),
-    thinkingOpen: request.thinkingOpen
+    thinkingOpen: request.thinkingOpen,
+    thinkingClose: request.thinkingClose
   })
   try {
     while (!finished || queue.length > 0) {
@@ -323,6 +329,10 @@ export async function* generate(request: {
     }
   } finally {
     signal?.removeEventListener("abort", onAbort)
+    if (!finished) {
+      generations.delete(id)
+      post({ type: "stop", id })
+    }
   }
   return end
 }

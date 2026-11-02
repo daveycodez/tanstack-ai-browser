@@ -43,7 +43,6 @@ import {
   parseArguments,
   parseDecision,
   supportsNativeTools,
-  toGuidedSchema,
   toLanguageModelTools,
   toolCallText,
   toolsPrompt
@@ -688,8 +687,8 @@ export class PromptApiTextAdapter extends BaseTextAdapter<
 
   /**
    * A JSON answer for `chat({ outputSchema })`, from guided generation:
-   * `responseConstraint` holds the model to the schema. A schema the
-   * browser can't enforce is tried again in the subset it can. `chat()`
+   * `responseConstraint` holds the model to the original schema. Unsupported
+   * schemas fail explicitly rather than silently dropping constraints. `chat()`
    * validates the result.
    */
   async structuredOutput(
@@ -733,7 +732,7 @@ export class PromptApiTextAdapter extends BaseTextAdapter<
           error instanceof DOMException && error.name === "NotSupportedError"
         ))
           throw error
-        rawText = await ask(toGuidedSchema(outputSchema))
+        throw new Error("The browser cannot enforce the requested JSON Schema.", { cause: error })
       }
       const completionTokens = await replyTokens(session, rawText)
       try {

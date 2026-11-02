@@ -73,8 +73,16 @@ export type ApfelProviderUsageDetails = {
  */
 export type ApfelModelOptions = {
   temperature?: number
+  maxTokens?: number
   max_tokens?: number
   seed?: number
+}
+
+function nativeModelOptions(options: ApfelModelOptions | undefined) {
+  const { maxTokens, max_tokens, ...rest } = options ?? {}
+  const limit = maxTokens ?? max_tokens
+  if (limit !== undefined && (!Number.isSafeInteger(limit) || limit < 0)) throw new RangeError("maxTokens must be a nonnegative safe integer.")
+  return { ...rest, ...(limit !== undefined && { max_tokens: limit }) }
 }
 
 type ApfelReasoning = never
@@ -392,7 +400,7 @@ export class ApfelTextAdapter<TModel extends string> extends BaseTextAdapter<
         method: "POST",
         headers: this.headers,
         body: JSON.stringify({
-          ...options.modelOptions,
+          ...nativeModelOptions(options.modelOptions),
           model,
           stream: true,
           // Token counts, for the stats.
@@ -702,7 +710,7 @@ export class ApfelTextAdapter<TModel extends string> extends BaseTextAdapter<
         method: "POST",
         headers: this.headers,
         body: JSON.stringify({
-          ...options.modelOptions,
+          ...nativeModelOptions(options.modelOptions),
           model: this.model,
           // apfel takes one system message, and the conversation must end
           // with the user or a tool result: the instructions go first.
@@ -767,7 +775,7 @@ export class ApfelTextAdapter<TModel extends string> extends BaseTextAdapter<
         method: "POST",
         headers: this.headers,
         body: JSON.stringify({
-          ...chatOptions.modelOptions,
+          ...nativeModelOptions(chatOptions.modelOptions),
           model,
           messages: [
             ...systemMessages(chatOptions.systemPrompts),

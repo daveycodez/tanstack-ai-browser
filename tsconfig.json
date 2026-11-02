@@ -17,6 +17,9 @@
     },
     {
       "path": "./packages/webgl"
+    },
+    {
+      "path": "./packages/structured-output"
     }
   ],
   "compilerOptions": {}
