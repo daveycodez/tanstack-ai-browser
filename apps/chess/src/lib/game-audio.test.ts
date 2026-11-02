@@ -51,3 +51,20 @@ test("all requested cues have distinct bounded, audible midrange patterns", () =
     }
   }
 })
+
+
+test("win and loss use long, opposite result phrases with a resolved chord", () => {
+  const end = (notes: typeof SOUND_CUES.check) =>
+    Math.max(...notes.map(([, , duration, , offset]) => duration + offset))
+  const win = SOUND_CUES["checkmate-win"]
+  const loss = SOUND_CUES["checkmate-loss"]
+  assert.ok(end(SOUND_CUES.check) < 0.3)
+  for (const result of [win, loss]) {
+    assert.ok(end(result) >= 1.2 && end(result) <= 1.5)
+    const lastOnset = Math.max(...result.map(note => note[4]))
+    assert.equal(result.filter(note => note[4] === lastOnset).length, 3)
+  }
+  assert.ok(win[0][0] < win[1][0] && win[1][0] < win[2][0])
+  assert.ok(loss[0][0] > loss[1][0] && loss[1][0] > loss[2][0])
+  assert.notEqual(win[0][5], loss[0][5])
+})

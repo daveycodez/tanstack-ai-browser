@@ -298,16 +298,25 @@ export const SOUND_CUES: Record<SoundCue, readonly SoundNote[]> = {
     [523, 523, 0.17, 0.085, 0.10],
     [784, 784, 0.23, 0.085, 0.20]
   ],
+  // A bright, deliberate fanfare resolving to a sustained C-major chord.
+  // Longer rhythm and harmony distinguish the result from the two-note check.
   "checkmate-win": [
-    [523, 523, 0.20, 0.08, 0],
-    [659, 659, 0.20, 0.08, 0.11],
-    [784, 784, 0.20, 0.08, 0.22],
-    [1046, 1046, 0.26, 0.07, 0.33]
+    [523.25, 523.25, 0.13, 0.11, 0, "triangle"],
+    [659.25, 659.25, 0.13, 0.11, 0.16, "triangle"],
+    [783.99, 783.99, 0.15, 0.11, 0.32, "triangle"],
+    [1046.5, 1046.5, 0.25, 0.095, 0.50, "triangle"],
+    [523.25, 523.25, 0.60, 0.05, 0.76, "triangle"],
+    [659.25, 659.25, 0.60, 0.045, 0.76, "triangle"],
+    [783.99, 783.99, 0.60, 0.045, 0.76, "triangle"]
   ],
+  // A lower falling phrase and C-minor resolution, never the rising check alert.
   "checkmate-loss": [
-    [523, 523, 0.22, 0.075, 0],
-    [440, 440, 0.22, 0.075, 0.14],
-    [349, 349, 0.28, 0.075, 0.28]
+    [392, 392, 0.20, 0.105, 0, "sine"],
+    [311.13, 311.13, 0.22, 0.105, 0.22, "sine"],
+    [261.63, 261.63, 0.30, 0.105, 0.46, "triangle"],
+    [261.63, 261.63, 0.58, 0.055, 0.65, "triangle"],
+    [311.13, 311.13, 0.58, 0.04, 0.65, "sine"],
+    [392, 392, 0.58, 0.04, 0.65, "sine"]
   ],
   draw: [
     [440, 440, 0.18, 0.075, 0],
@@ -345,8 +354,10 @@ export function playMoveSound(motion: BoardMotion, game: Game, delay = 0) {
     for (const cue of cues) {
       const offset = cue === "promotion" ? 0.085
         : cue === "check" ? (motion.move.promoted ? 0.43 : 0.10)
-        : cue === "checkmate-win" || cue === "checkmate-loss" || cue === "draw"
-          ? (motion.move.promoted ? 0.53 : 0.12) : 0
+        : cue === "checkmate-win" || cue === "checkmate-loss"
+          // Let the piece-placement/capture transient finish before the stinger.
+          ? (motion.move.promoted ? 0.53 : 0.24)
+        : cue === "draw" ? (motion.move.promoted ? 0.53 : 0.12) : 0
       playCue(cue, delay + offset)
     }
   } catch {
