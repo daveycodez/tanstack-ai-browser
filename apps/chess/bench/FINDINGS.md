@@ -174,3 +174,42 @@ this device. This is a smoke check, not a new strength estimate. The completed r
 12–22 contain 1,550 controlled local turns; setup runs interrupted by hydration/source
 reload are excluded from the comparisons. All raw records, including failed variants,
 are preserved so the results can be audited rather than cherry-picked.
+
+## Chrome Prompt API / Gemini Nano comparison
+
+Ran both models in Chrome using identical `compact-highlights` prompt strings,
+positions and option orders: 17 fixtures × 8 repetitions = 136 turns each. The exact
+prompt and ordered legal ID lists were compared programmatically and matched in every
+paired trial. Context variant Baseline, queen 9, thinking off. Native Prompt API and WebGL
+use their respective provider defaults; Chrome guided-JSON response constraints differ
+from the WebGL adapter's prompted JSON parsing. This is an app-experience comparison,
+not a controlled comparison of identical samplers/backends.
+
+| Metric                          | LFM3 GGUF, highlights | Chrome Nano, highlights | Chrome Nano, baseline |
+| ------------------------------- | --------------------- | ----------------------- | --------------------- |
+| Legal / total turns             | 136/136               | 136/136                 | 71/72                 |
+| Scored tactical/priority passes | 52/56                 | 49/56                   | 46/56                 |
+| Find mate in one                | 8/8                   | 8/8                     | 8/8                   |
+| Capture free queen              | 5/8                   | 8/8                     | 6/8                   |
+| Prevent immediate mate          | 8/8                   | 1/8                     | 8/8                   |
+| Avoid defended queen trade      | 7/8                   | 8/8                     | 1/8                   |
+| Ordinary castling               | 7/8                   | 8/8                     | 0/8                   |
+| Mate before castling            | 8/8                   | 8/8                     | 8/8                   |
+| Save queen before castling      | 8/8                   | 8/8                     | 7/8                   |
+| Median seconds                  | 0.568                 | 0.679                   | 0.770                 |
+
+The Nano baseline probe used the nine-case casual suite (72 turns), covering the same
+56 scored tactical/priority decisions and ordinary castling. It omitted the additional
+ungraded diagnostics. The baseline report had one rejected illegal/ambiguous reply;
+no shared adapter repair was attempted.
+
+Nano followed material/castling priorities very well with the LFM3-tuned highlights,
+but missed this particular Scholar's-Mate defense 7/8. Its actual baseline prompt solved
+that defense 8/8 while losing queen-trade/castling performance. Neither aggregate score
+nor eight repeats of one position establishes general chess strength. These tests
+show a substantial model×prompt interaction; no gameplay defaults were changed.
+
+The report's runtimeModel identifies `gemini-nano`, name Gemini Nano, browser Chrome.
+That identity is inferred by the adapter from browser branding: the Prompt API does not
+expose an exact model checkpoint/version. Reports 23–25 preserve every raw result,
+input and error. Results were read from printed in-page JSON, never downloaded.

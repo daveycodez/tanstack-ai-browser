@@ -255,7 +255,8 @@ export function BenchmarkView() {
               >
                 {promptAvailable && (
                   <option value="prompt-api">
-                    {PROMPT_API_OPTION.label} ({PROMPT_API_OPTION.detail})
+                    {opponentOption("prompt-api").label} (
+                    {PROMPT_API_OPTION.detail})
                   </option>
                 )}
                 {WEBGL_OPPONENTS.map((option) => (

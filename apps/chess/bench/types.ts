@@ -48,6 +48,7 @@ export type BenchmarkReport = {
   partial: boolean
   config: {
     model: OpponentModel
+    runtimeModel?: { id: string; name: string; browser: string | null }
     thinking: boolean
     queenValue: number
     repetitions: number

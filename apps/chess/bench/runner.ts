@@ -1,3 +1,4 @@
+import { promptApiModel } from "@tanstack-ai-browser/prompt-api"
 import { chooseAiMove } from "../src/lib/ai.ts"
 import { applyMove, fromFen, newGame } from "../src/lib/chess.ts"
 import { resolveOpponent } from "../src/lib/opponents.ts"
@@ -87,6 +88,9 @@ export async function runBenchmark(
     partial: false,
     config: {
       ...opponent,
+      ...(opponent.model === "prompt-api"
+        ? { runtimeModel: promptApiModel() }
+        : {}),
       queenValue: options.queenValue,
       repetitions: options.repetitions,
       caseIds: cases.map((c) => c.id),
