@@ -41,9 +41,9 @@ export type TransformersJsModelMeta = {
 // thinks and takes no switch.
 const THINKING_SWITCH = {
   levels: { off: "false", high: "true" },
-  budget: false
+  budget: true
 } as const
-const ALWAYS_THINKS = { levels: { high: "true" }, budget: false } as const
+const ALWAYS_THINKS = { levels: { high: "true" }, budget: true } as const
 
 
 const TOOLS_AND_THINKING = {

@@ -43,7 +43,6 @@ import {
   parseArguments,
   parseDecision,
   supportsNativeTools,
-  toGuidedSchema,
   toLanguageModelTools,
   toolCallText,
   toolsPrompt
@@ -193,8 +192,11 @@ function usageOf(
  * Tokens of what the model wrote, measured once it's done (so the count
  * never holds up the reply). The rest of the session is the prompt.
  */
-const replyTokens = (session: LanguageModelSession, text: string) =>
-  text ? session.measureContextUsage(text).catch(() => 0) : Promise.resolve(0)
+const replyTokens = (session: LanguageModelSession, text: string, signal?: AbortSignal) =>
+  text ? session.measureContextUsage(text, ...(signal ? [{ signal }] : [])).catch(() => {
+    signal?.throwIfAborted()
+    return 0
+  }) : Promise.resolve(0)
 
 /** A prompt's reply as text, from a session that may answer in pieces. */
 const textOf = (output: LanguageModelOutput) =>
@@ -688,15 +690,16 @@ export class PromptApiTextAdapter extends BaseTextAdapter<
 
   /**
    * A JSON answer for `chat({ outputSchema })`, from guided generation:
-   * `responseConstraint` holds the model to the schema. A schema the
-   * browser can't enforce is tried again in the subset it can. `chat()`
+   * `responseConstraint` holds the model to the original schema. Unsupported
+   * schemas fail explicitly rather than silently dropping constraints. `chat()`
    * validates the result.
    */
   async structuredOutput(
     options: StructuredOutputOptions<PromptApiModelOptions>
   ): Promise<StructuredOutputResult<unknown>> {
     const { chatOptions, outputSchema } = options
-    const signal = chatOptions.abortController?.signal
+    const signal = chatOptions.abortController?.signal ?? (chatOptions.request as RequestInit | undefined)?.signal ?? undefined
+    signal?.throwIfAborted()
     const conversation = toPromptMessages(chatOptions.messages, {
       nativeTools: false
     })
@@ -717,10 +720,12 @@ export class PromptApiTextAdapter extends BaseTextAdapter<
     })
     const { session } = lease
     try {
+      signal?.throwIfAborted()
       const input =
         inputMessages.length > 0
           ? await toLanguageModelMessages(inputMessages, media)
           : "Answer."
+      signal?.throwIfAborted()
       const ask = async (schema: object) =>
         textOf(
           await session.prompt(input, { responseConstraint: schema, signal })
@@ -733,9 +738,11 @@ export class PromptApiTextAdapter extends BaseTextAdapter<
           error instanceof DOMException && error.name === "NotSupportedError"
         ))
           throw error
-        rawText = await ask(toGuidedSchema(outputSchema))
+        throw new Error("The browser cannot enforce the requested JSON Schema.", { cause: error })
       }
-      const completionTokens = await replyTokens(session, rawText)
+      signal?.throwIfAborted()
+      const completionTokens = await replyTokens(session, rawText, signal)
+      signal?.throwIfAborted()
       try {
         return {
           data: JSON.parse(rawText) as unknown,
@@ -757,6 +764,7 @@ export class PromptApiTextAdapter extends BaseTextAdapter<
         )
       }
     } catch (error) {
+      signal?.throwIfAborted()
       if (error instanceof DOMException) throw new Error(promptErrorText(error))
       throw error
     } finally {

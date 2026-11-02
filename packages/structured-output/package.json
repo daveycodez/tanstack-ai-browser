@@ -1,0 +1,46 @@
+{
+  "name": "@tanstack-ai-browser/structured-output",
+  "version": "0.0.0",
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    "./package.json": "./package.json",
+    ".": {
+      "@tanstack-ai-browser/source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
+  },
+  "nx": {
+    "name": "structured-output"
+  },
+  "dependencies": {
+    "llguidance": "0.2.1",
+    "tslib": "^2.3.0"
+  },
+  "license": "MIT",
+  "author": "daveycodez",
+  "description": "Browser-local JSON Schema constrained decoding shared by TanStack AI adapters",
+  "scripts": {
+    "test": "node scripts/test.mjs"
+  },
+  "files": [
+    "src",
+    "dist",
+    "!**/*.tsbuildinfo"
+  ],
+  "devDependencies": {
+    "esbuild": "0.28.2"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/daveycodez/tanstack-ai-browser.git",
+    "directory": "packages/structured-output"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

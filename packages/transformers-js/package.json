@@ -56,5 +56,8 @@
   "devDependencies": {
     "@tanstack/ai": "1.0.0",
     "esbuild": "0.28.2"
+  },
+  "dependencies": {
+    "@tanstack-ai-browser/structured-output": "workspace:*"
   }
 }

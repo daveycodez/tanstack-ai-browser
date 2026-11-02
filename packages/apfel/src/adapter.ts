@@ -73,8 +73,16 @@ export type ApfelProviderUsageDetails = {
  */
 export type ApfelModelOptions = {
   temperature?: number
+  maxTokens?: number
   max_tokens?: number
   seed?: number
+}
+
+function nativeModelOptions(options: ApfelModelOptions | undefined) {
+  const { maxTokens, max_tokens, ...rest } = options ?? {}
+  const limit = maxTokens ?? max_tokens
+  if (limit !== undefined && (!Number.isSafeInteger(limit) || limit < 0)) throw new RangeError("maxTokens must be a nonnegative safe integer.")
+  return { ...rest, ...(limit !== undefined && { max_tokens: limit }) }
 }
 
 type ApfelReasoning = never
@@ -392,7 +400,7 @@ export class ApfelTextAdapter<TModel extends string> extends BaseTextAdapter<
         method: "POST",
         headers: this.headers,
         body: JSON.stringify({
-          ...options.modelOptions,
+          ...nativeModelOptions(options.modelOptions),
           model,
           stream: true,
           // Token counts, for the stats.
@@ -702,7 +710,7 @@ export class ApfelTextAdapter<TModel extends string> extends BaseTextAdapter<
         method: "POST",
         headers: this.headers,
         body: JSON.stringify({
-          ...options.modelOptions,
+          ...nativeModelOptions(options.modelOptions),
           model: this.model,
           // apfel takes one system message, and the conversation must end
           // with the user or a tool result: the instructions go first.
@@ -755,6 +763,8 @@ export class ApfelTextAdapter<TModel extends string> extends BaseTextAdapter<
     options: StructuredOutputOptions<ApfelModelOptions>
   ): Promise<StructuredOutputResult<unknown>> {
     const { chatOptions, outputSchema } = options
+    const signal = chatOptions.abortController?.signal ?? (chatOptions.request as RequestInit | undefined)?.signal ?? undefined
+    signal?.throwIfAborted()
     const model = this.model
     const send = chatOptions.wrapFetch ? chatOptions.wrapFetch(fetch) : fetch
     chatOptions.logger.request(
@@ -767,7 +777,7 @@ export class ApfelTextAdapter<TModel extends string> extends BaseTextAdapter<
         method: "POST",
         headers: this.headers,
         body: JSON.stringify({
-          ...chatOptions.modelOptions,
+          ...nativeModelOptions(chatOptions.modelOptions),
           model,
           messages: [
             ...systemMessages(chatOptions.systemPrompts),
@@ -778,25 +788,24 @@ export class ApfelTextAdapter<TModel extends string> extends BaseTextAdapter<
             json_schema: { name: "output", schema: outputSchema }
           }
         }),
-        signal:
-          chatOptions.abortController?.signal ??
-          (chatOptions.request as RequestInit | undefined)?.signal ??
-          undefined
+        signal
       })
     } catch (error) {
       chatOptions.logger.errors("apfel.structuredOutput fetch failed", {
         error,
         source: "apfel.structuredOutput"
       })
-      if (chatOptions.abortController?.signal.aborted) throw error
+      if (signal?.aborted) throw error
       throw new Error(unreachable(this.baseURL))
     }
+    signal?.throwIfAborted()
     if (!response.ok) {
       throw new Error(
         `apfel returned HTTP ${response.status}: ${await errorBody(response)}`
       )
     }
     const completion = (await response.json()) as OpenAICompletion
+    signal?.throwIfAborted()
     const choice = completion.choices?.[0]
     if (choice?.finish_reason === "length") {
       throw new Error(

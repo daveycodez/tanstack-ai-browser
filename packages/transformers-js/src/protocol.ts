@@ -50,6 +50,9 @@ export type RunTimings = {
   promptMs: number | null
   /** From the first generated token to the last, in ms. */
   decodeMs: number
+  thinkingTokens?: number
+  thinkingBudgetTokens?: number
+  thinkingBudgetExhausted?: boolean
 }
 
 /**
@@ -78,6 +81,8 @@ export type WorkerRequest =
       tools: Array<ToolSpec>
       /** The chat template's `enable_thinking`; its default when left out. */
       thinking?: boolean
+      thinkingBudgetTokens?: number
+      outputSchema?: object
       sampling: Sampling
       /** Most tokens to generate; the worker's default when left out. */
       maxTokens?: number
@@ -91,6 +96,7 @@ export type WorkerRequest =
        * chat template opens the thinking in the prompt itself.
        */
       thinkingOpen: string
+      thinkingClose: string
     }
   | { type: "stop"; id: string }
   /** The page made room for the model (see "claim"): the worker loads it. */

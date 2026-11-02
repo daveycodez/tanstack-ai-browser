@@ -115,3 +115,5 @@ wllamaText("LiquidAI/LFM2.5-350M-GGUF", {
 ```
 
 **Status:** early (0.x); the API may change. See the [repository README](https://github.com/daveycodez/tanstack-ai-browser#readme).
+
+Thinking-capable models accept `reasoning: { level: "high", budgetTokens: 512 }` through TanStack AI. The adapter forwards an explicit budget through wllama's public `reasoning_budget_tokens` option, alongside the template's thinking switch. Omitting the budget preserves the runtime default; `level: "off"` ignores a valid budget on models that support switching thinking off. Zero is forwarded unchanged. Negative, fractional, non-finite, and unsafe budgets fail before inference. No vendor patch is required for this mapping.

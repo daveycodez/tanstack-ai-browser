@@ -136,10 +136,11 @@ export function toGuidedSchema(
 }
 
 /** A tool's input schema, or an empty object's when it has none. */
-export const inputSchemaOf = (tool: Tool): JsonSchema =>
-  toGuidedSchema(
-    tool.inputSchema ?? { type: "object", properties: {}, required: [] }
-  )
+export const inputSchemaOf = (tool: Tool): JsonSchema => {
+  const schema = tool.inputSchema ?? { type: "object", properties: {}, required: [], additionalProperties: false }
+  if (!isObject(schema)) throw new Error(`Unsupported argument schema for tool: ${tool.name}`)
+  return schema
+}
 
 /** A tool's description, to its first paragraph and at most 400 characters. */
 function shortDescription(tool: Tool) {

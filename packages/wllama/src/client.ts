@@ -699,13 +699,41 @@ export function contextError(error: unknown, context: number) {
 /** A chat completion request, as llama.cpp's OpenAI-compatible API takes it. */
 export type ChatRequest = Omit<ChatCompletionParams, "stream" | "abortSignal">
 
+/** Cancel this caller's wait while the shared model download keeps filling its cache. */
+export async function waitForModel(model: WllamaTextModel, signal?: AbortSignal): Promise<Wllama> {
+  signal?.throwIfAborted()
+  const loading = loadModel(model)
+  if (!signal) return loading
+  return new Promise<Wllama>((resolve, reject) => {
+    const aborted = () => {
+      signal.removeEventListener("abort", aborted)
+      reject(signal.reason)
+    }
+    signal.addEventListener("abort", aborted, { once: true })
+    loading.then(
+      value => {
+        signal.removeEventListener("abort", aborted)
+        if (signal.aborted) reject(signal.reason)
+        else resolve(value)
+      },
+      error => {
+        signal.removeEventListener("abort", aborted)
+        reject(error)
+      }
+    )
+    // Also cover an abort during synchronous model setup before the listener.
+    if (signal.aborted) aborted()
+  })
+}
+
 /** Streams a chat completion from `model`, loading it first. */
 export async function streamChat(
   model: WllamaTextModel,
   request: ChatRequest,
   signal?: AbortSignal
 ): Promise<AsyncIterable<ChatCompletionChunk>> {
-  const wllama = await loadModel(model)
+  const wllama = await waitForModel(model, signal)
+  signal?.throwIfAborted()
   touchMemory(OWNER)
   const chunks = await wllama.createChatCompletion({
     ...request,
@@ -724,7 +752,8 @@ export async function completeChat(
   request: ChatRequest,
   signal?: AbortSignal
 ): Promise<ChatCompletionResponse> {
-  const wllama = await loadModel(model)
+  const wllama = await waitForModel(model, signal)
+  signal?.throwIfAborted()
   touchMemory(OWNER)
   try {
     const response = await wllama.createChatCompletion({

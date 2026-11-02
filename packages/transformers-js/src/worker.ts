@@ -1,3 +1,6 @@
+import { createConstraint } from "@tanstack-ai-browser/structured-output"
+import { GenerationControl, thinkingControlTokens } from "./generation-control.js"
+import { createSampler } from "./sampling.js"
 /**
  * Runs a local model with Transformers.js on WebGPU, off the main thread so
  * the page stays smooth while it loads and generates. One model at a time:
@@ -281,6 +284,8 @@ type Cache = Record<string, Tensor> & {
 }
 type Tokenizer = {
   chat_template?: string | null
+  eos_token_id?: number
+  all_special_ids?: number[]
   decode: (
     ids: Array<bigint>,
     options: { skip_special_tokens: boolean }
@@ -292,7 +297,7 @@ type Tokenizer = {
   (text: string, options: Record<string, unknown>): { input_ids: Tensor }
 }
 type Model = {
-  generation_config?: { eos_token_id?: number | Array<number> }
+  generation_config?: { eos_token_id?: number | Array<number>; max_new_tokens?: number }
   config?: { eos_token_id?: number | Array<number> }
   generate: (options: Record<string, unknown>) => Promise<unknown>
   forward: (inputs: Record<string, unknown>) => Promise<Record<string, Tensor>>
@@ -1668,7 +1673,6 @@ function load(
 const running = new Map<string, StoppingCriteria>()
 
 /** Below this much room for a reply, the chat is too long to answer. */
-const MIN_REPLY_TOKENS = 32
 
 /** A chat past the context limit: shown as is, without GPU diagnostics. */
 class ContextLimitError extends Error {}
@@ -2417,82 +2421,6 @@ async function readPrompt(
  * top_k likeliest tokens, draws one at the given temperature, and leaves
  * only it possible.
  */
-function createSampler({
-  temperature,
-  top_k,
-  repetition_penalty,
-  top_p = 1
-}: Sampling) {
-  const seen = new Set<number>()
-  let counted = 0
-  return (inputIds: Array<Array<bigint>>, logits: Tensor) => {
-    const ids = inputIds[0]
-    const data = logits.data as Float32Array
-    for (; counted < ids.length; counted++) seen.add(Number(ids[counted]))
-    if (repetition_penalty !== 1) {
-      for (const token of seen) {
-        const x = data[token]
-        data[token] = x < 0 ? x * repetition_penalty : x / repetition_penalty
-      }
-    }
-    // The k largest, in no order: replace the smallest kept when beaten.
-    const k = Math.max(
-      1,
-      Math.min(top_k > 0 ? top_k : data.length, data.length)
-    )
-    const keptIds = new Int32Array(k)
-    const kept = new Float32Array(k).fill(-Infinity)
-    let smallest = 0
-    for (let i = 0; i < data.length; i++) {
-      const x = data[i]
-      if (x <= kept[smallest]) continue
-      kept[smallest] = x
-      keptIds[smallest] = i
-      smallest = 0
-      for (let j = 1; j < k; j++) if (kept[j] < kept[smallest]) smallest = j
-    }
-    let best = 0
-    for (let j = 1; j < k; j++) if (kept[j] > kept[best]) best = j
-    let chosen = keptIds[best]
-    if (temperature > 0) {
-      const max = kept[best]
-      let total = 0
-      for (let j = 0; j < k; j++) {
-        kept[j] = Math.exp((kept[j] - max) / temperature)
-        total += kept[j]
-      }
-      // Top-p: the likeliest tokens until their share reaches top_p; the
-      // rest can't be drawn.
-      if (top_p < 1) {
-        const order = Array.from({ length: k }, (_, j) => j).sort(
-          (a, b) => kept[b] - kept[a]
-        )
-        let share = 0
-        let cut = false
-        for (const j of order) {
-          if (cut) {
-            total -= kept[j]
-            kept[j] = 0
-          } else {
-            share += kept[j] / total
-            cut = share >= top_p
-          }
-        }
-      }
-      let draw = Math.random() * total
-      for (let j = 0; j < k; j++) {
-        draw -= kept[j]
-        if (draw <= 0) {
-          chosen = keptIds[j]
-          break
-        }
-      }
-    }
-    data.fill(-Infinity)
-    data[chosen] = 0
-    return logits
-  }
-}
 
 /**
  * Streams a reply's text as it's generated, decoding only the last few
@@ -2559,7 +2487,10 @@ async function generate(
   sampling: Sampling,
   maxTokens: number | undefined,
   requestedContext: number | undefined,
-  thinkingOpen: string
+  thinkingOpen: string,
+  thinkingClose: string,
+  thinkingBudgetTokens?: number,
+  outputSchema?: object
 ): Promise<RunTimings> {
   // Time to first token counts from here: it includes reading the prompt.
   const requested = performance.now()
@@ -2586,7 +2517,8 @@ async function generate(
   // Some templates open the thinking in the prompt itself (`<think>`,
   // Gemma 4's `<|channel>thought`); start the reply with it too so the
   // thread shows what follows as thinking.
-  if (prompt.trimEnd().endsWith(thinkingOpen)) {
+  const startsInThinking = prompt.trimEnd().endsWith(thinkingOpen)
+  if (startsInThinking) {
     ctx.postMessage({ type: "token", id, text: thinkingOpen })
   }
   const inputs = tokenizer(prompt, { add_special_tokens: false })
@@ -2594,14 +2526,26 @@ async function generate(
   gpu.promptTokens = ids.length
   // The reply gets what's left of the context limit.
   const room = contextLength - gpu.promptTokens
-  if (room < MIN_REPLY_TOKENS) {
+  if (room <= 0) {
     throw new ContextLimitError(
       `This session is too long for the model: ${gpu.promptTokens.toLocaleString("en-US")} tokens, and it can read ${contextLength.toLocaleString("en-US")} at most, reply included. Start a new session to keep going.`
     )
   }
   // Thinking takes many more tokens before the answer starts.
-  const wanted = maxTokens ?? (thinking === false ? 1024 : 4096)
+  const wanted = maxTokens ?? model.generation_config?.max_new_tokens ?? room
+  if (!Number.isSafeInteger(wanted) || wanted < 0) throw new RangeError("maxTokens must be a nonnegative safe integer.")
   const maxNewTokens = Math.min(wanted, room)
+  if (maxNewTokens === 0) {
+    if (outputSchema !== undefined) throw new Error("Structured output was truncated before a complete schema-valid answer.")
+    return { inputTokens: ids.length, cachedTokens: 0, outputTokens: 0, firstTokenMs: null, promptMs: null, decodeMs: 0 }
+  }
+  const eos = [model.generation_config?.eos_token_id, model.config?.eos_token_id, tokenizer.eos_token_id]
+    .flatMap(value => value === undefined ? [] : Array.isArray(value) ? value : [value])
+  const open = Array.from(tokenizer(thinkingOpen, { add_special_tokens: false }).input_ids.data, Number)
+  const close = Array.from(tokenizer(thinkingClose, { add_special_tokens: false }).input_ids.data, Number)
+  const constraint = outputSchema === undefined ? undefined : await createConstraint({ schema: outputSchema, tokenizer, eosTokenId: eos[0], maxTokens: maxNewTokens + 1 })
+  const controlTokens = thinkingControlTokens(open, close, tokenizer.all_special_ids ?? [], eos)
+  const control = new GenerationControl({ promptTokens: ids.length, startsInThinking, open, controlTokens, allowReopen: thinking !== false, forceOpen: !startsInThinking && thinking === true, close, eos, budget: thinkingBudgetTokens, constraint })
   const stopping = new tf.InterruptableStoppingCriteria()
   running.set(id, stopping)
   // Every generated token, counted as the streamer gets it (text arrives
@@ -2619,7 +2563,8 @@ async function generate(
     outputTokens,
     firstTokenMs: firstToken === null ? null : firstToken - requested,
     promptMs: firstToken === null ? null : firstToken - readStarted,
-    decodeMs: firstToken === null ? 0 : lastToken - firstToken
+    decodeMs: firstToken === null ? 0 : lastToken - firstToken,
+    ...control.stats
   })
   const streamer = createStreamer(tokenizer, {
     // Special tokens stay in the text, all but the end of turn: models mark
@@ -2722,12 +2667,13 @@ async function generate(
         // sampling stay off.
         do_sample: false,
         repetition_penalty: 1,
-        logits_processor: [createSampler(sampling)],
+        logits_processor: [createSampler(sampling, control.prepare)],
         streamer,
         stopping_criteria: [stopping]
       })
     )) as Tensor
     sequence = Array.from(output.data, Number)
+    control.finish(sequence, stopping.interrupted)
   } catch (error) {
     // The model's GPU memory is gone with the device: load it again next time.
     if (gpu.lost && current === loaded) current = null
@@ -2738,6 +2684,7 @@ async function generate(
     throw error
   } finally {
     running.delete(id)
+    constraint?.dispose()
     // Keep the cache for the next run. It holds every token it has read
     // (the last token generated isn't read until the next step).
     if (cache && current === loaded) {
@@ -2796,7 +2743,10 @@ ctx.onmessage = ({ data }) => {
       data.sampling,
       data.maxTokens,
       data.contextLength,
-      data.thinkingOpen
+      data.thinkingOpen,
+      data.thinkingClose,
+      data.thinkingBudgetTokens,
+      data.outputSchema
     )
       .then((stats) => ctx.postMessage({ type: "done", id: data.id, stats }))
       .catch((error: unknown) => {
