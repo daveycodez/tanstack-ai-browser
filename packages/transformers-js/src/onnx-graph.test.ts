@@ -2,8 +2,12 @@ import assert from "node:assert/strict"
 import { describe, test } from "node:test"
 import {
   chunkLargeMatMulNBits,
+  foldScanTransposes,
+  matVecInScanBodies,
+  moveScansToCpu,
   readQuantizedEmbedding,
   scoreLastTokenOnly,
+  sinkTransposesThroughConcat,
   trimRotaryTables
 } from "./onnx-graph.js"
 
@@ -408,5 +412,407 @@ describe("readQuantizedEmbedding", () => {
     assert.equal(readQuantizedEmbedding(embeddingModel({ castTo: 10 })), null)
     assert.equal(readQuantizedEmbedding(decoderModel()), null)
     assert.equal(readQuantizedEmbedding(model(10, 64)), null)
+  })
+})
+
+/** A graph attribute (AttributeProto: name 1, g 6, type 20 = GRAPH). */
+const graphAttr = (name: string, graph: Uint8Array) => join(bytes(1, name), bytes(6, graph), int(20, 5))
+/** An ints attribute (AttributeProto: name 1, ints 8, type 20 = INTS). */
+const intsAttr = (name: string, values: Array<number>) =>
+  join(bytes(1, name), ...values.map((v) => int(8, v)), int(20, 7))
+/** A ValueInfoProto with an element type: name 1, type 2 { tensor_type 1 { elem_type 1 } }. */
+const typed = (name: string, elemType: number) => join(bytes(1, name), bytes(2, bytes(1, int(1, elemType))))
+type GraphParts = {
+  inputs?: Array<Uint8Array>
+  outputs?: Array<Uint8Array>
+  infos?: Array<Uint8Array>
+  inits?: Array<Uint8Array>
+}
+/** A graph: nodes, initializers (5), inputs (11), outputs (12) and value infos (13). */
+const graphOf = (nodes: Array<Uint8Array>, parts: GraphParts = {}) =>
+  join(
+    ...nodes.map((n) => bytes(1, n)),
+    ...(parts.inits ?? []).map((t) => bytes(5, t)),
+    ...(parts.inputs ?? []).map((v) => bytes(11, v)),
+    ...(parts.outputs ?? []).map((v) => bytes(12, v)),
+    ...(parts.infos ?? []).map((v) => bytes(13, v))
+  )
+/** A float scalar initializer (data_type 1, no dims). */
+const scalar = (name: string) => join(int(2, 1), bytes(8, name))
+
+type ReadNode = {
+  op: string
+  name: string
+  inputs: Array<string>
+  outputs: Array<string>
+  ints: Record<string, Array<number>>
+  graphs: Record<string, Uint8Array>
+}
+/** A graph's nodes (with their int attributes and subgraphs) and value info names. */
+function readGraph(graph: Uint8Array) {
+  const fields = read(graph)
+  const nodes: Array<ReadNode> = fields
+    .filter((f) => f.field === 1)
+    .map((f) => {
+      const node = read(f.body)
+      const ints: Record<string, Array<number>> = {}
+      const graphs: Record<string, Uint8Array> = {}
+      for (const a of node.filter((x) => x.field === 5).map((x) => read(x.body))) {
+        const name = texts(a, 1)[0]
+        const values = a
+          .filter((x) => (x.field === 8 || x.field === 3) && x.wire === 0)
+          .map((x) => Number(BigInt.asIntN(64, x.value)))
+        if (values.length > 0) ints[name] = values
+        const g = a.find((x) => x.field === 6)
+        if (g) graphs[name] = g.body
+      }
+      return {
+        op: texts(node, 4)[0],
+        name: texts(node, 3)[0] ?? "",
+        inputs: texts(node, 1),
+        outputs: texts(node, 2),
+        ints,
+        graphs
+      }
+    })
+  const infos = fields.filter((f) => f.field === 13).map((f) => texts(read(f.body), 1)[0])
+  return { nodes, infos }
+}
+const mainGraph = (model: Uint8Array) => read(model).find((f) => f.field === 7)?.body ?? new Uint8Array()
+/** The If's prompt branch, where Qwen3.5's linear attention keeps its Scan. */
+function promptBranch(model: Uint8Array) {
+  const branch = readGraph(mainGraph(model)).nodes.find((n) => n.op === "If")?.graphs.else_branch
+  return readGraph(branch ?? new Uint8Array())
+}
+/** A model whose If runs `nodes` in its prompt branch (and a Mul to decode). */
+function branchModel(nodes: Array<Uint8Array>, parts: GraphParts = {}) {
+  const graph = graphOf(
+    [
+      nodeProto("If", ["is_decode"], ["out"], "/layers.0/If", [
+        graphAttr("then_branch", graphOf([nodeProto("Mul", ["x", "y"], ["out"], "/layers.0/then/Mul")])),
+        graphAttr("else_branch", graphOf(nodes, parts))
+      ]),
+      nodeProto("Mul", ["out", "w"], ["logits"], "after")
+    ],
+    { inits: [scalar("scale")] }
+  )
+  return join(int(1, 10), bytes(7, graph))
+}
+
+/**
+ * Qwen3.5's linear attention, cut down: float16 in, cast to float32 and
+ * scaled for a Scan (whose body holds a nested graph), its output through
+ * a Sigmoid and cast back for the branch's output; the carried state cast
+ * from a value outside the branch; a float16 multiply and a float32 MatMul
+ * beside.
+ */
+function scanModel() {
+  const body = graphOf(
+    [
+      nodeProto("Exp", ["x_in"], ["x_exp"], "scan_body_0/exp"),
+      nodeProto("If", ["c"], ["inner"], "scan_body_0/inner", [
+        graphAttr("then_branch", graphOf([nodeProto("Mul", ["a", "b"], ["inner"], "scan_body_0/inner_mul")])),
+        graphAttr("else_branch", graphOf([nodeProto("Add", ["a", "b"], ["inner"], "")]))
+      ]),
+      nodeProto("Add", ["state_in", "x_exp"], ["state_out"], "scan_body_0/add"),
+      nodeProto("Identity", ["state_out"], ["y_out"], "scan_body_0/y")
+    ],
+    {
+      inputs: [typed("state_in", 1), typed("x_in", 1)],
+      outputs: [typed("state_out", 1), typed("y_out", 1)]
+    }
+  )
+  return branchModel(
+    [
+      nodeProto("Relu", ["h16"], ["x16"], "/layers.0/else/x16"),
+      nodeProto("Cast", ["x16"], ["xf"], "/layers.0/else/xf", [intAttr("to", 1)]),
+      nodeProto("Mul", ["xf", "scale"], ["xs"], "/layers.0/else/xs"),
+      nodeProto("Cast", ["state16"], ["state"], "/layers.0/else/state", [intAttr("to", 1)]),
+      nodeProto("Mul", ["h16", "h16"], ["h_sq"], "/layers.0/else/h_sq"),
+      nodeProto("Scan", ["state", "xs"], ["state_end", "ys"], "/layers.0/else/Scan", [
+        graphAttr("body", body),
+        intAttr("num_scan_inputs", 1)
+      ]),
+      nodeProto("Sigmoid", ["ys"], ["gate"], "/layers.0/else/gate"),
+      nodeProto("Cast", ["gate"], ["out"], "/layers.0/else/out", [intAttr("to", 10)]),
+      nodeProto("MatMul", ["ys", "w"], ["proj"], "/layers.0/else/proj")
+    ],
+    { outputs: [typed("out", 10)] }
+  )
+}
+
+describe("moveScansToCpu", () => {
+  test("Scan bodies and the float32 work around a Scan go to the CPU, renamed", () => {
+    const placed = moveScansToCpu(scanModel())
+    assert.ok(placed)
+    const branch = promptBranch(placed.model)
+    const names = Object.fromEntries(branch.nodes.map((n) => [n.outputs[0], n.name]))
+    // The cast to float32, the scale and the Sigmoid.
+    for (const output of ["xf", "xs", "gate"]) {
+      assert.match(names[output], /^~/)
+      assert.ok(placed.cpuNodeNames.includes(names[output]))
+    }
+    // Float16 ops, a MatMul and the Scan itself keep their names, and so do
+    // the cast of a value from outside the branch and the cast that makes
+    // the branch's output.
+    assert.equal(names.x16, "/layers.0/else/x16")
+    assert.equal(names.h_sq, "/layers.0/else/h_sq")
+    assert.equal(names.proj, "/layers.0/else/proj")
+    assert.equal(names.state_end, "/layers.0/else/Scan")
+    assert.equal(names.state, "/layers.0/else/state")
+    assert.equal(names.out, "/layers.0/else/out")
+    // Every body node, nested graphs too.
+    const scan = branch.nodes.find((n) => n.op === "Scan") as ReadNode
+    const body = readGraph(scan.graphs.body)
+    const inner = readGraph(body.nodes[1].graphs.then_branch)
+    for (const n of [...body.nodes, ...inner.nodes]) assert.ok(placed.cpuNodeNames.includes(n.name))
+    assert.equal(placed.cpuNodeNames.length, 3 + 4 + 2)
+    assert.equal(new Set(placed.cpuNodeNames).size, placed.cpuNodeNames.length)
+  })
+
+  test("the CPU's nodes read copies of constants the GPU's read too", () => {
+    const placed = moveScansToCpu(scanModel())
+    assert.ok(placed)
+    const scale = promptBranch(placed.model).nodes.find((n) => n.outputs[0] === "xs")
+    assert.deepEqual(scale?.inputs, ["xf", "scale/cpu"])
+    const branch = readGraph(mainGraph(placed.model)).nodes[0].graphs.else_branch
+    const copies = read(branch)
+      .filter((f) => f.field === 5)
+      .map((f) => read(f.body))
+    assert.deepEqual(
+      copies.map((t) => texts(t, 8)),
+      [["scale/cpu"]]
+    )
+    assert.equal(copies[0].find((x) => x.field === 2)?.value, 1n)
+  })
+
+  test("nodes outside the branch keep their names", () => {
+    const placed = moveScansToCpu(scanModel())
+    assert.ok(placed)
+    const main = readGraph(mainGraph(placed.model))
+    assert.deepEqual(
+      main.nodes.map((n) => n.name),
+      ["/layers.0/If", "after"]
+    )
+    const decode = readGraph(main.nodes[0].graphs.then_branch)
+    assert.deepEqual(
+      decode.nodes.map((n) => n.name),
+      ["/layers.0/then/Mul"]
+    )
+  })
+
+  test("nothing for a model without a Scan", () => {
+    assert.equal(moveScansToCpu(decoderModel()), null)
+  })
+})
+
+/**
+ * A Scan over Transposes, as Qwen3.5's prompt branch has it: the query
+ * transposed, cast and scaled into a Scan over axis 2, whose output along
+ * axis 2 is transposed back.
+ */
+function transposedScanModel(perm = [0, 2, 1, 3]) {
+  const body = graphOf([nodeProto("Add", ["state_in", "q_in"], ["state_out"], "body/add")], {
+    inputs: [typed("state_in", 1), typed("q_in", 1)],
+    outputs: [typed("state_out", 1), typed("state_out", 1)]
+  })
+  return branchModel(
+    [
+      nodeProto("Transpose", ["q"], ["q_t"], "q_t", [intsAttr("perm", perm)]),
+      nodeProto("Cast", ["q_t"], ["qf"], "qf", [intAttr("to", 1)]),
+      nodeProto("Mul", ["qf", "scale"], ["qs"], "qs"),
+      nodeProto("Scan", ["state", "qs"], ["state_end", "ys"], "Scan", [
+        graphAttr("body", body),
+        intAttr("num_scan_inputs", 1),
+        intsAttr("scan_input_axes", [2]),
+        intsAttr("scan_output_axes", [2])
+      ]),
+      nodeProto("Transpose", ["ys"], ["y"], "y_t", [intsAttr("perm", perm)]),
+      nodeProto("Relu", ["y"], ["out"], "relu")
+    ],
+    { infos: [typed("q_t", 10), typed("qf", 1), typed("ys", 1), typed("y", 1)] }
+  )
+}
+
+describe("foldScanTransposes", () => {
+  test("the Scan reads and writes the untransposed tensors along other axes", () => {
+    const folded = foldScanTransposes(transposedScanModel())
+    assert.ok(folded)
+    const branch = promptBranch(folded)
+    assert.deepEqual(
+      branch.nodes.map((n) => n.op),
+      ["Cast", "Mul", "Scan", "Relu"]
+    )
+    const [cast, , scan] = branch.nodes
+    assert.deepEqual(cast.inputs, ["q"])
+    assert.deepEqual(scan.inputs, ["state", "qs"])
+    assert.deepEqual(scan.outputs, ["state_end", "y"])
+    assert.deepEqual(scan.ints.scan_input_axes, [1])
+    assert.deepEqual(scan.ints.scan_output_axes, [1])
+    assert.deepEqual(scan.ints.num_scan_inputs, [1])
+    // Tensors whose shape changed lose their value info; the rest keep it.
+    assert.deepEqual(branch.infos, ["y"])
+  })
+
+  test("not where the other axes would change order", () => {
+    assert.equal(foldScanTransposes(transposedScanModel([0, 2, 3, 1])), null)
+  })
+
+  test("not where something else reads the transposed tensor", () => {
+    const model = branchModel([
+      nodeProto("Transpose", ["q"], ["q_t"], "q_t", [intsAttr("perm", [0, 2, 1, 3])]),
+      nodeProto("Scan", ["state", "q_t"], ["state_end", "ys"], "Scan", [
+        graphAttr("body", graphOf([])),
+        intAttr("num_scan_inputs", 1),
+        intsAttr("scan_input_axes", [2])
+      ]),
+      nodeProto("Relu", ["q_t"], ["out"], "relu")
+    ])
+    assert.equal(foldScanTransposes(model), null)
+  })
+})
+
+/**
+ * Qwen3.5's short convolution, cut down: the projection transposed to
+ * channels-first and appended to the carried state, for a Conv and for the
+ * next state.
+ */
+function convModel(withConv = true) {
+  return branchModel([
+    nodeProto("Transpose", ["m"], ["m_t"], "m_t", [intsAttr("perm", [0, 2, 1])]),
+    nodeProto("Concat", ["tail", "m_t"], ["x"], "conv_input", [intAttr("axis", 2)]),
+    nodeProto(withConv ? "Conv" : "Relu", withConv ? ["x", "w"] : ["x"], ["y"], "conv"),
+    nodeProto("Concat", ["past", "m_t"], ["cache"], "cache_concat", [intAttr("axis", -1)]),
+    nodeProto("Slice", ["cache", "starts", "ends", "axes"], ["present"], "present")
+  ])
+}
+
+describe("sinkTransposesThroughConcat", () => {
+  test("Concats join the untransposed tensors, then transpose", () => {
+    const sunk = sinkTransposesThroughConcat(convModel())
+    assert.ok(sunk)
+    const nodes = promptBranch(sunk).nodes
+    assert.deepEqual(
+      nodes.map((n) => `${n.op}(${n.inputs.join(",")}) -> ${n.outputs.join(",")}`),
+      [
+        "Transpose(tail) -> conv_input/input0/transposed",
+        "Concat(conv_input/input0/transposed,m) -> x/before_transpose",
+        "Transpose(x/before_transpose) -> x",
+        "Conv(x,w) -> y",
+        "Transpose(past) -> cache_concat/input0/transposed",
+        "Concat(cache_concat/input0/transposed,m) -> cache/before_transpose",
+        "Transpose(cache/before_transpose) -> cache",
+        "Slice(cache,starts,ends,axes) -> present"
+      ]
+    )
+    // Joined along the axis the channels-first one came from.
+    assert.deepEqual(nodes[1].ints.axis, [1])
+    assert.deepEqual(nodes[5].ints.axis, [1])
+    assert.deepEqual(nodes[0].ints.perm, [0, 2, 1])
+    assert.deepEqual(nodes[2].ints.perm, [0, 2, 1])
+  })
+
+  test("only where a convolution reads one of the Concats", () => {
+    assert.equal(sinkTransposesThroughConcat(convModel(false)), null)
+  })
+})
+
+/** An int64 tensor with raw data (data_type 7). */
+const int64s = (name: string, values: Array<number>) => {
+  const raw = new Uint8Array(values.length * 8)
+  values.forEach((v, i) => new DataView(raw.buffer).setBigInt64(i * 8, BigInt(v), true))
+  return join(int(1, values.length), int(2, 7), bytes(8, name), bytes(9, raw))
+}
+
+/**
+ * Qwen3.5's recurrence step, cut down: the state read with a key (and the
+ * key's column kept for an outer product) and with a query, each as
+ * ReduceSum(Mul(state, Unsqueeze(vector, -1)), -2), in a Scan's body; and
+ * the same product outside any Scan.
+ */
+function matVecModel() {
+  const body = graphOf(
+    [
+      nodeProto("Unsqueeze", ["k_in", "neg_one"], ["k_col"], "k_col"),
+      nodeProto("Mul", ["state_in", "k_col"], ["state_k"], "state_k"),
+      nodeProto("ReduceSum", ["state_k", "neg_two"], ["kv"], "kv", [intAttr("keepdims", 0)]),
+      nodeProto("Mul", ["k_col", "kv"], ["state_out"], "outer"),
+      nodeProto("Unsqueeze", ["q_in", "neg_one"], ["q_col"], "q_col"),
+      nodeProto("Mul", ["q_col", "state_out"], ["state_q"], "state_q"),
+      nodeProto("ReduceSum", ["state_q", "neg_two"], ["y_out"], "y", [intAttr("keepdims", 0)])
+    ],
+    {
+      inits: [int64s("neg_one", [-1]), int64s("neg_two", [-2])],
+      inputs: [typed("state_in", 1), typed("k_in", 1), typed("q_in", 1)],
+      outputs: [typed("state_out", 1), typed("y_out", 1)]
+    }
+  )
+  return branchModel([
+    nodeProto("Scan", ["state", "k", "q"], ["state_end", "ys"], "Scan", [
+      graphAttr("body", body),
+      intAttr("num_scan_inputs", 2)
+    ]),
+    nodeProto("Unsqueeze", ["v", "axes"], ["v_col"], "v_col"),
+    nodeProto("Mul", ["m", "v_col"], ["mv"], "mv"),
+    nodeProto("ReduceSum", ["mv", "axes2"], ["out"], "outside", [intAttr("keepdims", 0)])
+  ])
+}
+
+describe("matVecInScanBodies", () => {
+  test("a Scan body's ReduceSum(Mul(X, Unsqueeze(v, -1)), -2) becomes a MatMul", () => {
+    const edited = matVecInScanBodies(matVecModel())
+    assert.ok(edited)
+    const branch = promptBranch(edited)
+    const scan = branch.nodes.find((n) => n.op === "Scan") as ReadNode
+    const body = readGraph(scan.graphs.body)
+    assert.deepEqual(
+      body.nodes.map((n) => `${n.op}(${n.inputs.join(",")}) -> ${n.outputs.join(",")}`),
+      [
+        // The key's column stays for the outer product; the query's goes.
+        "Unsqueeze(k_in,neg_one) -> k_col",
+        "Unsqueeze(k_in,kv/row_axis) -> kv/row",
+        "MatMul(kv/row,state_in) -> kv/product",
+        "Squeeze(kv/product,kv/row_axis) -> kv",
+        "Mul(k_col,kv) -> state_out",
+        "Unsqueeze(q_in,kv/row_axis) -> y/row",
+        "MatMul(y/row,state_out) -> y/product",
+        "Squeeze(y/product,kv/row_axis) -> y_out"
+      ]
+    )
+    const rowAxis = read(scan.graphs.body)
+      .filter((f) => f.field === 5)
+      .map((f) => read(f.body))
+      .find((t) => texts(t, 8)[0] === "kv/row_axis")
+    const raw = rowAxis?.find((x) => x.field === 9)?.body ?? new Uint8Array(8)
+    assert.equal(new DataView(raw.buffer, raw.byteOffset).getBigInt64(0, true), -2n)
+    // Outside a Scan's body, nothing changes.
+    assert.deepEqual(
+      branch.nodes.map((n) => n.op),
+      ["Scan", "Unsqueeze", "Mul", "ReduceSum"]
+    )
+  })
+
+  test("not where the sum keeps its axis or runs along another", () => {
+    const body = (axes: number, keepdims: number) =>
+      graphOf(
+        [
+          nodeProto("Unsqueeze", ["k_in", "neg_one"], ["k_col"], "k_col"),
+          nodeProto("Mul", ["state_in", "k_col"], ["p"], "p"),
+          nodeProto("ReduceSum", ["p", "axes"], ["y_out"], "y", [intAttr("keepdims", keepdims)])
+        ],
+        { inits: [int64s("neg_one", [-1]), int64s("axes", [axes])] }
+      )
+    for (const [axes, keepdims] of [
+      [-2, 1],
+      [-1, 0]
+    ]) {
+      const model = branchModel([
+        nodeProto("Scan", ["state", "k"], ["state_end", "ys"], "Scan", [
+          graphAttr("body", body(axes, keepdims)),
+          intAttr("num_scan_inputs", 1)
+        ])
+      ])
+      assert.equal(matVecInScanBodies(model), null)
+    }
   })
 })

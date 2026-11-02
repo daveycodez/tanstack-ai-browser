@@ -18,11 +18,22 @@ import type {
   WorkerRequest,
   WorkerResponse
 } from "./protocol.js"
+import { pooledSize, SparePool } from "./buffer-pool.js"
+import {
+  MIN_PROMPT_STEP,
+  nextPromptStep,
+  promptStepEnd
+} from "./prompt-steps.js"
+import { checkpointsToDrop } from "./checkpoints.js"
 import { embedRows } from "./disk-embedding.js"
 import {
   chunkLargeMatMulNBits,
+  foldScanTransposes,
+  matVecInScanBodies,
+  moveScansToCpu,
   readQuantizedEmbedding,
   scoreLastTokenOnly,
+  sinkTransposesThroughConcat,
   trimRotaryTables
 } from "./onnx-graph.js"
 import type { QuantizedEmbedding } from "./onnx-graph.js"
@@ -136,7 +147,10 @@ type Ort = {
  * the context the model is loaded for, scores computed for the last token
  * only, and on the CPU, large multiplies split (see CPU_MATMUL_BYTES). A
  * 4-bit embedding session is replaced by a lookup on disk
- * (diskEmbeddingSession).
+ * (diskEmbeddingSession). On the GPU, Transposes around Scan loops are
+ * folded into the loops' axes or cancelled, the loops' vector-matrix
+ * products become MatMuls, and the loops and the float32 work around them
+ * stay on the CPU (withCpuNodes).
  */
 function editModels(ort: Ort) {
   const session = ort.InferenceSession
@@ -162,13 +176,47 @@ function editModels(ort: Ort) {
       ? chunkLargeMatMulNBits(edited, CPU_MATMUL_BYTES)
       : null
     if (chunked) edited = chunked
-    if (DEBUG && (trimmed || lastOnly || chunked)) {
+    const folded = foldScanTransposes(edited)
+    if (folded) edited = folded
+    const sunk = sinkTransposesThroughConcat(edited)
+    if (sunk) edited = sunk
+    const matVec = matVecInScanBodies(edited)
+    if (matVec) edited = matVec
+    const placed = moveScansToCpu(edited)
+    if (placed) edited = placed.model
+    const cpuNodes = placed?.cpuNodeNames ?? []
+    if (DEBUG && (trimmed || lastOnly || chunked || cpuNodes.length > 0)) {
       ctx.postMessage({
         type: "log",
-        text: `[model]${trimmed ? ` rotary tables cut to ${modelEdits.positions.toLocaleString("en-US")} positions;` : ""}${lastOnly ? " scores for the last token only;" : ""}${chunked ? " large matrix multiplies split for the CPU" : ""}`
+        text: `[model]${trimmed ? ` rotary tables cut to ${modelEdits.positions.toLocaleString("en-US")} positions;` : ""}${lastOnly ? " scores for the last token only;" : ""}${chunked ? " large matrix multiplies split for the CPU;" : ""}${folded ? " Transposes folded into Scan axes;" : ""}${sunk ? " Transposes moved below Concats;" : ""}${matVec ? " Scan bodies' vector-matrix products as MatMuls;" : ""}${cpuNodes.length > 0 ? ` ${cpuNodes.length} nodes of Scan loops on the CPU` : ""}`
       })
     }
-    return create(edited, ...rest)
+    const [options, ...more] = rest
+    return create(edited, withCpuNodes(options, cpuNodes), ...more)
+  }
+}
+
+/**
+ * Session options with `names` kept on the CPU by the WebGPU provider: the
+ * nodes of Scan loops, and the float32 work around them (moveScansToCpu).
+ * ONNX Runtime runs the Scan itself on the CPU, and with the body on the GPU
+ * every step of the loop uploaded the state (1 MB per Qwen3.5 layer) and
+ * read it back: 82 GB of buffers for a 2,048-token prompt, read at 36
+ * tokens/s on a Mac. With the body on the CPU: 1.9 GB, at 340 tokens/s.
+ */
+function withCpuNodes(options: unknown, names: Array<string>) {
+  const session = options as
+    | { executionProviders?: Array<string | { name: string }> }
+    | undefined
+  if (names.length === 0 || !session?.executionProviders) return options
+  return {
+    ...session,
+    executionProviders: session.executionProviders.map((provider) => {
+      const entry = typeof provider === "string" ? { name: provider } : provider
+      return entry.name === "webgpu"
+        ? { ...entry, forceCpuNodeNames: names }
+        : provider
+    })
   }
 }
 
@@ -426,6 +474,8 @@ const gpu = {
   device: null as GPUDevice | null,
   liveBytes: 0,
   peakBytes: 0,
+  /** The peak since the last memory log line (dev only). */
+  linePeakBytes: 0,
   lost: null as string | null,
   error: null as string | null,
   promptTokens: 0,
@@ -446,45 +496,168 @@ const gpu = {
 }
 
 /*
- * Every generated token, ONNX Runtime allocates two 4.2 MB storage buffers
- * for LFM3's outputs (at a ~3,000-token prompt) and destroys them a step
- * later: its bucket cache keeps only a few spares per size (20 at 4 MiB, 10
- * at 8 MiB) and destroys the rest. iPhone Safari didn't reclaim the
- * destroyed memory fast enough: 8.4 MB per token, and the page passed its
- * 2 GB limit ~350 tokens into a reply. Destroyed buffers of 1 MB or more are
- * kept and handed back for the next request of the same size and usage
- * instead. (microsoft/onnxruntime#33751)
+ * GPU buffers between model steps. ONNX Runtime's default buffer cache
+ * ("bucket") keeps the buffers of every size it has made, up to a count per
+ * size: after a 2,048-token Qwen3.5 reply it held ~180 MB of sizes it had
+ * outgrown, and for sizes past its counts it destroyed a buffer every token
+ * (LFM3: 8.4 MB per token at a ~3,000-token prompt, which iPhone Safari
+ * reclaimed so late that the page passed its 2 GB limit ~350 tokens into a
+ * reply; microsoft/onnxruntime#33751). So ONNX Runtime runs in its
+ * "lazyRelease" mode, destroying each step's buffers when the step ends,
+ * and the worker keeps them instead (see buffer-pool.ts): the next step
+ * takes them back, with sizes rounded up so that a request growing a token
+ * at a time keeps its buffer, and what it leaves goes for good. Without the
+ * pool, lazyRelease destroys and makes ~41 MB of buffers per Qwen3.5 token.
  */
-const POOL_MIN_BYTES = 1 << 20
-/**
- * Spares of a size are destroyed once that many pooled requests have gone by
- * without one for it: past 4,096 tokens the 4 MB buffers give way to 8 MB
- * ones, and their spares would otherwise sit in memory for good.
- */
-const POOL_STALE_REQUESTS = 512
 
 /** GPUBufferUsage.MAP_READ | GPUBufferUsage.MAP_WRITE. */
 const MAP_READ_OR_WRITE = 0x1 | 0x2
-/** Free buffers kept per size and usage. */
-const POOL_PER_SIZE = 12
+/** GPUBufferUsage.STORAGE. */
+const STORAGE_USAGE = 0x80
+
+/** Set while the worker makes a buffer of its own (createOwnBuffer). */
+let creatingOwnBuffer = false
 
 /**
- * Buffers of odd sizes made here (cut-down caches), destroyed for real
- * rather than kept as spares nothing would ask for.
+ * A buffer for the worker itself (copies of cache tensors): the exact size,
+ * and destroyed for real when it goes, never kept as a spare.
  */
-const unpooledBuffers = new WeakSet<GPUBuffer>()
+function createOwnBuffer(device: GPUDevice, descriptor: GPUBufferDescriptor) {
+  creatingOwnBuffer = true
+  try {
+    return device.createBuffer(descriptor)
+  } finally {
+    creatingOwnBuffer = false
+  }
+}
 
-/** The pool a buffer request can be served from, or null. */
-function poolKey(descriptor: GPUBufferDescriptor) {
-  const mappable = descriptor.usage & MAP_READ_OR_WRITE
+/**
+ * Whether a buffer request goes through the pool: ONNX Runtime's storage
+ * buffers once the model is loaded (not its weights, which stay, nor
+ * buffers for mapping).
+ */
+const pooled = (descriptor: GPUBufferDescriptor) =>
+  !creatingOwnBuffer &&
+  modelEdits === null &&
+  (descriptor.usage & STORAGE_USAGE) !== 0 &&
+  (descriptor.usage & MAP_READ_OR_WRITE) === 0 &&
+  !descriptor.mappedAtCreation
+
+/** Spare buffers by device: a lost device's spares are useless to the next. */
+const sparePools = new WeakMap<GPUDevice, SparePool<GPUBuffer>>()
+
+/** Ends a model step (a prompt step, a token): drops the spares it left. */
+function endGpuStep() {
+  if (gpu.device) sparePools.get(gpu.device)?.endStep()
+}
+
+/**
+ * Destroys every spare buffer: a reply is done, or the next step's buffers
+ * are of other sizes. Prompt steps make buffers in proportion to their
+ * tokens, so the spares of a 512-token step don't fit a 724-token one:
+ * kept, they sat beside its buffers until it ended, and the last step's
+ * stayed through the reply's first token (Qwen3.5-2B, 2,048-token prompt:
+ * GPU buffers peaked at 1,506 MB, against 1,397 with them dropped).
+ */
+function dropSpareBuffers() {
+  if (gpu.device) sparePools.get(gpu.device)?.clear()
+}
+
+/** Bytes held as spares. */
+const spareBytes = () =>
+  (gpu.device && sparePools.get(gpu.device)?.bytes) || 0
+
+/*
+ * Weights go to the GPU in pieces. ONNX Runtime uploads each weight from
+ * the weights file through a mapped staging buffer as large as the weight,
+ * copied into place and destroyed: up to 254 MB more GPU memory for a
+ * moment (Qwen3.5's output layer), and depending on the upload order a
+ * load peaked at up to 1,337 MB of GPU buffers against the model's 1,090,
+ * with the mapped copies in the page's memory too. While a model loads,
+ * that staging buffer is a stand-in instead: its mapped range is the
+ * buffer the weight was just read into from disk (loadScratch), and the
+ * copy out of it becomes writeBuffer calls of UPLOAD_CHUNK bytes, which the
+ * GPU process stages a piece at a time. Only while a model loads: a
+ * writeBuffer runs ahead of command buffers recorded before it, which a
+ * weight's fresh buffer doesn't mind, but done during a reply it garbled
+ * the text.
+ */
+const UPLOAD_CHUNK = 8 * 1024 * 1024
+/** GPUBufferUsage.MAP_WRITE | COPY_SRC: ONNX Runtime's upload staging. */
+const UPLOAD_USAGE = 0x2 | 0x4
+
+/**
+ * The buffer weights are read into while a model loads, grown to its
+ * largest tensor and shared by every weights file. ONNX Runtime copies each
+ * slice out (to the GPU, or its own memory) as soon as it gets it. New
+ * buffers per slice left the whole file's worth of them for the garbage
+ * collector, which iPhone Safari seemed to keep around, compressed,
+ * counting against the tab's memory limit.
+ */
+let loadScratch = new ArrayBuffer(0)
+
+/** The weight just read into loadScratch, for the staging buffer that follows. */
+let weightRead: { bytes: number } | null = null
+
+/** Staging stand-ins (see UPLOAD_CHUNK): their device and weight's size. */
+const weightStagings = new WeakMap<
+  object,
+  { device: GPUDevice; bytes: number }
+>()
+
+/**
+ * A stand-in for the staging buffer ONNX Runtime asks for right after
+ * reading a weight, while a model loads; null for any other request.
+ */
+function weightStaging(owner: GPUDevice, descriptor: GPUBufferDescriptor) {
+  const read = weightRead
+  weightRead = null
   if (
-    descriptor.size < POOL_MIN_BYTES ||
-    mappable ||
-    descriptor.mappedAtCreation
+    !read ||
+    modelEdits === null ||
+    !descriptor.mappedAtCreation ||
+    descriptor.usage !== UPLOAD_USAGE ||
+    descriptor.size < read.bytes ||
+    descriptor.size > loadScratch.byteLength
   ) {
     return null
   }
-  return `${descriptor.size}/${descriptor.usage}`
+  const { size, usage } = descriptor
+  const staging = {
+    size,
+    usage,
+    label: descriptor.label ?? "",
+    mapState: "mapped",
+    getMappedRange: (offset = 0) => {
+      if (offset !== 0) throw new Error("Unexpected weight upload.")
+      return loadScratch
+    },
+    unmap: () => undefined,
+    destroy: () => undefined
+  }
+  weightStagings.set(staging, { device: owner, bytes: read.bytes })
+  return staging as unknown as GPUBuffer
+}
+
+/** Writes a staged weight to its buffer, UPLOAD_CHUNK bytes at a time. */
+function uploadWeight(
+  staged: { device: GPUDevice; bytes: number },
+  destination: GPUBuffer,
+  destinationOffset: number,
+  size: number
+) {
+  // The staging buffer is a multiple of 16 bytes; what's past the weight
+  // was zeros in ONNX Runtime's.
+  new Uint8Array(loadScratch, staged.bytes, size - staged.bytes).fill(0)
+  for (let at = 0; at < size; at += UPLOAD_CHUNK) {
+    staged.device.queue.writeBuffer(
+      destination,
+      destinationOffset + at,
+      loadScratch,
+      at,
+      Math.min(UPLOAD_CHUNK, size - at)
+    )
+  }
 }
 
 function trackGpu() {
@@ -492,33 +665,51 @@ function trackGpu() {
     GPUDevice?: { prototype: GPUDevice }
     GPUBuffer?: { prototype: GPUBuffer }
     GPUAdapter?: { prototype: GPUAdapter }
+    GPUCommandEncoder?: { prototype: GPUCommandEncoder }
   }
   const device = scope.GPUDevice?.prototype
   const buffer = scope.GPUBuffer?.prototype
   const adapter = scope.GPUAdapter?.prototype
-  if (!device || !buffer || !adapter) return
+  const encoder = scope.GPUCommandEncoder?.prototype
+  if (!device || !buffer || !adapter || !encoder) return
   const sizes = new WeakMap<GPUBuffer, number>()
+  /** Pooled buffers: their device and pool key. */
   const owners = new WeakMap<GPUBuffer, { device: GPUDevice; key: string }>()
-  const pools = new WeakMap<GPUDevice, Map<string, Array<GPUBuffer>>>()
+  /** Buffers sitting in a pool, which ONNX Runtime has destroyed. */
+  const spares = new WeakSet<GPUBuffer>()
+  const destroy = buffer.destroy
+  /** Destroys a buffer for real. */
+  const release = (target: GPUBuffer) => {
+    owners.delete(target)
+    spares.delete(target)
+    const size = sizes.get(target)
+    if (size !== undefined) {
+      gpu.liveBytes -= size
+      sizes.delete(target)
+      liveBuffers.delete(target)
+    }
+    destroy.call(target)
+  }
   const poolFor = (owner: GPUDevice) => {
-    let pool = pools.get(owner)
-    if (!pool) pools.set(owner, (pool = new Map()))
+    let pool = sparePools.get(owner)
+    if (!pool) sparePools.set(owner, (pool = new SparePool(release)))
     return pool
   }
-  // Pooled requests so far, and the last one for each size.
-  let requests = 0
-  const lastRequested = new Map<string, number>()
   const createBuffer = device.createBuffer
-  device.createBuffer = function (descriptor) {
-    const key = poolKey(descriptor)
-    if (key) {
-      lastRequested.set(key, ++requests)
-      if (requests % 64 === 0) dropStaleSpares(poolFor(this))
-    }
-    const reused = key ? poolFor(this).get(key)?.pop() : undefined
-    if (reused) {
-      gpu.churn.reused++
-      return reused
+  device.createBuffer = function (requested) {
+    const staging = weightStaging(this, requested)
+    if (staging) return staging
+    let descriptor = requested
+    let key: string | null = null
+    if (pooled(descriptor)) {
+      descriptor = { ...descriptor, size: pooledSize(descriptor.size) }
+      key = `${descriptor.size}/${descriptor.usage}`
+      const spare = poolFor(this).take(key)
+      if (spare) {
+        spares.delete(spare)
+        gpu.churn.reused++
+        return spare
+      }
     }
     const created = createBuffer.call(this, descriptor)
     if (key) owners.set(created, { device: this, key })
@@ -533,42 +724,40 @@ function trackGpu() {
     if (DEBUG) liveBuffers.set(created, descriptor.size)
     gpu.liveBytes += descriptor.size
     gpu.peakBytes = Math.max(gpu.peakBytes, gpu.liveBytes)
+    gpu.linePeakBytes = Math.max(gpu.linePeakBytes, gpu.liveBytes)
     return created
   }
-  const destroy = buffer.destroy
-  /** Destroys a buffer for real. */
-  const release = (target: GPUBuffer) => {
-    owners.delete(target)
-    const size = sizes.get(target)
-    if (size !== undefined) {
-      gpu.liveBytes -= size
-      sizes.delete(target)
-      liveBuffers.delete(target)
-    }
-    destroy.call(target)
-  }
-  /** Destroys the spares of sizes nothing has asked for in a while. */
-  const dropStaleSpares = (pool: Map<string, Array<GPUBuffer>>) => {
-    for (const [key, free] of pool) {
-      if (requests - (lastRequested.get(key) ?? 0) < POOL_STALE_REQUESTS)
-        continue
-      for (const spare of free) release(spare)
-      pool.delete(key)
-    }
-  }
+  const copyBufferToBuffer = encoder.copyBufferToBuffer as (
+    ...args: Array<unknown>
+  ) => void
+  encoder.copyBufferToBuffer = function (
+    this: GPUCommandEncoder,
+    ...args: Array<unknown>
+  ) {
+    const staged = weightStagings.get(args[0] as object)
+    if (!staged) return copyBufferToBuffer.apply(this, args)
+    // (source, destination, size?) or (source, sourceOffset, destination,
+    // destinationOffset, size?); ONNX Runtime copies a whole staging buffer.
+    const [destination, destinationOffset, size, sourceOffset] =
+      typeof args[1] === "number"
+        ? [args[2], args[3], args[4], args[1]]
+        : [args[1], 0, args[2], 0]
+    const source = args[0] as GPUBuffer
+    if (sourceOffset !== 0) throw new Error("Unexpected weight upload.")
+    uploadWeight(
+      staged,
+      destination as GPUBuffer,
+      destinationOffset as number,
+      (size as number | undefined) ?? source.size
+    )
+  } as GPUCommandEncoder["copyBufferToBuffer"]
   buffer.destroy = function () {
-    // A large buffer is kept for the next request of its size, not destroyed.
-    const owner = unpooledBuffers.has(this) ? undefined : owners.get(this)
-    if (owner) {
-      const pool = poolFor(owner.device)
-      const free = pool.get(owner.key) ?? []
-      if (free.length < POOL_PER_SIZE && !free.includes(this)) {
-        free.push(this)
-        pool.set(owner.key, free)
-        return
-      }
-    }
-    release(this)
+    // Already a spare: ONNX Runtime destroyed it twice.
+    if (spares.has(this)) return
+    const owner = owners.get(this)
+    if (!owner) return release(this)
+    spares.add(this)
+    poolFor(owner.device).put(owner.key, this, sizes.get(this) ?? 0)
   }
   if (DEBUG) countGpuWork()
   const requestDevice = adapter.requestDevice
@@ -664,7 +853,13 @@ function countGpuWork() {
   count(buffer, "mapAsync", () => gpu.churn.maps++)
   count(queue, "writeBuffer", (args) => {
     const data = args[2] as ArrayBufferView | ArrayBuffer | undefined
-    gpu.churn.uploadBytes += data?.byteLength ?? 0
+    // A size is in elements of a typed array, else bytes.
+    const size = args[4] as number | undefined
+    const unit =
+      (data as { BYTES_PER_ELEMENT?: number } | undefined)
+        ?.BYTES_PER_ELEMENT ?? 1
+    gpu.churn.uploadBytes +=
+      size === undefined ? (data?.byteLength ?? 0) : size * unit
   })
 }
 
@@ -692,8 +887,9 @@ function logMemory(step: string) {
   const alive = c.bindGroups - c.bindGroupsFreed
   ctx.postMessage({
     type: "log",
-    text: `[memory] ${step}: wasm ${mb(wasmBytes)} MB, GPU buffers ${mb(gpu.liveBytes)} MB (peak ${mb(gpu.peakBytes)} MB), ${alive} bind groups not yet collected; since last: ${since}`
+    text: `[memory] ${step}: wasm ${mb(wasmBytes)} MB, GPU buffers ${mb(gpu.liveBytes)} MB (${mb(spareBytes())} MB of them spares; peak ${mb(gpu.linePeakBytes)} MB since the last line, ${mb(gpu.peakBytes)} MB in all), ${alive} bind groups not yet collected; since last: ${since}`
   })
+  gpu.linePeakBytes = gpu.liveBytes
 }
 
 /** Called when the GPU device is lost. */
@@ -1129,12 +1325,6 @@ async function openWeights(modelId: string, name: string) {
     await dir.getFileHandle(weightsFile(modelId, name).file)
   )
   const size = handle.getSize()
-  // Every slice is read into the same buffer, grown to the largest tensor:
-  // ONNX Runtime copies a slice to the GPU (or its own memory) as soon as it
-  // gets it. New buffers per slice left the whole file's worth of them for
-  // the garbage collector, which iPhone Safari seemed to keep around,
-  // compressed, counting against the tab's memory limit.
-  let scratch = new ArrayBuffer(0)
   const view = new Uint8Array(0)
   Object.defineProperties(view, {
     byteLength: { get: () => size },
@@ -1142,9 +1332,13 @@ async function openWeights(modelId: string, name: string) {
     subarray: {
       value: (begin = 0, end = size) => {
         const length = end - begin
-        if (scratch.byteLength < length) scratch = new ArrayBuffer(length)
-        const slice = new Uint8Array(scratch, 0, length)
+        // Room for the staging buffer's rounding to 16 bytes too.
+        if (loadScratch.byteLength < length) {
+          loadScratch = new ArrayBuffer(Math.ceil(length / 16) * 16)
+        }
+        const slice = new Uint8Array(loadScratch, 0, length)
         handle.read(slice, { at: begin })
+        weightRead = { bytes: length }
         return slice
       }
     }
@@ -1153,7 +1347,7 @@ async function openWeights(modelId: string, name: string) {
     data: view,
     close: () => {
       handle.close()
-      scratch = new ArrayBuffer(0)
+      loadScratch = new ArrayBuffer(0)
     }
   }
 }
@@ -1388,13 +1582,16 @@ async function loadRuntime(
           path: name,
           data: opened[i].data
         })),
-        // onnxruntime's default buffer cache ("bucket") reuses GPU buffers
-        // between steps. "lazyRelease" frees them after every step instead,
-        // which creates and destroys ~27 MB of buffers per token for LFM3;
-        // WebKit releases destroyed buffers late, so a long reply climbed
-        // past an iPhone's memory limit (on a Mac: 1,672 MB at 1,000 tokens
-        // and climbing, against 1,137 MB and flat with bucket).
-        executionProviders: [device],
+        // ONNX Runtime destroys each step's buffers when the step ends
+        // ("lazyRelease"), and the worker's pool keeps them for the next
+        // step (see sparePools). On its own, lazyRelease made and destroyed
+        // ~27 MB of buffers per LFM3 token, which WebKit reclaims late: a
+        // long reply climbed past an iPhone's memory limit.
+        executionProviders: [
+          device === "webgpu"
+            ? { name: "webgpu", storageBufferCacheMode: "lazyRelease" }
+            : device
+        ],
         // No constant folding: LFM exports read the tied embedding's 4-bit
         // weights into the output layer through a Reshape, and folding it
         // copied the whole table into ONNX Runtime's WebAssembly memory
@@ -1476,32 +1673,8 @@ const MIN_REPLY_TOKENS = 32
 /** A chat past the context limit: shown as is, without GPU diagnostics. */
 class ContextLimitError extends Error {}
 
-/**
- * How long one step of reading a prompt should take. WebKit crashes its GPU
- * process when a command buffer hasn't finished 3 s after it was sent, and
- * ONNX Runtime sends a whole step's work at once (microsoft/onnxruntime#33753),
- * so every step must finish well inside that: an 868-token step crashed an
- * iPhone, and 256-token steps late in a 7,600-token prompt took ~2.6 s there.
- * A Mac reads 256 tokens in ~0.1 s. So steps are sized from how fast the
- * last one went.
- */
-const PROMPT_STEP_MS = 1500
-/** Tokens in a step before any has been timed, which an iPhone handles. */
-const FIRST_PROMPT_STEP = 256
-const MIN_PROMPT_STEP = 32
-const MAX_PROMPT_STEP = 1024
 /** Tokens per ms of the last prompt step, carried over to the next prompt. */
 let promptRate: number | null = null
-
-/** Tokens for the next prompt step; `previous` is null for a prompt's first. */
-function nextPromptStep(previous: number | null) {
-  if (promptRate === null) return FIRST_PROMPT_STEP
-  const fit = Math.round(promptRate * PROMPT_STEP_MS)
-  // At most double from one step to the next, and start a prompt at no more
-  // than twice the untimed size: one fast step can be a fluke.
-  const cap = Math.min((previous ?? FIRST_PROMPT_STEP) * 2, MAX_PROMPT_STEP)
-  return Math.max(MIN_PROMPT_STEP, Math.min(fit, cap))
-}
 
 /** Transformers.js's names for a model output's place in the cache. */
 const cacheName = (output: string) =>
@@ -1580,11 +1753,10 @@ function copyCacheTensor(
     from = tokens * size * bytes
     to = length * size * bytes
   }
-  const buffer = device.createBuffer({
+  const buffer = createOwnBuffer(device, {
     size: pieces * to,
     usage: CACHE_BUFFER_USAGE
   })
-  unpooledBuffers.add(buffer)
   const encoder = device.createCommandEncoder()
   for (let i = 0; i < pieces; i++) {
     encoder.copyBufferToBuffer(source, i * from, buffer, i * to, to)
@@ -1627,7 +1799,8 @@ const gpuTensor = (
  * best, so agents that take turns on the model keep one each: an agent and
  * the sub-agents it runs have different system prompts and tools, and with
  * one cache each would wipe out the other's.
- * ~22 KB per token of GPU memory, plus 0.3 MB per checkpoint.
+ * ~22 KB per token of GPU memory, plus the checkpoints (0.3 MB each for
+ * LFM3, 10.3 MB for Qwen3.5; CHECKPOINT_BYTES in all at most).
  */
 type Checkpoint = { length: number; states: Record<string, Tensor> }
 type SavedCache = {
@@ -1651,9 +1824,43 @@ const MAX_SAVED = 6
 const SAVED_TOKENS = 8192
 /** Checkpoints kept per cache: the oldest (shortest) and the latest ones. */
 const MAX_CHECKPOINTS = 6
+/**
+ * Bytes all checkpoints may take together, the run's own included (see
+ * checkpoints.ts): LFM3's never come near it (6 caches x 6 x 0.3 MB);
+ * Qwen3.5's would reach ~370 MB without it.
+ */
+const CHECKPOINT_BYTES = 64 * 1024 * 1024
 
 const disposeCheckpoint = (checkpoint: Checkpoint) => {
   for (const tensor of Object.values(checkpoint.states)) tensor.dispose()
+}
+
+/** A tensor's size in bytes. */
+const tensorBytes = (tensor: Tensor) =>
+  tensor.dims.reduce((a, b) => a * b, 1) *
+  (tensor.ort_tensor.type === "float16" ? 2 : 4)
+
+const checkpointBytes = (checkpoint: Checkpoint) =>
+  Object.values(checkpoint.states).reduce((sum, t) => sum + tensorBytes(t), 0)
+
+/**
+ * Drops checkpoints past MAX_CHECKPOINTS per cache and CHECKPOINT_BYTES in
+ * all; `lists` is each cache's checkpoints, most recently used first.
+ */
+function fitCheckpoints(lists: Array<Array<Checkpoint>>) {
+  const drops = checkpointsToDrop(
+    lists.map((list) => list.map(checkpointBytes)),
+    MAX_CHECKPOINTS,
+    CHECKPOINT_BYTES
+  )
+  for (const [i, list] of lists.entries()) {
+    if (drops[i].size === 0) continue
+    const kept = list.filter((c, k) => {
+      if (drops[i].has(k)) disposeCheckpoint(c)
+      return !drops[i].has(k)
+    })
+    list.splice(0, list.length, ...kept)
+  }
 }
 
 const disposeSaved = async (entry: SavedCache) => {
@@ -1692,6 +1899,7 @@ function trimSaved(tf: TransformersModule, entry: SavedCache) {
 /** Keeps a run's cache, trimming or dropping others past the limits. */
 function keepSaved(tf: TransformersModule, entry: SavedCache) {
   savedCaches.unshift(entry)
+  fitCheckpoints(savedCaches.map((e) => e.checkpoints))
   let tokens = savedCaches.reduce((sum, e) => sum + e.ids.length, 0)
   for (let i = savedCaches.length - 1; i >= 1 && tokens > SAVED_TOKENS; i--) {
     const before = savedCaches[i].ids.length
@@ -2119,11 +2327,10 @@ async function loadFromDisk(
       entries[t.name] = new tf.Tensor(t.type, data, t.dims)
       continue
     }
-    const gpuBuffer = device.createBuffer({
+    const gpuBuffer = createOwnBuffer(device, {
       size: t.size,
       usage: CACHE_BUFFER_USAGE
     })
-    unpooledBuffers.add(gpuBuffer)
     device.queue.writeBuffer(
       gpuBuffer,
       0,
@@ -2156,12 +2363,15 @@ async function readPrompt(
   const end = length - 1
   let cache = start
   let step: number | null = null
+  let lastSize = 0
   for (let at = from; at < end && !stopping.interrupted;) {
-    step = nextPromptStep(step)
-    let stop = Math.min(at + step, end)
-    const next = stops.find((s) => s > at && s < stop)
-    if (next !== undefined) stop = next
+    step = nextPromptStep(step, promptRate)
+    const stop = promptStepEnd(at, step, end, stops)
     const size = stop - at
+    // A step of another size takes buffers of other sizes: the last step's
+    // spares would only sit beside them until it ends (see dropSpareBuffers).
+    if (size !== lastSize) dropSpareBuffers()
+    lastSize = size
     const began = performance.now()
     const outputs = await model.forward({
       input_ids: inputIds.slice(null, [at, stop]),
@@ -2181,12 +2391,16 @@ async function readPrompt(
     if (cache) cache.update(entries)
     else cache = new tf.DynamicCache(entries)
     if (stops.includes(stop)) onStop(cache, stop)
+    endGpuStep()
     nudgeGarbageCollector()
     logMemory(
       `prompt read ${stop} of ${length} tokens (${size} in ${Math.round(ms)} ms)`
     )
     at = stop
   }
+  // Nor does a reply's first token take a prompt step's buffers.
+  dropSpareBuffers()
+  logMemory("prompt read, spare buffers dropped")
   return cache
 }
 
@@ -2416,6 +2630,7 @@ async function generate(
       lastToken = performance.now()
       firstToken ??= lastToken
       outputTokens += tokens.length
+      endGpuStep()
       if (outputTokens % 16 === 0) nudgeGarbageCollector()
       if (outputTokens % 32 === 0) {
         logMemory(`reply ${outputTokens} tokens (prompt ${gpu.promptTokens})`)
@@ -2468,9 +2683,7 @@ async function generate(
       checkpoints.push(checkpoint(tf, at, length))
       // Keep the oldest (often the end of the system prompt and tools, which
       // new chats share) and the latest.
-      if (checkpoints.length > MAX_CHECKPOINTS) {
-        checkpoints.splice(1, 1).forEach(disposeCheckpoint)
-      }
+      fitCheckpoints([checkpoints, ...savedCaches.map((e) => e.checkpoints)])
     }
     // Checkpoints on the way: where the system prompt and tools end, which
     // the next chat or sub-agent run repeats, and where this prompt stopped
@@ -2543,6 +2756,7 @@ async function generate(
       checkpoints.forEach(disposeCheckpoint)
       await cache.dispose().catch(() => undefined)
     }
+    dropSpareBuffers()
     logMemory(`reply finished, ${outputTokens} tokens`)
     if (DEBUG) {
       ctx.postMessage({
