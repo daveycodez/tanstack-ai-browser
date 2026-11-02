@@ -18,5 +18,13 @@
     "noUncheckedSideEffectImports": true,
     "customConditions": ["@tanstack-ai-browser/source"]
   },
-  "exclude": ["src/**/*.test.ts"]
+  "exclude": ["src/**/*.test.ts"],
+  "references": [
+    {
+      "path": "../../packages/webgl"
+    },
+    {
+      "path": "../../packages/prompt-api"
+    }
+  ]
 }

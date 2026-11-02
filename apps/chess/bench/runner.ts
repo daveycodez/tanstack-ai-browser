@@ -57,6 +57,7 @@ export async function runBenchmark(
       repetitions: options.repetitions,
       caseIds: cases.map((c) => c.id),
       suiteVersion: "audited-v2",
+      outputContract: "legal-uci-enum-v1",
       promptVersion: SHARED_PROMPT_VERSION,
       orderPolicy: "recorded pair then deterministic novel permutations"
     },

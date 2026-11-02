@@ -12,7 +12,7 @@ import {
   unloadModel,
   webglText
 } from "@tanstack-ai-browser/webgl"
-import { z } from "zod"
+import { moveOutputSchema } from "./move-output"
 import { annotatedLegalMoves, currentThreats } from "./chess"
 import { buildSharedPrompt } from "./shared-prompt"
 import { resolveMoveId } from "./ai-move"
@@ -73,22 +73,6 @@ function waitForModel(
       }
     )
   })
-}
-
-function withCancellation<T extends AnyTextAdapter>(
-  adapter: T,
-  abortController: AbortController
-): T {
-  const structuredOutput = adapter.structuredOutput.bind(adapter)
-  // TanStack AI 1.0.0 does not forward abortController to structured finalization.
-  adapter.structuredOutput = (options) => {
-    abortController.signal.throwIfAborted()
-    return structuredOutput({
-      ...options,
-      chatOptions: { ...options.chatOptions, abortController }
-    })
-  }
-  return adapter
 }
 
 /** Choose only from the rules engine's legal moves; no heuristic substitute. */
@@ -154,8 +138,8 @@ export async function chooseAiMove(
     )
   }
 
-  // Validate legal membership after generation; an enum can invite option copying.
-  const outputSchema = z.object({ moveId: z.string() })
+  // The decoder enforces every legal option; rules validation still runs after generation.
+  const outputSchema = moveOutputSchema(moves.map((move) => move.id))
   if (prompt.length > 10_000)
     throw new Error("This position exceeds the local AI prompt limit.")
 
@@ -198,26 +182,23 @@ export async function chooseAiMove(
       opponent.model === "prompt-api"
         ? await chat({
             ...chatOptions,
-            adapter: withCancellation(promptApiText(), generationController)
+            adapter: promptApiText()
           })
         : await chat({
             ...chatOptions,
             // Runtime catalog metadata determines the selected model's reasoning support.
-            adapter: withCancellation<AnyTextAdapter>(
-              webglText(opponent.model, {
-                ...(onPhase && {
-                  onGenerationPhase: (phase: GenerationPhase) => {
-                    if (!generationSignal.aborted) onPhase(phase)
-                  }
-                }),
-                ...(onThinking && {
-                  onThinking: (delta: string) => {
-                    if (!generationSignal.aborted) onThinking(delta)
-                  }
-                })
+            adapter: webglText(opponent.model, {
+              ...(onPhase && {
+                onGenerationPhase: (phase: GenerationPhase) => {
+                  if (!generationSignal.aborted) onPhase(phase)
+                }
               }),
-              generationController
-            ),
+              ...(onThinking && {
+                onThinking: (delta: string) => {
+                  if (!generationSignal.aborted) onThinking(delta)
+                }
+              })
+            }) as AnyTextAdapter,
             ...(thinkingSupport !== "none" && {
               reasoning: opponent.thinking
                 ? { level: "high" as const, budgetTokens: 512 }

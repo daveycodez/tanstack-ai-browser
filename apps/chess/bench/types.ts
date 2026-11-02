@@ -57,6 +57,7 @@ export type BenchmarkReport = {
     repetitions: number
     caseIds: string[]
     suiteVersion: string
+    outputContract: string
     promptVersion: string
     orderPolicy: string
   }
