@@ -33,7 +33,7 @@ async function adapterPackage(name: "wllama" | "prompt-api" | "apfel", entry = "
         export const completeChat=async(model,request,signal)=>{control.requests.push({model,request,signal});return {choices:[{finish_reason:control.finish,message:{content:'{"moveId":"b6-a5"}'}}]}};
       ` : `
         const control=globalThis.__nativeSchemaContract;
-        export const leaseSession=async()=>({cachedTokens:0,discard(){control.discarded++},session:{contextUsage:20,contextWindow:8192,measureContextUsage:async()=>5,prompt:async(input,options)=>{control.requests.push({input,options});if(control.unsupported)throw new DOMException('schema unsupported','NotSupportedError');return '{"moveId":"b6-a5"}'}}});
+        export const leaseSession=async()=>({cachedTokens:0,overflowed:()=>false,discard(){control.discarded++},session:{contextUsage:20,contextWindow:8192,measureContextUsage:async()=>5,prompt:async(input,options)=>{control.requests.push({input,options});if(control.unsupported)throw new DOMException('schema unsupported','NotSupportedError');return '{"moveId":"b6-a5"}'}}});
       ` }))
     } }]
   })

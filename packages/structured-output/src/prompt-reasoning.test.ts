@@ -96,7 +96,8 @@ test("emulated Prompt API budget subtracts message overhead and never aborts the
  assert.equal(final.options?.signal,caller().signal)
  assert.match(text(final.input),/abcd/)
  assert.equal(control.releases,0,"draft notes never enter a retained conversation")
- assert.equal(control.leases[0].threadId,undefined,"reasoning final session is isolated")
+ assert.equal(control.leases[0].threadId,"retained-original","structured calls keep the caller thread identity")
+ assert.equal(control.leases[0].isolated,true,"reasoning final session uses an isolated clone")
  assert.ok(control.sessions.every(s=>s.destroyed),"draft, counter and ephemeral final session are all destroyed")
  const details=response.usage.providerUsageDetails
  assert.equal(details.reasoningEmulated,true)

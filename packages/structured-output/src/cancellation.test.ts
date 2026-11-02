@@ -43,7 +43,7 @@ async function packageFor(name: Name): Promise<AdapterPackage> {
         export async function* generate(request){try{yield await c.generate(request.signal);return {stats:c.stats}}finally{c.returned++}}
         export const streamChat=async function*(){};
         export const completeChat=async(model,request,signal)=>{await c.initialize(signal);signal?.throwIfAborted();const content=await c.generate(signal);return {choices:[{finish_reason:'stop',message:{content}}]}};
-        export const leaseSession=async(options)=>{await c.initialize(options.signal);return {discard(){c.discards++},session:{contextUsage:20,contextWindow:8192,measureContextUsage:(input,options)=>c.measure(options?.signal),prompt:(input,options)=>c.generate(options.signal)}}};
+        export const leaseSession=async(options)=>{await c.initialize(options.signal);return {cachedTokens:0,overflowed:()=>false,discard(){c.discards++},session:{contextUsage:20,contextWindow:8192,measureContextUsage:(input,options)=>c.measure(options?.signal),prompt:(input,options)=>c.generate(options.signal)}}};
       ` }))
     } }] })
     return import(pathToFileURL(outfile).href)
