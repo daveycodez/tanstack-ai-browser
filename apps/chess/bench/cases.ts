@@ -62,6 +62,7 @@ const CORE_CASES: BenchmarkCase[] = [
     label: "Find mate in one",
     description: "Black has one move delivering immediate checkmate: Qh4#.",
     fen: "rnbqkbnr/pppp1ppp/8/4p3/6P1/5P2/PPPPP2P/RNBQKBNR b KQkq - 0 2",
+    history: ["f2f3", "e7e5", "g2g4"],
     expectedMoveIds: ["d8h4"],
     orders: [
       [
@@ -134,7 +135,7 @@ const CORE_CASES: BenchmarkCase[] = [
     id: "free-queen",
     label: "Capture a free queen",
     description: "A pawn can capture an undefended queen on d4.",
-    fen: "r5k1/5ppp/8/4p3/3Q4/8/5PPP/6K1 b - - 0 1",
+    fen: "r5k1/5ppp/8/4p3/3Q4/8/5PPP/6K1 b - - 0 40",
     expectedMoveIds: ["e5d4"],
     orders: [
       [
@@ -191,18 +192,10 @@ const CORE_CASES: BenchmarkCase[] = [
     id: "stop-immediate-mate",
     label: "Prevent immediate mate",
     description:
-      "White threatens Qxf7#. Accepted moves prevent every immediate mating reply; this does not score overall engine quality.",
+      "White threatens Qxf7#. Accept every move that prevents all immediate mating replies without allowing a free queen or rook capture. This immediate safety objective accepts multiple defenses, including Ke7; it does not assert long-term engine quality.",
     fen: "r1bqkbnr/pppp1ppp/2n5/4p2Q/2B1P3/8/PPPP1PPP/RNB1K1NR b KQkq - 3 3",
-    expectedMoveIds: [
-      "d8e7",
-      "d8f6",
-      "d8g5",
-      "d8h4",
-      "e8e7",
-      "g8h6",
-      "d7d5",
-      "g7g6"
-    ],
+    history: ["e2e4", "e7e5", "d1h5", "b8c6", "f1c4"],
+    expectedMoveIds: ["d8e7", "d8f6", "e8e7", "g8h6", "d7d5", "g7g6"],
     orders: [
       [
         "b7b6",
@@ -271,7 +264,7 @@ const CORE_CASES: BenchmarkCase[] = [
     label: "Win instead of stalemating",
     description:
       "A stalemating move is first, while two immediate checkmates are available. Success means taking an immediate mate.",
-    fen: "8/8/8/8/5q2/8/5k2/7K b - - 0 1",
+    fen: "8/8/8/8/5q2/8/5k2/7K b - - 0 40",
     expectedMoveIds: ["f4h6", "f4h4"],
     orders: [
       [
@@ -345,7 +338,7 @@ const CORE_CASES: BenchmarkCase[] = [
     label: "Protect queen from a losing trade",
     description:
       "First option trades the queen for a rook defended by three pieces. Success means moving the queen to a square without an immediate legal recapture.",
-    fen: "3q3k/8/8/8/3R4/2B1PN2/8/7K b - - 0 1",
+    fen: "3q3k/8/8/8/3R4/2B1PN2/8/7K b - - 0 40",
     expectedMoveIds: [
       "d8e8",
       "d8f8",
@@ -416,7 +409,7 @@ const CONTEXT_CASES: BenchmarkCase[] = [
     label: "Context: escape a pawn attack",
     description:
       "Diagnostic: the queen on d5 is attacked by the white pawn on e4. Record whether Black moves its queen to a square with no immediate legal capture; this is a safety signal, not an engine-best-move grade.",
-    fen: "r5k1/5pp1/7p/3q4/4P3/8/5PPK/8 b - - 0 1",
+    fen: "r5k1/5pp1/7p/3q4/4P3/8/5PPK/8 b - - 0 40",
     signalDescription:
       "Queen moved away from the pawn attack to a square without an immediate legal capture.",
     signalMoveIds: [
@@ -537,7 +530,7 @@ const CONTEXT_CASES: BenchmarkCase[] = [
     label: "Context: interpose to protect queen",
     description:
       "Diagnostic: Bd6 interposes on the d-file between the white rook d1 and black queen d8. Moving the queen is also reasonable, so selecting the interposition is measured separately from tactical correctness.",
-    fen: "3q2k1/4bpp1/7p/8/8/8/5PP1/2KR4 b - - 0 1",
+    fen: "3q2k1/4bpp1/7p/8/8/8/5PP1/2KR4 b - - 0 40",
     signalMoveIds: ["e7d6"],
     signalDescription:
       "Bd6 blocks the rook d1 line to the queen d8; the bishop itself remains capturable.",
@@ -617,7 +610,7 @@ const CONTEXT_CASES: BenchmarkCase[] = [
     label: "Context: create a queen threat",
     description:
       "Diagnostic: Ra4, Re8, and f5 create a new direct attack on the white queen e4. Each attacking piece has a defender if the queen captures it. Other reasonable moves remain ungraded; creating a threat is not asserted to be best.",
-    fen: "r4k2/5p2/2p3p1/1p6/4Q3/8/5PPK/8 b - - 0 1",
+    fen: "r4k2/5p2/2p3p1/1p6/4Q3/8/5PPK/8 b - - 0 40",
     signalMoveIds: ["a8a4", "a8e8", "f7f5"],
     signalDescription:
       "The move creates a new direct attack on the white queen e4.",
@@ -671,7 +664,7 @@ const CONTEXT_CASES: BenchmarkCase[] = [
     label: "Context: support is not immunity",
     description:
       "Diagnostic: Bd7 and Bc4 genuinely add bishop support to the black rook e6, but the white rook e1 can still capture it. Rxe6 then Bxe6 is an equal rook trade. Selection records support being added, not tactical success or an asserted best move.",
-    fen: "6k1/5pp1/4r2p/1b6/8/8/5PP1/3KR3 b - - 0 1",
+    fen: "6k1/5pp1/4r2p/1b6/8/8/5PP1/3KR3 b - - 0 40",
     signalMoveIds: ["b5d7", "b5c4"],
     signalDescription:
       "Bd7 or Bc4 adds a new bishop defender to rook e6 while the rook remains legally capturable; support does not mean immunity.",
@@ -808,7 +801,7 @@ const CONTEXT_CASES: BenchmarkCase[] = [
     label: "Context: castling is legal now",
     description:
       "Diagnostic: both black castling moves are legal. White rooks mutually defend each other, so capturing a rook is not a free material win. Actual castling is a neutral action signal; no single best move is asserted.",
-    fen: "r3k2r/8/8/8/8/8/4K3/R6R b kq - 0 1",
+    fen: "r3k2r/8/8/8/8/8/4K3/R6R b kq - 0 40",
     signalMoveIds: ["e8g8", "e8c8"],
     signalDescription: "Black performs a currently legal castling move.",
     suite: "context",
@@ -877,7 +870,7 @@ const CONTEXT_CASES: BenchmarkCase[] = [
     label: "Context: rook move loses a right",
     description:
       "Diagnostic: Rh7 or Ra7 leaves the king on e8 but permanently removes the matching castling right. Pawns a6 and h6 prevent these rook moves from hanging a rook. Rights loss is a neutral fact, not a good or bad move grade.",
-    fen: "r3k2r/8/p6p/8/8/8/4K3/R6R b kq - 0 1",
+    fen: "r3k2r/8/p6p/8/8/8/4K3/R6R b kq - 0 40",
     signalMoveIds: ["h8h7", "a8a7"],
     signalDescription:
       "A one-square rook move permanently removes that wing’s castling right; no quality judgment.",
@@ -927,7 +920,7 @@ const CONTEXT_CASES: BenchmarkCase[] = [
     label: "Context: castling paths blocked",
     description:
       "Diagnostic: both rights exist, but bishops c8 and f8 block both paths. Bishop development clears one path; neither castling move is currently legal. No best development move is asserted, and there is no central pawn fork competing with development.",
-    fen: "r1b1kb1r/ppp2ppp/2n2n2/8/8/2N1BN2/PPP2PPP/R3K2R b KQkq - 0 10",
+    fen: "r1b1kb1r/ppp2ppp/2n2n2/8/8/2N1BN2/PPP2PPP/R3K2R b KQkq - 0 40",
     signalMoveIds: [
       "c8d7",
       "c8e6",
@@ -1028,7 +1021,7 @@ const CONTEXT_CASES: BenchmarkCase[] = [
     label: "Context: clear paths are unsafe",
     description:
       "Diagnostic: both rights exist and both paths are empty, but white rooks d1 and f1 attack transit squares d8 and f8. Neither black castling move is legal. This fixture checks context reporting, without scoring a preferred move.",
-    fen: "r3k2r/8/8/8/8/8/8/3R1RK1 b kq - 0 1",
+    fen: "r3k2r/8/8/8/8/8/8/3R1RK1 b kq - 0 40",
     signalDescription:
       "Context inspection only: empty castling paths remain unavailable because transit squares are attacked.",
     suite: "context",
@@ -1085,7 +1078,8 @@ const CONTEXT_CASES: BenchmarkCase[] = [
     label: "Priority: mate before castling",
     description:
       "Scored priority check: Black can castle kingside, but Qh4 delivers the only immediate checkmate. A pass means taking that mate, not castling simply because castling is available.",
-    fen: "rnbqk2r/pppp1ppp/7n/4p3/1b4P1/5P2/PPPPP2P/RNBQKBNR b KQkq - 0 3",
+    fen: "rnbqk2r/pppp1ppp/7n/4p3/1b4P1/5P2/PPPPP2P/RNBQKBNR b KQkq - 0 4",
+    history: ["f2f3", "e7e5", "g1h3", "f8b4", "h3g1", "g8h6", "g2g4"],
     expectedMoveIds: ["d8h4"],
     signalMoveIds: ["e8g8"],
     signalDescription:
@@ -1173,7 +1167,7 @@ const CONTEXT_CASES: BenchmarkCase[] = [
     label: "Priority: save queen before castling",
     description:
       "Scored safety check: Black can castle either way while its queen d5 is attacked by pawn e4. Every nonqueen move, including both castles, leaves exd5 legal. A pass means moving the queen to any square without an immediate legal capture; no engine-best escape is asserted.",
-    fen: "r3k2r/5pp1/7p/3q4/4P3/8/5PPK/8 b kq - 0 1",
+    fen: "r3k2r/5pp1/7p/3q4/4P3/8/5PPK/8 b kq - 0 40",
     expectedMoveIds: [
       "d5c6",
       "d5b7",
@@ -1299,7 +1293,310 @@ const CONTEXT_CASES: BenchmarkCase[] = [
   }
 ]
 
+/** Held back from prompt/style development; run only after a profile is frozen. */
+const HOLDOUT_CASES: BenchmarkCase[] = [
+  {
+    id: "holdout-knight-queen-safety",
+    label: "Holdout: queen attacked by a knight",
+    description:
+      "Scored immediate queen safety: a white knight attacks the black queen on h4. Accept every legal move after which White has no legal capture of a black queen, including a forcing nonqueen check. This does not assert engine-best play beyond the next reply.",
+    fen: "r5k1/5pp1/7p/8/7q/5N2/5PPP/7K b - - 0 40",
+    suite: "core",
+    partition: "holdout",
+    expectedMoveIds: [
+      "a8a1",
+      "h4f6",
+      "h4e7",
+      "h4d8",
+      "h4h5",
+      "h4f2",
+      "h4g4",
+      "h4f4",
+      "h4e4",
+      "h4c4",
+      "h4b4",
+      "h4a4"
+    ],
+    orders: [
+      [
+        "g8h7",
+        "g8h8",
+        "h4c4",
+        "a8a7",
+        "g8f8",
+        "a8a5",
+        "a8c8",
+        "g7g5",
+        "a8e8",
+        "f7f6",
+        "a8a2",
+        "h4e7",
+        "a8a3",
+        "a8f8",
+        "h4f2",
+        "g7g6",
+        "h4h2",
+        "h4f6",
+        "a8a1",
+        "h4d8",
+        "h6h5",
+        "h4g3",
+        "h4a4",
+        "h4f4",
+        "h4h5",
+        "a8a6",
+        "h4h3",
+        "h4d4",
+        "a8d8",
+        "f7f5",
+        "h4g4",
+        "a8a4",
+        "h4e4",
+        "h4g5",
+        "h4b4",
+        "a8b8"
+      ],
+      [
+        "a8c8",
+        "a8a1",
+        "f7f6",
+        "a8a3",
+        "a8a5",
+        "h4g3",
+        "a8a4",
+        "h4g5",
+        "a8a7",
+        "a8f8",
+        "a8e8",
+        "h4f2",
+        "g7g5",
+        "h4f6",
+        "h4c4",
+        "h4d4",
+        "a8b8",
+        "a8d8",
+        "g8h7",
+        "h4d8",
+        "h6h5",
+        "h4e7",
+        "a8a2",
+        "h4a4",
+        "h4h3",
+        "h4b4",
+        "g7g6",
+        "h4f4",
+        "g8h8",
+        "h4e4",
+        "h4h2",
+        "g8f8",
+        "h4g4",
+        "f7f5",
+        "h4h5",
+        "a8a6"
+      ]
+    ]
+  },
+  {
+    id: "holdout-back-rank-defense",
+    label: "Holdout: prevent a back-rank mate",
+    description:
+      "White threatens Qe8#. Accept every move preventing all immediate White mating replies without allowing a free queen or rook capture. A legal rook defense or creating a king escape square can pass; no preferred defense is hardcoded.",
+    fen: "6k1/r4ppp/2p5/8/4Q3/8/5PPP/4R1K1 b - - 0 40",
+    suite: "core",
+    partition: "holdout",
+    expectedMoveIds: ["a7a8", "g7g6", "g7g5", "h7h6", "h7h5"],
+    orders: [
+      [
+        "a7c7",
+        "a7a1",
+        "a7e7",
+        "f7f6",
+        "a7a5",
+        "a7a2",
+        "a7a3",
+        "g7g5",
+        "a7a8",
+        "f7f5",
+        "g8h8",
+        "g7g6",
+        "a7b7",
+        "a7a6",
+        "c6c5",
+        "h7h5",
+        "h7h6",
+        "g8f8",
+        "a7a4",
+        "a7d7"
+      ],
+      [
+        "a7a8",
+        "g8f8",
+        "g8h8",
+        "a7a5",
+        "a7a4",
+        "a7d7",
+        "a7c7",
+        "a7a2",
+        "h7h5",
+        "f7f6",
+        "a7e7",
+        "h7h6",
+        "a7a1",
+        "f7f5",
+        "a7b7",
+        "c6c5",
+        "a7a3",
+        "a7a6",
+        "g7g5",
+        "g7g6"
+      ]
+    ]
+  },
+  {
+    id: "holdout-castle-safe-play",
+    label: "Holdout: castling and other safe moves",
+    description:
+      "Broad casual safety check in a position reached by legal opening moves. Castling and other moves pass unless they permit mate next turn or an immediately unrecapturable nonpawn-piece loss not compensated by the current move capture. Actual castling is only a separate preference signal, never a mandatory favorite.",
+    fen: "r1bqk2r/pppp1ppp/2n2n2/2b1p3/2B1P3/2NP1N2/PPP2PPP/R1BQK2R b KQkq - 2 5",
+    history: [
+      "e2e4",
+      "e7e5",
+      "g1f3",
+      "b8c6",
+      "f1c4",
+      "g8f6",
+      "d2d3",
+      "f8c5",
+      "b1c3"
+    ],
+    signalMoveIds: ["e8g8"],
+    signalDescription:
+      "A legal kingside castle is selected; other safe moves remain accepted.",
+    suite: "core",
+    partition: "holdout",
+    expectedMoveIds: [
+      "a8b8",
+      "d8e7",
+      "e8f8",
+      "e8e7",
+      "h8g8",
+      "h8f8",
+      "a7a6",
+      "a7a5",
+      "b7b6",
+      "b7b5",
+      "d7d6",
+      "d7d5",
+      "g7g6",
+      "g7g5",
+      "h7h6",
+      "h7h5",
+      "c6b8",
+      "c6e7",
+      "c6d4",
+      "c6b4",
+      "c6a5",
+      "f6g8",
+      "f6h5",
+      "f6g4",
+      "c5b6",
+      "c5d6",
+      "c5e7",
+      "c5f8",
+      "c5d4",
+      "c5b4",
+      "e8g8"
+    ],
+    orders: [
+      [
+        "g7g5",
+        "b7b5",
+        "c5d4",
+        "h8f8",
+        "a8b8",
+        "c5d6",
+        "e8e7",
+        "g7g6",
+        "c5f8",
+        "h8g8",
+        "d8e7",
+        "c5e7",
+        "e8f8",
+        "c5f2",
+        "a7a5",
+        "c6e7",
+        "f6d5",
+        "c5e3",
+        "f6e4",
+        "f6g4",
+        "f6g8",
+        "a7a6",
+        "c5b6",
+        "c6d4",
+        "c6a5",
+        "f6h5",
+        "c5a3",
+        "c5b4",
+        "c6b8",
+        "b7b6",
+        "d7d5",
+        "e8g8",
+        "c6b4",
+        "h7h6",
+        "h7h5",
+        "d7d6"
+      ],
+      [
+        "c5d4",
+        "e8e7",
+        "c5a3",
+        "g7g6",
+        "c6d4",
+        "c6a5",
+        "h8f8",
+        "b7b5",
+        "h7h5",
+        "f6g4",
+        "d7d5",
+        "c5f8",
+        "g7g5",
+        "f6e4",
+        "c5e7",
+        "c6e7",
+        "f6h5",
+        "a8b8",
+        "c5b6",
+        "c5b4",
+        "c6b4",
+        "e8f8",
+        "d7d6",
+        "c5e3",
+        "a7a6",
+        "h7h6",
+        "a7a5",
+        "e8g8",
+        "f6d5",
+        "b7b6",
+        "f6g8",
+        "c6b8",
+        "c5d6",
+        "c5f2",
+        "d8e7",
+        "h8g8"
+      ]
+    ]
+  }
+]
+
 export const CASES: BenchmarkCase[] = [
-  ...CORE_CASES.map((testCase) => ({ ...testCase, suite: "core" as const })),
-  ...CONTEXT_CASES
+  ...CORE_CASES.map((testCase) => ({
+    ...testCase,
+    suite: "core" as const,
+    partition: "calibration" as const
+  })),
+  ...CONTEXT_CASES.map((testCase) => ({
+    ...testCase,
+    partition: "calibration" as const
+  })),
+  ...HOLDOUT_CASES
 ]

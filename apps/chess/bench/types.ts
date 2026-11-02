@@ -1,5 +1,4 @@
 import type { OpponentModel } from "../src/lib/opponents.ts"
-
 export type BenchmarkCase = {
   id: string
   label: string
@@ -10,36 +9,36 @@ export type BenchmarkCase = {
   orders: string[][]
   condition?: string
   suite?: "core" | "context"
+  partition?: "calibration" | "holdout"
   signalMoveIds?: string[]
   signalDescription?: string
 }
 export type BenchmarkResult = {
   trial: number
-  promptStyleId: string
-  promptStyleLabel: string
-  variantId: string
-  variantLabel: string
-  signal: boolean | null
   repetition: number
   caseId: string
   label: string
   fen: string
+  objective: string
+  expectedMoveIds: string[] | null
+  partition: "calibration" | "holdout"
   rawAnswer?: string
   moveId?: string
   legal: boolean
   passed: boolean | null
-  /** Zero-based selected choice position; -1 if invalid. */
+  signal: boolean | null
   index: number
   total: number
   seconds: number
   choices: { id: string; outcome: string }[]
   prompt?: string
   thinkingChars: number
+  reasoningText: string
   error?: string
   condition?: string
 }
 export type BenchmarkReport = {
-  schemaVersion: 3
+  schemaVersion: 4
   choiceIndexBase: 0
   runId: string
   startedAt: string
@@ -50,45 +49,17 @@ export type BenchmarkReport = {
     model: OpponentModel
     runtimeModel?: { id: string; name: string; browser: string | null }
     thinking: boolean
-    queenValue: number
+    requestedThinking: boolean
+    reasoningSupported: boolean
+    reasoningBudgetTokens: 512
+    maxOutputTokens: 8192
+    sampling: "model defaults"
     repetitions: number
     caseIds: string[]
-    reasoningBudgetTokens: 1024
-    maxOutputTokens: 8192
-    sampling: "model defaults" | "profile overrides"
+    suiteVersion: string
+    promptVersion: string
     orderPolicy: string
-    promptStyleId: string
-    promptStyles: { id: string; label: string; repetitionPenalty?: number }[]
-    contextVariantId: string
-    contextVariants: {
-      id: string
-      features: {
-        relationships: boolean
-        support: boolean
-        mobility: boolean
-        castling: boolean
-      }
-    }[]
   }
-  promptComparisons?: {
-    referenceStyleId: string
-    promptStyleId: string
-    pairedTactics: number
-    improved: number
-    regressed: number
-    unchanged: number
-    legalityRegressions: number
-  }[]
-  comparisons?: {
-    variantId: string
-    pairedTactics: number
-    improved: number
-    regressed: number
-    unchanged: number
-    legalityRegressions: number
-    medianPromptChars: number | null
-    medianSeconds: number | null
-  }[]
   results: BenchmarkResult[]
   summary: {
     total: number

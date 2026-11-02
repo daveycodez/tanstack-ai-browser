@@ -1,21 +1,12 @@
-import {
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  useSyncExternalStore
-} from "react"
-import type { FormEvent } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
+import type { FormEvent, ReactNode } from "react"
 import { promptApiAvailability } from "@tanstack-ai-browser/prompt-api"
 import {
   DEFAULT_OPPONENT,
-  PROMPT_API_OPTION,
   WEBGL_OPPONENTS,
   opponentOption
 } from "../lib/opponents"
 import type { OpponentModel } from "../lib/opponents"
-import { CONTEXT_VARIANTS } from "../lib/context-options"
-import { PROMPT_STYLES, defaultPromptStyleFor } from "../lib/prompt-options"
 import { CASES } from "../../bench/cases"
 import { runBenchmark } from "../../bench/runner"
 import type { BenchmarkReport, BenchmarkResult } from "../../bench/types"
@@ -31,94 +22,124 @@ function median(values: number[]) {
     ? sorted[middle]
     : (sorted[middle - 1] + sorted[middle]) / 2
 }
-
-const subscribeReady = () => () => undefined
-const clientReady = () => true
-const serverReady = () => false
+function PositionSummary({
+  groups,
+  diagnostic = false
+}: {
+  groups: BenchmarkResult[][]
+  diagnostic?: boolean
+}) {
+  return (
+    <div className="table-scroll">
+      <table className="summary-table">
+        <thead>
+          <tr>
+            <th scope="col">Position</th>
+            <th scope="col">Partition</th>
+            <th scope="col">
+              {diagnostic ? "Observed signal" : "Objective met"}
+            </th>
+            <th scope="col">Legal choices</th>
+            <th scope="col">Median time</th>
+          </tr>
+        </thead>
+        <tbody>
+          {groups.length ? (
+            groups.map((trials) => {
+              const signals = trials.filter((trial) => trial.signal !== null)
+              return (
+                <tr key={trials[0].caseId}>
+                  <td className="position-label">{trials[0].label}</td>
+                  <td>
+                    {trials[0].partition === "holdout"
+                      ? "Held out"
+                      : "Calibration"}
+                  </td>
+                  <td>
+                    {diagnostic
+                      ? signals.length
+                        ? `${signals.filter((trial) => trial.signal).length} / ${signals.length}`
+                        : "Inspection only"
+                      : `${trials.filter((trial) => trial.passed).length} / ${trials.length}`}
+                  </td>
+                  <td>
+                    {trials.filter((trial) => trial.legal).length} /{" "}
+                    {trials.length}
+                  </td>
+                  <td>
+                    {seconds(median(trials.map((trial) => trial.seconds)))}
+                  </td>
+                </tr>
+              )
+            })
+          ) : (
+            <tr className="empty-row">
+              <td colSpan={5}>
+                {diagnostic
+                  ? "Diagnostic observations will appear separately from scored objectives."
+                  : "Scored results will appear as trials finish."}
+              </td>
+            </tr>
+          )}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+function Detail({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <section>
+      <h3>{title}</h3>
+      <pre>{children}</pre>
+    </section>
+  )
+}
 
 export function BenchmarkView() {
   const [model, setModel] = useState<OpponentModel>(DEFAULT_OPPONENT.model)
   const [promptAvailable, setPromptAvailable] = useState(false)
-  const [fixture, setFixture] = useState("all")
-  const [contextVariantId, setContextVariantId] = useState("baseline")
-  const [promptStyleId, setPromptStyleId] = useState<string>(() =>
-    defaultPromptStyleFor(DEFAULT_OPPONENT.model)
-  )
+  const [position, setPosition] = useState("calibration")
   const [thinking, setThinking] = useState(false)
-  const [queenValue, setQueenValue] = useState(9)
   const [repetitions, setRepetitions] = useState(2)
   const [running, setRunning] = useState(false)
-  const ready = useSyncExternalStore(subscribeReady, clientReady, serverReady)
   const [results, setResults] = useState<BenchmarkResult[]>([])
   const [report, setReport] = useState<BenchmarkReport>()
   const [partialReport, setPartialReport] = useState<Record<string, unknown>>()
+  const [runReasoning, setRunReasoning] = useState({
+    enabled: false,
+    supported: true
+  })
   const [status, setStatus] = useState(
-    "Ready. Select a model and run the full position suite."
+    "Ready. Every model uses the same prompt and position facts."
   )
   const [error, setError] = useState<string>()
   const controller = useRef<AbortController | undefined>(undefined)
   const mounted = useRef(true)
-  const support = opponentOption(model).thinking
+  const support =
+    model === "prompt-api" ? "none" : opponentOption(model).thinking
+  const reasoningSupported = support !== "none"
   const effectiveThinking =
     support === "required" || (support === "optional" && thinking)
-  const scored = results.filter((result) => result.passed !== null)
-  const signaled = results.filter((result) => result.signal !== null)
   const selectedCases =
-    fixture === "casual-suite"
-      ? CASES.filter(
-          (testCase) =>
-            testCase.suite === "core" ||
-            [
-              "context-castle-now",
-              "castle-or-win",
-              "castle-or-save-queen"
-            ].includes(testCase.id)
-        )
-      : fixture === "core-suite"
-        ? CASES.filter((testCase) => testCase.suite === "core")
-        : fixture === "context-suite"
-          ? CASES.filter((testCase) => testCase.suite === "context")
-          : fixture === "all"
-            ? CASES
-            : CASES.filter((testCase) => testCase.id === fixture)
-  const selectedVariants =
-    contextVariantId === "all-variants"
-      ? CONTEXT_VARIANTS
-      : CONTEXT_VARIANTS.filter((variant) => variant.id === contextVariantId)
-  const selectedStyles =
-    promptStyleId === "highlight-compare"
-      ? PROMPT_STYLES.filter(
-          (style) =>
-            style.id === "compact-safe-castle" ||
-            style.id === "compact-highlights" ||
-            style.id === "compact-copy"
-        )
-      : promptStyleId === "compact-compare"
-        ? PROMPT_STYLES.filter(
-            (style) =>
-              style.id === "compact" || style.id === "compact-safe-castle"
+    position === "all"
+      ? CASES
+      : position === "calibration" || position === "holdout"
+        ? CASES.filter((testCase) =>
+            position === "calibration"
+              ? testCase.partition !== "holdout"
+              : testCase.partition === "holdout"
           )
-        : promptStyleId === "all-styles" || promptStyleId === "baseline-compact"
-          ? PROMPT_STYLES.filter(
-              (style) =>
-                promptStyleId !== "baseline-compact" ||
-                style.id === "baseline" ||
-                style.id === "compact"
-            )
-          : PROMPT_STYLES.filter((style) => style.id === promptStyleId)
+        : CASES.filter((testCase) => testCase.id === position)
   const plannedTrials =
-    selectedCases.length *
-    selectedVariants.length *
-    selectedStyles.length *
-    (Number.isFinite(repetitions) ? repetitions : 0)
+    selectedCases.length * (Number.isFinite(repetitions) ? repetitions : 0)
   const grouped = useMemo(() => {
     const groups = new Map<string, BenchmarkResult[]>()
-    for (const result of results) {
-      const key = `${result.promptStyleId}:${result.variantId}:${result.caseId}`
-      groups.set(key, [...(groups.get(key) ?? []), result])
-    }
+    for (const result of results)
+      groups.set(result.caseId, [...(groups.get(result.caseId) ?? []), result])
     return Array.from(groups.values())
   }, [results])
+  const scored = results.filter((result) => result.passed !== null)
+  const diagnostics = results.filter((result) => result.passed === null)
 
   useEffect(() => {
     mounted.current = true
@@ -127,7 +148,7 @@ export function BenchmarkView() {
         if (mounted.current) setPromptAvailable(availability !== "unavailable")
       })
       .catch(() => {
-        /* WebGL remains available if Prompt API detection fails. */
+        /* WebGL remains available when Prompt API detection fails. */
       })
     return () => {
       mounted.current = false
@@ -144,20 +165,11 @@ export function BenchmarkView() {
     const config = {
       model,
       thinking: effectiveThinking,
-      queenValue,
+      requestedThinking: effectiveThinking,
+      reasoningSupported,
       repetitions,
       caseIds: selectedCases.map((testCase) => testCase.id),
-      contextVariantId,
-      promptStyleId,
-      promptStyles: selectedStyles.map((style) => ({
-        id: style.id,
-        label: style.label
-      })),
-      contextVariants: selectedVariants.map((variant) => ({
-        id: variant.id,
-        features: variant.features
-      })),
-      reasoningBudgetTokens: 1024,
+      reasoningBudgetTokens: 512,
       maxOutputTokens: 8192,
       sampling: "model defaults"
     }
@@ -172,17 +184,18 @@ export function BenchmarkView() {
       config,
       results: []
     })
+    setRunReasoning({
+      enabled: effectiveThinking,
+      supported: reasoningSupported
+    })
     setError(undefined)
     setStatus("Preparing model and positions…")
     try {
       const completed = await runBenchmark({
         model,
         thinking: effectiveThinking,
-        queenValue,
         repetitions,
         caseIds: config.caseIds,
-        contextVariantId,
-        promptStyleId,
         signal: active.signal,
         onResult: (result) => {
           completedResults.push(result)
@@ -202,6 +215,10 @@ export function BenchmarkView() {
       })
       if (!mounted.current) return
       setReport(completed)
+      setRunReasoning({
+        enabled: completed.config.thinking,
+        supported: completed.config.reasoningSupported
+      })
       setStatus(
         active.signal.aborted
           ? `Stopped. ${completed.results.length} completed trials are printed below.`
@@ -216,7 +233,7 @@ export function BenchmarkView() {
       else {
         setError(failure instanceof Error ? failure.message : String(failure))
         setStatus(
-          "The benchmark stopped after an error. Completed trials are printed below."
+          "The run stopped after an error. Completed trials and available reasoning are printed below."
         )
       }
     } finally {
@@ -234,17 +251,18 @@ export function BenchmarkView() {
           </a>
           <h1>AI move benchmark</h1>
           <p>
-            Run the same chess positions against an on-device model. Inspect its
-            legal choice, tactical result, and exact answer.
+            One shared chess prompt. The same positions and facts for every
+            model. Inspect the move, its objective, and the model’s actual
+            response.
           </p>
         </div>
         <span className="manual-badge">Manual diagnostic</span>
       </header>
       <form className="controls-panel" onSubmit={start}>
-        <fieldset disabled={running || !ready}>
+        <fieldset disabled={running}>
           <legend>Run configuration</legend>
           <div className="control-grid">
-            <label className="model-control">
+            <label>
               Opponent model
               <select
                 value={model}
@@ -255,84 +273,12 @@ export function BenchmarkView() {
               >
                 {promptAvailable && (
                   <option value="prompt-api">
-                    {opponentOption("prompt-api").label} (
-                    {PROMPT_API_OPTION.detail})
+                    {opponentOption("prompt-api").label} (Prompt API)
                   </option>
                 )}
                 {WEBGL_OPPONENTS.map((option) => (
                   <option key={option.id} value={option.id}>
                     {option.label} ({option.detail})
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="style-control">
-              Prompt style
-              <select
-                value={promptStyleId}
-                onChange={(event) => setPromptStyleId(event.target.value)}
-              >
-                {PROMPT_STYLES.map((style) => (
-                  <option key={style.id} value={style.id}>
-                    {style.label}
-                  </option>
-                ))}
-                <option value="highlight-compare">
-                  Selected + highlights + copy decoding
-                </option>
-                <option value="compact-compare">
-                  Compact + safe castling (paired)
-                </option>
-                <option value="baseline-compact">
-                  Baseline + compact (paired)
-                </option>
-                <option value="all-styles">
-                  All styles (sequential comparison)
-                </option>
-              </select>
-            </label>
-            <label className="context-control">
-              Context variant
-              <select
-                value={contextVariantId}
-                onChange={(event) => setContextVariantId(event.target.value)}
-              >
-                {CONTEXT_VARIANTS.map((variant) => (
-                  <option key={variant.id} value={variant.id}>
-                    {variant.label}
-                  </option>
-                ))}
-                <option value="all-variants">
-                  All variants (sequential sweep)
-                </option>
-              </select>
-            </label>
-            <label className="fixture-control">
-              Position
-              <select
-                value={fixture}
-                onChange={(event) => setFixture(event.target.value)}
-              >
-                <option value="all">All positions ({CASES.length})</option>
-                <option value="casual-suite">
-                  Casual gameplay priorities (9)
-                </option>
-                <option value="core-suite">
-                  Original regression suite (
-                  {CASES.filter((testCase) => testCase.suite === "core").length}
-                  )
-                </option>
-                <option value="context-suite">
-                  Context and priority fixtures (
-                  {
-                    CASES.filter((testCase) => testCase.suite === "context")
-                      .length
-                  }
-                  )
-                </option>
-                {CASES.map((testCase) => (
-                  <option key={testCase.id} value={testCase.id}>
-                    {testCase.label}
                   </option>
                 ))}
               </select>
@@ -349,51 +295,74 @@ export function BenchmarkView() {
                 required
               />
             </label>
-            <label>
-              Queen priority value
-              <input
-                type="number"
-                min="9"
-                max="30"
-                step="1"
-                value={Number.isNaN(queenValue) ? "" : queenValue}
-                onChange={(event) => setQueenValue(event.target.valueAsNumber)}
-                required
-              />
-            </label>
+            <div className="reasoning-control">
+              <label className="checkbox-label">
+                <input
+                  type="checkbox"
+                  checked={effectiveThinking}
+                  disabled={!reasoningSupported || support === "required"}
+                  onChange={(event) => setThinking(event.target.checked)}
+                />
+                <span>
+                  Reasoning{support === "required" ? " (always on)" : ""}
+                </span>
+              </label>
+              <p>
+                {model === "prompt-api"
+                  ? "Prompt API does not expose a reasoning mode or reasoning trace for this model."
+                  : !reasoningSupported
+                    ? "This model does not support reasoning mode."
+                    : support === "required"
+                      ? "This model always uses reasoning. Available reasoning is printed with each result."
+                      : "Print the model’s actual reasoning when it is available."}
+              </p>
+            </div>
           </div>
           <div className="configuration-notes">
-            <label className="checkbox-label">
-              <input
-                type="checkbox"
-                checked={effectiveThinking}
-                disabled={support !== "optional"}
-                onChange={(event) => setThinking(event.target.checked)}
-              />
-              <span>
-                Thinking
-                {support === "required"
-                  ? " (required by this model)"
-                  : support === "none"
-                    ? " (not supported)"
-                    : ""}
-              </span>
-            </label>
             <span>
-              Reasoning budget: <strong>1,024 tokens</strong>
+              Reasoning budget: <strong>512 tokens</strong>
             </span>
             <span>
               Output cap: <strong>8,192 tokens</strong>
             </span>
-            <span>Standard material: P 1 · N 3 · B 3 · R 5</span>
+            <span>{plannedTrials} trials</span>
           </div>
+          <details className="advanced-options">
+            <summary>Advanced: positions</summary>
+            <label>
+              Position set
+              <select
+                value={position}
+                onChange={(event) => setPosition(event.target.value)}
+              >
+                <option value="all">All positions ({CASES.length})</option>
+                <option value="calibration">
+                  Calibration positions (
+                  {
+                    CASES.filter((testCase) => testCase.partition !== "holdout")
+                      .length
+                  }
+                  )
+                </option>
+                <option value="holdout">
+                  Held-out positions (
+                  {
+                    CASES.filter((testCase) => testCase.partition === "holdout")
+                      .length
+                  }
+                  )
+                </option>
+                {CASES.map((testCase) => (
+                  <option key={testCase.id} value={testCase.id}>
+                    {testCase.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </details>
         </fieldset>
         <div className="run-actions">
-          <button
-            className="button primary"
-            type="submit"
-            disabled={running || !ready}
-          >
+          <button className="button primary" type="submit" disabled={running}>
             Run benchmark
           </button>
           <button
@@ -409,13 +378,9 @@ export function BenchmarkView() {
           </button>
         </div>
         <p className="local-note">
-          This tool runs only when you press Run. Models may download on first
-          use. Results are printed in this page; your saved game is untouched.
-          Queen priority is an experimental weight override for this run; the
-          game’s standard queen value stays 9. Context variants add factual move
-          information without ranking or replacing the model’s choice. Prompt
-          style independently changes how priorities and context are explained.
-          This configuration runs {plannedTrials} trials sequentially.
+          Runs only when you press Run. Models may download on first use.
+          Results stay on this page; your saved game is untouched. Reasoning
+          text is shown only when the model actually provides it.
         </p>
       </form>
       <section className="run-status" aria-label="Run status">
@@ -432,102 +397,66 @@ export function BenchmarkView() {
           {error}
         </p>
       )}
-      <section className="results-section" aria-labelledby="summary-heading">
+      <div className="score-strip">
+        <span>
+          <strong>
+            {scored.filter((result) => result.passed).length} / {scored.length}
+          </strong>{" "}
+          scored objectives met
+        </span>
+        <span>
+          <strong>
+            {results.filter((result) => result.legal).length} / {results.length}
+          </strong>{" "}
+          legal choices
+        </span>
+        <span>
+          <strong>{diagnostics.length}</strong> diagnostic trials, ungraded
+        </span>
+      </div>
+      <section className="results-section" aria-labelledby="scored-heading">
         <div className="section-heading">
-          <h2 id="summary-heading">Style, context, and position summary</h2>
+          <h2 id="scored-heading">Scored objectives</h2>
           <p>
-            {results.length
-              ? `${results.filter((result) => result.legal).length}/${results.length} legal · ${scored.filter((result) => result.passed).length}/${scored.length} tactical passes · ${signaled.filter((result) => result.signal).length}/${signaled.length} context selections`
-              : "No results yet"}
+            Measures the stated objective, without claiming an engine-best move.
           </p>
         </div>
-        <div className="table-scroll">
-          <table className="summary-table">
-            <thead>
-              <tr>
-                <th scope="col">Prompt style</th>
-                <th scope="col">Context</th>
-                <th scope="col">Position</th>
-                <th scope="col">Tactical passes</th>
-                <th scope="col">Context selections</th>
-                <th scope="col">Legal choices</th>
-                <th scope="col">Median time</th>
-                <th scope="col">First-option choices</th>
-              </tr>
-            </thead>
-            <tbody>
-              {grouped.length ? (
-                grouped.map((trials) => {
-                  const evaluated = trials.filter(
-                    (trial) => trial.passed !== null
-                  )
-                  return (
-                    <tr
-                      key={`${trials[0].promptStyleId}:${trials[0].variantId}:${trials[0].caseId}`}
-                    >
-                      <td>{trials[0].promptStyleLabel}</td>
-                      <td>{trials[0].variantLabel}</td>
-                      <td className="position-label">{trials[0].label}</td>
-                      <td>
-                        {evaluated.length
-                          ? `${evaluated.filter((trial) => trial.passed).length} / ${evaluated.length}`
-                          : "Diagnostic only"}
-                      </td>
-                      <td>
-                        {trials.some((trial) => trial.signal !== null)
-                          ? `${trials.filter((trial) => trial.signal === true).length} / ${trials.filter((trial) => trial.signal !== null).length}`
-                          : "—"}
-                      </td>
-                      <td>
-                        {trials.filter((trial) => trial.legal).length} /{" "}
-                        {trials.length}
-                      </td>
-                      <td>
-                        {seconds(median(trials.map((trial) => trial.seconds)))}
-                      </td>
-                      <td>
-                        {trials.filter((trial) => trial.index === 0).length} /{" "}
-                        {trials.length}
-                      </td>
-                    </tr>
-                  )
-                })
-              ) : (
-                <tr className="empty-row">
-                  <td colSpan={8}>
-                    Each position’s results will appear here as trials finish.
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
+        <PositionSummary
+          groups={grouped.filter((trials) => trials[0].passed !== null)}
+        />
+      </section>
+      <section
+        className="results-section"
+        aria-labelledby="diagnostics-heading"
+      >
+        <div className="section-heading">
+          <h2 id="diagnostics-heading">Diagnostic observations</h2>
+          <p>
+            Descriptive signals. No pass/fail grade or preference is implied.
+          </p>
         </div>
-        <p className="table-note">
-          A tactical pass matches the fixture’s expected move. First-option
-          choices help expose an ordering bias; they are not inherently
-          failures. Context selections record the described behavior separately:
-          selecting support or losing a castling right is not automatically good
-          or bad chess. Diagnostic context fixtures do not receive tactical
-          pass/fail grades. Castling priority fixtures separately grade taking
-          an immediate mate or saving an attacked queen when castling is also
-          legal.
-        </p>
+        <PositionSummary
+          groups={grouped.filter((trials) => trials[0].passed === null)}
+          diagnostic
+        />
       </section>
       <section className="results-section" aria-labelledby="trials-heading">
         <div className="section-heading">
           <h2 id="trials-heading">Trial ledger</h2>
-          <p>Expand a trial to inspect its exact choices and model answer.</p>
+          <p>
+            Expand a trial for its objective, accepted moves, prompt, reasoning,
+            and answer.
+          </p>
         </div>
         <div className="table-scroll">
           <table className="trials-table">
             <thead>
               <tr>
                 <th scope="col">Trial / position</th>
-                <th scope="col">Status</th>
                 <th scope="col">Selected move</th>
                 <th scope="col">Choice</th>
-                <th scope="col">Tactics</th>
-                <th scope="col">Context signal</th>
+                <th scope="col">Legal</th>
+                <th scope="col">Objective</th>
                 <th scope="col">Time</th>
                 <th scope="col">Error</th>
               </tr>
@@ -538,19 +467,10 @@ export function BenchmarkView() {
                   <tr>
                     <td className="position-label">
                       {result.trial}. {result.label}
-                      <span className="variant-label">
-                        {result.promptStyleLabel} / {result.variantLabel}
-                      </span>
-                    </td>
-                    <td>
-                      <span
-                        className={`badge ${result.error || !result.legal ? "bad" : "good"}`}
-                      >
-                        {result.error
-                          ? "Error"
-                          : result.legal
-                            ? "Legal"
-                            : "Invalid"}
+                      <span className="partition-label">
+                        {result.partition === "holdout"
+                          ? "Held out"
+                          : "Calibration"}
                       </span>
                     </td>
                     <td className="move-code">{result.moveId ?? "—"}</td>
@@ -561,90 +481,81 @@ export function BenchmarkView() {
                     </td>
                     <td>
                       <span
+                        className={`badge ${result.legal ? "good" : "bad"}`}
+                      >
+                        {result.legal
+                          ? "Legal"
+                          : result.error
+                            ? "Error"
+                            : "Invalid"}
+                      </span>
+                    </td>
+                    <td>
+                      <span
                         className={`badge ${result.passed === null ? "neutral" : result.passed ? "good" : "bad"}`}
                       >
                         {result.passed === null
                           ? "Diagnostic"
                           : result.passed
-                            ? "Pass"
-                            : "Fail"}
-                      </span>
-                    </td>
-                    <td>
-                      <span className="badge neutral">
-                        {result.signal === null
-                          ? "—"
-                          : result.signal
-                            ? "Selected"
-                            : "Not selected"}
+                            ? "Met"
+                            : "Not met"}
                       </span>
                     </td>
                     <td className="numeric">{seconds(result.seconds)}</td>
                     <td className="error-cell">{result.error ?? "—"}</td>
                   </tr>
                   <tr className="detail-row">
-                    <td colSpan={8}>
+                    <td colSpan={7}>
                       <details>
-                        <summary>Inspect choices and raw answer</summary>
+                        <summary>Inspect objective and model response</summary>
                         <div className="trial-detail">
-                          <section>
-                            <h3>Fixture objective and grading</h3>
-                            <pre>
-                              {
-                                CASES.find(
-                                  (testCase) => testCase.id === result.caseId
-                                )?.description
-                              }
-                            </pre>
-                          </section>
+                          <Detail title="Objective">{result.objective}</Detail>
+                          <Detail title="Accepted moves">
+                            {result.expectedMoveIds?.join(", ") ??
+                              "Ungraded diagnostic. No best move is asserted."}
+                          </Detail>
                           {CASES.find(
                             (testCase) => testCase.id === result.caseId
                           )?.signalDescription && (
-                            <section>
-                              <h3>Context signal interpretation</h3>
-                              <pre>
-                                {
-                                  CASES.find(
-                                    (testCase) => testCase.id === result.caseId
-                                  )?.signalDescription
-                                }
-                              </pre>
-                            </section>
+                            <Detail title="Diagnostic signal">
+                              {
+                                CASES.find(
+                                  (testCase) => testCase.id === result.caseId
+                                )?.signalDescription
+                              }
+                            </Detail>
                           )}
                           {result.condition && (
-                            <section>
-                              <h3>Condition</h3>
-                              <pre>{result.condition}</pre>
-                            </section>
+                            <Detail title="Condition">
+                              {result.condition}
+                            </Detail>
                           )}
                           {result.prompt && (
-                            <section>
-                              <h3>Exact prompt</h3>
-                              <pre>{result.prompt}</pre>
-                            </section>
+                            <Detail title="Exact shared prompt">
+                              {result.prompt}
+                            </Detail>
                           )}
-                          <section>
-                            <h3>Exact ordered choices</h3>
-                            <pre>
-                              {result.choices
-                                .map(
-                                  (choice, index) =>
-                                    `${index + 1}. ${choice.id}\n${choice.outcome}`
-                                )
-                                .join("\n\n") || "No choices recorded."}
-                            </pre>
-                          </section>
-                          <section>
-                            <h3>Raw model answer</h3>
-                            <pre>
-                              {result.rawAnswer ?? "No answer recorded."}
-                            </pre>
-                          </section>
+                          <Detail title="Exact ordered choices">
+                            {result.choices
+                              .map(
+                                (choice, index) =>
+                                  `${index + 1}. ${choice.id}\n${choice.outcome}`
+                              )
+                              .join("\n\n") || "No choices recorded."}
+                          </Detail>
+                          <Detail title="Actual reasoning trace">
+                            {result.reasoningText ||
+                              (!runReasoning.supported
+                                ? "This model/API does not expose a reasoning trace."
+                                : !runReasoning.enabled
+                                  ? "Reasoning was off for this run."
+                                  : "No reasoning trace was returned for this trial.")}
+                          </Detail>
+                          <Detail title="Raw model answer">
+                            {result.rawAnswer ?? "No answer recorded."}
+                          </Detail>
                           {result.error && (
-                            <section>
-                              <h3>Error</h3>
-                              <pre>{result.error}</pre>
-                            </section>
+                            <Detail title="Error">{result.error}</Detail>
                           )}
                         </div>
                       </details>
@@ -655,7 +566,7 @@ export function BenchmarkView() {
             ) : (
               <tbody>
                 <tr className="empty-row">
-                  <td colSpan={8}>No trials have run.</td>
+                  <td colSpan={7}>No trials have run.</td>
                 </tr>
               </tbody>
             )}
