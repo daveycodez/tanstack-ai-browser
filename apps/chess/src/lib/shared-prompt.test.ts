@@ -257,15 +257,23 @@ function legacyCardPrefix(input: SharedPromptInput, prompt: string) {
   )
 }
 
+// Historical factual projection only: guidance moved from USER to SYSTEM in V19.
+// Restore the old positions so existing independent facts hashes remain unchanged.
+function restoreLegacyUserLayout(prompt: string): string {
+  return prompt
+    .replace(/^(Priorities:.*)$/m, "$1\nA check alone is not a material gain. Account for forcing follow-up captures and the conditional exchange losses before taking material. Protection is not immunity. Pawn 1, knight/bishop 3, rook 5, queen 9.")
+    .replace("ALL LEGAL CARDS (presentation order, no ranking):", "HOW TO READ THE CARDS:\nThe board above is the position now. Each card describes a separate possible position after only that Black move. Its DANGER and exchange facts apply only to that move; destinations and threats from different cards do not occur together. CHECK on a card means that move checks White. Black in check above describes now.\nALL LEGAL CARDS (random order, no ranking):")
+}
+
 for (const fixture of recorded) {
-  test(`shared-v18 preserves recorded ${fixture.caseId} facts and adds recent-move context`, () => {
+  test(`shared-v19 preserves recorded ${fixture.caseId} facts and adds recent-move context`, () => {
     const input = fixtureInput(fixture)
     const before = JSON.stringify(input)
     const result = buildSharedPrompt(input)
     assert.equal(
       createHash("sha256")
         .update(
-          legacyCardPrefix(input, result.prompt)
+          legacyCardPrefix(input, restoreLegacyUserLayout(result.prompt))
             .replace(
               "In the opening, central pawn pushes gain space and can free bishops or knights for development. Balance king-flank pawn cover with space, piece activity and castling; near-cover counts describe pawn files on the two pawn ranks nearest home, not a material score or a ban on useful pawn moves.\n",
               ""
@@ -332,7 +340,7 @@ test("shared prompt has no model or reasoning options and ignores opponent model
   >
   const forbidden: Record<ForbiddenKeys, never> = {}
   assert.deepEqual(forbidden, {})
-  assert.equal(SHARED_PROMPT_VERSION, "shared-v18")
+  assert.equal(SHARED_PROMPT_VERSION, "shared-v19")
   const input = fixtureInput(recorded[0])
   const before = buildSharedPrompt(input)
   for (const model of ["prompt-api", "LiquidAI/LFM3-1.7B-GGUF"] as const) {
@@ -364,10 +372,10 @@ test("shared prompt includes exactly the last eight individual moves, oldest fir
     currentThreats: currentThreats(game)
   })
   const heading = "Recent 8 moves (oldest first):"
-  const cardsHeading = "ALL LEGAL CARDS (random order, no ranking):"
+  const cardsHeading = "ALL LEGAL CARDS (presentation order, no ranking):"
   const section = result.prompt
     .split(heading)[1]
-    ?.split("HOW TO READ THE CARDS:")[0]
+    ?.split(cardsHeading)[0]
     .trim()
   assert.ok(section)
   assert.deepEqual(
@@ -892,18 +900,15 @@ test("the shared factual legend distinguishes current board facts, independent c
   )
   const result = buildSharedPrompt(input)
   const heading = "HOW TO READ THE CARDS:"
-  const cards = "ALL LEGAL CARDS (random order, no ranking):"
-  const legend = result.prompt.split(heading)[1]?.split(cards)[0].trim()
+  const cards = "ALL LEGAL CARDS (presentation order, no ranking):"
+  const legend = SHARED_SYSTEM_PROMPT.split(heading)[1]?.trim()
   assert.equal(
     legend,
-    "The board above is the position now. Each card describes a separate possible position after only that Black move. Its DANGER and exchange facts apply only to that move; destinations and threats from different cards do not occur together. CHECK on a card means that move checks White. Black in check above describes now."
+    "The supplied board is the position now. Each card describes a separate possible position after only that Black move. Its DANGER and exchange facts apply only to that move; destinations and threats from different cards do not occur together. CHECK on a card means that move checks White. The current Black-in-check field describes now."
   )
-  assert.equal(result.prompt.split(heading).length, 2)
-  assert.ok(
-    result.prompt.indexOf(heading) >
-      result.prompt.indexOf("Recent 8 moves (oldest first):")
-  )
-  assert.ok(result.prompt.indexOf(heading) < result.prompt.indexOf(cards))
+  assert.equal(SHARED_SYSTEM_PROMPT.split(heading).length, 2)
+  assert.ok(!result.prompt.includes(heading))
+  assert.ok(result.prompt.includes(cards))
   assert.ok(
     result.prompt.indexOf("AVAILABLE IMMEDIATE OPPORTUNITIES:") >
       result.prompt.indexOf("URGENT POSITION FACTS:") ||
@@ -1103,8 +1108,7 @@ const v10CardHashes: Record<string, string> = {
 }
 
 test("the shared static system role carries strategy and unordered-schema meaning without model or reasoning directives", () => {
-  const words = SHARED_SYSTEM_PROMPT.trim().split(/\s+/).length
-  assert.ok(words >= 60 && words <= 90)
+  assert.equal(SHARED_SYSTEM_PROMPT.split("Protection is not immunity.").length, 2)
   assert.match(
     SHARED_SYSTEM_PROMPT,
     /Take immediate mate first; otherwise prevent mate and protect an attacked queen/
@@ -1905,7 +1909,7 @@ const tacticalFallbackV15 =
   "After addressing the king and any attacked queen, prefer a MATERIAL-SAFE choice. When there is no urgent threat, castle if a listed castle is MATERIAL-SAFE."
 
 function normalizeIntentionalTacticalDifferences(prompt: string): string {
-  return prompt
+  return restoreLegacyUserLayout(prompt)
     .replace(tacticalPriorityV18, tacticalPriorityV15)
     .replace(tacticalFallbackV18, tacticalFallbackV15)
     .replace(

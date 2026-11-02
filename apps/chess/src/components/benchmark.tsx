@@ -8,6 +8,7 @@ import {
 } from "../lib/opponents"
 import type { OpponentModel } from "../lib/opponents"
 import { CASES } from "../../bench/cases"
+import { CACHE_REPLAY_CASES } from "../../bench/cache-replay"
 import { runBenchmark } from "../../bench/runner"
 import type {
   BenchmarkReport,
@@ -104,6 +105,8 @@ export function BenchmarkView() {
   const [promptAvailable, setPromptAvailable] = useState(false)
   const [position, setPosition] = useState("calibration")
   const [thinking, setThinking] = useState(false)
+  const [movePresentation, setMovePresentation] = useState<"game" | "new-games" | "stress">("game")
+  const [moveOrderSeed, setMoveOrderSeed] = useState("chess-benchmark-v1")
   const [repetitions, setRepetitions] = useState(2)
   const [reasoningBudgetTokens, setReasoningBudgetTokens] = useState<
     512 | 1024 | null
@@ -132,7 +135,9 @@ export function BenchmarkView() {
   const effectiveThinking =
     support === "required" || (support === "optional" && thinking)
   const selectedCases =
-    position === "all"
+    position === "cache-replay"
+      ? CACHE_REPLAY_CASES
+      : position === "all"
       ? CASES
       : position === "calibration" || position === "holdout"
         ? CASES.filter((testCase) =>
@@ -153,6 +158,13 @@ export function BenchmarkView() {
   }, [results])
   const scored = results.filter((result) => result.passed !== null)
   const diagnostics = results.filter((result) => result.passed === null)
+  const cacheResults = results.filter(result =>
+    typeof result.usage?.providerUsageDetails?.promptMs === "number"
+  )
+  const cachedTokens = cacheResults.reduce((sum, result) =>
+    sum + (result.usage?.promptTokensDetails?.cachedTokens ?? 0), 0)
+  const inputTokens = cacheResults.reduce((sum, result) =>
+    sum + (result.usage?.promptTokens ?? 0), 0)
 
   useEffect(() => {
     mounted.current = true
@@ -186,6 +198,8 @@ export function BenchmarkView() {
           ? "emulated-working-notes"
           : "native",
       repetitions,
+      movePresentation,
+      moveOrderSeed,
       caseIds: selectedCases.map((testCase) => testCase.id),
       reasoningBudgetTokens,
       maxOutputTokens: model === "prompt-api" ? null : 8192,
@@ -214,6 +228,8 @@ export function BenchmarkView() {
         model,
         thinking: effectiveThinking,
         repetitions,
+        movePresentation,
+        moveOrderSeed,
         reasoningBudgetTokens,
         caseIds: config.caseIds,
         signal: active.signal,
@@ -361,6 +377,21 @@ export function BenchmarkView() {
                 <option value="uncapped">Uncapped thinking</option>
               </select>
             </label>
+            <label className="budget-control">
+              Move order
+              <select value={movePresentation} onChange={(event) =>
+                setMovePresentation(event.target.value as "game" | "new-games" | "stress")
+              }>
+                <option value="game">Same game (stable order)</option>
+                <option value="new-games">New game per repetition</option>
+                <option value="stress">Permuted stress test</option>
+              </select>
+            </label>
+            <label className="budget-control">
+              Order seed
+              <input value={moveOrderSeed} disabled={movePresentation === "stress"}
+                onChange={(event) => setMoveOrderSeed(event.target.value)} />
+            </label>
             <span>
               Output cap:{" "}
               <strong>
@@ -397,6 +428,7 @@ export function BenchmarkView() {
                 <option value="observed">
                   Observed games ({CASES.filter((testCase) => testCase.id.startsWith("observed-")).length})
                 </option>
+                <option value="cache-replay">Game cache replay (7 turns)</option>
                 {CASES.map((testCase) => (
                   <option key={testCase.id} value={testCase.id}>
                     {testCase.label}
@@ -460,6 +492,12 @@ export function BenchmarkView() {
           <strong>{diagnostics.length}</strong> diagnostic trials, ungraded
         </span>
       </div>
+      {cacheResults.length > 0 && (
+        <p className="configuration-notes" aria-label="Prompt cache">
+          <span>Prompt cache: <strong>{cachedTokens.toLocaleString()} / {inputTokens.toLocaleString()}</strong> input tokens reused</span>
+          <span>{cacheResults.filter(result => (result.usage?.promptTokensDetails?.cachedTokens ?? 0) > 0).length} / {cacheResults.length} calls reused a prefix</span>
+        </p>
+      )}
       <section className="results-section" aria-labelledby="scored-heading">
         <div className="section-heading">
           <h2 id="scored-heading">Scored objectives</h2>

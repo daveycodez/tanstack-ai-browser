@@ -359,3 +359,12 @@ forced lines. A queen capture9 can compensate an enemy promotion gain8; an h-fil
 queen can capture a new h8 piece after any role, preserving the broad h7 grade.
 Pinned geometric recapturers do not count. Underpromotion can change check/mate,
 so roles are not merged. No new scored promotion case duplicates the real h7 case.
+
+## Cache replay inventory
+
+The original 39 tactical/diagnostic cases remain unchanged. `cache-replay.ts`
+adds seven separately selected, ungraded snapshots of the user's legal opening.
+Each has an independently reconstructed FEN, a complete legal presentation order
+and a history that the runner replays and checks before inference. The manual
+fixture audit now covers 46 records total. These cache snapshots are excluded from
+All positions and Calibration counts and do not add tactical pass/fail objectives.

@@ -34,7 +34,7 @@ WebGL's total generation
 ceiling is 8,192 tokens; Prompt API's browser-managed final-output limit is recorded
 as `null`. These are different capabilities. See [the reasoning audit](REASONING-AUDIT.md).
 
-Every model receives the same **shared-v18** system and user assembly, standard
+Every model receives the same **shared-v19** system and user assembly, standard
 piece values and model-default sampling. There are no active profile, context,
 queen-weight or per-model prompt switches. Guidance is phase-relevant: urgent
 positions omit soft generic coaching; quiet positions receive applicable opening,
@@ -43,7 +43,7 @@ cover or king-coordination context. Actual promotion emergencies remain visible.
 The strict **`{ move }`** schema enumerates the exact readable action label of
 **every legal move**, preserving presentation order. Labels resolve exactly to UCI;
 SAN and UCI remain in the audit data. There is no loose parsing, engine-picked
-replacement, ranked shortlist or legal-move filter. Ordinary play shuffles cards;
+replacement, ranked shortlist or legal-move filter. Ordinary play uses a stable per-game seeded presentation order;
 a sole legal choice needs no generation.
 
 ## Suite and grading
@@ -84,8 +84,10 @@ when other replies remain. Strategic preference signals do not prove improved
 winning technique.
 
 Each trial records FEN, optional history, objective, accepted moves and complete
-ordered choices. Repetitions 1 and 2 replay recorded orders; later repetitions use
-deterministic novel permutations keyed by case/repetition. Sampling remains the
+ordered choices. **Same game (stable order)** reuses the order seed for every
+repetition. **New game per repetition** derives a distinct seed per repetition.
+**Permuted stress test** replays recorded pairs, then reproducible permutations.
+These change presentation, not the shared chess instructions. Sampling remains the
 model's default. A first-option count describes this sample; it does not by itself
 prove causal index bias or chess strength.
 
@@ -105,8 +107,9 @@ unknown. Character count cannot prove budget exhaustion. See [REASONING-AUDIT.md
 starts, so HMR can load later dirty source while the field still says
 `05a0afb...-dirty`. Do not rewrite that raw field to a later commit. Identify the
 actual experiment with `promptVersion`, output contract, complete recorded inputs,
-and the [V18 source manifest](results/2026-11-02-shared-v18-source-manifest.json).
-The manifest records the frozen source separately. Restarting the server refreshes
+and the corresponding source manifest. The [V19 cache comparison](results/2026-11-02-v19-cache-comparison.json)
+records the current frozen source; the [V18 manifest](results/2026-11-02-shared-v18-source-manifest.json)
+preserves the earlier checkpoint separately. Restarting the server refreshes
 the startup snapshot. Never edit runtime or test files during a model run.
 
 ## Static checks
@@ -125,3 +128,17 @@ proposals. The numbered [raw reports](results/) remain historical evidence; old
 profiles and prompt/schema descriptions are not current controls. The
 [retrospective audit](results/2026-11-02-audited-v6-retrospective.json) regrades only
 matching case IDs and exact FENs, retaining original grades and legality failures.
+
+## LFM cache replay
+
+The separate **Game cache replay (7 turns)** preset uses seven valid snapshots
+from the user's recorded opening. Use two repetitions with **Same game (stable
+order)** for a position followed by an exact retry, and reload before the control
+run with **Permuted stress test**. The fixed order seed makes inputs reproducible.
+The page prints cached/input token totals and cache-hit calls; full usage retains
+prefill and decoding timings. Cache inference is never automatic.
+
+See [cache and ordering findings](CACHE-FINDINGS.md) for the final per-game policy,
+opening variety, raw reports 84–91 and the temporary WebGL patch awaiting Checkers
+integration. The original 39-case tactical inventory is unchanged; the independent
+audit additionally validates the seven neutral replay fixtures.

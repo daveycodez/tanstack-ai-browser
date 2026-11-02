@@ -67,6 +67,8 @@ export type BenchmarkReport = {
     outputContract: string
     promptVersion: string
     orderPolicy: string
+    movePresentation?: "game" | "new-games" | "stress"
+    moveOrderSeed?: string
   }
   results: BenchmarkResult[]
   summary: {

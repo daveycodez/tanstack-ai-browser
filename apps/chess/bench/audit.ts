@@ -3,6 +3,7 @@ import { Chess } from "chess.js"
 import type { Move } from "chess.js"
 import { pathToFileURL } from "node:url"
 import { CASES } from "./cases.ts"
+import { CACHE_REPLAY_CASES } from "./cache-replay.ts"
 import type { BenchmarkCase } from "./types.ts"
 
 type Objective =
@@ -647,7 +648,7 @@ if (
   process.argv[1] &&
   import.meta.url === pathToFileURL(process.argv[1]).href
 ) {
-  const rows = auditCases()
+  const rows = auditCases([...CASES, ...CACHE_REPLAY_CASES])
   if (process.argv.includes("--json"))
     process.stdout.write(`${JSON.stringify(rows, null, 2)}\n`)
   else {

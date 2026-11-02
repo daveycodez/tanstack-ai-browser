@@ -48,7 +48,7 @@ castles, the last eight individual moves, and every legal move with concise outc
 facts. FEN, full history, castling rights, en passant, and counters remain authoritative
 inside the rules engine; the model does not have to decode FEN.
 
-The active **shared-v18** prompt makes context relevant to the position. Tactical
+The active **shared-v19** prompt makes context relevant to the position. Tactical
 positions retain concrete dangers and opportunities without generic opening or
 endgame coaching. Quiet positions receive early-development advice, actual
 pawn-cover context, or simplified king-coordination facts when relevant.
@@ -64,7 +64,10 @@ pawn 1, knight/bishop 3, rook 5, queen 9; kings are royal.
 All legal choices remain selectable in a strict `{ move }` enum. The exact selected
 label maps back to its existing UCI ID and is checked again for legality. No loose
 parsing, random replacement, or search-engine move selector substitutes an answer.
-Ordinary turns shuffle presentation order; a sole legal move needs no generation.
+Each game gets a stable presentation order seeded by its persisted game ID.
+Unchanged moves retain relative order, and exact retries retain the complete input.
+New games vary the order; no ordering score chooses a move. A sole legal move needs
+no generation.
 
 Thinking defaults to off. Supported models expose an optional toggle with a
 512-token on-mode budget; the manual tester also offers 1,024 or uncapped thinking
@@ -103,6 +106,8 @@ invokes a model. Results and full JSON print in-page; reports are never download
 There is one shared prompt and one output contract for all models. The audited suite
 has **39 positions: 36 calibration and 3 held out**, with **21 scored objectives
 and 18 neutral diagnostics**. An Observed games preset isolates the seven replayable real-game cases.
+Seven separate ungraded cache-replay snapshots profile successive positions and
+exact retries. The tester exposes reproducible order seeds and cache token counts.
 The suite accepts intelligent alternatives, including a forcing pawn check before
 winning a knight and valid defenses against promotion.
 
@@ -115,3 +120,5 @@ Desktop/mobile theme and layout checks passed. The user confirmed hearing the
 in-game sounds on an iPhone after the gesture/playback fix. Current evaluation
 results and their limits are documented in the findings; this is a casual local
 opponent, not a claimed professional-strength chess engine.
+
+The current [LFM cache/ordering findings](bench/CACHE-FINDINGS.md) distinguish fixed-prefix reuse, exact retries, opening variety and the isolated temporary WebGL checkpoint.

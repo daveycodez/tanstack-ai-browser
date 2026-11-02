@@ -6,11 +6,14 @@ import type { OpponentModel } from "../src/lib/opponents.ts"
 import { SHARED_PROMPT_VERSION } from "../src/lib/shared-prompt.ts"
 import { benchmarkOrder } from "./order.ts"
 import { CASES } from "./cases.ts"
+import { CACHE_REPLAY_CASES } from "./cache-replay.ts"
 import type { BenchmarkReport, BenchmarkResult } from "./types.ts"
 declare const __CHESS_BENCH_REVISION__: string
 export type BenchmarkOptions = {
   model: OpponentModel
   thinking: boolean
+  movePresentation?: "game" | "new-games" | "stress"
+  moveOrderSeed?: string
   repetitions: number
   reasoningBudgetTokens?: 512 | 1024 | null
   caseIds?: string[]
@@ -36,8 +39,9 @@ export async function runBenchmark(
     reasoningBudgetTokens !== 1024
   )
     throw new RangeError("Reasoning budget must be 512, 1024, or uncapped (null).")
+  const moveOrderSeed = options.moveOrderSeed ?? "chess-benchmark-v1"
   const selected = options.caseIds ?? CASES.map((c) => c.id)
-  const cases = CASES.filter((c) => selected.includes(c.id))
+  const cases = [...CASES, ...CACHE_REPLAY_CASES].filter((c) => selected.includes(c.id))
   if (!cases.length || cases.length !== new Set(selected).size)
     throw new Error("Unknown fixture selection.")
   const reasoningSupported = opponentOption(options.model).thinking !== "none"
@@ -70,10 +74,18 @@ export async function runBenchmark(
       sampling: "model defaults",
       repetitions: options.repetitions,
       caseIds: cases.map((c) => c.id),
-      suiteVersion: "audited-v9",
+      suiteVersion: cases.every(c => c.id.startsWith("cache-"))
+        ? "cache-replay-v1"
+        : "audited-v9",
       outputContract: "human-action-enum-v3",
       promptVersion: SHARED_PROMPT_VERSION,
-      orderPolicy: "recorded pair then deterministic novel permutations"
+      moveOrderSeed,
+      movePresentation: options.movePresentation ?? "game",
+      orderPolicy: options.movePresentation === "stress"
+        ? "recorded pair then deterministic novel permutations"
+        : options.movePresentation === "new-games"
+          ? "new-game seed per repetition; stable per-game priorities"
+          : "stable per-game seeded priorities"
     },
     results: [],
     summary: {
@@ -134,7 +146,12 @@ export async function runBenchmark(
           },
           {
             reasoningBudgetTokens,
-            moveOrder: benchmarkOrder(testCase, repetition),
+            moveOrderSeed: options.movePresentation === "new-games"
+              ? `${moveOrderSeed}:${repetition + 1}`
+              : moveOrderSeed,
+            ...(options.movePresentation === "stress"
+              ? { moveOrder: benchmarkOrder(testCase, repetition) }
+              : {}),
             onInput: (input) => {
               result.choices = input.choices
               result.prompt = input.prompt

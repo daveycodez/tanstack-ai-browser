@@ -1,4 +1,23 @@
-# Current findings — shared-v18, 2026-11-02
+# Current cache and ordering checkpoint — shared-v19
+
+The final policy keeps a stable ordering per game, seeded by the saved game ID,
+and varies it between new games. Invariant guidance lives in a constant system
+prefix; the temporary WebGL checkpoint is isolated pending the user's Checkers
+adapter/engine updates. The Nano adapter was left untouched.
+
+The LFM cache pass produced five openings in eight seeds, 71/72 calibration
+objectives and 24/24 held-out objectives, with all choices legal. Every exact retry
+in the seven-turn cache replay reused its full input. Changed turns retained only
+the fixed 222-token prefix in that trace; no larger ordinary-turn saving is claimed.
+See [CACHE-FINDINGS.md](CACHE-FINDINGS.md) for controls, limitations, raw reports
+84–91 and reproducible seeds. Thinking remains off by default.
+
+The V18 checkpoint below is preserved as earlier quality/reasoning evidence;
+its matrices do not constitute a new Nano evaluation of the V19 layout.
+
+---
+
+# Prior quality/thinking findings — shared-v18, 2026-11-02
 
 The active game uses **one shared system/user assembly** and the strict
 **human-action-enum-v3** contract for Nano and WebGL. V18 restores tactical

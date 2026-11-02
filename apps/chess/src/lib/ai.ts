@@ -15,6 +15,7 @@ import {
 import { moveOutputSchema } from "./move-output"
 import { annotatedLegalMoves, currentThreats } from "./chess"
 import { buildSharedPrompt, SHARED_SYSTEM_PROMPT } from "./shared-prompt"
+import { stableMoveOrder } from "./move-order"
 import { moveChoiceLabel, resolveActionLabel } from "./move-choice"
 import type { Game } from "./chess"
 import { opponentOption, resolveOpponent } from "./opponents"
@@ -31,8 +32,10 @@ export type { ModelStatus } from "@tanstack-ai-browser/webgl"
 export type AiMoveOptions = {
   /** Manual diagnostic override; null omits the cap. Gameplay defaults to 512. */
   reasoningBudgetTokens?: 512 | 1024 | null
-  /** Paired fixture order for manual benchmarks; normal gameplay shuffles. */
+  /** Paired fixture order for manual benchmarks; normal gameplay uses a stable per-game order. */
   moveOrder?: readonly string[]
+  /** Manual replay seed; normal games use their persisted session ID. */
+  moveOrderSeed?: string
   onInput?: (input: {
     choices: { id: string; notation: string; label: string; outcome: string }[]
     prompt: string
@@ -96,7 +99,7 @@ export async function chooseAiMove(
     throw new Error("There is no AI turn to play.")
   }
   const opponent = resolveOpponent(game.opponent)
-  const moves = annotatedLegalMoves(game, {
+  let moves = annotatedLegalMoves(game, {
     relationships: true,
     mobility: true,
     support: game.board.some(
@@ -127,11 +130,7 @@ export async function chooseAiMove(
       (left, right) => (rank.get(left.id) ?? 0) - (rank.get(right.id) ?? 0)
     )
   } else {
-    // Vary the legal-move presentation order each turn/retry.
-    for (let index = moves.length - 1; index > 0; index--) {
-      const other = Math.floor(Math.random() * (index + 1))
-      ;[moves[index], moves[other]] = [moves[other], moves[index]]
-    }
+    moves = stableMoveOrder(moves, options?.moveOrderSeed ?? game.sessionId)
   }
   const { prompt, choices } = buildSharedPrompt({
     game,

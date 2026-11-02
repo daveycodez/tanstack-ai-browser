@@ -11,10 +11,14 @@ import { describePosition } from "./ai-position.ts"
 import { buildCompactChoices } from "./prompt-options.ts"
 import { moveChoiceLabel } from "./move-choice.ts"
 
-export const SHARED_PROMPT_VERSION = "shared-v18"
+export const SHARED_PROMPT_VERSION = "shared-v19"
 
-export const SHARED_SYSTEM_PROMPT =
-  "Play Black using the supplied chess facts. Take immediate mate first; otherwise prevent mate and protect an attacked queen. Prefer safe material gains. A forcing check that wins material on a later move can be better than a larger immediate capture. A check alone does not justify an uncompensated queen loss. Castle or develop when no better opportunity exists. The schema lists every legal move; neither enum order nor card order recommends a move."
+export const SHARED_SYSTEM_PROMPT = [
+  "Play Black using the supplied chess facts. Take immediate mate first; otherwise prevent mate and protect an attacked queen. Prefer safe material gains. A forcing check that wins material on a later move can be better than a larger immediate capture. A check alone does not justify an uncompensated queen loss. Castle or develop when no better opportunity exists. The schema lists every legal move; neither enum order nor card order recommends a move.",
+  "A check alone is not a material gain. Account for forcing follow-up captures and the conditional exchange losses before taking material. Protection is not immunity. Pawn 1, knight/bishop 3, rook 5, queen 9.",
+  "HOW TO READ THE CARDS:",
+  "The supplied board is the position now. Each card describes a separate possible position after only that Black move. Its DANGER and exchange facts apply only to that move; destinations and threats from different cards do not occur together. CHECK on a card means that move checks White. The current Black-in-check field describes now."
+].join("\n\n")
 
 export type SharedPromptInput = {
   game: Game
@@ -528,7 +532,6 @@ export function buildSharedPrompt({
     tacticalFocus
       ? "Priorities: CHECKMATE now; prevent White's mate and answer check; save a threatened queen or take a free queen; take safe material gains, including forcing checks that win material."
       : "Priorities: CHECKMATE now; prevent White's mate and answer check; save a threatened queen or take a free queen; take safe material gains, including forcing checks that win material; otherwise consider castling or purposeful development with a knight, bishop, or central pawn.",
-    "A check alone is not a material gain. Account for forcing follow-up captures and the conditional exchange losses before taking material. Protection is not immunity. Pawn 1, knight/bishop 3, rook 5, queen 9.",
     ...(showOpening
       ? [
           "In the opening, central pawn pushes gain space and can free bishops or knights for development."
@@ -556,9 +559,7 @@ export function buildSharedPrompt({
     `Legal castling moves now: ${castleIds}.`,
     "Recent 8 moves (oldest first):",
     ...(recent.length ? recent : ["none"]),
-    "HOW TO READ THE CARDS:",
-    "The board above is the position now. Each card describes a separate possible position after only that Black move. Its DANGER and exchange facts apply only to that move; destinations and threats from different cards do not occur together. CHECK on a card means that move checks White. Black in check above describes now.",
-    "ALL LEGAL CARDS (random order, no ranking):",
+    "ALL LEGAL CARDS (presentation order, no ranking):",
     ...choices.map((choice) => choice.outcome),
     ...(focusCastling
       ? [
