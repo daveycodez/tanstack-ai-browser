@@ -36,8 +36,6 @@ export function loadingStoreFor(settings?: OpponentSettings): LoadingStore {
   return model === "prompt-api" ? promptApiStatus() : modelStatus(model)
 }
 
-class InvalidMoveError extends Error {}
-
 /** Loading can finish into the browser cache after leaving the game. */
 function waitForModel(
   model: WebGlTextModel,
@@ -80,19 +78,6 @@ function withCancellation<T extends AnyTextAdapter>(
     })
   }
   return adapter
-}
-
-function isInvalidOutput(error: unknown): boolean {
-  if (error instanceof InvalidMoveError || error instanceof z.ZodError)
-    return true
-  if (!(error instanceof Error)) return false
-  const code = "code" in error ? error.code : undefined
-  return (
-    code === "structured-output-validation-failed" ||
-    code === "structured-output-parse-failed" ||
-    error.message.startsWith("The model's answer isn't JSON:") ||
-    (error.cause instanceof Error && isInvalidOutput(error.cause))
-  )
 }
 
 /** Choose only from the rules engine's legal moves; no heuristic substitute. */
@@ -181,79 +166,59 @@ export async function chooseAiMove(
   }, 120_000)
 
   try {
-    let invalidOutput: unknown
-    for (let attempt = 0; attempt < 2; attempt++) {
-      generationSignal.throwIfAborted()
-      onPhase?.("processing")
-      try {
-        const options = {
-          threadId: `checkers-${game.sessionId}`,
-          messages: [
-            {
-              role: "user" as const,
-              content:
-                prompt +
-                (attempt
-                  ? '\nYour previous answer was invalid. Return exactly {"moveId":"a legal id from the list"}, with no explanation.'
-                  : "")
-            }
-          ],
-          outputSchema,
-          stream: false as const,
-          abortController: generationController
+    generationSignal.throwIfAborted()
+    onPhase?.("processing")
+    const options = {
+      threadId: `checkers-${game.sessionId}`,
+      messages: [
+        {
+          role: "user" as const,
+          content: prompt
         }
-        const answer =
-          opponent.model === "prompt-api"
-            ? await chat({
-                ...options,
-                adapter: withCancellation(promptApiText(), generationController)
-              })
-            : await chat({
-                ...options,
-                // Runtime catalog metadata determines the selected model's reasoning support.
-                adapter: withCancellation<AnyTextAdapter>(
-                  webglText(opponent.model, {
-                    contextLength,
-                    ...(onPhase && {
-                      onGenerationPhase: (phase: GenerationPhase) => {
-                        if (!generationSignal.aborted) onPhase(phase)
-                      }
-                    }),
-                    ...(onThinking && {
-                      onThinking: (delta: string) => {
-                        if (!generationSignal.aborted) onThinking(delta)
-                      }
-                    })
-                  }),
-                  generationController
-                ),
-                ...(thinkingSupport !== "none" && {
-                  reasoning: opponent.thinking
-                    ? opponent.model === "LiquidAI/LFM3-1.7B-GGUF"
-                      ? { level: "high" as const, budgetTokens: 512 }
-                      : ("high" as const)
-                    : ("off" as const)
-                }),
-                modelOptions: {
-                  temperature: 0.2,
-                  max_new_tokens: opponent.thinking ? 2048 : 96
-                }
-              })
-        generationSignal.throwIfAborted()
-        const { moveId } = outputSchema.parse(answer)
-        if (!legalMoves(game.board, "ai").some((move) => move.id === moveId)) {
-          throw new InvalidMoveError("The AI chose an illegal move.")
-        }
-        return moveId
-      } catch (error) {
-        generationSignal.throwIfAborted()
-        if (!isInvalidOutput(error)) throw error
-        invalidOutput = error
-      }
+      ],
+      outputSchema,
+      stream: false as const,
+      abortController: generationController
     }
-    throw new Error("The AI could not choose a legal move. Retry its turn.", {
-      cause: invalidOutput
-    })
+    const answer =
+      opponent.model === "prompt-api"
+        ? await chat({
+            ...options,
+            adapter: withCancellation(promptApiText(), generationController)
+          })
+        : await chat({
+            ...options,
+            // Runtime catalog metadata determines the selected model's reasoning support.
+            adapter: withCancellation<AnyTextAdapter>(
+              webglText(opponent.model, {
+                contextLength,
+                ...(onPhase && {
+                  onGenerationPhase: (phase: GenerationPhase) => {
+                    if (!generationSignal.aborted) onPhase(phase)
+                  }
+                }),
+                ...(onThinking && {
+                  onThinking: (delta: string) => {
+                    if (!generationSignal.aborted) onThinking(delta)
+                  }
+                })
+              }),
+              generationController
+            ),
+            ...(thinkingSupport !== "none" && {
+              reasoning: opponent.thinking
+                ? opponent.model === "LiquidAI/LFM3-1.7B-GGUF"
+                  ? { level: "high" as const, budgetTokens: 512 }
+                  : ("high" as const)
+                : ("off" as const)
+            })
+          })
+    generationSignal.throwIfAborted()
+    const { moveId } = outputSchema.parse(answer)
+    if (!legalMoves(game.board, "ai").some((move) => move.id === moveId)) {
+      throw new Error("The AI chose an illegal move.")
+    }
+    return moveId
   } finally {
     clearTimeout(deadline)
     signal.removeEventListener("abort", cancelGeneration)
