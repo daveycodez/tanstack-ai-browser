@@ -6,7 +6,8 @@ import {
   legalMoves,
   newGame,
   squareName,
-  toPgn
+  toPgn,
+  unsafeKingDestinations
 } from "./chess.ts"
 import type { Game } from "./chess.ts"
 
@@ -206,4 +207,22 @@ test("PGN preserves legal SAN and custom starting positions", () => {
   assert.match(toPgn(applyMove(custom, "e1c1")), /\[FEN /)
   const corrupted = { ...game, fen: newGame().fen }
   assert.throws(() => legalMoves(corrupted), /does not match/)
+})
+
+
+test("mate danger squares are empty, adjacent and include attacks revealed by the king leaving", () => {
+  const game = fromFen("2k2bnr/2Bnp2p/4r1p1/2R5/B2P4/2RK4/P3q2P/8 w - - 0 31")
+  assert.equal(game.status, "ai-won")
+  assert.equal(game.inCheck, true)
+  const before = JSON.stringify(game)
+  assert.deepEqual(unsafeKingDestinations(game).map(squareName).sort(), ["c2", "c4", "d2", "e3", "e4"])
+  assert.equal(JSON.stringify(game), before)
+})
+test("king safety includes a pinned enemy knight's attacks", () => {
+  const game = fromFen("4k3/4n3/8/8/2K5/8/8/4R3 w - - 0 1")
+  assert.deepEqual(unsafeKingDestinations(game).map(squareName), ["d5"])
+})
+test("danger calculation excludes safe destinations and sees a rook ray behind the old king square", () => {
+  const game = fromFen("k3r3/8/8/8/8/8/4K3/8 w - - 0 1")
+  assert.deepEqual(unsafeKingDestinations(game).map(squareName).sort(), ["e1", "e3"])
 })

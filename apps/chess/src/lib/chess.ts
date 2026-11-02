@@ -1,5 +1,5 @@
 import { Chess, DEFAULT_POSITION } from "chess.js"
-import type { Move as ChessMove } from "chess.js"
+import type { Move as ChessMove, Square } from "chess.js"
 import type { OpponentSettings } from "./opponents.ts"
 
 export type Side = "human" | "ai"
@@ -301,6 +301,35 @@ export function newGame(): Game {
 export function legalMoves(game: Game): Move[] {
   if (game.status !== "playing") return []
   return restore(game).moves({ verbose: true }).map(describe)
+}
+
+/** Empty adjacent destinations attacked after the current king vacates its square.
+ * Geometric attacks include pinned defenders, as required for king safety.
+ * Works after checkmate, when the normal legal-move list is empty.
+ */
+export function unsafeKingDestinations(game: Game): number[] {
+  const from = game.board.findIndex(piece => piece?.type === "k" && piece.side === game.turn)
+  if (from < 0) return []
+  const engine = new Chess(game.fen)
+  const color = engine.turn()
+  const enemy = color === "w" ? "b" : "w"
+  const king = engine.remove(squareName(from) as Square)
+  if (!king) return []
+  const unsafe: number[] = []
+  const row = Math.floor(from / 8), file = from % 8
+  for (let dy = -1; dy <= 1; dy++) {
+    for (let dx = -1; dx <= 1; dx++) {
+      const y = row + dy, x = file + dx
+      if ((!dx && !dy) || y < 0 || y > 7 || x < 0 || x > 7) continue
+      const square = y * 8 + x
+      if (game.board[square]) continue
+      const target = squareName(square) as Square
+      engine.put(king, target)
+      if (engine.isAttacked(target, enemy)) unsafe.push(square)
+      engine.remove(target)
+    }
+  }
+  return unsafe
 }
 
 const pieceValues: Record<PieceType, number | null> = {

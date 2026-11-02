@@ -742,14 +742,21 @@ button svg {
   outline-offset: -3px;
   z-index: 3;
 }
-.square-check:before {
+.square-check:before,
+.square-unsafe:before {
   background: #c85664;
   opacity: 0.6;
+}
+.square-last.square-unsafe:before {
+  background:
+    linear-gradient(rgba(200, 86, 100, 0.6), rgba(200, 86, 100, 0.6)),
+    linear-gradient(rgba(201, 217, 152, 0.38), rgba(201, 217, 152, 0.38));
+  opacity: 1;
 }
 .square-movable {
   cursor: pointer;
 }
-.square-movable:hover:not(.square-selected):before {
+.square-movable:hover:not(.square-selected):not(.square-check):not(.square-unsafe):before {
   background: #fff;
   opacity: 0.17;
 }

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react"
 import type { KeyboardEvent } from "react"
-import { legalMoves, squareName } from "../lib/chess"
+import { legalMoves, squareName, unsafeKingDestinations } from "../lib/chess"
 import type { Game, Move, PieceType, Side } from "../lib/chess"
 import { resolveOpponent } from "../lib/opponents"
 import type { OpponentSettings } from "../lib/opponents"
@@ -133,6 +133,10 @@ export function GameView({
   const motionLayer = useRef<HTMLDivElement>(null)
   useBoardMotion(game, flipped, board, motionLayer)
   const moves = useMemo(() => legalMoves(game), [game])
+  const unsafeKingSquares = useMemo(() =>
+    game.inCheck && (game.status === "human-won" || game.status === "ai-won")
+      ? unsafeKingDestinations(game)
+      : [], [game])
   const active = game.status === "playing"
   const canMove = active && game.turn === "human" && !busy
   const selected =
@@ -315,8 +319,8 @@ export function GameView({
                 const target = targets.includes(square)
                 const isSelected = square === selected
                 const last = lastMove?.path.includes(square)
+                const unsafeForKing = unsafeKingSquares.includes(square)
                 const checked =
-                  active &&
                   game.inCheck &&
                   piece?.type === "k" &&
                   piece.side === game.turn
@@ -328,8 +332,8 @@ export function GameView({
                     type="button"
                     data-square={square}
                     tabIndex={focusedSquare === square ? 0 : -1}
-                    className={`square ${dark ? "square-dark" : "square-light"}${isSelected ? " square-selected" : ""}${last ? " square-last" : ""}${target ? " square-target" : ""}${movable ? " square-movable" : ""}${checked ? " square-check" : ""}`}
-                    aria-label={`${squareName(square)}, ${piece ? `${piece.side === "human" ? "white" : "black"} ${pieceNames[piece.type]}` : "empty"}${isSelected ? ", selected" : ""}${target ? ", legal destination" : ""}${checked ? ", in check" : ""}`}
+                    className={`square ${dark ? "square-dark" : "square-light"}${isSelected ? " square-selected" : ""}${last ? " square-last" : ""}${target ? " square-target" : ""}${movable ? " square-movable" : ""}${checked ? " square-check" : ""}${unsafeForKing ? " square-unsafe" : ""}`}
+                    aria-label={`${squareName(square)}, ${piece ? `${piece.side === "human" ? "white" : "black"} ${pieceNames[piece.type]}` : "empty"}${isSelected ? ", selected" : ""}${target ? ", legal destination" : ""}${checked ? ", in check" : ""}${unsafeForKing ? `, unsafe for ${game.turn === "human" ? "white" : "black"} king` : ""}`}
                     aria-pressed={isSelected}
                     onClick={() => {
                       setFocusedSquare(square)
