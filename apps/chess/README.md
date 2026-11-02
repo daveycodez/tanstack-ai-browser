@@ -38,11 +38,28 @@ support, its built-in Prompt API model. WebGL models download on first use and c
 the browser. Download/loading progress, prompt processing, model thinking, and errors
 are shown in the game. Thinking-capable models expose the existing reasoning controls.
 
-The AI receives the current FEN, piece identities, recent moves, and a list of legal
-UCI move IDs paired with standard algebraic notation. Legal choices are shuffled for
-each generation and retry, with the same order used in the prompt and schema enum.
-TanStack AI requests a structured
-reply with a move ID from that list. The result is validated again before committing.
+The AI receives an English board snapshot with named pieces and exact squares, explicit
+castling rights, en passant, check and move counters, plus recent moves and legal UCI
+move IDs with concise immediate-outcome descriptions. Raw FEN remains internal to the
+rules engine and is not sent to the model. Each legal move names its moving/captured
+pieces and promotion, and spells out check, checkmate, stalemate or another immediate
+draw. It also identifies when the opponent has a checkmating reply on the next turn.
+
+Recapture metadata counts distinct opposing pieces with a legal reply that captures
+the moved piece, and names the lowest-value recapturer. Pinned or otherwise illegal
+replies are excluded; promotion variants from one pawn count once. En passant uses
+the actual captured square. Material values are pawn 1, knight/bishop 3, rook 5 and
+queen 9; kings are royal. When recapture is possible, a conditional net material result
+covers only the move and that immediate recapture, including promotion accounting.
+These are factual consequences, not an engine ranking or a deeper search policy.
+The model still chooses from every legal move. Legal choices are shuffled for
+each generation and retry. TanStack AI requests a structured reply with a plain-string
+`moveId`, without listing the choices again in the output schema. The answer must
+identify exactly one legal move before committing. Exact UCI or unambiguous SAN is
+accepted and converted to UCI; illegal or ambiguous answers fail. Thinking is off by
+default and remains optional for supported models, with a 1,024-token budget when
+enabled. Existing saved thinking selections are preserved. With thinking enabled, the prompt asks the model to compare candidate moves,
+examine White’s strongest replies, and check threats before choosing.
 There is no random, search-engine, or heuristic fallback. A position with one legal move
 can proceed without model generation. Invalid replies require an explicit retry.
 
@@ -67,3 +84,13 @@ The production build prerenders `/` and `/game`; the game route hydrates the sav
 The Cloudflare configuration uses a separate `chess` Worker name. It retains the base
 branch’s runtime compatibility date, Node compatibility, logging, and trace settings.
 No deployment is required to play locally.
+
+## Manual model benchmarks
+
+Run `pnpm nx bench chess`, then open http://127.0.0.1:3003/bench on the dev server.
+If the game server is already running, reuse it. This TanStack Start route replays the
+recorded tactical fixtures, exposes model/thinking/queen-priority comparisons, and
+prints the exact prompts, choices and results as JSON on the page. It never reads the saved game
+and model benchmarks are not run by automated tests. No files are downloaded.
+
+See [benchmark instructions](bench/README.md) and [recorded findings](bench/FINDINGS.md).

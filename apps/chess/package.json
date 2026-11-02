@@ -9,7 +9,9 @@
     "preview": "vite preview --port 3003",
     "deploy": "wrangler deploy",
     "deploy-dry-run": "wrangler deploy --dry-run",
-    "test": "node --experimental-strip-types --test src/lib/chess.test.ts"
+    "test": "node --experimental-strip-types --test src/lib/chess.test.ts src/lib/ai-position.test.ts src/lib/ai-move.test.ts src/lib/move-outcomes.test.ts src/lib/ai-outcomes.test.ts",
+    "bench": "vite dev --port 3003 --host 127.0.0.1",
+    "bench-check": "tsc --noEmit --project bench/tsconfig.json"
   },
   "dependencies": {
     "@tanstack-ai-browser/prompt-api": "workspace:*",

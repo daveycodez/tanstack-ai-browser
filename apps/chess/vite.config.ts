@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process"
 import { cloudflare } from "@cloudflare/vite-plugin"
 import { tanstackStart } from "@tanstack/react-start/plugin/vite"
 import react from "@vitejs/plugin-react"
@@ -7,7 +8,20 @@ import {
   defineConfig
 } from "vite"
 
+const revision = execFileSync("git", ["rev-parse", "HEAD"], {
+  encoding: "utf8"
+}).trim()
+const dirty =
+  execFileSync("git", ["status", "--porcelain", "--untracked-files=no"], {
+    encoding: "utf8"
+  }).trim().length > 0
+
 export default defineConfig({
+  define: {
+    __CHESS_BENCH_REVISION__: JSON.stringify(
+      `${revision}${dirty ? "-dirty" : ""}`
+    )
+  },
   resolve: {
     conditions: ["@tanstack-ai-browser/source", ...defaultClientConditions]
   },

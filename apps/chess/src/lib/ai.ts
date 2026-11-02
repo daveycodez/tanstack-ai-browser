@@ -13,7 +13,10 @@ import {
   webglText
 } from "@tanstack-ai-browser/webgl"
 import { z } from "zod"
-import { legalMoves, squareName } from "./chess"
+import { annotatedLegalMoves } from "./chess"
+import { formatMoveOutcome } from "./ai-outcomes"
+import { describePosition } from "./ai-position"
+import { resolveMoveId } from "./ai-move"
 import type { Game } from "./chess"
 import { opponentOption, resolveOpponent } from "./opponents"
 import type { OpponentSettings } from "./opponents"
@@ -25,6 +28,19 @@ import type {
 } from "@tanstack-ai-browser/webgl"
 
 export type { ModelStatus } from "@tanstack-ai-browser/webgl"
+
+export type AiMoveOptions = {
+  /** Manual benchmark priority override; the game uses standard queen value 9. */
+  queenValue?: number
+  /** Exact fixture order for paired manual trials; normal play shuffles moves. */
+  moveOrder?: readonly string[]
+  onInput?: (input: {
+    choices: { id: string; outcome: string }[]
+    prompt: string
+    queenValue: number
+  }) => void
+  onAnswer?: (answer: string) => void
+}
 
 export const MODEL = "LiquidAI/LFM3-1.7B-GGUF" as const
 type LoadingStore = Pick<Store<ModelStatus>, "get" | "subscribe">
@@ -84,7 +100,8 @@ export async function chooseAiMove(
   game: Game,
   abortController: AbortController,
   onPhase?: (phase: GenerationPhase) => void,
-  onThinking?: (delta: string) => void
+  onThinking?: (delta: string) => void,
+  options?: AiMoveOptions
 ): Promise<string> {
   const { signal } = abortController
   signal.throwIfAborted()
@@ -94,14 +111,47 @@ export async function chooseAiMove(
   if (game.turn !== "ai" || game.status !== "playing") {
     throw new Error("There is no AI turn to play.")
   }
-  const moves = legalMoves(game)
+  const queenValue = options?.queenValue ?? 9
+  if (!Number.isInteger(queenValue) || queenValue < 9 || queenValue > 30) {
+    throw new RangeError("Queen priority must be an integer from 9 to 30.")
+  }
+  const moves = annotatedLegalMoves(game)
   if (!moves.length) throw new Error("The AI has no legal moves.")
-  if (moves.length === 1) return moves[0].id
 
-  // Vary presentation order each turn/retry, including the schema's enum order.
-  for (let index = moves.length - 1; index > 0; index--) {
-    const other = Math.floor(Math.random() * (index + 1))
-    ;[moves[index], moves[other]] = [moves[other], moves[index]]
+  if (options?.moveOrder) {
+    const order = options.moveOrder
+    const rank = new Map(order.map((id, index) => [id, index]))
+    if (
+      order.length !== moves.length ||
+      rank.size !== moves.length ||
+      moves.some((move) => !rank.has(move.id))
+    ) {
+      throw new Error(
+        "Benchmark move order does not match the position's legal choices."
+      )
+    }
+    moves.sort(
+      (left, right) => (rank.get(left.id) ?? 0) - (rank.get(right.id) ?? 0)
+    )
+  } else {
+    // Vary the legal-move presentation order each turn/retry.
+    for (let index = moves.length - 1; index > 0; index--) {
+      const other = Math.floor(Math.random() * (index + 1))
+      ;[moves[index], moves[other]] = [moves[other], moves[index]]
+    }
+  }
+  const choices = moves.map((move) => ({
+    id: move.id,
+    outcome: formatMoveOutcome(move, game.turn, queenValue)
+  }))
+  if (moves.length === 1) {
+    options?.onInput?.({
+      choices,
+      prompt: "Only one legal move; no model generation.",
+      queenValue
+    })
+    options?.onAnswer?.(moves[0].id)
+    return moves[0].id
   }
 
   const opponent = resolveOpponent(game.opponent)
@@ -112,22 +162,18 @@ export async function chooseAiMove(
     )
   }
 
-  const ids = moves.map((move) => move.id) as [string, ...string[]]
-  const outputSchema = z.object({ moveId: z.enum(ids) })
-  const pieces = (side: "human" | "ai") =>
-    game.board
-      .flatMap((piece, index) =>
-        piece?.side === side
-          ? `${piece.type.toUpperCase()} ${squareName(index)}`
-          : []
-      )
-      .join(", ")
+  // Validate legal membership after generation; an enum can invite option copying.
+  const outputSchema = z.object({ moveId: z.string() })
   const prompt = [
-    "Play standard chess as Black (AI). White is the human. It is Black to move. Choose the strongest supplied legal move. Look for checkmate, prevent mate, avoid hanging pieces, and favor sound captures, development, and king safety. Only the supplied moves are legal; captures are optional. Do not invent moves.",
-    "Piece keys: P pawn, N knight, B bishop, R rook, Q queen, K king. UCI is from-square + to-square + optional promotion piece (q/r/b/n). SAN gives standard chess notation; O-O/O-O-O mean castling.",
-    `Position FEN: ${game.fen}`,
-    `Black pieces: ${pieces("ai")}`,
-    `White pieces: ${pieces("human")}`,
+    "Play a casual game of standard chess as Black (AI). White is the human. It is Black to move. Choose a sensible supplied legal move using the board and immediate outcome facts. Take an immediate checkmate when available. Avoid moves marked as letting the opponent checkmate next turn. Avoid stalemate when you can still play for a win. For captures, consider the captured piece, your moving piece, and the recapture risk. Only the supplied moves are legal; captures are optional. Do not invent moves.",
+    "UCI is from-square + to-square + optional promotion piece (q/r/b/n). Return the exact move ID at the start of one legal choice.",
+    `Piece values: pawn 1, knight 3, bishop 3, rook 5, queen ${queenValue}; king is royal. Each outcome describes the immediate result. Legal recapturers counts distinct opposing pieces that could legally capture your moved piece on the next turn; cheapest gives the lowest-value one. Zero means no immediate legal recapture. These facts do not rank the moves.`,
+    ...(opponent.thinking && thinkingSupport !== "none"
+      ? [
+          "The board below is already decoded. Use the named piece locations directly; do not reconstruct FEN, restate the board, or copy the move list into your thinking. Spend your thinking on chess analysis. Identify White’s immediate threat. Compare at least three legal candidates (or all if fewer). For each, consider White’s strongest reply and the resulting material and king safety. Check for immediate mates and undefended pieces. Choose using the position; the legal choices are randomly ordered and their order carries no preference. Keep this analysis in your thinking, and put only the chosen UCI move in the final JSON."
+        ]
+      : []),
+    describePosition(game),
     ...(game.inCheck
       ? ["Black is in check: choose a legal check evasion."]
       : []),
@@ -140,16 +186,18 @@ export async function chooseAiMove(
               `${move.side === "human" ? "White" : "Black"}: ${move.notation} (${move.id})`
           )
       : ["none"]),
-    "Legal choices (UCI: SAN):",
-    ...moves.map((move) => `${move.id}: ${move.notation}`),
+    "Legal choices with immediate outcomes (random order):",
+    ...choices.map((choice) => choice.outcome),
     "Return only JSON with moveId equal to exactly one supplied UCI string."
   ].join("\n")
-  // Leave space for the template, the enum schema, and the short JSON reply.
-  if (prompt.length + JSON.stringify(ids).length > 10_000) {
+  // Leave space for the template, the output schema, and the short JSON reply.
+  if (prompt.length > 10_000) {
     throw new Error(
       "This position has too many legal variations for the local AI context."
     )
   }
+
+  options?.onInput?.({ choices, prompt, queenValue })
 
   if (opponent.model === "prompt-api") {
     if (activeWebGlModel) {
@@ -174,7 +222,7 @@ export async function chooseAiMove(
   try {
     generationSignal.throwIfAborted()
     onPhase?.("processing")
-    const options = {
+    const chatOptions = {
       threadId: `chess-${game.sessionId}`,
       messages: [
         {
@@ -189,11 +237,11 @@ export async function chooseAiMove(
     const answer =
       opponent.model === "prompt-api"
         ? await chat({
-            ...options,
+            ...chatOptions,
             adapter: withCancellation(promptApiText(), generationController)
           })
         : await chat({
-            ...options,
+            ...chatOptions,
             // Runtime catalog metadata determines the selected model's reasoning support.
             adapter: withCancellation<AnyTextAdapter>(
               webglText(opponent.model, {
@@ -212,17 +260,15 @@ export async function chooseAiMove(
             ),
             ...(thinkingSupport !== "none" && {
               reasoning: opponent.thinking
-                ? { level: "high" as const, budgetTokens: 512 }
+                ? { level: "high" as const, budgetTokens: 1024 }
                 : ("off" as const)
             }),
             modelOptions: { maxTokens: 8192 }
           })
     generationSignal.throwIfAborted()
     const { moveId } = outputSchema.parse(answer)
-    if (!legalMoves(game).some((move) => move.id === moveId)) {
-      throw new Error("The AI chose an illegal move.")
-    }
-    return moveId
+    options?.onAnswer?.(moveId)
+    return resolveMoveId(game, moveId)
   } finally {
     clearTimeout(deadline)
     signal.removeEventListener("abort", cancelGeneration)

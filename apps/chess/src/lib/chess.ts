@@ -15,6 +15,32 @@ export type Move = {
   promotion?: PieceType
   notation: string
 }
+export type PieceRef = { piece: PieceType; square: number }
+export type MoveRelationships = {
+  movedPieceWasThreatened: boolean
+  /** Actual legal next-turn captures, including en passant. */
+  movedPieceThreatenedBy: PieceRef[]
+  /** Hypothetical legal captures on the unchanged board, excluding kings. */
+  newThreats: { target: PieceRef; attackers: PieceRef[] }[]
+  resolvedThreats: { piece: PieceType; square: number; fromSquare: number }[]
+}
+export type AnnotatedMove = Move & {
+  piece: PieceType
+  captured?: PieceType
+  outcome: {
+    check: boolean
+    checkmate: boolean
+    stalemate: boolean
+    allowsMateInOne: boolean
+    relationships?: MoveRelationships
+    drawReason?: string
+    /** Distinct opposing pieces with a legal capture of the moved piece. */
+    recapture: {
+      count: number
+      lowest?: { piece: PieceType; value: number | null; square: number }
+    }
+  }
+}
 export type MoveRecord = {
   id: string
   side: Side
@@ -98,9 +124,7 @@ function positionKey(engine: Chess): string {
   return engine.fen().split(" ").slice(0, 4).join(" ")
 }
 
-function snapshot(
-  engine: Chess
-): Pick<Game, "board" | "fen" | "turn" | "status" | "drawReason" | "inCheck"> {
+function positionStatus(engine: Chess): Pick<Game, "status" | "drawReason"> {
   let status: Game["status"] = "playing"
   let drawReason: string | undefined
   if (engine.isCheckmate()) {
@@ -115,7 +139,14 @@ function snapshot(
     drawReason = "Insufficient material"
   }
   if (drawReason) status = "draw"
+  return { status, drawReason }
+}
+
+function snapshot(
+  engine: Chess
+): Pick<Game, "board" | "fen" | "turn" | "status" | "drawReason" | "inCheck"> {
   return {
+    ...positionStatus(engine),
     board: engine
       .board()
       .flat()
@@ -124,8 +155,6 @@ function snapshot(
       ),
     fen: engine.fen(),
     turn: sideOf(engine.turn()),
-    status,
-    drawReason,
     inCheck: engine.isCheck()
   }
 }
@@ -151,6 +180,171 @@ export function newGame(): Game {
 export function legalMoves(game: Game): Move[] {
   if (game.status !== "playing") return []
   return restore(game).moves({ verbose: true }).map(describe)
+}
+
+const pieceValues: Record<PieceType, number | null> = {
+  p: 1,
+  n: 3,
+  b: 3,
+  r: 5,
+  q: 9,
+  k: null
+}
+
+type CaptureThreat = { piece: PieceType; attackers: Map<number, PieceRef> }
+type CaptureMap = Map<number, CaptureThreat>
+
+function captureMapFromMoves(moves: ChessMove[]): CaptureMap {
+  const captures: CaptureMap = new Map()
+  for (const move of moves) {
+    // A synthetic turn can expose the inactive king. Kings are never capturable.
+    if (!move.captured || move.captured === "k") continue
+    const square = describe(move).captures[0]
+    const source = indexOf(move.from)
+    const threat = captures.get(square) ?? {
+      piece: move.captured,
+      attackers: new Map()
+    }
+    threat.attackers.set(source, { piece: move.piece, square: source })
+    captures.set(square, threat)
+  }
+  return captures
+}
+
+/** Captures if this color moved on the unchanged board, with its own king safe. */
+function hypotheticalCaptures(engine: Chess, color: "w" | "b"): CaptureMap {
+  const fields = engine.fen().split(" ")
+  if (fields[1] !== color) fields[3] = "-"
+  fields[1] = color
+  const clone = new Chess(fields.join(" "))
+  return captureMapFromMoves(clone.moves({ verbose: true }))
+}
+
+function relationshipsAfterMove(
+  engine: Chess,
+  candidate: ChessMove,
+  beforeOwn: CaptureMap,
+  beforeEnemy: CaptureMap,
+  afterEnemy: CaptureMap,
+  recapturers: Map<number, { piece: PieceType; square: number }>
+): MoveRelationships {
+  const origin = indexOf(candidate.from)
+  const destination = indexOf(candidate.to)
+  const rankStart = Math.floor(origin / 8) * 8
+  const relocate = (square: number): number => {
+    if (square === origin) return destination
+    if (candidate.isKingsideCastle() && square === rankStart + 7)
+      return rankStart + 5
+    if (candidate.isQueensideCastle() && square === rankStart)
+      return rankStart + 3
+    return square
+  }
+  const afterOwn = hypotheticalCaptures(engine, candidate.color)
+  const newThreats: MoveRelationships["newThreats"] = []
+  for (const [square, threat] of afterOwn) {
+    const previous = new Set(
+      [...(beforeOwn.get(square)?.attackers.keys() ?? [])].map(relocate)
+    )
+    if ([...threat.attackers.keys()].some((source) => !previous.has(source))) {
+      newThreats.push({
+        target: { piece: threat.piece, square },
+        attackers: [...threat.attackers.values()]
+      })
+    }
+  }
+  const board = engine.board().flat()
+  const resolvedThreats: MoveRelationships["resolvedThreats"] = []
+  for (const [fromSquare] of beforeEnemy) {
+    const square = relocate(fromSquare)
+    const surviving = board[square]
+    if (surviving?.color === candidate.color && !afterEnemy.has(square)) {
+      resolvedThreats.push({ piece: surviving.type, square, fromSquare })
+    }
+  }
+  return {
+    movedPieceWasThreatened: beforeEnemy.has(origin),
+    movedPieceThreatenedBy: [...recapturers.values()].map(
+      ({ piece, square }) => ({ piece, square })
+    ),
+    newThreats,
+    resolvedThreats
+  }
+}
+
+/** Factual one-move outcomes; the model still chooses from every legal move. */
+export function annotatedLegalMoves(
+  game: Game,
+  options: { relationships?: boolean } = {}
+): AnnotatedMove[] {
+  if (game.status !== "playing") return []
+  const engine = restore(game)
+  const candidates = engine.moves({ verbose: true })
+  const beforeOwn = options.relationships
+    ? captureMapFromMoves(candidates)
+    : undefined
+  const beforeEnemy = options.relationships
+    ? hypotheticalCaptures(engine, engine.turn() === "w" ? "b" : "w")
+    : undefined
+  return candidates.map((candidate): AnnotatedMove => {
+    const move = describe(candidate)
+    engine.move(candidate)
+    try {
+      const state = positionStatus(engine)
+      let allowsMateInOne = false
+      let replies: ChessMove[] = []
+      const defenders = new Map<
+        number,
+        { piece: PieceType; value: number | null; square: number }
+      >()
+      if (state.status === "playing") {
+        replies = engine.moves({ verbose: true })
+        for (const reply of replies) {
+          if (reply.san.endsWith("#")) allowsMateInOne = true
+          // An en passant reply lands elsewhere but removes the moved pawn.
+          if (!describe(reply).captures.includes(indexOf(candidate.to)))
+            continue
+          const square = indexOf(reply.from)
+          defenders.set(square, {
+            piece: reply.piece,
+            value: pieceValues[reply.piece],
+            square
+          })
+        }
+      }
+      const lowest = [...defenders.values()].sort(
+        (left, right) =>
+          (left.value ?? Infinity) - (right.value ?? Infinity) ||
+          left.square - right.square
+      )[0]
+      return {
+        ...move,
+        piece: candidate.piece,
+        ...(candidate.captured ? { captured: candidate.captured } : {}),
+        outcome: {
+          check: engine.isCheck(),
+          checkmate: state.status === "human-won" || state.status === "ai-won",
+          stalemate: state.drawReason === "Stalemate",
+          allowsMateInOne,
+          ...(state.status === "playing" && beforeOwn && beforeEnemy
+            ? {
+                relationships: relationshipsAfterMove(
+                  engine,
+                  candidate,
+                  beforeOwn,
+                  beforeEnemy,
+                  captureMapFromMoves(replies),
+                  defenders
+                )
+              }
+            : {}),
+          ...(state.drawReason ? { drawReason: state.drawReason } : {}),
+          recapture: { count: defenders.size, ...(lowest ? { lowest } : {}) }
+        }
+      }
+    } finally {
+      engine.undo()
+    }
+  })
 }
 
 export function applyMove(game: Game, id: string): Game {

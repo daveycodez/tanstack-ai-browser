@@ -3,7 +3,8 @@ import {
   HeadContent,
   Link,
   Scripts,
-  createRootRoute
+  createRootRoute,
+  useLocation
 } from "@tanstack/react-router"
 import type { ReactNode } from "react"
 import { GameStorageProvider } from "../lib/db"
@@ -25,11 +26,7 @@ export const Route = createRootRoute({
     links: [{ rel: "stylesheet", href: appCss }]
   }),
   shellComponent: RootDocument,
-  component: () => (
-    <GameStorageProvider>
-      <Outlet />
-    </GameStorageProvider>
-  ),
+  component: RootContent,
   notFoundComponent: () => (
     <main>
       <h1>Page not found</h1>
@@ -37,6 +34,16 @@ export const Route = createRootRoute({
     </main>
   )
 })
+
+function RootContent() {
+  const pathname = useLocation({ select: (location) => location.pathname })
+  if (pathname === "/bench" || pathname === "/bench/") return <Outlet />
+  return (
+    <GameStorageProvider>
+      <Outlet />
+    </GameStorageProvider>
+  )
+}
 
 function RootDocument({ children }: { children: ReactNode }) {
   return (
