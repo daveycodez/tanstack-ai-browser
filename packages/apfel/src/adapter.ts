@@ -763,6 +763,8 @@ export class ApfelTextAdapter<TModel extends string> extends BaseTextAdapter<
     options: StructuredOutputOptions<ApfelModelOptions>
   ): Promise<StructuredOutputResult<unknown>> {
     const { chatOptions, outputSchema } = options
+    const signal = chatOptions.abortController?.signal ?? (chatOptions.request as RequestInit | undefined)?.signal ?? undefined
+    signal?.throwIfAborted()
     const model = this.model
     const send = chatOptions.wrapFetch ? chatOptions.wrapFetch(fetch) : fetch
     chatOptions.logger.request(
@@ -786,25 +788,24 @@ export class ApfelTextAdapter<TModel extends string> extends BaseTextAdapter<
             json_schema: { name: "output", schema: outputSchema }
           }
         }),
-        signal:
-          chatOptions.abortController?.signal ??
-          (chatOptions.request as RequestInit | undefined)?.signal ??
-          undefined
+        signal
       })
     } catch (error) {
       chatOptions.logger.errors("apfel.structuredOutput fetch failed", {
         error,
         source: "apfel.structuredOutput"
       })
-      if (chatOptions.abortController?.signal.aborted) throw error
+      if (signal?.aborted) throw error
       throw new Error(unreachable(this.baseURL))
     }
+    signal?.throwIfAborted()
     if (!response.ok) {
       throw new Error(
         `apfel returned HTTP ${response.status}: ${await errorBody(response)}`
       )
     }
     const completion = (await response.json()) as OpenAICompletion
+    signal?.throwIfAborted()
     const choice = completion.choices?.[0]
     if (choice?.finish_reason === "length") {
       throw new Error(

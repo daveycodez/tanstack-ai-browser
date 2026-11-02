@@ -596,6 +596,8 @@ export class WllamaTextAdapter<
     options: StructuredOutputOptions<WllamaTextProviderOptions>
   ): Promise<StructuredOutputResult<unknown>> {
     const { chatOptions, outputSchema } = options
+    const signal = chatOptions.abortController?.signal ?? (chatOptions.request as RequestInit | undefined)?.signal ?? undefined
+    signal?.throwIfAborted()
     const response = await completeChat(
       this.model,
       {
@@ -607,8 +609,9 @@ export class WllamaTextAdapter<
           json_schema: { name: "output", schema: outputSchema, strict: true }
         }
       },
-      chatOptions.abortController?.signal
+      signal
     )
+    signal?.throwIfAborted()
     if (response.choices[0]?.finish_reason === "length") {
       throw new Error("The model reached its output limit before structured generation completed.")
     }

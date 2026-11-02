@@ -701,12 +701,14 @@ export class TransformersJsTextAdapter<
     let next = await stream.next()
     try {
       while (!next.done) {
+        signal?.throwIfAborted()
         raw += next.value
         next = await stream.next()
       }
     } finally {
       if (!next.done) await stream.return({})
     }
+    signal?.throwIfAborted()
     if (next.value.failure) throw new Error(next.value.failure)
     const rawText = structuredAnswer(raw, THINKING_MARKERS[this.toolFormat])
     signal?.throwIfAborted()

@@ -170,6 +170,7 @@ export async function createLanguageModel(
   const starting = status.get().state !== "ready"
   if (starting) {
     const availability = await api.availability(core).catch(() => "unavailable")
+    signal?.throwIfAborted()
     if (availability === "unavailable") {
       if (asksForMedia(options)) {
         throw new PromptApiError(
@@ -206,6 +207,10 @@ export async function createLanguageModel(
         })
       }
     })
+    if (signal?.aborted) {
+      session.destroy()
+      signal.throwIfAborted()
+    }
     noteContextWindow(session)
     if (status.get().state !== "ready") status.set({ state: "ready" })
     return session
