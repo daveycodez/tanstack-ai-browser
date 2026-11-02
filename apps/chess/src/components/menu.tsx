@@ -1,4 +1,5 @@
 import { ThemeSelect } from "./theme-select"
+import { SoundToggle } from "./sound-toggle"
 import type { Game, PieceType } from "../lib/chess"
 import { BrandMark, PieceArt } from "./piece"
 
@@ -84,7 +85,10 @@ export function MenuView({
           <BrandMark />
           <span>Chess</span>
         </div>
-        <ThemeSelect />
+        <div className="menu-header-actions">
+          <SoundToggle />
+          <ThemeSelect />
+        </div>
       </header>
       <main className="menu-main">
         <div className="menu-copy">

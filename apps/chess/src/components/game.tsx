@@ -7,6 +7,8 @@ import type { OpponentSettings } from "../lib/opponents"
 import type { AiTurnState } from "../lib/use-ai-turn"
 import { OpponentPicker } from "./opponent-picker"
 import { BrandMark, PieceArt, pieceNames } from "./piece"
+import { SoundToggle } from "./sound-toggle"
+import { useBoardMotion } from "./use-board-motion"
 
 type GameProps = {
   game: Game
@@ -127,6 +129,9 @@ export function GameView({
   const [focusedSquare, setFocusedSquare] = useState(52)
   const [flipped, setFlipped] = useState(false)
   const ledger = useRef<HTMLDivElement>(null)
+  const board = useRef<HTMLDivElement>(null)
+  const motionLayer = useRef<HTMLDivElement>(null)
+  useBoardMotion(game, flipped, board, motionLayer)
   const moves = useMemo(() => legalMoves(game), [game])
   const active = game.status === "playing"
   const canMove = active && game.turn === "human" && !busy
@@ -245,6 +250,7 @@ export function GameView({
           <span>Chess</span>
         </button>
         <div className="header-actions">
+          <SoundToggle />
           <button className="text-button" onClick={onRestart} disabled={busy}>
             New game
           </button>
@@ -297,6 +303,7 @@ export function GameView({
           <div className="board-frame">
             <div
               className="board"
+              ref={board}
               role="group"
               aria-label="Chess board. Use arrow keys to navigate and Enter to select a piece or destination."
             >
@@ -356,6 +363,11 @@ export function GameView({
                   </button>
                 )
               })}
+              <div
+                className="board-motion-layer"
+                ref={motionLayer}
+                aria-hidden="true"
+              />
             </div>
           </div>
           <div

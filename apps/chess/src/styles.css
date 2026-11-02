@@ -2042,3 +2042,75 @@ dialog::backdrop {
 .turn-badge:before {
   box-shadow: 0 0 0 1px var(--line);
 }
+
+/* Visual feedback overlays the committed board; it never blocks board input. */
+.board {
+  position: relative;
+}
+.board-motion-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  pointer-events: none;
+  overflow: hidden;
+}
+.motion-piece,
+.motion-victim {
+  position: absolute;
+  width: 12.5%;
+  height: 12.5%;
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+  will-change: transform, opacity;
+}
+.motion-piece {
+  z-index: 2;
+}
+.motion-victim {
+  z-index: 1;
+}
+.motion-piece > .chess-piece,
+.motion-victim > .chess-piece {
+  grid-area: 1 / 1;
+}
+.menu-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.sound-toggle {
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border-radius: 8px;
+  display: grid;
+  place-items: center;
+  background: transparent;
+  color: var(--slate);
+  flex-shrink: 0;
+}
+.sound-toggle:hover,
+.sound-toggle:focus-visible {
+  background: var(--secondary-hover);
+  color: var(--ink);
+}
+.sound-toggle[aria-pressed="true"] {
+  color: var(--ink);
+}
+@media (max-width: 380px) {
+  .game-header .header-actions {
+    gap: 5px;
+  }
+  .game-header .sound-toggle {
+    width: 34px;
+  }
+  .game-header .header-actions .text-button {
+    padding-inline: 6px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .board-motion-layer {
+    display: none;
+  }
+}
