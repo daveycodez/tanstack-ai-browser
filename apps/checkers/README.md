@@ -1,0 +1,89 @@
+# Checkers
+
+A responsive, local-first checkers game built with TanStack Start and React. Play red
+against a local model through this monorepo's WebGL or Prompt API adapters and TanStack AI.
+No hosted model or API key is needed.
+
+## Run
+
+From the monorepo root:
+
+```sh
+pnpm install
+pnpm nx dev checkers
+```
+
+Open http://localhost:3002. If that port is occupied, choose another with
+`pnpm nx dev checkers --port=3003` and use the URL Vite reports.
+
+## Game and storage
+
+The home menu offers **Start game** and, while a game is active, **Resume game**.
+Starting over confirms before replacing the current game. `/game` restores the
+current game or creates one when no saved game exists. There is only one saved game,
+keyed as `current` in a TanStack DB IndexedDB Collection in the `checkers` database.
+Board, turn, move history, kings and results survive reloads. Browser storage is
+opened after hydration so both routes can render safely on the server.
+
+American-style rules include compulsory captures, full multi-jumps, forward-only men,
+short-range kings, promotion ending the turn, blocked-position wins, threefold draws,
+and draws after 40 moves each without a capture or advancing an uncrowned piece.
+Select a red piece, then a highlighted destination. Continue highlighted jumps to
+complete a capture. Arrow keys navigate the board; Enter selects; Escape cancels selection.
+
+## Local opponent
+
+The opponent label opens a model picker. It lists the WebGL models, excluding `-Web`
+variants, and puts Prompt API first when the browser reports support. The selected model
+and thinking setting are saved with the current game and carried into a new game.
+Changing either cancels a pending turn and starts a reply with the new settings.
+
+The default is `LiquidAI/LFM3-1.7B-GGUF`, thinking off, with a 4096-token context.
+Its first turn downloads about 1.1 GB; subsequent loads reuse the browser's model cache.
+Other models download on first use. Download progress is labelled separately from cached
+loading progress, in a fixed-height turn row. Prompt API uses the browser's built-in model.
+
+The picker exposes Thinking for models that support it. Models with compulsory reasoning
+show a checked, disabled control. Enabled thinking uses an 8192-token context and a larger
+output budget; non-thinking WebGL turns retain a short JSON output budget. The turn row
+shows Processing during prompt prefill and Thinking during enabled reasoning. Clicking
+Thinking opens the live model text in a scrollable modal that stays open after the move.
+The browser needs WebGL 2, floating-point render targets, and OffscreenCanvas support.
+Hardware-accelerated desktop and mobile browsers are the intended targets; actual
+performance depends on the device.
+
+`chat()` uses the selected model's supported reasoning mode and a Zod structured output schema whose `moveId` enum
+contains only the rules engine's legal complete turns. Each prompt includes the current
+board and the last five moves from both players, oldest first. The shared WebGL adapter prompts
+for JSON; the schema and rules validate the reply before it can alter the board. It does
+not use a grammar-constrained sampler. Invalid replies get one retry, then a visible retry
+control. There is no heuristic fallback. A 120-second generation deadline excludes model
+loading. Leaving the route cancels the pending reply, and session/position guards reject
+stale replies after a restart. Same-origin tabs serialize AI turns with Web Locks.
+
+## Check and deploy
+
+```sh
+pnpm nx run-many -t test typecheck lint build -p checkers
+pnpm nx preview checkers
+pnpm nx run checkers:deploy-dry-run
+pnpm nx deploy checkers
+```
+
+Preview serves the production build at http://localhost:3002; run the build first and
+stop the dev server if it already uses that port. Deployment requires Cloudflare
+authentication and builds the app before publishing the `checkers` Worker.
+
+`vite.config.ts` enables prerendering, static route discovery and link crawling.
+Builds generate `dist/client/index.html` and `dist/client/game/index.html`; a prerender
+error fails the build. The game HTML contains a loading state until IndexedDB opens.
+Unprerendered routes use the TanStack Start server in Cloudflare Workers.
+
+`wrangler.jsonc` enables Node.js compatibility, logs and sampled traces. Its compatibility
+date is the latest date supported by the workerd binary in the monorepo lockfile;
+advance it with a runtime update. Static HTML uses URLs without trailing slashes.
+The Cloudflare Vite plugin generates `dist/server/wrangler.json` and
+`.wrangler/deploy/config.json`; Nx caches both the build and the deployment pointer.
+
+See the [Cloudflare TanStack Start guide](https://developers.cloudflare.com/workers/framework-guides/web-apps/tanstack-start/)
+and [TanStack prerendering guide](https://tanstack.com/start/latest/docs/framework/react/guide/static-prerendering).
