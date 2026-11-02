@@ -20,7 +20,7 @@ export const PROMPT_API_OPTION: OpponentOption = {
   id: "prompt-api",
   label: "Prompt API",
   detail: "Built-in browser model",
-  thinking: "none"
+  thinking: "optional"
 }
 export const WEBGL_OPPONENTS: OpponentOption[] = WEBGL_TEXT_MODELS.filter(
   (id) => !id.includes("-Web-")

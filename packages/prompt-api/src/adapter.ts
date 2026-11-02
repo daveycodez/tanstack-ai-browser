@@ -1,3 +1,5 @@
+import { draftReasoning, promptReasoningOptions, withWorkingNotes } from "./reasoning.js"
+import type { PromptApiReasoning, PromptApiReasoningUsage } from "./reasoning.js"
 /**
  * A TanStack AI text adapter for the browser's built-in language model,
  * through the Prompt API (`LanguageModel`): Gemini Nano in Chrome,
@@ -76,6 +78,10 @@ export type PromptApiTextConfig = {
    * generation. A specific `toolChoice` always does.
    */
   nativeTools?: boolean
+  /** Adapter-managed phases; high reasoning is an explicit two-pass emulation. */
+  onGenerationPhase?: (phase: "processing" | "generating") => void
+  /** Working-note deltas from emulated reasoning, not native hidden reasoning. */
+  onThinking?: (delta: string) => void
   /**
    * Called when a conversation outgrows the context window and the browser
    * drops its oldest turns (never the system prompt) to make room.
@@ -121,9 +127,15 @@ export type PromptApiProviderUsageDetails = {
   contextWindow?: number
   /** True when the browser dropped the oldest turns to make room during the call. */
   contextOverflow?: boolean
+  reasoningEmulated?: true
+  reasoningTokenMeasurement?: "context-usage"
+  reasoningBudgetEnforcement?: "best-effort"
+  thinkingTokens?: number
+  thinkingBudgetTokens?: number
+  thinkingBudgetExhausted?: boolean
+  reasoningMs?: number
 }
 
-type PromptApiReasoning = never
 
 type MetadataByModality = {
   text: unknown
@@ -274,12 +286,16 @@ export class PromptApiTextAdapter extends BaseTextAdapter<
   private readonly languages: ReadonlyArray<string>
   private readonly nativeTools: boolean
   private readonly onContextOverflow: PromptApiTextConfig["onContextOverflow"]
+  private readonly onGenerationPhase: PromptApiTextConfig["onGenerationPhase"]
+  private readonly onThinking: PromptApiTextConfig["onThinking"]
 
   constructor(config: PromptApiTextConfig = {}) {
     super({}, "built-in")
     this.languages = config.languages ?? DEFAULT_LANGUAGES
     this.nativeTools = config.nativeTools ?? true
     this.onContextOverflow = config.onContextOverflow
+    this.onGenerationPhase = config.onGenerationPhase
+    this.onThinking = config.onThinking
   }
 
   /**
@@ -327,7 +343,7 @@ export class PromptApiTextAdapter extends BaseTextAdapter<
     ].join("\n\n")
     const media = new Map<string, Promise<Blob>>()
     const lease = await leaseSession({
-      threadId: options.threadId,
+      threadId: promptReasoningOptions(options.reasoning).enabled ? undefined : options.threadId,
       system,
       prior,
       options: this.createOptions(options.modelOptions, {
@@ -429,6 +445,8 @@ export class PromptApiTextAdapter extends BaseTextAdapter<
         }
       ]
     }
+    const reasoning = promptReasoningOptions(options.reasoning)
+    this.onGenerationPhase?.("processing")
     const startedAt = performance.now()
 
     yield {
@@ -484,14 +502,44 @@ export class PromptApiTextAdapter extends BaseTextAdapter<
           return
         }
       }
-      const { lease, prior, inputMessages, input } = prepared
+      const { lease, prior, inputMessages } = prepared
+      let input = prepared.input
       const { session } = lease
+      let reasoningUsage: PromptApiReasoningUsage | undefined
       // Given back only once the call has ended well; freed otherwise (an
       // abort, an error, or the stream left unread).
       let released = false
       let sent = false
 
       try {
+        if (reasoning.enabled) {
+          this.onGenerationPhase?.("generating")
+          const draft = draftReasoning(session, input, signal, reasoning.budget)
+          let next = await draft.next()
+          let opened = false
+          const reasoningId = nextId("reasoning")
+          try {
+            while (!next.done) {
+              if (!opened) {
+                opened = true
+                yield { type: EventType.REASONING_START, messageId: reasoningId, model, timestamp: timestamp() }
+                yield { type: EventType.REASONING_MESSAGE_START, messageId: reasoningId, role: "reasoning", model, timestamp: timestamp() }
+              }
+              this.onThinking?.(next.value)
+              yield { type: EventType.REASONING_MESSAGE_CONTENT, messageId: reasoningId, delta: next.value, model, timestamp: timestamp() }
+              next = await draft.next()
+            }
+            reasoningUsage = next.value.usage
+            input = withWorkingNotes(input, next.value.notes) as Array<LanguageModelMessage>
+          } finally {
+            if (!next.done) await draft.return({ notes: "", usage: { reasoningEmulated: true, reasoningTokenMeasurement: "context-usage", reasoningBudgetEnforcement: "best-effort", thinkingTokens: 0, thinkingBudgetExhausted: false, reasoningMs: 0 } })
+          }
+          if (opened) {
+            yield { type: EventType.REASONING_MESSAGE_END, messageId: reasoningId, model, timestamp: timestamp() }
+            yield { type: EventType.REASONING_END, messageId: reasoningId, model, timestamp: timestamp() }
+          }
+        } else this.onGenerationPhase?.("generating")
+        signal?.throwIfAborted()
         const call =
           tools.length > 0 && !native
             ? await this.decideToolCall(session, input, tools, options, signal)
@@ -506,7 +554,9 @@ export class PromptApiTextAdapter extends BaseTextAdapter<
           )
           const decidedAt = performance.now()
           const toolCallId = nextId("tool")
-          const completionTokens = await replyTokens(session, callText)
+          const completionTokens = await replyTokens(session, callText, signal)
+          const measuredContext = session.contextUsage
+          const sessionDetails = this.sessionDetails(lease, threadId, logger)
           lease.release([
             ...prior,
             ...inputMessages,
@@ -522,12 +572,13 @@ export class PromptApiTextAdapter extends BaseTextAdapter<
             timestamp: timestamp(),
             finishReason: "tool_calls",
             usage: usageOf(
-              session.contextUsage - completionTokens,
+              measuredContext - completionTokens,
               completionTokens,
               lease.cachedTokens,
               {
+                ...reasoningUsage,
                 firstTokenMs: decidedAt - startedAt,
-                ...this.sessionDetails(lease, threadId, logger)
+                ...sessionDetails
               }
             )
           }
@@ -594,6 +645,8 @@ export class PromptApiTextAdapter extends BaseTextAdapter<
             .join("\n")
         )
         const reply = assistantMessage(text, calls, native)
+        const measuredContext = session.contextUsage
+        const sessionDetails = this.sessionDetails(lease, threadId, logger)
         lease.release([...prior, ...inputMessages, ...(reply ? [reply] : [])])
         released = true
         for (const [index, c] of calls.entries()) {
@@ -607,7 +660,7 @@ export class PromptApiTextAdapter extends BaseTextAdapter<
           timestamp: timestamp(),
           finishReason: calls.length > 0 ? "tool_calls" : "stop",
           usage: usageOf(
-            session.contextUsage - completionTokens,
+            measuredContext - completionTokens,
             completionTokens,
             lease.cachedTokens,
             {
@@ -617,7 +670,8 @@ export class PromptApiTextAdapter extends BaseTextAdapter<
                 decodeMs: last - first,
                 decodeTokens: Math.max(completionTokens - 1, 0)
               }),
-              ...this.sessionDetails(lease, threadId, logger)
+              ...reasoningUsage,
+              ...sessionDetails
             }
           )
         }
@@ -700,6 +754,8 @@ export class PromptApiTextAdapter extends BaseTextAdapter<
     const { chatOptions, outputSchema } = options
     const signal = chatOptions.abortController?.signal ?? (chatOptions.request as RequestInit | undefined)?.signal ?? undefined
     signal?.throwIfAborted()
+    const reasoning = promptReasoningOptions(chatOptions.reasoning)
+    this.onGenerationPhase?.("processing")
     const conversation = toPromptMessages(chatOptions.messages, {
       nativeTools: false
     })
@@ -721,10 +777,26 @@ export class PromptApiTextAdapter extends BaseTextAdapter<
     const { session } = lease
     try {
       signal?.throwIfAborted()
-      const input =
+      let input =
         inputMessages.length > 0
           ? await toLanguageModelMessages(inputMessages, media)
           : "Answer."
+      let reasoningUsage: PromptApiReasoningUsage | undefined
+      if (reasoning.enabled) {
+        this.onGenerationPhase?.("generating")
+        const draft = draftReasoning(session, input, signal, reasoning.budget)
+        let next = await draft.next()
+        try {
+          while (!next.done) {
+            this.onThinking?.(next.value)
+            next = await draft.next()
+          }
+          reasoningUsage = next.value.usage
+          input = withWorkingNotes(input, next.value.notes)
+        } finally {
+          if (!next.done) await draft.return({ notes: "", usage: { reasoningEmulated: true, reasoningTokenMeasurement: "context-usage", reasoningBudgetEnforcement: "best-effort", thinkingTokens: 0, thinkingBudgetExhausted: false, reasoningMs: 0 } })
+        }
+      } else this.onGenerationPhase?.("generating")
       signal?.throwIfAborted()
       const ask = async (schema: object) =>
         textOf(
@@ -754,7 +826,8 @@ export class PromptApiTextAdapter extends BaseTextAdapter<
             0,
             {
               contextUsage: session.contextUsage,
-              contextWindow: session.contextWindow
+              contextWindow: session.contextWindow,
+              ...reasoningUsage
             }
           )
         }
