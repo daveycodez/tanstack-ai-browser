@@ -1,8 +1,9 @@
 import type { UsageInfo } from "@tanstack/ai"
 import type { Game, Side } from "../src/lib/checkers.ts"
 import type { OpponentModel } from "../src/lib/opponents.ts"
+import type { PromptVersion } from "../src/lib/shared-prompt.ts"
 
-export type Objective = "win-now" | "avoid-immediate-loss" | "best-safe-exchange" | "safe-promotion" | "prevent-promotion" | "force-win-next-turn" | "force-next-capture" | "avoid-draw-ahead" | "take-draw-behind" | "diagnostic"
+export type Objective = "win-now" | "avoid-immediate-loss" | "best-safe-exchange" | "avoid-losing-exchange" | "best-runner-defense" | "safe-promotion" | "prevent-promotion" | "force-win-next-turn" | "force-next-capture" | "avoid-draw-ahead" | "take-draw-behind" | "diagnostic"
 export type BenchmarkCase = {
   id: string
   label: string
@@ -15,7 +16,7 @@ export type BenchmarkCase = {
   signalMoveIds?: string[]
   signalDescription?: string
 }
-export type PromptVersion = "baseline-v1" | "shared-v4"
+export type { PromptVersion } from "../src/lib/shared-prompt.ts"
 export type BenchmarkResult = {
   trial: number
   repetition: number

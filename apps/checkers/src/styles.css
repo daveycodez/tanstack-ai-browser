@@ -727,6 +727,18 @@ a {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+.turn-panel.turn-panel-result {
+  height: auto;
+  min-height: 52px;
+}
+.turn-panel-result h1 {
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
+}
+.turn-panel-result .turn-status {
+  display: none;
+}
 .game-sidebar > .button {
   margin-bottom: 24px;
 }

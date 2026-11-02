@@ -3,7 +3,7 @@ import type { Game, Move } from "./checkers.ts"
 import { annotateMoves, describeMove, materialBalance, OUTCOME_VERSION } from "./move-outcomes.ts"
 import type { AnnotatedMove } from "./move-outcomes.ts"
 
-export const SHARED_PROMPT_VERSION = "shared-v4" as const
+export const SHARED_PROMPT_VERSION = "shared-v6" as const
 export type PromptVersion = "baseline-v1" | typeof SHARED_PROMPT_VERSION
 export const SHARED_SYSTEM_PROMPT = "Choose one legal Black action using the verified checkers outcomes. Win now or force a win; otherwise prevent Red's immediate win. Prefer higher nonnegative checked material gains. Take free captures and crown a man now before ordinary quiet development when safe. Prevent free Red promotions when no better exchange exists. Avoid a draw when ahead; prefer an available draw when behind unless a listed win exists. When no tactic decides, favor safe quiet progress: advance men or use kings together to restrict safe escapes. Avoid needless reversals; a retreat can still be necessary. Each card is a separate alternative. Card order is not a recommendation."
 export type PromptInput = {
@@ -51,7 +51,7 @@ export function buildSharedPrompt(game: Game, annotated: readonly AnnotatedMove[
     const defenses = annotated.filter(move => !move.outcome.allowsRedWin)
     if (defenses.length) facts.push(`CHOICES WITH NO IMMEDIATE RED WIN: ${defenses.map(move => move.label).join("; ")}.`)
   }
-  if (!wins.length && safe.length && annotated.some(move => move.outcome.worstNetAfterResponse < 0)) facts.push(`NON-LOSING CHECKED EXCHANGES: ${safe.map(move => move.label).join("; ")}. These have no immediate Red win and no material loss within the checked reply and response.`)
+  if (!wins.length && safe.length && annotated.some(move => move.outcome.worstNetAfterResponse < 0)) facts.push(`NON-LOSING CHECKED EXCHANGES: ${safe.map(move => move.label).join("; ")}. These have no immediate Red win and no material loss within the checked replies, responses, and forced capture continuations.`)
   if (!wins.length && freeCaptures.length) facts.push(`FREE CAPTURES: ${freeCaptures.map(move => move.label).join("; ")}. These take material without any immediate legal Red capture or immediate Red win.`)
   if (!wins.length && safePromotions.length) facts.push(`CROWN A MAN NOW WITHOUT A CHECKED LOSS: ${safePromotions.map(move => move.label).join("; ")}. Prefer a safe crown now over ordinary quiet moves.`)
   if (!wins.length && !forcing.length && nextCaptures.length) facts.push(`CAPTURE OPPORTUNITIES AFTER EVERY RED REPLY: ${nextCaptures.map(move => move.label).join("; ")}. These preserve a legal Black capture on the following turn against every Red reply; this is not a claim of a deeper win.`)
@@ -72,7 +72,8 @@ export function buildSharedPrompt(game: Game, annotated: readonly AnnotatedMove[
     "LAST 5 TURNS (oldest first):",
     ...(game.history.length ? game.history.slice(-5).map(move => `${move.side === "ai" ? "Black" : "Red"}: ${move.notation}`) : ["none"]),
     "HOW TO READ OUTCOMES:",
-    "Each card is a separate possible next board. Red moves next. Exchange points use man=1, king=2 and include this move, every legal Red reply, and Black's best immediate material response; the displayed net is the worst of those checked branches, not a deeper evaluation. King distance is only a quiet activity hint, not safety. King escape facts count actual Red replies with no legal Black capture of that king on the following turn; fewer replies alone is not a benefit if Black loses material. Returning to an earlier square can be necessary.",
+    "Each card is a separate possible next board. Red moves next. Exchange points use man=1, king=2 and include this move, every legal Red reply, and Black's best material response, then every compulsory capture continuation until a turn has no capture or the game ends. When a Red man is within two ranks of crowning, also check one more complete Red turn and Black response before settling captures. Both sides choose their best material branch; the displayed net is the worst checked Red reply. This bounded preview does not prove a positional win. King distance is only a quiet activity hint, not safety. King escape facts count actual Red replies with no legal Black capture of that king on the following turn; fewer replies alone is not a benefit if Black loses material. Returning to an earlier square can be necessary.",
+    `This position checks ${annotated[0]?.outcome.redTurnsChecked === 2 ? "TWO Red turns and TWO Black responses: account for the runner approaching its crown, not only immediate promotion" : "one Red turn and one Black response"}; forced captures are always settled.`,
     "ALL LEGAL ACTIONS (unranked order):",
     ...choices.map(choice => choice.outcome),
     ...facts,

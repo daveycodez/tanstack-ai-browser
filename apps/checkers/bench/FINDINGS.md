@@ -1,12 +1,99 @@
 # Checkers: shared outcomes and casual play
 
-## Final frozen comparison
+## Reported-game followup: exchanges and promotion guards
+
+Current production uses `shared-v6` / `runner-replies-v4`; the suite is
+`checkers-audited-v6` with 37 positions. The system instruction, model selection,
+output allowance, reasoning budget, sampling, single-move bypass and no-retry behavior
+are unchanged. The update improves facts rather than adding a long strategy prompt.
+
+Two separate outcome gaps were reproduced from the reported legal game:
+
+1. At move 6, `e5-f4` was labeled even because evaluation stopped before the forced
+   final `c3xe5`. Outcomes now finish every compulsory capture sequence, choosing the
+   best material branch for each side until quiet or terminal play. The correct net
+   is -1. Capture recursion needs no arbitrary depth cutoff because each capture
+   removes at least one piece. A supported move-28 exchange remains net 0 and legal.
+2. At move 82, `b8-a7` abandons a useful guard and permits the quiet `b6-c7` approach,
+   then promotion. With `e1-f2` instead, the b8 king stays in place and `b6-c7` forces
+   the full `b8xd6xf4` double jump, taking both runner and supporting king. Distance
+   alone points the wrong way here: the bottom king moves farther from the nearest
+   opponent while preserving the top king's defensive job. For a Red man within two
+   ranks of crowning, outcomes now include a second complete Red turn and Black
+   response before settling captures. The prompt states this bounded horizon.
+
+All five new cases replay exact prefixes of the supplied game. Three are scored:
+avoid the move-6 loss, preserve every nonlosing move-28 alternative, and defend the
+move-82 runner without checked material loss. Move 84 is an ungraded negative control:
+there is already no material-safe defense and guarding b8 leaves d8 available. Move 48
+is an ungraded compensation example: permitting a crown can be reasonable if a
+capture offsets it. There is no unconditional never-trade/never-retreat/stop-all-crowns rule.
+
+### Paired browser checkpoints, thinking off
+
+Four case/repetition-seeded permutations per position; full app inputs are identical
+across providers. Exchange-before is the committed v4 prompt; guard-before is the
+capture-settled v5 checkpoint. After is the final v6 prompt. These small samples show
+the observed regressions, not guaranteed perfect play.
+
+| Objective | LFM before | LFM after | Nano before | Nano after |
+|---|---:|---:|---:|---:|
+| Avoid move-6 losing exchange | 3/4 | 4/4 | 4/4 | 4/4 |
+| Retain a reasonable move-28 choice | 4/4 | 4/4 | 4/4 | 4/4 |
+| Keep the move-82 guard | 0/4 | 4/4 | 1/4 | 4/4 |
+
+Both models selected the supported `d6-c5` trade in all four paired trials before
+and after; it was not pruned or penalized simply for exposing a piece. Final targeted
+runs each have 20 legal decisions: 12/12 scored passes and eight ungraded diagnostics.
+
+| Final full compatibility run | Scored objectives | Legal replies | Actual inference | Median decision |
+|---|---:|---:|---:|---:|
+| LFM3-1.7B-GGUF, in-app browser | 54/54 | 74/74 | 72 | 0.812 s |
+| Gemini Nano, Chrome Prompt API | 54/54 | 74/74 | 72 | 0.959 s |
+
+The 37 cases contain 27 scored objectives, nine observations and one forced-move
+check; the full runs repeat each twice. Historical holdouts are compatibility checks,
+not fresh unseen evidence. No prompt changes followed these final results.
+
+The intermediate capture-only full runs are retained, including misses: LFM 53/54
+(one king follow-up capture opportunity); Nano 52/54 (one capture-value comparison
+and one repetition-draw preference). These are not interchangeable denominators with
+the final suite. The deeper preview exposed an obsolete older grade:
+`endgame-holdout-a` induces a king exchange but allows the other Red man to promote,
+net -1. No legal move meets the old safe-capture contract; three choices tie at -1.
+Its board is unchanged and it is now an ungraded tradeoff, not forced to prefer one
+capture. Every other original accepted set remains unchanged. Raw historical grades
+are preserved rather than retrospectively edited. See [SUITE-AUDIT.md](SUITE-AUDIT.md).
+
+### Verification and artifacts
+
+- All 140 model-free tests, independent fixture audit, Nx typecheck, lint and static
+  build pass. Extended witness lines replay legally, obey the stated quiet horizon,
+  branch through mandatory captures, respect promotion/terminal stops and do not
+  mutate game state.
+- Twelve new complete raw reports preserve 380 trials, including eight forced turns.
+  All choices replay legally. Before/after profiles use matching legal-ID permutations;
+  paired provider system/user prompts, choices and accepted sets match byte-for-byte.
+- [Final LFM reported cases](results/30-lfm-reported-final-v6.json),
+  [final Nano reported cases](results/31-nano-reported-final-v6.json),
+  [final LFM full suite](results/32-lfm-full-final-v6.json),
+  [final Nano full suite](results/33-nano-full-final-v6.json).
+  [Followup manifest](results/followup-manifest.json) records every new report hash,
+  configuration, summary, paired-input check and final source fingerprint. Original
+  files and the original manifest below remain historical snapshots.
+- Indicative model-free Node measurement on this Mac: mean per-position median
+  annotation time rose from 0.40 ms to 3.93 ms over the 37 cases; the largest new
+  median was 29.13 ms (five warmups, 20 paired samples each). This is not a mobile
+  latency claim or a controlled inference-speed comparison. Raw
+  [annotation measurements](results/followup-annotation-cost.json).
+
+## Historical initial frozen comparison
 
 Both models ran the same 26 calibration positions twice with thinking off. There are
 19 scored positions (38 decisions) and 7 diagnostics, including one forced-move case
 that does not call the model. Each run has 52 total trials and 50 actual model decisions.
 The original coordinate-only prompt is preserved as `baseline-v1`; the selected shared
-prompt is `shared-v4`, with `legal-replies-v2` outcomes.
+prompt at that checkpoint was `shared-v4`, with `legal-replies-v2` outcomes.
 
 | Model | Original prompt: objectives met | Shared prompt: objectives met | Shared legal replies | Original median | Shared median |
 |---|---:|---:|---:|---:|---:|
@@ -26,7 +113,8 @@ Final reports: [LFM original](results/10-lfm-final-original.json),
 
 The final prompt was kept unchanged before running six held-out positions twice.
 The original four holdouts and two new endgame holdouts were not used for prompt
-selection or failure tuning. No prompt/outcome changes followed their results.
+selection or failure tuning. No prompt/outcome changes followed their results at that checkpoint; later reported-game
+changes are documented below and their reruns are compatibility checks.
 
 | Model | Held-out objectives met | Legal replies | Median |
 |---|---:|---:|---:|

@@ -7,6 +7,26 @@ export const balance = (board: Board) => board.reduce((sum, piece) => sum + (!pi
 export type AuditedReply = { id: string; promotes: boolean; status: Game["status"]; capturesMover: boolean; net: number; aiWins: string[]; nextCaptureValue: number; capturableRedKings: number[] }
 export type AuditedChoice = { id: string; captures: number; capturedValue: number; promotes: boolean; status: Game["status"]; humanWins: boolean; newKingTaken: boolean; permitsPromotion: boolean; worstNet: number; forcesWin: boolean; replies: AuditedReply[]; minNextCaptureValue: number; captureFreeRedReplies: number; redKingEscapes: { square: number; safeReplies: number; totalReplies: number }[]; forcedKingCaptureTargets: number[] }
 
+/** Independent, uncached exhaustive capture tree, using only the legal rules. */
+export function settledBalance(game: Game): number {
+  if (game.status !== "playing") return balance(game.board)
+  const captures = legalMoves(game.board, game.turn).filter(move => move.captures.length > 0)
+  if (!captures.length) return balance(game.board)
+  const leaves = captures.map(move => settledBalance(applyMove(game, move.id)))
+  return game.turn === "ai" ? Math.max(...leaves) : Math.min(...leaves)
+}
+
+/** Independent two-Red-turn near-crown preview, followed by capture settlement. */
+export function responseBalance(game: Game, originalBoard: Board): number {
+  const nearCrown = originalBoard.some((piece, square) => piece?.side === "human" && !piece.king && square < 24)
+  if (!nearCrown || game.status !== "playing") return settledBalance(game)
+  return Math.min(...legalMoves(game.board, "human").map(redMove => {
+    const red = applyMove(game, redMove.id)
+    if (red.status !== "playing") return balance(red.board)
+    return Math.max(...legalMoves(red.board, "ai").map(blackMove => settledBalance(applyMove(red, blackMove.id))))
+  }))
+}
+
 /** Independent of prompt/outcome code: traverse only the application's legal rules. */
 export function inspectChoices(game: Game): AuditedChoice[] {
   const initial = balance(game.board)
@@ -20,7 +40,7 @@ export function inspectChoices(game: Game): AuditedChoice[] {
       return {
         id: reply.id, promotes: reply.promotes, status: red.status,
         capturesMover: destination !== undefined && reply.captures.includes(destination),
-        net: continuations.length ? Math.max(...continuations.map(response => balance(response.game.board))) - initial : balance(red.board) - initial,
+        net: continuations.length ? Math.max(...continuations.map(response => responseBalance(response.game, game.board))) - initial : balance(red.board) - initial,
         aiWins: continuations.filter(response => response.game.status === "ai-won").map(response => response.id),
         nextCaptureValue: Math.max(0, ...continuations.map(response => response.captureValue)),
         capturableRedKings: redKings.filter(square => {
@@ -53,6 +73,12 @@ export function acceptedChoices(game: Game, objective: Objective, choices = insp
   if (objective === "avoid-immediate-loss") return choices.filter(choice => !choice.humanWins).map(choice => choice.id)
   if (objective === "best-safe-exchange") {
     const candidates = choices.filter(choice => safe(choice) && choice.captures > 0)
+    const best = Math.max(...candidates.map(choice => choice.worstNet))
+    return candidates.filter(choice => choice.worstNet === best).map(choice => choice.id)
+  }
+  if (objective === "avoid-losing-exchange") return choices.filter(choice => safe(choice) && choice.worstNet >= 0).map(choice => choice.id)
+  if (objective === "best-runner-defense") {
+    const candidates = choices.filter(choice => safe(choice) && choice.worstNet >= 0)
     const best = Math.max(...candidates.map(choice => choice.worstNet))
     return candidates.filter(choice => choice.worstNet === best).map(choice => choice.id)
   }

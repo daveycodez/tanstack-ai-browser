@@ -10,8 +10,8 @@ it never automatically downloads files. Builds, prerendering and tests do not ca
 
 ## Cases and grading
 
-The audited v3 suite contains 32 positions: 26 calibration cases (19 scored, 7 diagnostics)
-and 6 scored holdouts. At two repetitions that is 52 calibration trials or 12 held-out
+The audited v6 suite contains 37 positions: 31 calibration cases (22 scored, 9 diagnostics)
+and 6 historical holdouts (5 scored, 1 diagnostic). At two repetitions that is 62 calibration trials or 12 held-out
 trials per model. One diagnostic has only a single legal move; those forced turns bypass
 the model and are excluded from model-strength pass counts and decision-time medians.
 
@@ -28,7 +28,8 @@ pnpm nx run checkers:bench-audit
 pnpm nx test checkers
 ```
 
-Freeze the prompt before running holdouts. Do not use their results to tune that same
+The original six holdouts were already evaluated for v4; later reruns are compatibility
+checks, not fresh unseen evidence. Freeze the prompt before running new holdouts. Do not use their results to tune that same
 claimed held-out checkpoint; new tuning needs fresh confirmation cases.
 
 The v2 audit converted one promotion-defense case to a neutral trade-off diagnostic:
@@ -38,14 +39,20 @@ Original raw v1 reports remain intact; the audit explains the corrected grading.
 ## Shared production path
 
 The runner calls `chooseAiMove`, exactly as the game does, with instrumentation callbacks.
-The original baseline (`baseline-v1`) is preserved unchanged. The current `shared-v4`
+The original baseline (`baseline-v1`) is preserved unchanged. The current `shared-v6`
 contract uses descriptive actions such as `Jump king d2 over c3 to b4`. Every legal action
 remains in the enum; neither card order nor a hidden fallback selects a move for the model.
 
 Move outcomes enumerate the candidate, every legal Red reply (including complete
 multi-jumps), and each immediate Black response. Man=1 and king=2 are transparent rough
-material units. Exchange nets are bounded three-ply facts; they do not evaluate deeper
-compensation. A future capture opportunity is never called a forced win unless terminal
+material units. After each Black response, exchange evaluation continues through every
+compulsory capture until the active side has no capture or the game ends. Black maximizes
+and Red minimizes the resulting material balance. This captures exchanges spanning
+several alternating turns, with no arbitrary depth cap on capture sequences. The
+displayed witness line includes that continuation. When an uncrowned Red man is
+within two ranks of crowning, one additional full Red turn and Black response are
+checked before settling captures. This bounded approach preview can distinguish a
+useful guard from vacating a square that allows a quiet advance and then a crown. A future capture opportunity is never called a forced win unless terminal
 wins are actually verified. Per-king safe-reply counts track that king through its own
 move and all legal Black capture responses. Lower mobility or closer distance alone is
 not automatically better: the suite includes a move that reduces Red's choices while
@@ -56,7 +63,7 @@ losing a Black king.
 - Model: WebGL registry or the browser's available Prompt API model.
 - Prompt: original baseline or the current shared-outcome prompt.
 - Repetitions: 1–20 per selected position; default 2.
-- Positions: calibration, held out, all, previous failures, or a named case.
+- Positions: calibration, held out, all, reported game positions/exchanges/runner defenses, previous failures, or a named case.
 - Thinking / Working notes: off by default; required-reasoning models keep their mode.
 - Reasoning budget: default 512; larger nonnegative budgets are available for diagnostics.
 

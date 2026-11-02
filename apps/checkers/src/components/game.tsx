@@ -94,7 +94,7 @@ export function GameView({
       ? "You won. Well played."
       : game.status === "ai-won"
         ? "A good game. Play again?"
-        : "An even match. It’s a draw."
+        : "It’s a draw."
 
   function selectSquare(square: number) {
     if (!canMove) return
@@ -170,7 +170,7 @@ export function GameView({
       </header>
       <main className="game-main">
         <div className="board-column">
-          <section className="turn-panel" aria-live="polite">
+          <section className={`turn-panel${!active ? " turn-panel-result" : ""}`} aria-live="polite">
             <h1
               className={
                 active && turn === "human"

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict"
 import test from "node:test"
 import { CASES, gameForCase } from "../../bench/cases.ts"
-import { acceptedChoices, balance, inspectChoices } from "../../bench/audit.ts"
+import { acceptedChoices, balance, inspectChoices, responseBalance } from "../../bench/audit.ts"
 import { applyMove, legalMoves, squareName } from "./checkers.ts"
 import type { Game } from "./checkers.ts"
 import { annotateMoves, describeMove, material, materialBalance, moveLabel } from "./move-outcomes.ts"
@@ -66,7 +66,7 @@ for (const fixture of CASES) {
         sameIds(reply.aiWinningReplies, expected.aiWins)
         assert.deepEqual(reply.captures, red.captures.map(square => ({ square, king: after.board[square]?.king, value: after.board[square]?.king ? 2 : 1 })))
         const redGame = applyMove(after, red.id)
-        const responses = redGame.status === "playing" ? legalMoves(redGame.board, "ai").map(response => ({ id: response.id, net: balance(applyMove(redGame, response.id).board) - balance(game.board) })) : []
+        const responses = redGame.status === "playing" ? legalMoves(redGame.board, "ai").map(response => ({ id: response.id, net: responseBalance(applyMove(redGame, response.id), game.board) - balance(game.board) })) : []
         sameIds(reply.bestResponseIds, responses.filter(response => response.net === expected.net).map(response => response.id))
       }
       const startingPiece = game.board[move.path[0]]
@@ -89,6 +89,12 @@ test("accepted tactical objectives can be recovered from the annotated facts wit
     if (fixture.objective === "avoid-immediate-loss") accepted = moves.filter(move => !move.outcome.allowsRedWin).map(move => move.id)
     if (fixture.objective === "best-safe-exchange") {
       const candidates = moves.filter(move => safe(move) && move.captures.length > 0)
+      const best = Math.max(...candidates.map(move => move.outcome.worstNetAfterResponse))
+      accepted = candidates.filter(move => move.outcome.worstNetAfterResponse === best).map(move => move.id)
+    }
+    if (fixture.objective === "avoid-losing-exchange") accepted = moves.filter(move => safe(move) && move.outcome.worstNetAfterResponse >= 0).map(move => move.id)
+    if (fixture.objective === "best-runner-defense") {
+      const candidates = moves.filter(move => safe(move) && move.outcome.worstNetAfterResponse >= 0)
       const best = Math.max(...candidates.map(move => move.outcome.worstNetAfterResponse))
       accepted = candidates.filter(move => move.outcome.worstNetAfterResponse === best).map(move => move.id)
     }
@@ -211,7 +217,7 @@ test("shared prompt uses one concise system instruction and describes independen
   const prompt = buildSharedPrompt(game, annotateMoves(game))
   assert.equal(prompt.systemPrompt, SHARED_SYSTEM_PROMPT)
   assert.match(prompt.systemPrompt, /Each card is a separate alternative/)
-  assert.match(prompt.prompt, /not a deeper evaluation/)
+  assert.match(prompt.prompt, /bounded preview does not prove a positional win/)
   assert.match(prompt.prompt, /activity hint, not safety/)
   assert.match(prompt.prompt, /Returning to an earlier square can be necessary/)
   assert.match(prompt.prompt, /Return exactly one JSON object with key "move"/)

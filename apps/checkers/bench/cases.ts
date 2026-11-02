@@ -1,10 +1,14 @@
 import type { BenchmarkCase } from "./types.ts"
+import { RUNNER_REGRESSIONS } from "./runner-regressions.ts"
+import { EXCHANGE_REGRESSIONS } from "./exchange-regressions.ts"
 export { gameForCase } from "./fixtures.ts"
 
-export const SUITE_VERSION = "checkers-audited-v3"
+export const SUITE_VERSION = "checkers-audited-v6"
 
 /** Frozen constructed teaching positions and legal histories, not expert engine judgments. */
 export const CASES: BenchmarkCase[] = [
+  ...EXCHANGE_REGRESSIONS,
+  ...RUNNER_REGRESSIONS,
   {
     "id": "win-full-chain",
     "label": "Win with the complete capture chain",
@@ -161,7 +165,7 @@ export const CASES: BenchmarkCase[] = [
   {
     "id": "capture-king-value",
     "label": "Capture value includes kings",
-    "description": "Among compulsory captures with no immediate Red win, choose every tie for the greatest worst checked three-ply material change (man 1, king 2).",
+    "description": "Among compulsory captures with no immediate Red win, choose every tie for the greatest worst checked capture-settled material change (man 1, king 2).",
     "objective": "best-safe-exchange",
     "partition": "calibration",
     "setup": {
@@ -185,7 +189,7 @@ export const CASES: BenchmarkCase[] = [
   {
     "id": "count-full-capture-chain",
     "label": "Compare complete capture chains",
-    "description": "Value all pieces in a legal jump chain and the opponent's reply; select the best nonlosing worst-case three-ply exchange, including ties.",
+    "description": "Value all pieces in a legal jump chain and the opponent's reply; select the best nonlosing worst-case capture-settled exchange, including ties.",
     "objective": "best-safe-exchange",
     "partition": "calibration",
     "setup": {
@@ -208,7 +212,7 @@ export const CASES: BenchmarkCase[] = [
   {
     "id": "recapture-compensation",
     "label": "Check the recapture before taking",
-    "description": "A capture can be paid back. Prefer the highest worst three-ply material outcome without an immediate Red win; every tied optimum is accepted.",
+    "description": "A capture can be paid back. Prefer the highest worst capture-settled material outcome without an immediate Red win; every tied optimum is accepted.",
     "objective": "best-safe-exchange",
     "partition": "calibration",
     "setup": {
@@ -231,7 +235,7 @@ export const CASES: BenchmarkCase[] = [
   {
     "id": "exchange-unseen",
     "label": "Holdout: compare an unfamiliar exchange",
-    "description": "Use complete legal capture replies and Black's best immediate response to choose the highest worst material delta, without allowing Red an immediate win.",
+    "description": "Use complete legal capture replies and Black's best response, including compulsory capture continuations, to choose the highest worst material delta, without allowing Red an immediate win.",
     "objective": "best-safe-exchange",
     "partition": "holdout",
     "setup": {
@@ -253,7 +257,7 @@ export const CASES: BenchmarkCase[] = [
   {
     "id": "safe-crowning",
     "label": "Take a safe promotion",
-    "description": "Crown a man without allowing an immediate Red win, capture of the new king, or negative checked three-ply exchange. Every qualifying promotion passes.",
+    "description": "Crown a man without allowing an immediate Red win, capture of the new king, or negative checked capture-settled exchange. Every qualifying promotion passes.",
     "objective": "safe-promotion",
     "partition": "calibration",
     "setup": {
@@ -322,7 +326,7 @@ export const CASES: BenchmarkCase[] = [
   {
     "id": "deny-red-promotion",
     "label": "Deny Red a next-turn crown",
-    "description": "Prevent every legal Red promotion on its next turn while allowing no immediate Red win and no negative checked three-ply exchange.",
+    "description": "Prevent every legal Red promotion on its next turn while allowing no immediate Red win and no negative checked capture-settled exchange.",
     "objective": "prevent-promotion",
     "partition": "calibration",
     "setup": {
@@ -691,8 +695,8 @@ export const CASES: BenchmarkCase[] = [
   {
     "id": "endgame-holdout-a",
     "label": "Holdout: force capture of a particular king",
-    "description": "Create a Black capture opportunity after every legal nonterminal Red reply; accept all ties for the highest minimum captured value (man 1, king 2).",
-    "objective": "force-next-capture",
+    "description": "Historical holdout, now an ungraded tradeoff: a forced king exchange permits the other Red man to crown; every legal choice has a negative two-Red-turn material net.",
+    "objective": "diagnostic",
     "partition": "holdout",
     "setup": {
       "black": [
@@ -705,9 +709,9 @@ export const CASES: BenchmarkCase[] = [
         "a7"
       ]
     },
-    "expectedMoveIds": [
-      "f6-e5"
-    ]
+    "expectedMoveIds": null,
+    "signalMoveIds": ["f6-e5"],
+    "signalDescription": "The king capture remains a valid signal, but the deeper promotion cost makes its old safe-capture grade invalid."
   },
   {
     "id": "endgame-holdout-b",

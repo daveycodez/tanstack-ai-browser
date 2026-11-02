@@ -1,7 +1,7 @@
-import { applyMove, legalMoves, squareName } from "./checkers.ts"
+import { applyMove, legalMoves, positionKey, squareName } from "./checkers.ts"
 import type { Board, Game, Move, Piece, Side } from "./checkers.ts"
 
-export const OUTCOME_VERSION = "legal-replies-v2"
+export const OUTCOME_VERSION = "runner-replies-v4"
 export const pieceValue = (piece: Piece) => piece.king ? 2 : 1
 export const material = (board: Board, side: Side) => board.reduce((total, piece) => total + (piece?.side === side ? pieceValue(piece) : 0), 0)
 export const materialBalance = (board: Board) => material(board, "ai") - material(board, "human")
@@ -18,6 +18,7 @@ export type ReplyOutcome = {
   takesMover: boolean
   netAfterBestResponse: number
   bestResponseIds: string[]
+  exchangeLine: string[]
   aiWinningReplies: string[]
   nextCaptureValue: number
   capturableRedKings: number[]
@@ -32,6 +33,7 @@ export type MoveOutcome = {
   materialAfter: number
   immediateGain: number
   redReplies: ReplyOutcome[]
+  redTurnsChecked: 1 | 2
   redMovablePieces: number
   captureFreeRedReplies: number
   minNextCaptureValue: number
@@ -73,10 +75,60 @@ function distanceToRed(board: Board, square: number) {
   return red.length ? Math.min(...red.map(index => Math.max(Math.abs(Math.floor(index / 8) - Math.floor(square / 8)), Math.abs(index % 8 - square % 8)))) : 0
 }
 
-/** Exhaustive legal replies and one Black response, not a positional search engine. */
+type CaptureSettlement = { balance: number; line: string[] }
+
+/** Continue compulsory captures only; every edge removes a piece, so no depth cap is needed. */
+function settleCaptures(game: Game, cache: Map<string, CaptureSettlement>): CaptureSettlement {
+  if (game.status !== "playing") return { balance: materialBalance(game.board), line: [] }
+  const moves = legalMoves(game.board, game.turn)
+  if (!moves[0]?.captures.length) return { balance: materialBalance(game.board), line: [] }
+  // Piece count strictly decreases through this subtree: neither repetition nor the quiet clock
+  // can end a later capture turn. Identical board/turn states have identical continuations.
+  const key = positionKey(game.board, game.turn)
+  const cached = cache.get(key)
+  if (cached) return cached
+  let best: CaptureSettlement | undefined
+  for (const move of moves) {
+    const continuation = settleCaptures(applyMove(game, move.id), cache)
+    if (!best || (game.turn === "ai" ? continuation.balance > best.balance : continuation.balance < best.balance)) {
+      best = { balance: continuation.balance, line: [move.id, ...continuation.line] }
+    }
+  }
+  if (!best) throw new Error("A compulsory capture position has no legal capture.")
+  cache.set(key, best)
+  return best
+}
+
+/** A nearby runner needs its quiet approach checked as well as its immediate crown. */
+function checkRunnerResponse(game: Game, cache: Map<string, CaptureSettlement>): CaptureSettlement {
+  if (game.status !== "playing") return { balance: materialBalance(game.board), line: [] }
+  let worst: CaptureSettlement | undefined
+  for (const redMove of legalMoves(game.board, "human")) {
+    const red = applyMove(game, redMove.id)
+    let best: CaptureSettlement = { balance: materialBalance(red.board), line: [redMove.id] }
+    if (red.status === "playing") {
+      let responseBest: CaptureSettlement | undefined
+      for (const blackMove of legalMoves(red.board, "ai")) {
+        const settled = settleCaptures(applyMove(red, blackMove.id), cache)
+        if (!responseBest || settled.balance > responseBest.balance) {
+          responseBest = { balance: settled.balance, line: [redMove.id, blackMove.id, ...settled.line] }
+        }
+      }
+      if (!responseBest) throw new Error("A playing position has no Black response.")
+      best = responseBest
+    }
+    if (!worst || best.balance < worst.balance) worst = best
+  }
+  if (!worst) throw new Error("A playing position has no Red turn.")
+  return worst
+}
+
+/** Check legal replies, one extra reply/response for nearby runners, then settle captures. */
 export function annotateMoves(game: Game, moves: readonly Move[] = legalMoves(game.board, "ai")): AnnotatedMove[] {
   if (game.turn !== "ai" || game.status !== "playing") throw new Error("Outcomes require an active Black turn.")
   const beforeBalance = materialBalance(game.board)
+  const captureCache = new Map<string, CaptureSettlement>()
+  const redTurnsChecked = game.board.some((piece, square) => piece?.side === "human" && !piece.king && Math.floor(square / 8) <= 2) ? 2 : 1
   const lastOwn = [...game.history].reverse().find(record => record.side === "ai")
   return moves.map(move => {
     const piece = game.board[move.path[0]]
@@ -89,6 +141,7 @@ export function annotateMoves(game: Game, moves: readonly Move[] = legalMoves(ga
       const next = applyMove(after, reply.id)
       let best = materialBalance(next.board) - beforeBalance
       let bestResponseIds: string[] = []
+      let exchangeLine = [reply.id]
       const aiWinningReplies: string[] = []
       let nextCaptureValue = 0
       const capturableRedKings = new Set<number>()
@@ -101,14 +154,15 @@ export function annotateMoves(game: Game, moves: readonly Move[] = legalMoves(ga
             const square = reply.path[0] === king ? reply.path[reply.path.length - 1] : king
             if (response.captures.includes(square)) capturableRedKings.add(king)
           }
-          const net = materialBalance(leaf.board) - beforeBalance
-          if (net > best) { best = net; bestResponseIds = [response.id] }
+          const settled = redTurnsChecked === 2 ? checkRunnerResponse(leaf, captureCache) : settleCaptures(leaf, captureCache)
+          const net = settled.balance - beforeBalance
+          if (net > best) { best = net; bestResponseIds = [response.id]; exchangeLine = [reply.id, response.id, ...settled.line] }
           else if (net === best) bestResponseIds.push(response.id)
           if (leaf.status === "ai-won") aiWinningReplies.push(response.id)
         }
         if (!Number.isFinite(best)) throw new Error("A playing position has no legal response.")
       }
-      return { id: reply.id, captures: capturedPieces(after.board, reply), promotes: reply.promotes, status: next.status, takesMover: reply.captures.includes(destination), netAfterBestResponse: best, bestResponseIds, aiWinningReplies, nextCaptureValue, capturableRedKings: [...capturableRedKings] }
+      return { id: reply.id, captures: capturedPieces(after.board, reply), promotes: reply.promotes, status: next.status, takesMover: reply.captures.includes(destination), netAfterBestResponse: best, bestResponseIds, exchangeLine, aiWinningReplies, nextCaptureValue, capturableRedKings: [...capturableRedKings] }
     })
     const immediateGain = materialBalance(after.board) - beforeBalance
     const worst = replies.length ? Math.min(...replies.map(reply => reply.netAfterBestResponse)) : immediateGain
@@ -120,7 +174,7 @@ export function annotateMoves(game: Game, moves: readonly Move[] = legalMoves(ga
       promoted: move.promotes,
       black: count(after.board, "ai"), red: count(after.board, "human"),
       materialAfter: materialBalance(after.board), immediateGain,
-      redReplies: replies,
+      redReplies: replies, redTurnsChecked,
       redMovablePieces: new Set(replies.map(reply => reply.id.split(/[x-]/)[0])).size,
       captureFreeRedReplies: replies.filter(reply => reply.nextCaptureValue === 0).length,
       minNextCaptureValue: replies.length ? Math.min(...replies.map(reply => reply.nextCaptureValue)) : 0,
@@ -159,9 +213,12 @@ export function describeMove(move: AnnotatedMove): string {
   if (facts.forcesWinNextTurn) parts.push("Black can win on its next turn after EVERY legal Red reply")
   if (facts.maxRedCaptureCount) {
     parts.push(`Red's legal jump chains: maximum ${facts.maxRedCaptureCount} Black pieces; maximum ${facts.maxRedCaptureValue} points${facts.moverCanBeCaptured ? "; the moved piece is exposed" : "; another Black piece is exposed"}`)
-    const worst = facts.redReplies.find(reply => reply.id === facts.worstReplyIds[0])
-    if (worst) parts.push(`Worst checked exchange: Red ${worst.id}${worst.bestResponseIds.length ? `, best Black response ${worst.bestResponseIds[0]}` : ""}; net Black ${signed(facts.worstNetAfterResponse)} points including this move`)
   } else parts.push("Red has no immediate legal capture")
+  const worst = facts.redReplies.find(reply => reply.id === facts.worstReplyIds[0])
+  if (worst && (facts.maxRedCaptureCount > 0 || worst.exchangeLine.length > 2 * facts.redTurnsChecked || (facts.redTurnsChecked === 2 && worst.netAfterBestResponse < 0))) {
+    const line = worst.exchangeLine.map((id, index) => `${index % 2 ? "Black" : "Red"} ${id}`).join(" → ")
+    parts.push(`Worst checked exchange: ${line}; net Black ${signed(facts.worstNetAfterResponse)} points including this move and all forced capture continuations`)
+  }
   parts.push(`Red has ${facts.redReplies.length} legal complete replies from ${facts.redMovablePieces} pieces`)
   if (facts.redPromotionReplies) parts.push(`Red can crown a man on ${facts.redPromotionReplies} next-turn choices`)
   if (facts.ranksToPromotion !== undefined) parts.push(`Man distance to crowning ${facts.ranksToPromotionBefore} to ${facts.ranksToPromotion} ranks`)

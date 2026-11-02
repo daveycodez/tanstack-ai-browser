@@ -1,5 +1,6 @@
 import { promptApiModel } from "@tanstack-ai-browser/prompt-api"
 import { chooseAiMove } from "../src/lib/ai.ts"
+import { SHARED_PROMPT_VERSION } from "../src/lib/shared-prompt.ts"
 import { OUTCOME_VERSION } from "../src/lib/move-outcomes.ts"
 import { applyMove, legalMoves } from "../src/lib/checkers.ts"
 import { opponentOption, resolveOpponent } from "../src/lib/opponents.ts"
@@ -45,7 +46,7 @@ export function summarize(results: readonly BenchmarkResult[]): BenchmarkReport[
 /** Explicit browser runs only. It calls production inference without touching saved games. */
 export async function runBenchmark(options: BenchmarkOptions): Promise<BenchmarkReport> {
   if (!Number.isInteger(options.repetitions) || options.repetitions < 1 || options.repetitions > 20) throw new RangeError("Repetitions must be between 1 and 20.")
-  if (!["baseline-v1", "shared-v4"].includes(options.promptVersion)) throw new Error("Unknown prompt version.")
+  if (!["baseline-v1", SHARED_PROMPT_VERSION].includes(options.promptVersion)) throw new Error("Unknown prompt version.")
   const budget = options.reasoningBudgetTokens ?? 512
   if (!Number.isSafeInteger(budget) || budget < 0) throw new RangeError("Reasoning budget must be a nonnegative safe integer.")
   const selected = options.caseIds ?? CASES.filter(testCase => testCase.partition === "calibration").map(testCase => testCase.id)

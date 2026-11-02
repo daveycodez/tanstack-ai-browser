@@ -46,7 +46,7 @@ test("endgame grades preserve every strongest guaranteed-capture tie and never r
   const cases = CASES.filter(item => item.id.startsWith("endgame-"))
   assert.equal(cases.length, 8)
   assert.equal(cases.filter(item => item.partition === "holdout").length, 2)
-  assert.equal(cases.filter(item => item.expectedMoveIds !== null).length, 6)
+  assert.equal(cases.filter(item => item.expectedMoveIds !== null).length, 5)
   for (const testCase of cases) {
     const game = gameForCase(testCase)
     const black = game.board.filter(piece => piece?.side === "ai")

@@ -6,6 +6,7 @@ import { runBenchmark } from "../../bench/runner"
 import type { BenchmarkReport, BenchmarkResult, PromptVersion } from "../../bench/types"
 import { DEFAULT_OPPONENT, opponentOption, WEBGL_OPPONENTS } from "../lib/opponents"
 import type { OpponentModel } from "../lib/opponents"
+import { SHARED_PROMPT_VERSION } from "../lib/shared-prompt"
 import { usePromptApiAvailable } from "../lib/use-prompt-api"
 
 const subscribeHydration = () => () => undefined
@@ -63,7 +64,7 @@ export function BenchmarkView() {
   const [thinking, setThinking] = useState(false)
   const [reasoningBudgetTokens, setReasoningBudgetTokens] = useState(512)
   const [repetitions, setRepetitions] = useState(2)
-  const [promptVersion, setPromptVersion] = useState<PromptVersion>("shared-v4")
+  const [promptVersion, setPromptVersion] = useState<PromptVersion>(SHARED_PROMPT_VERSION)
   const [position, setPosition] = useState("calibration")
   const ready = useSyncExternalStore(subscribeHydration, () => true, () => false)
   const [running, setRunning] = useState(false)
@@ -80,6 +81,9 @@ export function BenchmarkView() {
   const effectiveThinking = support === "required" || (support === "optional" && thinking)
   const selectedCases = useMemo(() => {
     if (position === "all") return CASES
+    if (position === "reported-games") return CASES.filter(testCase => testCase.id.startsWith("reported-"))
+    if (position === "reported-runners") return CASES.filter(testCase => testCase.id.startsWith("reported-runner-"))
+    if (position === "reported-exchanges") return CASES.filter(testCase => testCase.id.startsWith("reported-exchange-"))
     if (position === "calibration" || position === "holdout") return CASES.filter(testCase => testCase.partition === position)
     if (position === "failed") {
       const failed = new Set(results.filter(result => result.passed === false || result.error).map(result => result.caseId))
@@ -151,10 +155,10 @@ export function BenchmarkView() {
             {promptApiAvailable && <option value="prompt-api">{opponentOption("prompt-api").label}</option>}
             {WEBGL_OPPONENTS.map(option => <option key={option.id} value={option.id}>{option.label}</option>)}
           </select></label>
-          <label>Prompt version<select aria-label="Prompt version" value={promptVersion} onChange={event => setPromptVersion(event.currentTarget.value as PromptVersion)}><option value="shared-v4">Shared outcomes</option><option value="baseline-v1">Original baseline</option></select></label>
+          <label>Prompt version<select aria-label="Prompt version" value={promptVersion} onChange={event => setPromptVersion(event.currentTarget.value as PromptVersion)}><option value={SHARED_PROMPT_VERSION}>Shared outcomes</option><option value="baseline-v1">Original baseline</option></select></label>
           <label>Repetitions<input aria-label="Repetitions" type="number" min={1} max={20} step={1} required value={repetitions} onChange={event => setRepetitions(Number(event.currentTarget.value))} /></label>
           <label>Positions<select aria-label="Positions" value={position} onChange={event => setPosition(event.currentTarget.value)}>
-            <option value="calibration">Calibration positions</option><option value="holdout">Held-out positions</option><option value="all">All positions</option><option value="failed">Failures from the previous run</option>
+            <option value="calibration">Calibration positions</option><option value="holdout">Held-out positions</option><option value="all">All positions</option><option value="reported-games">All reported game positions</option><option value="reported-runners">Reported runner defenses</option><option value="reported-exchanges">Reported game exchanges</option><option value="failed">Failures from the previous run</option>
             <optgroup label="Single position">{CASES.map(testCase => <option key={testCase.id} value={testCase.id}>{testCase.label}</option>)}</optgroup>
           </select></label>
           <label className="bench-thinking"><span>{model === "prompt-api" ? "Working notes" : "Thinking"}</span><span className="bench-check-row"><input aria-label="Thinking" type="checkbox" checked={effectiveThinking} disabled={running || support !== "optional"} onChange={event => setThinking(event.currentTarget.checked)} /><span>{support === "none" ? "Not supported" : support === "required" ? "Required by model" : effectiveThinking ? "On" : "Off"}</span></span></label>
