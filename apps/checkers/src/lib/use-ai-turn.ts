@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react"
+import { legalMoves } from "./checkers"
 import type { Game } from "./checkers"
 import { commitMove, currentGame } from "./db"
 import { resolveOpponent, sameOpponent } from "./opponents"
@@ -48,8 +49,6 @@ export function useAiTurn(game: Game | undefined, busy: boolean) {
       })
 
     const run = async () => {
-      const ai = await import("./ai")
-      if (controller.signal.aborted) return
       const active = await currentGame()
       if (controller.signal.aborted) return
       if (
@@ -61,6 +60,18 @@ export function useAiTurn(game: Game | undefined, busy: boolean) {
         !sameOpponent(active.opponent, expectedOpponent)
       )
         return
+      const moves = legalMoves(active.board, "ai")
+      if (moves.length === 1) {
+        await commitMove(
+          expected.sessionId,
+          expected.history.length,
+          moves[0].id,
+          expectedOpponent
+        )
+        return
+      }
+      const ai = await import("./ai")
+      if (controller.signal.aborted) return
       const loadingStore = ai.loadingStoreFor(expectedOpponent)
       const syncProgress = () => {
         if (controller.signal.aborted) return

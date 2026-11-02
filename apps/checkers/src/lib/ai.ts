@@ -110,6 +110,10 @@ export async function chooseAiMove(
   if (game.turn !== "ai" || game.status !== "playing") {
     throw new Error("There is no AI turn to play.")
   }
+  const moves = legalMoves(game.board, "ai")
+  if (!moves.length) throw new Error("The AI has no legal moves.")
+  if (moves.length === 1) return moves[0].id
+
   const opponent = resolveOpponent(game.opponent)
   const thinkingSupport = opponentOption(opponent.model).thinking
   const contextLength = opponent.thinking ? 8192 : 4096
@@ -119,8 +123,6 @@ export async function chooseAiMove(
     )
   }
 
-  const moves = legalMoves(game.board, "ai")
-  if (!moves.length) throw new Error("The AI has no legal moves.")
   const ids = moves.map((move) => move.id) as [string, ...string[]]
   const outputSchema = z.object({ moveId: z.enum(ids) })
   const pieces = (side: "human" | "ai") =>
@@ -227,7 +229,9 @@ export async function chooseAiMove(
                 ),
                 ...(thinkingSupport !== "none" && {
                   reasoning: opponent.thinking
-                    ? ("high" as const)
+                    ? opponent.model === "LiquidAI/LFM3-1.7B-GGUF"
+                      ? { level: "high" as const, budgetTokens: 512 }
+                      : ("high" as const)
                     : ("off" as const)
                 }),
                 modelOptions: {
