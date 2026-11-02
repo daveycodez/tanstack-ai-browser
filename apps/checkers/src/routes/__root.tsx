@@ -1,3 +1,4 @@
+import { ThemeProvider } from "next-themes"
 import { Outlet } from "@tanstack/react-router"
 import {
   HeadContent,
@@ -39,12 +40,14 @@ export const Route = createRootRoute({
 
 function RootDocument({ children }: { children: ReactNode }) {
   return (
-    <html lang="en">
+    <html lang="en" suppressHydrationWarning>
       <head>
         <HeadContent />
       </head>
       <body>
-        {children}
+        <ThemeProvider attribute="data-theme" storageKey="checkers-theme" defaultTheme="system" enableSystem disableTransitionOnChange>
+          {children}
+        </ThemeProvider>
         <Scripts />
       </body>
     </html>

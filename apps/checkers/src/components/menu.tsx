@@ -1,3 +1,4 @@
+import { ThemeSelect } from "./theme-select"
 import type { Game } from "../lib/checkers"
 
 type MenuProps = {
@@ -59,12 +60,15 @@ export function MenuView({
   const current = game?.status === "playing"
   return (
     <div className="app-shell menu-shell">
-      <header className="brand">
+      <header className="menu-header">
+        <div className="brand">
         <span className="brand-mark" aria-hidden="true">
           <i />
           <i />
         </span>
         <span>Checkers</span>
+        </div>
+        <ThemeSelect />
       </header>
       <main className="menu-main">
         <div className="menu-copy">
