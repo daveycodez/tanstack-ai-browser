@@ -31,6 +31,25 @@ and draws after 40 moves each without a capture or advancing an uncrowned piece.
 Select a red piece, then a highlighted destination. Continue highlighted jumps to
 complete a capture. Arrow keys navigate the board; Enter selects; Escape cancels selection.
 
+## Motion and sound
+
+Pieces travel across the board with a short lift and landing. Captures arc over the
+opposing piece, which disappears as the jump lands; multi-jumps play one landing at
+a time, including interactive human capture chains. Promotion crowns the piece after
+landing. Board input and the next AI turn wait until playback settles, while game
+state still saves immediately. Restarts/navigation cancel pending animation, restored
+snapshots do not replay old turns, and reduced-motion preferences skip the arcs.
+
+The speaker icon in the menu and game header toggles quiet move/capture taps and short
+promotion/result cues. Sounds are synthesized locally with Web Audio; there are no
+sound downloads. A shared document listener unlocks audio from trusted mouse, touch,
+click, and keyboard gestures. Landing cues are scheduled ahead on the audio clock
+when each animation starts, with cancelled moves cancelling their pending cues.
+Unmuting plays a confirmation tap after audio resumes and may claim playback focus;
+muting or hiding the page stops pending cues, releases that focus, and suspends audio.
+The mute preference persists on this device and syncs between tabs. Unsupported or
+blocked audio never prevents playing.
+
 ## Local opponent
 
 The opponent label opens a model picker. It lists the WebGL models, excluding `-Web`

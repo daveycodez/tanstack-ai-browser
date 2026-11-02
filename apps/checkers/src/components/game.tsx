@@ -1,4 +1,7 @@
 import { useMemo, useState } from "react"
+import { useBoardMotion } from "../lib/use-board-motion"
+import { playGameSound } from "../lib/sounds"
+import { SoundToggle } from "./sound-toggle"
 import type { KeyboardEvent } from "react"
 import { legalMoves, previewBoard, squareName } from "../lib/checkers"
 import type { Game, Move } from "../lib/checkers"
@@ -16,11 +19,12 @@ type GameProps = {
   promptApiAvailable: boolean
   onOpponentChange: (settings: OpponentSettings) => void
   error?: string
-  onMove: (moveId: string) => void
+  onMove: (moveId: string) => void | Promise<boolean>
   onRetry: () => void
   onShowThinking: () => void
   onRestart: () => void
   onMenu: () => void
+  onBoardSettled?: () => void
 }
 
 const startsWithPath = (move: Move, path: number[]) =>
@@ -37,30 +41,46 @@ export function GameView({
   onRetry,
   onShowThinking,
   onRestart,
-  onMenu
+  onMenu,
+  onBoardSettled
 }: GameProps) {
-  const [path, setPath] = useState<number[]>([])
+  const position = `${game.sessionId}:${game.history.length}`
+  const [selection, setSelection] = useState<{ position: string; path: number[]; submitted?: boolean }>({ position, path: [] })
+  const path = selection.position === position ? selection.path : []
+  const setPath = (next: number[], submitted = false) => setSelection({ position, path: next, submitted })
+  const awaitingSave = selection.position === position && selection.submitted === true
   const [focusedSquare, setFocusedSquare] = useState(40)
   const moves = useMemo(
     () => legalMoves(game.board, game.turn),
     [game.board, game.turn]
   )
-  const active = game.status === "playing"
+  const targetBoard = path.length > 1 ? previewBoard(game.board, path) : game.board
+  const { board, step, moving, playingSide, motionId, boardRef, pieceRef } = useBoardMotion(
+    targetBoard,
+    path.length > 1 ? path : game.history.at(-1)?.path ?? [],
+    position,
+    (played) => {
+      if (played && game.status !== "playing") playGameSound(game.status === "human-won" ? "win" : game.status === "ai-won" ? "loss" : "draw")
+      onBoardSettled?.()
+    }
+  )
+  const active = moving || game.status === "playing"
+  const turn = playingSide ?? game.turn
+  const presentedMoves = useMemo(() => moving ? legalMoves(board, turn) : moves, [moving, board, turn, moves])
   const opponent = resolveOpponent(game.opponent)
-  const canMove = active && game.turn === "human" && !busy
+  const canMove = active && turn === "human" && !busy && !moving && !awaitingSave
   const candidates = moves.filter((move) => startsWithPath(move, path))
   const targets = path.length
     ? candidates
         .map((move) => move.path[path.length])
         .filter((square): square is number => square !== undefined)
     : []
-  const board = path.length > 1 ? previewBoard(game.board, path) : game.board
   const selected = path.at(-1)
   const lastMove = game.history.at(-1)
-  const humanPieces = game.board.filter(
+  const humanPieces = board.filter(
     (piece) => piece?.side === "human"
   ).length
-  const aiPieces = game.board.filter((piece) => piece?.side === "ai").length
+  const aiPieces = board.filter((piece) => piece?.side === "ai").length
   const captureRequired = moves.some((move) => move.captures.length > 0)
   const progress =
     ai.progress === undefined
@@ -91,10 +111,14 @@ export function GameView({
         const complete = nextMoves.find(
           (move) => move.path.length === nextPath.length
         )
+        setPath(nextPath, !!complete)
         if (complete) {
-          setPath([])
-          onMove(complete.id)
-        } else setPath(nextPath)
+          const saving = onMove(complete.id)
+          // Keep the final preview until the live query publishes this position.
+          // A successful persistence promise can resolve before React sees it.
+          const cancelPreview = () => setSelection(previous => previous.position === position ? { position, path: [] } : previous)
+          if (saving) void saving.then(saved => { if (!saved) cancelPreview() }, cancelPreview)
+        }
         return
       }
     }
@@ -110,7 +134,7 @@ export function GameView({
       ArrowUp: -8
     }
     if (event.key === "Escape") {
-      setPath([])
+      if (!moving && !busy && !awaitingSave) setPath([])
       return
     }
     const shift = shifts[event.key]
@@ -137,23 +161,26 @@ export function GameView({
           </span>
           <span>Checkers</span>
         </button>
-        <button className="text-button" onClick={onMenu}>
-          <span aria-hidden="true">←</span> Back to menu
-        </button>
+        <div className="game-header-actions">
+          <SoundToggle />
+          <button className="text-button" onClick={onMenu}>
+            <span aria-hidden="true">←</span> Back to menu
+          </button>
+        </div>
       </header>
       <main className="game-main">
         <div className="board-column">
           <section className="turn-panel" aria-live="polite">
             <h1
               className={
-                active && game.turn === "human"
+                active && turn === "human"
                   ? "turn-heading-human"
                   : undefined
               }
             >
               {!active
                 ? result
-                : game.turn === "human"
+                : turn === "human"
                   ? "Your move."
                   : "Opponent’s move."}
             </h1>
@@ -177,13 +204,13 @@ export function GameView({
                   </span>
                 </div>
               )}
-              {active && game.turn === "ai" && ai.phase === "processing" && (
+              {active && !moving && game.turn === "ai" && ai.phase === "processing" && (
                 <div className="thinking-indicator">
                   <span>Processing...</span>
                 </div>
               )}
               {active &&
-                game.turn === "ai" &&
+                !moving && game.turn === "ai" &&
                 ai.phase === "choosing" &&
                 (opponent.thinking ? (
                   <button className="thinking-button" onClick={onShowThinking}>
@@ -204,7 +231,7 @@ export function GameView({
             </div>
           </section>
           <div
-            className={`player-strip opponent-strip${game.turn === "ai" && active ? " is-turn" : ""}`}
+            className={`player-strip opponent-strip${turn === "ai" && active ? " is-turn" : ""}`}
           >
             <span className="player-avatar avatar-ai">
               <PieceArt side="ai" />
@@ -213,7 +240,7 @@ export function GameView({
               <OpponentPicker
                 value={opponent}
                 promptApiAvailable={promptApiAvailable}
-                disabled={busy}
+                disabled={busy || moving || awaitingSave}
                 onChange={onOpponentChange}
               />
               <span>Black pieces</span>
@@ -222,29 +249,32 @@ export function GameView({
               {aiPieces}
               <span> pieces</span>
             </span>
-            {game.turn === "ai" && active && (
+            {turn === "ai" && active && (
               <span className="turn-pip" aria-label="Current turn" />
             )}
           </div>
           <div className="board-frame">
             <div
               className="board"
+              ref={boardRef}
+              aria-busy={moving}
+              data-animating={moving || undefined}
               role="group"
               aria-label="Checkers board. Use arrow keys to navigate and Enter to select a piece or destination."
             >
               {board.map((piece, square) => {
                 const row = Math.floor(square / 8)
                 const dark = (row + (square % 8)) % 2 === 1
-                const target = targets.includes(square)
+                const target = !moving && targets.includes(square)
                 const turnMovable =
                   active &&
-                  piece?.side === game.turn &&
-                  (path.length > 1
+                  piece?.side === turn &&
+                  (path.length > 1 && !moving
                     ? square === selected
-                    : moves.some((move) => move.path[0] === square))
+                    : presentedMoves.some((move) => move.path[0] === square))
                 const movable = canMove && turnMovable
                 const dimmed =
-                  active && piece?.side === game.turn && !turnMovable
+                  active && piece?.side === turn && !turnMovable
                 const capturePiece =
                   canMove &&
                   captureRequired &&
@@ -259,7 +289,7 @@ export function GameView({
                     type="button"
                     data-square={square}
                     tabIndex={focusedSquare === square ? 0 : -1}
-                    className={`square ${dark ? "square-dark" : "square-light"}${isSelected ? " square-selected" : ""}${isLastMove ? " square-last" : ""}${movable ? " square-movable" : ""}${dimmed ? " square-dimmed" : ""}${target ? " square-target" : ""}`}
+                    className={`square ${dark ? "square-dark" : "square-light"}${isSelected ? " square-selected" : ""}${isLastMove ? " square-last" : ""}${movable ? " square-movable" : ""}${dimmed ? " square-dimmed" : ""}${target && !moving ? " square-target" : ""}${step?.from === square ? " square-piece-moving" : ""}`}
                     aria-label={label}
                     aria-pressed={isSelected}
                     onClick={() => {
@@ -285,16 +315,22 @@ export function GameView({
                       </span>
                     )}
                     {piece && <PieceArt side={piece.side} king={piece.king} />}
-                    {target && (
+                    {target && !moving && (
                       <span className="target-dot" aria-hidden="true" />
                     )}
                   </button>
                 )
               })}
+              {step && (
+                <span key={motionId} className="travelling-piece" ref={pieceRef} aria-hidden="true" style={{ left: `${(step.from % 8) * 12.5}%`, top: `${Math.floor(step.from / 8) * 12.5}%` }}>
+                  <span className="moving-shadow" />
+                  <PieceArt side={step.piece.side} king={step.piece.king} />
+                </span>
+              )}
             </div>
           </div>
           <div
-            className={`player-strip human-strip${game.turn === "human" && active ? " is-turn" : ""}`}
+            className={`player-strip human-strip${turn === "human" && active ? " is-turn" : ""}`}
           >
             <span className="player-avatar avatar-human">
               <PieceArt side="human" />
@@ -307,7 +343,7 @@ export function GameView({
               {humanPieces}
               <span> pieces</span>
             </span>
-            {game.turn === "human" && active && (
+            {turn === "human" && active && (
               <span className="turn-pip" aria-label="Current turn" />
             )}
           </div>
@@ -323,7 +359,7 @@ export function GameView({
               <button
                 className="button button-small button-secondary"
                 onClick={onRetry}
-                disabled={busy}
+                disabled={busy || moving || awaitingSave}
               >
                 Try again
               </button>
@@ -333,7 +369,7 @@ export function GameView({
             <button
               className="button button-primary"
               onClick={onRestart}
-              disabled={busy}
+              disabled={busy || moving || awaitingSave}
             >
               Start a new game
             </button>

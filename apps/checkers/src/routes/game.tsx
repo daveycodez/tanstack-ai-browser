@@ -28,7 +28,10 @@ function GamePage() {
   const [error, setError] = useState<string>()
   const [confirm, setConfirm] = useState(false)
   const [thinkingOpen, setThinkingOpen] = useState(false)
-  const ai = useAiTurn(game, busy)
+  const [settledPosition, setSettledPosition] = useState<string>()
+  const position = game ? `${game.sessionId}:${game.history.length}` : undefined
+  const playbackBusy = settledPosition !== undefined && settledPosition !== position
+  const ai = useAiTurn(game, busy || playbackBusy)
   const promptApiAvailable = usePromptApiAvailable()
 
   async function changeOpponent(settings: OpponentSettings) {
@@ -66,13 +69,14 @@ function GamePage() {
   }, [ready, game, storageError])
 
   async function move(moveId: string) {
-    if (!game || game.turn !== "human" || busy) return
+    if (!game || game.turn !== "human" || busy) return false
     setBusy(true)
     setError(undefined)
     try {
-      await commitMove(game.sessionId, game.history.length, moveId)
+      return await commitMove(game.sessionId, game.history.length, moveId)
     } catch {
       setError("Your move could not be saved. Please try again.")
+      return false
     } finally {
       setBusy(false)
     }
@@ -113,18 +117,17 @@ function GamePage() {
   return (
     <>
       <GameView
-        key={`${game.sessionId}:${game.history.length}`}
+        key={game.sessionId}
         game={game}
         ai={ai.state}
-        busy={busy}
+        busy={busy || playbackBusy}
+        onBoardSettled={() => setSettledPosition(position)}
         promptApiAvailable={promptApiAvailable}
         onOpponentChange={(settings) => {
           void changeOpponent(settings)
         }}
         error={storageError ?? error}
-        onMove={(id) => {
-          void move(id)
-        }}
+        onMove={move}
         onRetry={ai.retry}
         onShowThinking={() => setThinkingOpen(true)}
         onRestart={() =>

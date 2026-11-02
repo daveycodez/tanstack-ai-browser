@@ -205,22 +205,30 @@ a {
   height: 28px;
 }
 .brand-mark i {
+  --mark-face: var(--navy);
+  --mark-edge: #1b293d;
   position: absolute;
+  left: 0;
+  top: 0;
   width: 20px;
   height: 20px;
+  border-radius: 50% / 47.5%;
+  background: var(--mark-edge);
+  box-shadow: 0 2px 3px #26364c28;
+}
+.brand-mark i:before {
+  content: "";
+  position: absolute;
+  inset: 0 0 5%;
   border-radius: 50%;
-  background: var(--navy);
-  box-shadow:
-    inset 0 0 0 3px #ffffff1c,
-    0 2px 0 #1b293d;
+  background: var(--mark-face);
+  box-shadow: inset 0 0 0 3px #ffffff1c;
 }
 .brand-mark i:last-child {
+  --mark-face: var(--coral);
+  --mark-edge: #b74a45;
   left: 9px;
   top: 8px;
-  background: var(--coral);
-  box-shadow:
-    inset 0 0 0 3px #ffffff2c,
-    0 2px 0 #b74a45;
 }
 .brand-button {
   border: 0;
@@ -420,20 +428,27 @@ a {
   place-items: center;
   position: relative;
   width: 73%;
-  height: 73%;
-  border-radius: 50%;
+  height: auto;
+  aspect-ratio: 1;
+  border-radius: 50% / 47.5%;
   transition:
     transform 0.15s,
     opacity 0.15s,
     filter 0.15s;
-  box-shadow:
-    inset 0 1px 1px #ffffff4d,
-    0 4px 0 var(--piece-edge),
-    0 5px 4px #26364c35;
-  background: var(--piece-color);
+  box-shadow: 0 2px 5px #26364c40;
+  background: var(--piece-edge);
   color: #fff;
 }
-.piece:before {
+.piece-face {
+  position: absolute;
+  inset: 0 0 5%;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--piece-color);
+  box-shadow: inset 0 1px 2px #ffffff4d;
+}
+.piece-face:before {
   content: "";
   position: absolute;
   inset: 12%;
@@ -449,13 +464,14 @@ a {
   --piece-color: #344964;
   --piece-edge: #1f3048;
 }
-.piece > span {
+.piece-face > span {
+  transform: translateY(-0.08em);
   font-size: clamp(19px, 3vw, 31px);
   line-height: 1;
   z-index: 1;
   color: #fff1d2;
 }
-.piece-king:before {
+.piece-king .piece-face:before {
   border: 2px solid #fff1d29c;
 }
 .menu-footer {
@@ -523,6 +539,7 @@ a {
 .board {
   display: grid;
   grid-template-columns: repeat(8, minmax(0, 1fr));
+  grid-template-rows: repeat(8, minmax(0, 1fr));
   aspect-ratio: 1;
   overflow: hidden;
   border-radius: 1px;
@@ -546,15 +563,12 @@ a {
   transform: translateY(-2px);
 }
 .square-dimmed .piece {
-  opacity: 0.6;
-  filter: saturate(0.6);
+  opacity: 0.75;
+  filter: saturate(0.75);
 }
 .square-selected .piece {
   transform: translateY(-3px);
-  box-shadow:
-    inset 0 1px 1px #ffffff4d,
-    0 6px 0 var(--piece-edge),
-    0 8px 6px #26364c35;
+  box-shadow: 0 3px 7px #26364c40;
 }
 .square-last:before {
   content: "";
@@ -624,9 +638,7 @@ a {
 .player-avatar .piece {
   width: 25px;
   height: 25px;
-  box-shadow:
-    inset 0 1px 1px #ffffff4d,
-    0 2px 0 var(--piece-edge);
+  box-shadow: 0 1px 3px #26364c30;
 }
 .avatar-human {
   background: var(--avatar-human);
@@ -987,10 +999,7 @@ a {
       0 17px 30px #29364a18;
   }
   .menu-board .piece {
-    box-shadow:
-      inset 0 1px 1px #ffffff4d,
-      0 2px 0 var(--piece-edge),
-      0 3px 2px #26364c35;
+    box-shadow: 0 2px 4px #26364c40;
   }
   .menu-footer {
     display: block;
@@ -1135,7 +1144,7 @@ a {
   }
   .piece {
     width: 72%;
-    height: 72%;
+    height: auto;
   }
   .game-main {
     gap: 15px;
@@ -1542,4 +1551,48 @@ a {
 }
 .thinking-button:hover {
   color: var(--ink);
+}
+
+
+/* Motion stays on the board; controls and surrounding layout remain still. */
+.menu-header-actions,
+.game-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+}
+.board {
+  position: relative;
+  overflow: visible;
+}
+.square-piece-moving > .piece {
+  visibility: hidden;
+}
+.travelling-piece {
+  position: absolute;
+  width: 12.5%;
+  height: 12.5%;
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+  z-index: 10;
+  will-change: transform;
+}
+.travelling-piece .piece {
+  transition: none;
+  will-change: transform;
+}
+.moving-shadow {
+  position: absolute;
+  width: 70%;
+  height: 18%;
+  top: 71%;
+  left: 15%;
+  border-radius: 50%;
+  background: #172334;
+  filter: blur(4px);
+  opacity: .25;
+}
+@media (max-width: 680px) {
+  .game-header-actions { gap: 12px; }
 }
