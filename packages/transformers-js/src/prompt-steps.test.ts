@@ -16,7 +16,7 @@ describe("nextPromptStep", () => {
   })
 
   test("fits PROMPT_STEP_MS at the last rate", () => {
-    // 0.3 tokens/ms reads 225 tokens in 0.75 s.
+    // 0.3 tokens/ms reads 450 tokens in 1.5 s.
     assert.equal(nextPromptStep(256, 0.3), Math.round(0.3 * PROMPT_STEP_MS))
   })
 
@@ -40,7 +40,7 @@ describe("nextPromptStep", () => {
 
   test("a slow device shrinks steps at once", () => {
     // ~45 tokens/s, as Qwen3.5 read on a Mac with its Scan bodies on the GPU.
-    assert.equal(nextPromptStep(1024, 0.045), 34)
+    assert.equal(nextPromptStep(1024, 0.045), 68)
   })
 
   test("grows 256, 512, 1024 on a fast device", () => {
