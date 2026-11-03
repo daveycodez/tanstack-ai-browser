@@ -1,5 +1,9 @@
 # Adapter cache regression checks
 
+Raw run artifacts are no longer tracked. Keep only [the latest compact summary](latest.json);
+regenerate raw files locally as needed. Fixed regression fixtures remain separate.
+
+
 These manual browser checks use the normal TanStack API. No consumer cache
 placement controls or prompt-layout changes are used. The baseline is a frozen Git
 revision of WebGL, Transformers.js, and their shared tool/constraint helpers.

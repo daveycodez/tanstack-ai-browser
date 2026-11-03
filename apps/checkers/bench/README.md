@@ -1,5 +1,9 @@
 # Manual Checkers AI benchmark
 
+Raw run artifacts are no longer tracked. Keep only [the latest compact summary](latest.json);
+regenerate raw files locally as needed. Fixed regression fixtures remain separate.
+
+
 Open `/bench` on the Checkers dev server (`http://localhost:3002/bench`). Start it with
 `pnpm nx dev checkers` if needed. The page shares the game's origin and downloaded model
 cache, but constructs positions independently and never modifies the saved game. It is not linked from the main menu.

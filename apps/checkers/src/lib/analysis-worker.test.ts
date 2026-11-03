@@ -11,7 +11,7 @@ import { buildMovePrompt } from "./shared-prompt.ts"
 import { legalMoves } from "./checkers.ts"
 import type { Game } from "./checkers.ts"
 
-const fixtures = JSON.parse(gunzipSync(readFileSync(new URL("../../bench/results/review-followups/analysis-baseline.json.gz",import.meta.url))).toString()) as {id:string;game:Game;annotations:ReturnType<typeof annotateMoves>;input:ReturnType<typeof buildMovePrompt>}[]
+const fixtures = JSON.parse(gunzipSync(readFileSync(new URL("./__fixtures__/analysis-baseline.json.gz",import.meta.url))).toString()) as {id:string;game:Game;annotations:ReturnType<typeof annotateMoves>;input:ReturnType<typeof buildMovePrompt>}[]
 const slow = fixtures.find(f=>f.id==="reported-long-analysis")
 assert.ok(slow)
 const request: AnalysisRequest = {game:slow.game,moves:legalMoves(slow.game.board,"ai"),version:"shared-v9"}

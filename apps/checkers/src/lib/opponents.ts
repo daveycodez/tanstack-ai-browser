@@ -36,7 +36,7 @@ export const WEBGL_OPPONENTS: OpponentOption[] = WEBGL_TEXT_MODELS.filter(
         ? "optional"
         : "required"
   }
-})
+}).sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: "base" }))
 
 export function opponentOption(model: OpponentModel): OpponentOption {
   return model === "prompt-api"
@@ -50,6 +50,7 @@ export function opponentOption(model: OpponentModel): OpponentOption {
               : "Prompt API"
       }
     : (WEBGL_OPPONENTS.find((option) => option.id === model) ??
+        WEBGL_OPPONENTS.find((option) => option.id === DEFAULT_OPPONENT.model) ??
         WEBGL_OPPONENTS[0])
 }
 

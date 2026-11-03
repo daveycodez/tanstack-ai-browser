@@ -73,20 +73,20 @@ production for both models. These are compatibility/calibration results, not fre
 holdouts or proof that all future stochastic games will avoid mistakes. No latency
 improvement is claimed from sequential before/after runs.
 
-Raw evidence: [LFM](results/smallest-loss-v9/lfm-comparison.json.gz),
-[Nano](results/smallest-loss-v9/nano-comparison.json.gz),
-[summary](results/smallest-loss-v9/quality-summary.json),
-[token counts](results/smallest-loss-v9/token-counts.json),
-[source hashes](results/smallest-loss-v9/source-manifest.json),
-[sentence-only comparison](results/smallest-loss-v9/lfm-sentence-only-comparison.json.gz),
-[reasoning diagnostic](results/smallest-loss-v9/lfm-sentence-only-diagnostic.json.gz),
-[LFM Chrome proof](results/smallest-loss-v9/lfm-chrome.png),
-[Nano Chrome proof](results/smallest-loss-v9/nano-chrome.png).
+Raw evidence: LFM (raw run archived locally),
+Nano (raw run archived locally),
+summary (raw run archived locally),
+token counts (raw run archived locally),
+source hashes (raw run archived locally),
+sentence-only comparison (raw run archived locally),
+reasoning diagnostic (raw run archived locally),
+LFM Chrome proof (raw run archived locally),
+Nano Chrome proof (raw run archived locally).
 The startup revision in browser reports can be stale; exact prompt strings and manifest
 hashes identify each evaluated payload.
 
 **159 tests, independent suite audit, typecheck, lint and production/prerender build passed.**
-[Nx validation output](results/smallest-loss-v9/nx-checks.log).
+Nx validation output (raw run archived locally).
 
 Reproduce CPU verification with:
 

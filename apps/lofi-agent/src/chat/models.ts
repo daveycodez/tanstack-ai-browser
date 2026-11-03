@@ -63,6 +63,9 @@ export type ModelId =
   | "lfm2.5-web-webgl"
   | "lfm2.5-thinking-web-webgl"
   | "lfm2.5-350m-webgl"
+  | "lfm2.5-gguf-webgl"
+  | "lfm2.5-thinking-gguf-webgl"
+  | "lfm2.5-350m-gguf-webgl"
   | "qwen3.5-2b-webgl"
   | "qwen3.5-2b-gguf-webgl"
   | "built-in"
@@ -216,13 +219,16 @@ export const MODELS = [
   webgl("lfm3-web-webgl", "daveycodez/LFM3-1.7B-Web-ONNX"),
   webgl("lfm3-webgl", "LiquidAI/LFM3-1.7B-GGUF"),
   webgl("lfm2.5-webgl", "LiquidAI/LFM2.5-1.2B-Instruct-ONNX"),
+  webgl("lfm2.5-gguf-webgl", "LiquidAI/LFM2.5-1.2B-Instruct-GGUF"),
   webgl("lfm2.5-thinking-webgl", "LiquidAI/LFM2.5-1.2B-Thinking-ONNX"),
+  webgl("lfm2.5-thinking-gguf-webgl", "LiquidAI/LFM2.5-1.2B-Thinking-GGUF"),
   webgl("lfm2.5-web-webgl", "daveycodez/LFM2.5-1.2B-Web-ONNX"),
   webgl(
     "lfm2.5-thinking-web-webgl",
     "daveycodez/LFM2.5-1.2B-Thinking-Web-ONNX"
   ),
   webgl("lfm2.5-350m-webgl", "LiquidAI/LFM2.5-350M-ONNX"),
+  webgl("lfm2.5-350m-gguf-webgl", "LiquidAI/LFM2.5-350M-GGUF"),
   webgl("qwen3.5-2b-webgl", "onnx-community/Qwen3.5-2B-ONNX"),
   webgl("qwen3.5-2b-gguf-webgl", "unsloth/Qwen3.5-2B-GGUF")
 ] satisfies Array<{
