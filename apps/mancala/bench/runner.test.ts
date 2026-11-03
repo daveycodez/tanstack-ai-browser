@@ -120,3 +120,26 @@ test("pairing reverses and then rotates without losing legal choices", () => {
     medianSeconds: null
   })
 })
+
+test("baseline version reaches production diagnostics and is recorded without changing the grade", async () => {
+  let requested: string | undefined
+  const report = await runBenchmark(
+    options({
+      promptVersion: "shared-v1",
+      repetitions: 1,
+      chooseMove: async (
+        _game,
+        _controller,
+        _phase,
+        _thinking,
+        diagnostics
+      ) => {
+        requested = diagnostics?.promptVersion
+        return 7
+      }
+    })
+  )
+  assert.equal(requested, "shared-v1")
+  assert.equal(report.promptVersion, "shared-v1")
+  assert.equal(report.results[0].passed, true)
+})

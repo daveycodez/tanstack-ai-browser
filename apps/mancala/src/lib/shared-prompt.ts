@@ -1,179 +1,194 @@
 import { legalMoves, sow } from "./mancala.ts"
-import type { Board, Game, Side } from "./mancala.ts"
+import type { Game, Side } from "./mancala.ts"
+import {
+  analyzeTacticalMoves,
+  TACTICAL_OUTCOME_VERSION
+} from "./move-outcomes.ts"
+import type { TacticalMoveOutcome } from "./move-outcomes.ts"
+import { buildMovePrompt as buildBaseline } from "./shared-prompt-v1.ts"
+import type {
+  MoveAnalysis as BaselineAnalysis,
+  PromptInput as BaselineInput
+} from "./shared-prompt-v1.ts"
 
-export const SHARED_PROMPT_VERSION = "shared-v1" as const
-export type PromptVersion = typeof SHARED_PROMPT_VERSION
-export const ANALYSIS_PLIES = 6
+export const SHARED_PROMPT_VERSION = "shared-v2" as const
+export const PROMPT_VERSIONS = ["shared-v1", SHARED_PROMPT_VERSION] as const
+export type PromptVersion = (typeof PROMPT_VERSIONS)[number]
+export type MoveAnalysis = Omit<
+  BaselineAnalysis,
+  "checkedScore" | "humanCanWinNext" | "maxHumanCaptureNext"
+> & {
+  checkedScore: number | null
+  humanCanWinNext: boolean | null
+  maxHumanCaptureNext: number | null
+  tactical?: TacticalMoveOutcome
+}
+export type PromptInput = Omit<BaselineInput, "version" | "analysis"> & {
+  version: PromptVersion
+  outcomeVersion?: string
+  analysis: MoveAnalysis[]
+  priorityPits?: number[]
+}
 export const SHARED_SYSTEM_PROMPT = [
-  "Play the top (AI) side in Kalah Mancala. Choose one supplied legal pit; card order is not a ranking. Each card is a separate possible next board. Never combine outcomes across alternatives.",
-  "Priorities: take a guaranteed win; prevent a checked loss; otherwise prefer the highest checked score and use strategic judgment to break ties. Immediate captures and extra turns are useful only if the opponent's best replies do not outweigh them. A small capture can be better than a large one that exposes a bigger capture or losing sweep.",
-  "Kalah rules: sow one seed into each next pit or your store, skipping the opponent's store. Finish in your store for another move. Finish in an empty pit on your own side with seeds opposite to capture those seeds and your final seed. If either row is empty, sweep the other row into its owner's store and compare stores. More than 24 seeds guarantees a win; 24 each is a draw.",
-  "Verified previews use minimax over six sow actions total, including this action. Extra moves stay with the same player and consume one sow action. At the horizon, only the difference between stores is evaluated. Terminal boards include the final sweep. Checked score is AI store minus human store, with +1000 for a guaranteed AI win or -1000 for a guaranteed human win. Every legal continuation is available within the horizon; both players optimize this score. These bounded previews do not prove an eventual win unless explicitly marked guaranteed. Prefer the smallest checked loss if all alternatives lose."
+  "Play the AI side in Kalah. Choose one supplied legal pit. Use the verified outcomes; card order is not a ranking. Each card is a separate alternative. Never combine its board or continuation with another card.",
+  "Take a proved win; otherwise avoid a proved Human win. Choose from CHECKED PRIORITY CHOICES when listed. Those choices maximize the worst checked outcome AFTER both players finish their turns, including every bonus sow. Do not leave that group to chase an immediate capture or another turn. Use strategic judgment to break ties within it.",
+  "A steal takes seeds from the opposite pit plus the landing seed. DANGER names an actual Human sequence, its landing pit, and the AI stash stolen. A bonus can let Human create an empty landing pit and steal later in the SAME turn. Large exposed stashes matter; a capture is useful only after weighing the best Human reply and your counterplay. A listed possible steal is exposure, not necessarily a forced net loss. STEAL-SAFE means no capture in the checked Human turn, not permanent safety.",
+  "Whole-turn minimax checks the same number of completed turns for every card: AI, Human, AI response, then Human when four turns are checked. Bonus sows do not consume a turn. Scores use AI store minus Human store; a proved win adds 1000, a proved loss subtracts 1000. More than 24 secured seeds guarantees a win. Final sweeps are included. A bounded store margin is not an eventual win. When analysis is incomplete, do not treat missing threats as safe or partial scores as comparable.",
+  "Immediate bonuses, captures, empty landing-pit setups, and flexibility are tie-breakers only. Seeds still in pits are unsecured. Do not prefer a full pit, an empty pit, or a bonus universally. Sow counterclockwise, include your store, skip theirs; capture only when the final seed lands in your own empty pit with seeds opposite. When either row empties, each player sweeps their remaining seeds into their own store."
 ].join("\n\n")
 
-export type MoveAnalysis = {
-  pit: number
-  captured: number
-  extraTurn: boolean
-  immediateStatus: Game["status"]
-  storeGain: number
-  checkedScore: number
-  principalLine: { side: Side; pit: number }[]
-  humanCanWinNext: boolean
-  maxHumanCaptureNext: number
-  nodes: number
-}
-export type PromptInput = {
-  version: PromptVersion
-  systemPrompt: string
-  prompt: string
-  choices: { id: number; label: string; outcome: string }[]
-  analysis: MoveAnalysis[]
-}
-
-type SearchResult = { score: number; line: { side: Side; pit: number }[] }
-const guaranteed = (board: Board, status: Game["status"]) =>
-  status === "ai-won" || board[13] > 24
-    ? 1
-    : status === "human-won" || board[6] > 24
-      ? -1
-      : 0
-const evaluate = (board: Board, status: Game["status"]) =>
-  guaranteed(board, status) * 1000 + board[13] - board[6]
 const label = (pit: number, side: Side = "ai") =>
   String(side === "ai" ? pit - 6 : pit + 1)
+const path = (pits: number[], side: Side) =>
+  pits
+    .map((pit) => `${side === "ai" ? "AI" : "Human"} ${label(pit, side)}`)
+    .join(" > ")
+const signed = (value: number) => `${value > 0 ? "+" : ""}${value}`
 
-/** Uniform fixed-depth search: every candidate gets the same sow-action horizon. */
+/** Advice is explicit, but every legal move remains available to the model. */
+export function checkedPriorityChoices(
+  outcomes: readonly TacticalMoveOutcome[]
+): number[] {
+  if (
+    !outcomes.length ||
+    outcomes.some((move) => !move.complete || move.checkedScore === null)
+  )
+    return []
+  const wins = outcomes.filter((move) => move.guaranteedOutcome === "ai-win")
+  const defensible = outcomes.filter(
+    (move) => move.guaranteedOutcome !== "human-win"
+  )
+  const candidates = wins.length
+    ? wins
+    : defensible.length
+      ? defensible
+      : outcomes
+  const best = Math.max(
+    ...candidates.map((move) => move.checkedScore ?? -Infinity)
+  )
+  return candidates
+    .filter((move) => move.checkedScore === best)
+    .map((move) => move.pit)
+}
+
 export function analyzeMoves(
   game: Game,
   moves: readonly number[] = legalMoves(game.board, "ai")
 ): MoveAnalysis[] {
-  if (game.status !== "playing" || game.turn !== "ai") return []
-  const table = new Map<string, SearchResult>()
-  let nodes = 0
-  function search(
-    board: Board,
-    side: Side,
-    status: Game["status"],
-    depth: number
-  ): SearchResult {
-    nodes++
-    if (!depth || status !== "playing")
-      return { score: evaluate(board, status), line: [] }
-    const key = `${board.join(",")}:${side}:${depth}`
-    const cached = table.get(key)
-    if (cached) return cached
-    const options = legalMoves(board, side)
-    let best: SearchResult | undefined
-    for (const pit of options) {
-      const next = sow(board, side, pit)
-      const result = search(next.board, next.turn, next.status, depth - 1)
-      if (
-        !best ||
-        (side === "ai" ? result.score > best.score : result.score < best.score)
-      ) {
-        best = { score: result.score, line: [{ side, pit }, ...result.line] }
-      }
-    }
-    const result = best ?? { score: evaluate(board, status), line: [] }
-    table.set(key, result)
-    return result
+  const outcomes = analyzeTacticalMoves(game, moves)
+  return outcomes.map((tactical) => ({
+    pit: tactical.pit,
+    captured: tactical.captured,
+    extraTurn: tactical.extraTurn,
+    immediateStatus: tactical.immediateStatus,
+    storeGain: tactical.storeGain,
+    checkedScore: tactical.checkedScore,
+    principalLine: tactical.principalLine,
+    humanCanWinNext: tactical.humanCanWinNext,
+    maxHumanCaptureNext: tactical.maxHumanCapture,
+    nodes: tactical.nodes,
+    tactical
+  }))
+}
+
+function endOwnTurn(game: Game, outcome: TacticalMoveOutcome) {
+  let end = sow(game.board, "ai", outcome.pit)
+  if (outcome.complete)
+    for (const pit of outcome.bestAiTurn.slice(1))
+      end = sow(end.board, "ai", pit)
+  return end
+}
+
+function describeOutcome(
+  game: Game,
+  outcome: TacticalMoveOutcome,
+  priority: ReadonlySet<number>
+): string {
+  const first = sow(game.board, "ai", outcome.pit)
+  const immediate = `capture ${outcome.captured}; store +${outcome.storeGain}; ${outcome.extraTurn ? "BONUS: AI moves again" : outcome.immediateStatus === "playing" ? "Human next" : `FINISHED ${outcome.immediateStatus}, final AI ${first.board[13]} / Human ${first.board[6]}`}`
+  const checked =
+    outcome.complete && outcome.checkedScore !== null
+      ? `Checked score ${signed(outcome.checkedScore)} after ${outcome.completeTurnsChecked} complete turns${outcome.guaranteedOutcome ? `; PROVED ${outcome.guaranteedOutcome}` : " (bounded store preview)"}.`
+      : "Whole-turn score INCOMPLETE; no safety or priority inference from missing branches."
+  const own = outcome.complete
+    ? `Own complete turn ${path(outcome.bestAiTurn, "ai")}: store +${outcome.aiTurnStoreGain}, captures ${outcome.aiTurnCapture}.`
+    : "Own complete continuation not fully checked."
+  const hasHumanReply = endOwnTurn(game, outcome).status === "playing"
+  const conditional =
+    outcome.bestAiTurn.length > 1 ? "After that AI bonus continuation, " : ""
+  let risk = !hasHumanReply
+    ? "No Human reply: this AI turn ends the game."
+    : outcome.safetyChecked
+      ? outcome.maxHumanTurnCapture === 0
+        ? `${conditional}STEAL-SAFE for the complete Human reply.`
+        : `${conditional}Human can capture up to ${outcome.maxHumanTurnCapture} total seeds in one turn.`
+      : "Human steal scan INCOMPLETE: missing threats are unknown."
+  if (outcome.humanSteal) {
+    const steal = outcome.humanSteal
+    risk += ` DANGER ${path(steal.path, "human")}: ${steal.captures.map((capture) => `lands Human ${label(capture.landingPit, "human")}, steals ${capture.stolenSeeds} from AI pit ${label(capture.targetPit)} + 1 landing seed = ${capture.captured}`).join("; ")}.`
+    if (!outcome.safetyChecked)
+      risk += " This is an observed possible steal, not an exhaustive maximum."
   }
-  const allowed = legalMoves(game.board, "ai")
-  if (
-    new Set(moves).size !== moves.length ||
-    moves.some((pit) => !allowed.includes(pit))
-  )
-    throw new Error("Prompt choices must be distinct legal AI pits.")
-  return moves.map((pit) => {
-    const first = sow(game.board, "ai", pit)
-    const beforeNodes = nodes
-    const checked = search(
-      first.board,
-      first.turn,
-      first.status,
-      ANALYSIS_PLIES - 1
-    )
-    const replies =
-      first.status === "playing" && first.turn === "human"
-        ? legalMoves(first.board, "human").map((reply) =>
-            sow(first.board, "human", reply)
-          )
-        : []
-    return {
-      pit,
-      captured: first.captured,
-      extraTurn: first.extraTurn,
-      immediateStatus: first.status,
-      storeGain: first.board[13] - game.board[13],
-      checkedScore: checked.score,
-      principalLine: [{ side: "ai", pit }, ...checked.line],
-      humanCanWinNext: replies.some(
-        (reply) => reply.status === "human-won" || reply.board[6] > 24
-      ),
-      maxHumanCaptureNext: Math.max(
-        0,
-        ...replies.map((reply) => reply.captured)
-      ),
-      nodes: nodes - beforeNodes
-    }
-  })
+  if (outcome.humanCanWinNext === true)
+    risk += " Human has a winning full-turn reply."
+  const response = outcome.bestAiResponse.length
+    ? `Separate worst-net line: ${path(outcome.worstHumanReply, "human")}; after THAT reply, ${path(outcome.bestAiResponse, "ai")}.`
+    : ""
+  return `Pit ${label(outcome.pit)} | ${priority.has(outcome.pit) ? "CHECKED PRIORITY; " : ""}${game.board[outcome.pit]} seeds; ${immediate}. ${checked} ${own} ${risk} ${response}`.trim()
 }
 
 export function buildMovePrompt(
   game: Game,
-  moves: readonly number[] = legalMoves(game.board, "ai")
+  moves: readonly number[] = legalMoves(game.board, "ai"),
+  version: PromptVersion = SHARED_PROMPT_VERSION
 ): PromptInput {
+  if (version === "shared-v1") return buildBaseline(game, moves)
+  if (version !== SHARED_PROMPT_VERSION)
+    throw new Error("Unsupported prompt version.")
   const analysis = analyzeMoves(game, moves)
-  const best = Math.max(...analysis.map((move) => move.checkedScore))
-  const choices = analysis.map((move) => {
-    const after = sow(game.board, "ai", move.pit)
-    const result =
-      move.immediateStatus !== "playing"
-        ? `finished ${move.immediateStatus}; swept final score AI ${after.board[13]}, human ${after.board[6]}`
-        : `${move.extraTurn ? "AI moves again" : "human moves next"}; stores AI ${after.board[13]}, human ${after.board[6]}`
-    const line = move.principalLine
-      .map(
-        (action) =>
-          `${action.side === "ai" ? "AI" : "human"} ${label(action.pit, action.side)}`
-      )
-      .join(", ")
-    const score = `${move.checkedScore > 0 ? "+" : ""}${move.checkedScore}`
-    return {
-      id: move.pit,
-      label: label(move.pit),
-      outcome: `Pit ${label(move.pit)} | ${game.board[move.pit]} seeds; capture ${move.captured}; store gain ${move.storeGain}; ${result}. Checked score ${score}${Math.abs(move.checkedScore) >= 1000 ? " (guaranteed outcome within checked play)" : " (bounded store preview)"}. ${after.turn === "human" && after.status === "playing" ? `Largest immediate human capture ${move.maxHumanCaptureNext}; human can win next sow: ${move.humanCanWinNext ? "yes" : "no"}. ` : ""}Best checked line: ${line}. Resulting human row [${after.board.slice(0, 6)}]; AI row [${after.board.slice(7, 13)}].`
-    }
-  })
+  const outcomes = analysis.flatMap((move) =>
+    move.tactical ? [move.tactical] : []
+  )
+  const priorityPits = checkedPriorityChoices(outcomes)
+  const priority = new Set(priorityPits)
+  const safe = outcomes.filter(
+    (move) =>
+      move.safetyChecked &&
+      move.maxHumanTurnCapture === 0 &&
+      endOwnTurn(game, move).status === "playing"
+  )
+  const choices = outcomes.map((move) => ({
+    id: move.pit,
+    label: label(move.pit),
+    outcome: describeOutcome(game, move, priority)
+  }))
+  const facts = [
+    ...(priorityPits.length
+      ? [
+          `CHECKED PRIORITY CHOICES: ${priorityPits.map((pit) => `Pit ${label(pit)}`).join(", ")}. Choose from these; use other hints only to break ties.`
+        ]
+      : [
+          "Whole-turn choices are not all comparable. No priority group is asserted."
+        ]),
+    ...(safe.length
+      ? [
+          `STEAL-SAFE COMPLETE REPLIES: ${safe.map((move) => `Pit ${label(move.pit)}${move.bestAiTurn.length > 1 ? ` following ${path(move.bestAiTurn, "ai")}` : ""}`).join("; ")}. Capture safety alone does not override a higher checked net.`
+        ]
+      : [])
+  ]
   return {
-    version: SHARED_PROMPT_VERSION,
+    version,
+    outcomeVersion: TACTICAL_OUTCOME_VERSION,
     systemPrompt: SHARED_SYSTEM_PROMPT,
     choices,
     analysis,
+    priorityPits,
     prompt: [
-      "AI to move. Pit labels 1..6 follow each player's sowing order, not left-to-right screen order. AI choices 1..6 map to board indices 7..12; human pits 1..6 map to indices 0..5. Sowing increases indices modulo 14, skipping the enemy store. Opposite pit is 12 minus its index.",
-      `Human row [${game.board.slice(0, 6)}], store ${game.board[6]}. AI row [${game.board.slice(7, 13)}], store ${game.board[13]}.`,
-      "Last five sow actions (oldest first):",
-      ...(game.history.length
-        ? game.history
-            .slice(-5)
-            .map(
-              (move) =>
-                `${move.side === "ai" ? "AI" : "human"} pit ${label(move.pit, move.side)}; captured ${move.captured}; extra turn ${move.extraTurn ? "yes" : "no"}.`
-            )
-        : ["none"]),
-      "All legal choices (independent alternatives, unranked):",
+      "AI to move. Your pits 1..6 are in sowing order, NOT left-to-right screen order. Human labels are also in its sowing order. A path is a legal sequence by the named side, including its bonus sows.",
+      `BOARD NOW: AI pits [${game.board.slice(7, 13)}], store ${game.board[13]}; Human pits [${game.board.slice(0, 6)}], store ${game.board[6]}.`,
+      ...facts,
+      "ALL LEGAL CHOICES (independent alternatives):",
       ...choices.map((choice) => choice.outcome),
-      ...(analysis.length && analysis.some((move) => move.checkedScore !== best)
-        ? [
-            `Highest checked score choices: ${analysis
-              .filter((move) => move.checkedScore === best)
-              .map((move) => `Pit ${label(move.pit)}`)
-              .join(
-                ", "
-              )}. Use strategic judgment to break ties; this is bounded advice, all legal choices remain available.`
-          ]
-        : []),
       `Return exactly one JSON object with key "pit" and its quoted legal label: ${choices.map((choice) => JSON.stringify(choice.label)).join(", ")}.`
     ].join("\n")
   }

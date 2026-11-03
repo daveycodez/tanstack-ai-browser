@@ -4,6 +4,7 @@ import {
   Link,
   Outlet,
   Scripts,
+  useRouterState,
   createRootRoute
 } from "@tanstack/react-router"
 import type { ReactNode } from "react"
@@ -29,11 +30,7 @@ export const Route = createRootRoute({
     ]
   }),
   shellComponent: RootDocument,
-  component: () => (
-    <GameStorageProvider>
-      <Outlet />
-    </GameStorageProvider>
-  ),
+  component: RootContent,
   notFoundComponent: () => (
     <main className="storage-screen">
       <h1>A little off the board.</h1>
@@ -60,5 +57,17 @@ function RootDocument({ children }: { children: ReactNode }) {
         <Scripts />
       </body>
     </html>
+  )
+}
+
+function RootContent() {
+  const pathname = useRouterState({
+    select: (state) => state.location.pathname.replace(/\/$/, "")
+  })
+  if (pathname === "/bench" || pathname === "/bench-runtime") return <Outlet />
+  return (
+    <GameStorageProvider>
+      <Outlet />
+    </GameStorageProvider>
   )
 }

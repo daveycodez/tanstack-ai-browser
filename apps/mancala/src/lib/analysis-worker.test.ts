@@ -35,10 +35,14 @@ test("the real worker entry produces the identical production prompt", async () 
     { eval: true, execArgv: ["--experimental-strip-types"] }
   )
   try {
-    const reply = once(worker, "message")
-    worker.postMessage(request)
-    const [value] = await reply
-    assert.deepEqual(value, { input })
+    for (const version of ["shared-v1", "shared-v2"] as const) {
+      const reply = once(worker, "message")
+      worker.postMessage({ ...request, version })
+      const [value] = await reply
+      assert.deepEqual(value, {
+        input: buildMovePrompt(game, request.moves, version)
+      })
+    }
   } finally {
     await worker.terminate()
   }

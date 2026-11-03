@@ -1,9 +1,17 @@
 import { Link } from "@tanstack/react-router"
 import { loadPromptApiModel } from "@tanstack-ai-browser/prompt-api"
-import { useEffect, useRef, useState } from "react"
+import { useEffect, useRef, useState, useSyncExternalStore } from "react"
 import type { FormEvent } from "react"
 import { CASES, SUITE_VERSION } from "../../bench/cases"
 import { median, runBenchmark, summarize } from "../../bench/runner"
+import { runParallelBenchmarks, PARALLEL_MODELS } from "../../bench/parallel"
+import type {
+  ParallelModel,
+  ParallelReport,
+  ParallelSlot
+} from "../../bench/parallel"
+import { SHARED_PROMPT_VERSION } from "../lib/shared-prompt"
+import type { PromptVersion } from "../lib/shared-prompt"
 import type { BenchmarkReport, BenchmarkResult } from "../../bench/types"
 import {
   DEFAULT_OPPONENT,
@@ -18,6 +26,12 @@ const time = (seconds: number | null) =>
   seconds === null ? "—" : `${seconds.toFixed(2)}s`
 const json = (value: unknown) => JSON.stringify(value, null, 2)
 const pitLabel = (pit?: number) => (pit === undefined ? "—" : `Pit ${pit - 6}`)
+
+const subscribePlatform = () => () => undefined
+const macSnapshot = () =>
+  typeof navigator !== "undefined" &&
+  /Mac/.test(navigator.platform) &&
+  navigator.maxTouchPoints === 0
 
 function Trial({ result }: { result: BenchmarkResult }) {
   const [open, setOpen] = useState(false)
@@ -114,18 +128,39 @@ export function BenchmarkView() {
   const [budget, setBudget] = useState(512)
   const [selection, setSelection] = useState("calibration")
   const [running, setRunning] = useState(false)
-  const [results, setResults] = useState<BenchmarkResult[]>([])
-  const [report, setReport] = useState<BenchmarkReport>()
-  const [status, setStatus] = useState(
+  const [singleResults, setResults] = useState<BenchmarkResult[]>([])
+  const [singleReport, setReport] = useState<BenchmarkReport>()
+  const [singleStatus, setStatus] = useState(
     "Choose your settings. The model runs when you press Run benchmark."
   )
-  const [error, setError] = useState<string>()
+  const [singleError, setError] = useState<string>()
   const [copyStatus, setCopyStatus] = useState("")
   const [reportOpen, setReportOpen] = useState(false)
   const [loadStatus, setLoadStatus] = useState("")
   const controller = useRef<AbortController | undefined>(undefined)
   const mounted = useRef(true)
   const promptApiAvailable = usePromptApiAvailable()
+  const parallelMac = useSyncExternalStore(
+    subscribePlatform,
+    macSnapshot,
+    () => false
+  )
+  const [promptVersion, setPromptVersion] = useState<PromptVersion>(
+    SHARED_PROMPT_VERSION
+  )
+  const [batch, setBatch] =
+    useState<Partial<Record<ParallelModel, ParallelSlot>>>()
+  const [batchReport, setBatchReport] = useState<ParallelReport>()
+  const [batchReportOpen, setBatchReportOpen] = useState(false)
+  const [viewedModel, setViewedModel] = useState<ParallelModel>(
+    "unsloth/Qwen3.5-2B-GGUF"
+  )
+  const activeBatch = batch?.[viewedModel]
+  const results = activeBatch ? activeBatch.results : singleResults
+  const report = activeBatch ? activeBatch.report : singleReport
+  const status = activeBatch ? activeBatch.status : singleStatus
+  const error = activeBatch ? activeBatch.error : singleError
+
   const selected =
     selection === "all"
       ? CASES
@@ -191,6 +226,8 @@ export function BenchmarkView() {
     const active = new AbortController()
     const caseIds = selected.map((testCase) => testCase.id)
     controller.current = active
+    setBatch(undefined)
+    setBatchReport(undefined)
     setRunning(true)
     setResults([])
     setReport(undefined)
@@ -200,6 +237,7 @@ export function BenchmarkView() {
     try {
       const output = await runBenchmark({
         opponent,
+        promptVersion,
         repetitions,
         reasoningBudgetTokens: budget,
         caseIds,
@@ -233,12 +271,77 @@ export function BenchmarkView() {
       if (mounted.current) setRunning(false)
     }
   }
+  async function startParallel() {
+    if (controller.current || !parallelMac || !promptApiAvailable) return
+    if (
+      !Number.isSafeInteger(repetitions) ||
+      repetitions < 1 ||
+      repetitions > 20 ||
+      !selected.length ||
+      !Number.isSafeInteger(budget) ||
+      budget < 0 ||
+      budget > 8192
+    ) {
+      setError("Choose 1–20 repetitions, a valid budget, and a position set.")
+      return
+    }
+    const active = new AbortController()
+    controller.current = active
+    setBatch({})
+    setBatchReport(undefined)
+    setViewedModel("unsloth/Qwen3.5-2B-GGUF")
+    setRunning(true)
+    setError(undefined)
+    setCopyStatus("")
+    try {
+      const output = await runParallelBenchmarks({
+        thinking: opponent.thinking,
+        promptVersion,
+        repetitions,
+        reasoningBudgetTokens: budget,
+        caseIds: selected.map((testCase) => testCase.id),
+        signal: active.signal,
+        onSlot: (slot) => {
+          if (mounted.current && controller.current === active)
+            setBatch((previous) => ({ ...previous, [slot.model]: slot }))
+        }
+      })
+      if (mounted.current && controller.current === active)
+        setBatchReport(output)
+    } catch (failure) {
+      if (mounted.current)
+        setError(failure instanceof Error ? failure.message : String(failure))
+    } finally {
+      if (controller.current === active) controller.current = undefined
+      if (mounted.current) setRunning(false)
+    }
+  }
   const fullReport = report ?? {
     schemaVersion: 1,
     partial: true,
     suiteVersion: SUITE_VERSION,
+    promptVersion,
+    ...(activeBatch && {
+      config: {
+        opponent: activeBatch.opponent,
+        repetitions,
+        reasoningBudgetTokens: budget
+      }
+    }),
     results,
     summary
+  }
+  const fullBatchReport = batchReport ?? {
+    schemaVersion: 1,
+    mode: "mac-parallel",
+    timingComparable: false,
+    timingConditions:
+      "Concurrent model/GPU work; elapsed times are diagnostic only.",
+    promptVersion,
+    partial: true,
+    reports: PARALLEL_MODELS.flatMap((model) =>
+      batch?.[model] ? [batch[model]] : []
+    )
   }
   return (
     <main className="mancala-bench">
@@ -335,6 +438,19 @@ export function BenchmarkView() {
               onChange={(event) => setBudget(Number(event.target.value))}
             />
           </label>
+          <label>
+            Prompt
+            <select
+              aria-label="Prompt version"
+              value={promptVersion}
+              onChange={(event) =>
+                setPromptVersion(event.target.value as PromptVersion)
+              }
+            >
+              <option value="shared-v2">Current · capture-aware v2</option>
+              <option value="shared-v1">Baseline · original v1</option>
+            </select>
+          </label>
         </fieldset>
         <p className="mb-note">
           Thinking is {opponent.thinking ? "on" : "off"}; change it in the model
@@ -350,6 +466,16 @@ export function BenchmarkView() {
           >
             Run benchmark
           </button>
+          {parallelMac && (
+            <button
+              className="mb-button"
+              type="button"
+              disabled={running || !promptApiAvailable || !selected.length}
+              onClick={() => void startParallel()}
+            >
+              Run all three (Mac parallel)
+            </button>
+          )}
           <button
             className="mb-button"
             type="button"
@@ -366,9 +492,57 @@ export function BenchmarkView() {
           </span>
         </div>
       </form>
+      {batch && (
+        <section
+          className="mb-section mb-batch"
+          aria-label="Parallel model results"
+        >
+          <div className="mb-section-heading">
+            <h2>Mac parallel evaluation</h2>
+            <span>{promptVersion}</span>
+          </div>
+          <p className="mb-note">
+            Same positions, prompt version, and paired choice orders. Select a
+            model to inspect its decisions. Models share GPU resources, so
+            compare quality here and measure latency in separate serial runs.
+          </p>
+          <div className="mb-model-cards">
+            {PARALLEL_MODELS.map((model) => {
+              const slot = batch[model]
+              const summary = summarize(slot?.results ?? [])
+              return (
+                <button
+                  className="mb-model-card"
+                  type="button"
+                  key={model}
+                  aria-pressed={viewedModel === model}
+                  onClick={() => {
+                    setViewedModel(model)
+                    setCopyStatus("")
+                  }}
+                >
+                  <strong>{opponentOption(model).label}</strong>
+                  <span>
+                    {summary.passed}/{summary.scored} objectives ·{" "}
+                    {summary.legal}/{summary.total} legal
+                  </span>
+                  <small>{slot?.status ?? "Preparing model…"}</small>
+                  {slot?.error && (
+                    <small className="mb-fail">{slot.error}</small>
+                  )}
+                </button>
+              )
+            })}
+          </div>
+          <p className="mb-note">
+            Showing {opponentOption(viewedModel).label}. Each model tokenizes
+            the same text differently; usage counts are provider-reported.
+          </p>
+        </section>
+      )}
       <div className="mb-status" role="status" aria-live="polite">
         <span>{status}</span>
-        {running && loadStatus && (
+        {running && !batch && loadStatus && (
           <small>
             {selectedLabel}: {loadStatus}
           </small>
@@ -513,6 +687,35 @@ export function BenchmarkView() {
           )}
         </details>
       </section>
+      {batch && (
+        <section className="mb-section">
+          <div className="mb-section-heading">
+            <h2>All model reports</h2>
+            <button
+              className="mb-button"
+              onClick={() => {
+                void navigator.clipboard.writeText(json(fullBatchReport)).then(
+                  () => setCopyStatus("Batch report copied."),
+                  () => setCopyStatus("Open the batch JSON below to copy it.")
+                )
+              }}
+            >
+              Copy batch JSON
+            </button>
+          </div>
+          <details
+            className="mb-report"
+            onToggle={(event) => setBatchReportOpen(event.currentTarget.open)}
+          >
+            <summary>Full batch JSON</summary>
+            {batchReportOpen && (
+              <pre id="benchmark-batch-results-json">
+                {json(fullBatchReport)}
+              </pre>
+            )}
+          </details>
+        </section>
+      )}
       <footer className="mb-footer">
         Models run on your device. No inference runs during builds or automated
         tests.

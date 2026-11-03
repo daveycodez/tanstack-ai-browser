@@ -7,7 +7,7 @@ import {
   buildMovePrompt,
   SHARED_PROMPT_VERSION,
   SHARED_SYSTEM_PROMPT
-} from "./shared-prompt.ts"
+} from "./shared-prompt-v1.ts"
 import type { Board, Game, Side } from "./mancala.ts"
 
 function position(board: number[]): Game {

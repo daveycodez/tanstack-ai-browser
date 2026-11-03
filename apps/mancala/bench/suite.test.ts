@@ -3,7 +3,7 @@ import test from "node:test"
 import { CASES, gameForCase } from "./cases.ts"
 import { auditSuite } from "./audit.ts"
 import { completeTurns, expectedForCase, objectiveValues } from "./reference.ts"
-import { sow } from "../src/lib/mancala.ts"
+import { applyMove, createGame, sow } from "../src/lib/mancala.ts"
 
 function getCase(id: string) {
   const fixture = CASES.find((item) => item.id === id)
@@ -13,8 +13,8 @@ function getCase(id: string) {
 
 test("every frozen objective matches an exhaustive complete-turn audit", () => {
   const audit = auditSuite()
-  assert.equal(audit.cases, 17)
-  assert.equal(audit.scored, 14)
+  assert.equal(audit.cases, 19)
+  assert.equal(audit.scored, 16)
   assert.equal(audit.holdout, 3)
   assert.equal(new Set(CASES.map((item) => item.category)).size, 6)
 })
@@ -56,11 +56,24 @@ test("a draw is scored above the bounded losing alternatives", () => {
   assert.deepEqual(expectedForCase(fixture), [7, 10, 12])
 })
 test("the benchmark positions never share mutable board or history state", () => {
-  const first = gameForCase(CASES[0])
-  const second = gameForCase(CASES[0])
+  const first = gameForCase(getCase("opening"))
+  const second = gameForCase(getCase("opening"))
   first.board[0] = 0
   assert.equal(second.board[0], 4)
-  assert.equal(CASES[0].board[0], 4)
+  assert.equal(getCase("opening").board[0], 4)
   assert.notEqual(first.history, second.history)
   assert.equal(first.turn, "ai")
+})
+
+test("bonus-steal regressions are reachable from legal opening histories", () => {
+  const opening = [5, 7, 1, 8, 2, 9, 5, 11, 0, 7, 5, 3]
+  let game = createGame()
+  for (const pit of opening) game = applyMove(game, pit)
+  assert.equal(game.turn, "ai")
+  assert.deepEqual(game.board, getCase("bonus-steal-defense").board)
+  for (const pit of [8, 1]) game = applyMove(game, pit)
+  assert.equal(game.turn, "ai")
+  assert.deepEqual(game.board, getCase("safe-capture-over-exposure").board)
+  assert.deepEqual(expectedForCase(getCase("bonus-steal-defense")), [10])
+  assert.deepEqual(expectedForCase(getCase("safe-capture-over-exposure")), [7])
 })

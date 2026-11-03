@@ -1,6 +1,7 @@
 import { CASES, gameForCase, SUITE_VERSION } from "./cases.ts"
 import { legalMoves } from "../src/lib/mancala.ts"
 import { resolveOpponent, usesEmulatedReasoning } from "../src/lib/opponents.ts"
+import type { PromptVersion } from "../src/lib/shared-prompt.ts"
 import { SHARED_PROMPT_VERSION } from "../src/lib/shared-prompt.ts"
 import type { chooseAiMove } from "../src/lib/ai.ts"
 import type { OpponentSettings } from "../src/lib/opponents.ts"
@@ -38,6 +39,7 @@ export function pairedOrder(moves: number[], repetition: number): number[] {
 }
 export type RunOptions = {
   opponent: OpponentSettings
+  promptVersion?: PromptVersion
   repetitions: number
   reasoningBudgetTokens: number
   caseIds: string[]
@@ -120,6 +122,7 @@ export async function runBenchmark(
             result.reasoning += delta
           },
           {
+            promptVersion: options.promptVersion,
             reasoningBudgetTokens: options.reasoningBudgetTokens,
             moveOrder: order,
             onInput: (input) => {
@@ -153,7 +156,7 @@ export async function runBenchmark(
   return {
     schemaVersion: 1,
     suiteVersion: SUITE_VERSION,
-    promptVersion: SHARED_PROMPT_VERSION,
+    promptVersion: options.promptVersion ?? SHARED_PROMPT_VERSION,
     revision:
       typeof __MANCALA_BENCH_REVISION__ === "string"
         ? __MANCALA_BENCH_REVISION__

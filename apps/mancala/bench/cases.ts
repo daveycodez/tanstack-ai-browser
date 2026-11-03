@@ -3,10 +3,32 @@ import type { Game } from "../src/lib/mancala.ts"
 import type { OpponentSettings } from "../src/lib/opponents.ts"
 import type { BenchmarkCase } from "./types.ts"
 
-export const SUITE_VERSION = "mancala-tactics-v1"
+export const SUITE_VERSION = "mancala-tactics-v2"
 
-/** Frozen synthetic teaching boards: 48 seeds each; historical reachability is not asserted. */
+/** Frozen 48-seed teaching boards; the two bonus-steal regressions are replayed from real legal openings in tests. */
 export const CASES: BenchmarkCase[] = [
+  {
+    id: "bonus-steal-defense",
+    label: "Defuse the bonus-turn steal",
+    category: "defense",
+    partition: "calibration",
+    objective: "best-reply-margin",
+    description:
+      "A reachable position: Human can earn a bonus then steal eleven seeds. Unload the endangered stash and minimize the complete reply loss.",
+    board: [0, 3, 3, 0, 9, 1, 6, 1, 2, 2, 9, 1, 8, 3],
+    expectedPits: [10]
+  },
+  {
+    id: "safe-capture-over-exposure",
+    label: "Capture safely before the thirteen-seed steal",
+    category: "defense",
+    partition: "calibration",
+    objective: "best-reply-margin",
+    description:
+      "A reachable follow-up: take the eleven-seed capture that is safe through the whole Human reply; avoid exposing thirteen to a bonus chain.",
+    board: [0, 0, 4, 1, 10, 1, 6, 1, 0, 3, 10, 1, 8, 3],
+    expectedPits: [7]
+  },
   {
     id: "opening",
     label: "Opening choices",

@@ -7,7 +7,9 @@ const scope = globalThis as unknown as {
 }
 scope.onmessage = ({ data }) => {
   try {
-    scope.postMessage({ input: buildMovePrompt(data.game, data.moves) })
+    scope.postMessage({
+      input: buildMovePrompt(data.game, data.moves, data.version)
+    })
   } catch (error) {
     scope.postMessage({
       error: error instanceof Error ? error.message : String(error)

@@ -24,7 +24,7 @@ import { legalMoves } from "./mancala"
 import type { Game } from "./mancala"
 import { APFEL_MODEL, opponentOption, resolveOpponent } from "./opponents"
 import type { OpponentSettings } from "./opponents"
-import { SHARED_PROMPT_VERSION } from "./shared-prompt"
+import { SHARED_PROMPT_VERSION, PROMPT_VERSIONS } from "./shared-prompt"
 import { analyzeMovePrompt } from "./analysis-worker"
 import type { PromptInput, PromptVersion } from "./shared-prompt"
 import { orderMovesForGame } from "./move-order"
@@ -114,7 +114,7 @@ export async function chooseAiMove(
   if (!moves.length) throw new Error("Your opponent has no legal moves.")
   if (
     diagnostics?.promptVersion &&
-    diagnostics.promptVersion !== SHARED_PROMPT_VERSION
+    !PROMPT_VERSIONS.includes(diagnostics.promptVersion)
   )
     throw new Error("Unsupported prompt version.")
   if (diagnostics?.moveOrder) {
@@ -128,7 +128,11 @@ export async function chooseAiMove(
   } else moves = orderMovesForGame(game.sessionId, moves)
   if (moves.length === 1 && !diagnostics?.onInput) return moves[0]
   const input = await analyzeMovePrompt(
-    { game, moves, version: SHARED_PROMPT_VERSION },
+    {
+      game,
+      moves,
+      version: diagnostics?.promptVersion ?? SHARED_PROMPT_VERSION
+    },
     signal
   )
   signal.throwIfAborted()

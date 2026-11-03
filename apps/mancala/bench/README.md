@@ -32,12 +32,12 @@ between trials; cached usage is reported only when the provider supplies it.
 
 ## Frozen suite and independent audit
 
-`mancala-tactics-v1` has **17 synthetic 48-seed boards**: 14 calibration positions
-(11 scored, 3 neutral diagnostics), plus 3 scored holdouts. They cover bonus
+`mancala-tactics-v2` has **19 frozen 48-seed boards**: 16 calibration positions
+(13 scored, 3 neutral diagnostics), plus 3 scored holdouts. They cover bonus
 chains, empty-pit captures, replies to captures, skipping the opponent's store,
-final sweeps, draws, and multiple equivalent winning choices. Constructed boards
-are teaching positions; historical reachability from an ordinary opening is not
-asserted. Opening preference and rules-only observations are deliberately ungraded.
+final sweeps, draws, and multiple equivalent winning choices. Two added steal-defense regressions are replayed from legal opening histories
+in tests. The remaining constructed boards are teaching positions; historical
+reachability is not asserted. Opening preference and rules-only observations are deliberately ungraded.
 
 Three narrow objectives are graded:
 
@@ -53,8 +53,11 @@ Three narrow objectives are graded:
   Every tied best initial action is accepted.
 
 `reference.ts` exhaustively enumerates each complete turn for these small boards.
-It is separate from the production prompt's fixed six-sow analysis, while sharing
-the tested rules engine. Its safety node limit throws instead of grading a
+It is separate from production's up-to-four-turn minimax, while sharing the
+tested rules engine. The full-turn reply objective checks only AI's own turn
+and one Human reply; the collection objective ignores later defense. A deeper
+production preference can therefore miss a narrow benchmark objective without
+proving worse full-game play. Its safety node limit throws instead of grading a
 truncated tree. The audit asserts 48 seeds, multiple legal choices, distinct
 case IDs, useful grading distinctions and exact agreement with frozen expected
 pits. It cannot prove the rules engine independently correct; dedicated rules
@@ -69,3 +72,40 @@ Use calibration positions while refining prompts. Freeze source and prompt befor
 running holdouts. These are bounded tactical checks, not Elo, solved-game claims,
 or proof of overall playing strength. No benchmark model scores have been recorded
 yet; source tests and audits are not inference results.
+
+## Current/baseline and Mac parallel runs
+
+The **Prompt** selector runs either the current capture-aware `shared-v2` context
+or the frozen original `shared-v1` baseline through the same model, case set,
+reasoning settings and paired order policy. The chosen version is saved in each
+report. Use identical settings for an A/B comparison, then check holdouts without
+changing the frozen prompt.
+
+On a Mac desktop with Prompt API, **Run all three (Mac parallel)** evaluates the
+browser model, LFM3 GGUF, and Qwen GGUF concurrently. Prompt API stays in the main
+page. Each WebGL model gets a separate hidden same-origin `/bench-runtime` frame
+because the WebGL adapter has one loaded-model slot per window. Every model's
+own case/repetition loop stays serial. Phones retain the single-model workflow.
+Mac detection is a UI guard, not proof that the device has enough GPU memory.
+
+Model cards expose progress, errors, and completed trial counts. Select a card
+for the existing per-model decisions and report; **Full batch JSON** includes
+all three. Stop cancels every runtime and preserves completed trials. The frame
+protocol validates origin, source window, channel and run ID, and removes the
+frame and listeners on success, error, cancellation or ready timeout. The
+runtime route does not run inference on load or access saved-game storage.
+
+Parallel reports set `timingComparable: false`: GPU contention makes elapsed
+times diagnostic only. Run single-model serial benchmarks for latency
+comparisons. Cache state remains warm within each run, and provider token counts
+can differ even for identical text. No measured model scores are implied by the
+parallel test harness.
+
+## Current evaluation scope: default LFM3 only
+
+Use **LFM3-1.7B-GGUF**, thinking **off**, two repetitions and the calibration
+positions. Run the frozen `shared-v1` baseline, export its JSON, then repeat the
+same settings with current `shared-v2`. Inspect the new bonus-steal cases first,
+then overall scoped objective passes, errors and order sensitivity. Keep the
+three holdouts frozen for the final check. Do not invoke the all-three batch for
+this evaluation. No measured LFM3 v1/v2 results have been recorded yet.

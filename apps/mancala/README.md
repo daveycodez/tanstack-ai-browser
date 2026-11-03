@@ -30,13 +30,30 @@ availability and development-only Apple opponent match Checkers. Models are
 loaded only for an AI turn or an explicitly started benchmark; there is no cloud
 inference or heuristic replacement of an invalid model answer.
 
-`shared-prompt.ts` uses versioned system instructions and computed outcomes for
-every legal pit. A worker checks six sowing actions per alternative, keeps the
-same player during extra turns, accounts for captures and final sweeps, and
-reports bounded minimax store margins and immediate human threats. Search
-estimates are distinguished from secured-majority or proved terminal results.
-Every legal pit remains available in the strict output schema. Per-game order
-shuffling and paired benchmark orders expose first-option bias.
+`shared-prompt.ts` now uses `shared-v2` whole-turn context. The worker checks four
+completed turns per alternative (AI, Human, AI response, Human), including every
+bonus sow, captures and final sweeps. If the node limit prevents that horizon,
+all alternatives retry at the same three- or two-turn horizon. An unfinished
+analysis has null scores and cannot create priority or steal-safe claims.
+
+Each card names a possible Human steal path, landing pit, exposed AI stash and
+exact seed loss after the selected AI bonus continuation. It separately pairs
+the worst-net Human reply with the matching AI counterplay. Explicit checked
+priority groups follow Chess/Checkers' context pattern while retaining every
+legal pit in the model's output schema. A possible steal is distinguished from
+a forced net loss, and a bounded store margin from a proved win.
+
+The original six-sow `shared-v1` prompt remains frozen in
+`shared-prompt-v1.ts` for A/B comparisons. Two legally reachable regression boards
+cover previously hidden eleven- and thirteen-seed steals after Human bonus sows.
+The default benchmark focus is LFM3 GGUF with thinking off; changing the context
+has not yet established an inference-quality gain.
+
+The strategy review used [Pekař et al.'s Kalah analysis](https://www.mdpi.com/2227-9709/7/3/34),
+which covers this app's no-empty-opposite capture rule and defensive exposure.
+Its heuristic weights were not adopted. [Irving et al.](https://naml.us/paper/irving2000_kalah.pdf)
+inform the search discussion, but use a different capture variant; their solved
+opening claims do not apply here.
 
 The Prompt API requires a supporting browser; WebGL models require the existing
 WebGL runtime's browser/GPU capabilities. Model downloads can be substantial.
@@ -65,7 +82,8 @@ pnpm nx run mancala:build
 Test and typecheck targets build their workspace package dependencies. The Vite
 configuration enables TanStack Start static pre-rendering with link crawling and
 failure-on-error. The production build emits HTML for `/`, `/game`, and `/bench`,
-plus the Cloudflare Worker bundle. Browser storage opens only after hydration;
+plus the Cloudflare Worker bundle. `/bench-runtime` serves an isolated benchmark
+frame and never starts inference on page load. Browser storage opens only after hydration;
 no inference or model downloads run while pre-rendering.
 
 `pnpm nx run mancala:deploy-dry-run` checks Cloudflare packaging without publishing.
