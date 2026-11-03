@@ -11,13 +11,13 @@ import { describePosition } from "./ai-position.ts"
 import { buildCompactChoices } from "./prompt-options.ts"
 import { moveChoiceLabel } from "./move-choice.ts"
 
-export const SHARED_PROMPT_VERSION = "shared-v22"
+export const SHARED_PROMPT_VERSION = "shared-v24"
 
 export const SHARED_SYSTEM_PROMPT = [
   "Play Black in a sensible casual game. Choose one supplied legal move; card order is not a ranking.",
   "Priorities: CHECKMATE now; prevent mate/answer check; save or win a queen; safe material gains; otherwise castle or develop.",
-  "Each card is a separate position after that move. Never combine threats or outcomes across cards. CHECK means White is checked after the move; Black-in-check describes the current board.",
-  "Account for recaptures and forcing follow-ups. Forcing gains can outweigh immediate captures; check alone does not justify a material loss. Protection is not immunity. Values: pawn 1, knight/bishop 3, rook 5, queen 9."
+  "Each card is a separate position after that move. Never combine threats or outcomes across cards. CHECK means that move checks White; Black-in-check describes the current board.",
+  "Weigh recaptures and forcing follow-ups. Forcing gains can outweigh immediate captures; check alone cannot justify material loss. Protection is not immunity. Values: pawn 1, knight/bishop 3, rook 5, queen 9."
 ].join("\n\n")
 
 export type SharedPromptInput = {
@@ -255,8 +255,8 @@ export function positiveSafetySummaries({
     if (hasMaterialSafeChoices)
       facts.push(
         tacticalFocus
-          ? "After addressing the king and any attacked queen, prefer a MATERIAL-SAFE material gain or a forcing material-winning check over a quiet move."
-          : "After addressing the king and any attacked queen, prefer a MATERIAL-SAFE choice. When there is no urgent threat, consider castling or purposeful development among these choices."
+          ? "After king/queen emergencies, prefer MATERIAL-SAFE captures or forcing material gains over quiet moves or non-winning checks. Avoid negative exchange nets."
+          : "After king/queen emergencies, avoid negative exchange nets. Otherwise castle or develop among MATERIAL-SAFE choices."
       )
   }
   return facts.length ? ["URGENT POSITION FACTS:", ...facts] : []
@@ -431,7 +431,7 @@ export function buildSharedPrompt({
       id: choice.id,
       notation: move.notation,
       label: moveChoiceLabel(move),
-      outcome: `${moveChoiceLabel(move)} | SAN ${move.notation} | UCI ${choice.id} | ${outcome.slice(choice.id.length + 3)}`
+      outcome: `${moveChoiceLabel(move)} | SAN ${move.notation} | ${outcome.slice(outcome.indexOf(" | ", choice.id.length + 3) + 3)}`
     }
   })
   const board = describePosition(game)
@@ -441,9 +441,11 @@ export function buildSharedPrompt({
         line
       )
     )
+    .map((line) => line.replace("Black pieces (you):", "Black pieces:").replace("White pieces (opponent):", "White pieces:"))
+  const currentPieceLabel = (piece: PieceRef) => `${pieceNames[piece.piece]} ${squareName(piece.square)}`
   const threats = currentThreats.map(
     (threat) =>
-      `Black ${pieceLabel(threat.target)} can be captured by White ${threat.attackers.map(pieceLabel).join(", ")}.`
+      `Black ${currentPieceLabel(threat.target)} can be captured by White ${threat.attackers.map(currentPieceLabel).join(", ")}.`
   )
   const castles = moves.flatMap((move) =>
     move.notation.startsWith("O-O")
@@ -531,32 +533,32 @@ export function buildSharedPrompt({
     "Current position:",
     ...(showOpening
       ? [
-          "In the opening, central pawn pushes gain space and can free bishops or knights for development."
+          "Central pawn pushes gain space and can free bishops or knights."
         ]
       : []),
     ...(showCover
       ? [
-          "Balance king-flank pawn cover with space, piece activity and castling; near-cover counts describe pawn files on the two pawn ranks nearest home, not a material score or a ban on useful pawn moves."
+          "Near-files counts pawn files on the two pawn ranks nearest home. Balance cover with space, piece activity and castling; no material score or pawn-move ban."
         ]
       : []),
     ...(showPromotion
       ? [
-          "Address uncompensated promotion threats; legal recaptures or material gains can justify allowing promotion."
+          "Answer promotion threats unless legal recaptures or material gains compensate."
         ]
       : []),
     ...(showCoordination
       ? [
-          "With few opposing pieces, coordinate king and major pieces to restrict the enemy king while preserving material and avoiding stalemate; destination counts alone do not prove mate."
+          "Coordinate king and major pieces to restrict the enemy king; keep material, avoid stalemate. Destination counts alone do not prove mate."
         ]
       : []),
     ...board,
     `Black in check: ${game.inCheck ? "yes" : "no"}.`,
-    "Current White capture possibilities on the unchanged board:",
+    "White capture possibilities on the unchanged board:",
     ...(threats.length ? threats : ["No threatened Black non-king pieces."]),
-    `Legal castling moves now: ${castleIds}.`,
+    `Legal castles now: ${castleIds}.`,
     "Recent 8 moves (oldest first):",
     ...(recent.length ? recent : ["none"]),
-    "ALL LEGAL CARDS (presentation order, no ranking):",
+    "ALL LEGAL CARDS:",
     ...choices.map((choice) => choice.outcome),
     ...(focusCastling
       ? [
