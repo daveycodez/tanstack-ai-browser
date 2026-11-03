@@ -1,0 +1,18 @@
+{
+  "promptVersion": "shared-v13",
+  "suiteVersion": "mancala-tactics-v4",
+  "parentCommit": "0a24886",
+  "matchProtocol": "Fresh three games, Human GPT-6.1 Sol high starts; LFM3 default GGUF thinking off; no source changes during match; every game retained.",
+  "sha256": {
+    "src/lib/shared-prompt.ts": "1642cf0d45dcf4dcac50cda130bfc7ab6b980d51032fe0678faf452c3e8bdb6e",
+    "src/lib/shared-prompt-v12.ts": "bda465d4b008bbb7873e2b2350e9e589c843efe330fbe4538f372361825e79e2",
+    "src/lib/tie-refinement.ts": "df6e1570a66e706b4f141c2f9be5cc2734a4f613869cacbb3993ad37005d5025",
+    "src/lib/move-outcomes.ts": "22df02f4c4ac49ce1a7976b49a3ebaac9cca4868e47353b6f7248f466d0ebacb",
+    "src/lib/endgame-ties.ts": "685fae33efa08b4acafa86673faca2b08839fc7d0dc2212f1915a19333a000b0",
+    "src/lib/ai.ts": "efaf9857b5384a13b31767b9bea24dc00ca66d409e479a91c5ef13bc1ca1e32e",
+    "src/lib/mancala.ts": "9b2c780d2c784dbbe156572e59cfd2ff4ea82803426861e22a9daec6e6099e42",
+    "bench/cases.ts": "eeaadd5c910d2734ef33332c53489df9433222a10e82cee9611f47a8df6a1763",
+    "bench/reference.ts": "fe3300b29e4cf2080ead1447f41dc03564c06dbe3fbb72efb62967926ce08d31",
+    "bench/endgame-reference.ts": "043bb1b0ec6ed051dff6b3a2508b235bafbe0c72e8d3076f24157f06b2c12407"
+  }
+}

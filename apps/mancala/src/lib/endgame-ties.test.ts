@@ -177,8 +177,8 @@ test("invalid choices and resource limits cannot create a ranking", () => {
     /positive integer/
   )
   assert.throws(
-    () => solveEndgameTies(fixture(), [11, 12], { maxRemainingSeeds: 23 }),
-    /up to 22/
+    () => solveEndgameTies(fixture(), [11, 12], { maxRemainingSeeds: 25 }),
+    /up to 24/
   )
 })
 

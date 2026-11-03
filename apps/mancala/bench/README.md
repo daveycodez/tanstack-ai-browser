@@ -32,12 +32,18 @@ between trials; cached usage is reported only when the provider supplies it.
 
 ## Frozen suite and independent audit
 
-`mancala-tactics-v3` has **19 frozen 48-seed boards**: 16 calibration positions
-(13 scored, 3 neutral diagnostics), plus 3 scored holdouts. They cover bonus
+`mancala-tactics-v5` has **21 frozen 48-seed boards**: 18 calibration positions
+(15 scored, 3 neutral diagnostics), plus 3 scored holdouts. They cover bonus
 chains, empty-pit captures, replies to captures, skipping the opponent's store,
 final sweeps, draws, and multiple equivalent winning choices. Two added steal-defense regressions are replayed from legal opening histories
 in tests. The remaining constructed boards are teaching positions; historical
 reachability is not asserted. Opening preference and rules-only observations are deliberately ungraded.
+V4 adds only `sol-match-preserve-margin`, legally replayed to move 26 of the
+original Sol game. All 19 v3 boards, their accepted actions and their objective
+semantics remain unchanged. V5 adds only `sol-match-save-forced-draw`, replayed to move 32
+of the first v13 diagnostic game; its all-root terminal proof accepts drawing
+internal pit 7 over losing pits 8 and 10. All earlier cases retain their accepted
+actions.
 
 Four scoped objectives are graded:
 
@@ -51,14 +57,19 @@ Four scoped objectives are graded:
   Human bonus turns. Terminal wins/losses dominate nonterminal store margins;
   terminal draws score zero. The terminal score is `sign(margin)*1000+margin`.
   Every tied best initial action is accepted.
-- **Best final margin:** the disputed capture-versus-bonus fixture is solved
-  through terminal play by a separate full-board/store oracle. Accept every
+- **Best final margin:** the disputed capture-versus-bonus fixture and the two
+  Sol-game move-26 / v13-game move-32 fixtures are solved through terminal play by a separate
+  full-board/store oracle. Accept every
   action tied for the best final AI-minus-Human margin. A node-limit exhaustion
   throws rather than assigning a partial grade. Pit 5 proves 30–18; pit 6 proves
-  25–23, so the accepted action remains unchanged.
+  25–23, so the accepted action remains unchanged. In the new Sol fixture every
+  action loses: displayed pits 1, 2, 5, and 6 have exact final AI margins −14,
+  −8, −8, and −6. Only pit 6 is accepted; that is a better defense in a lost
+  position, not a rescued win or draw. The v13-game move-32 case instead has a
+  real drawing defense: displayed pit 1 forces 24–24; pits 2 and 4 lose 23–25.
 
 `reference.ts` exhaustively enumerates each complete turn for these small boards.
-It is separate from production's up-to-four-turn minimax, while sharing the
+It is separate from production's four-turn baseline, tie review and all-action endgame comparison, while sharing the
 tested rules engine. The full-turn reply objective checks only AI's own turn
 and one Human reply; the collection objective ignores later defense. A deeper
 production preference can therefore miss a narrow benchmark objective without
@@ -79,8 +90,8 @@ or proof of overall playing strength. Actual LFM3-only results are archived in [
 
 ## Current/baseline and Mac parallel runs
 
-The **Prompt** selector runs the current resolved-recommendation `shared-v12` context or the
-frozen `shared-v1` through `shared-v11` historical variants through the same model, case set,
+The **Prompt** selector runs the current all-action-endgame `shared-v14` context or the
+frozen `shared-v1` through `shared-v13` historical variants through the same model, case set,
 reasoning settings and paired order policy. The chosen version is saved in each
 report. Use identical settings for an A/B comparison, then check holdouts without
 changing the frozen prompt.
@@ -109,7 +120,7 @@ parallel test harness.
 
 Use **LFM3-1.7B-GGUF**, thinking **off**, two repetitions and the calibration
 positions. Run the frozen `shared-v1` baseline, export its JSON, then repeat the
-same settings with current `shared-v7`. Inspect the new bonus-steal cases first,
+same settings with historical `shared-v7`. Inspect the new bonus-steal cases first,
 then overall scoped objective passes, errors and order sensitivity. Keep the
 three holdouts frozen for the final check. Do not invoke the all-three batch for
 this evaluation. The archived comparison records v1-v5 default-mode results plus a separate
@@ -132,7 +143,7 @@ used the identical v7 suite with thinking off: **23/26 calibration objectives**,
 **6/6 holdouts**, and **38/38 legal choices**. All three calibration misses and
 the complete report transcripts are preserved without a prompt change or retry.
 
-## Current shared-prompt regression: Qwen, LFM3 and Nano
+## Historical v12 regression: Qwen, LFM3 and Nano
 
 [The v12 refinement report](fixtures/qwen-refinement-2026-11-03/README.md)
 records **26/26 calibration objectives and 6/6 holdouts for each model**, all
@@ -142,3 +153,49 @@ The recommendation resolves only the existing preferred group; every legal
 choice remains in the schema and the actual generated answer is graded.
 Use single-model serial runs for this comparison. Reasoning-enabled diagnostics
 were used to guide wording and are excluded from the thinking-off totals.
+
+
+## Sol-game review, v13 diagnostics and v14 validation
+
+[The review archive](fixtures/sol-game-review-2026-11-03/README.md) separates the
+original 33-move game, independent terminal proofs, bounded context comparisons,
+and real browser-model regression reports. It preserves the v12 misses, the v13
+reruns and the stopped v13 game series. V13 deepens only a tied preferred group;
+v14 additionally attempts a complete comparison of all legal roots in endgames
+with at most 24 pit seeds. A failed exact search retains the historical fallback.
+Every legal action stays in the output schema, vendor sampling defaults are
+unchanged, and no generated answer is replaced by an engine choice.
+
+The original game's early full-game values are partly unresolved. Move 26 is the
+first new graded case because every root's terminal value was independently
+established. The second genuine case, from v13-game move 32, adds a proved
+drawing alternative to the unique losing bounded favorite. Move 16's rejected action is proved losing, but the alternatives'
+full-game outcomes remain unknown; the deeper bounded preference is not treated
+as a new oracle-labeled benchmark.
+
+Raw reports are compressed directly from their captured bytes into the fixture,
+with no browser download. `verify-artifacts.mjs` checks frozen source hashes,
+replays the original ledger and rebuilds each recorded system prompt, position
+prompt and legal choice card from its board/order/version. It rechecks output
+labels, legality and grades. The fixture README records model scores and the
+fresh-match results separately, including losses. Timings from runs overlapping
+match play are diagnostic only.
+
+
+The frozen-v14 regression reports now record **30/30 calibration objectives and
+6/6 holdouts for each of LFM3, Qwen GGUF and the browser Prompt API**, thinking
+off. LFM3 also passes 4/4 rotated drawing-defense repeats, versus 0/4 under the
+preserved v13 baseline. The 16 reports in this review retain 262 total real
+inference trials across old and current versions, with failures preserved.
+The restarted three-game v14 series is separate: LFM3 won all three,
+**25–23, 29–19 and 28–20**, under unchanged frozen source. The requested
+at-least-one-win target was met. See the archive
+for exact results and verification boundaries. The first win is not a causal
+A/B comparison: Human play differed, and old v13 versus v14 preferred sets
+are identical on that game's 20 actual AI boards. The independently proved
+regressions and 0/4-to-4/4 rerun establish the context correction separately.
+
+Final verification passed 123 automated tests, typecheck, lint, benchmark audit
+and the production static build. The artifact verifier rebuilt all 262 archived
+model inputs and replayed all three completed fresh games against the unchanged
+frozen source. The original loss and stopped v13 diagnostics remain preserved.

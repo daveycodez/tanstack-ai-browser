@@ -62,14 +62,14 @@ export function solveEndgameTies(
   if (
     !Number.isSafeInteger(maxRemainingSeeds) ||
     maxRemainingSeeds < 0 ||
-    maxRemainingSeeds > 22 ||
+    maxRemainingSeeds > 24 ||
     !Number.isSafeInteger(maxNodes) ||
     maxNodes < 1 ||
     !Number.isSafeInteger(maxTableEntries) ||
     maxTableEntries < 1
   ) {
     throw new RangeError(
-      "Choose an endgame threshold up to 22 and positive integer resource limits."
+      "Choose an endgame threshold up to 24 and positive integer resource limits."
     )
   }
   if (

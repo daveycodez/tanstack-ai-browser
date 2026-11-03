@@ -178,7 +178,7 @@ test("all legal choices remain independent of card order and the input is immuta
   assert.throws(() => analyzeTacticalMoves(game, [6]), /distinct legal/)
   assert.throws(
     () => analyzeTacticalMoves(game, undefined, { turns: 0 }),
-    /two to four/
+    /two to eight/
   )
 })
 

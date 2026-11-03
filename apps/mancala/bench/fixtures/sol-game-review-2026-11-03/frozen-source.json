@@ -1,0 +1,20 @@
+{
+  "promptVersion": "shared-v14",
+  "suiteVersion": "mancala-tactics-v5",
+  "parentCommit": "0a24886",
+  "matchProtocol": "Final fresh three-game series after correcting the proved draw-to-loss gap. Sol high always plays to win; default LFM3 GGUF thinking off; same source for all three; v13 diagnostic loss and incomplete game retained separately.",
+  "sha256": {
+    "src/lib/shared-prompt.ts": "b7190673bdbaad20b7ad65dea2ac49add5edaf226c000b820cb4ef4187128030",
+    "src/lib/shared-prompt-v12.ts": "bda465d4b008bbb7873e2b2350e9e589c843efe330fbe4538f372361825e79e2",
+    "src/lib/tie-refinement.ts": "df6e1570a66e706b4f141c2f9be5cc2734a4f613869cacbb3993ad37005d5025",
+    "src/lib/move-outcomes.ts": "22df02f4c4ac49ce1a7976b49a3ebaac9cca4868e47353b6f7248f466d0ebacb",
+    "src/lib/endgame-ties.ts": "685fae33efa08b4acafa86673faca2b08839fc7d0dc2212f1915a19333a000b0",
+    "src/lib/ai.ts": "efaf9857b5384a13b31767b9bea24dc00ca66d409e479a91c5ef13bc1ca1e32e",
+    "src/lib/mancala.ts": "9b2c780d2c784dbbe156572e59cfd2ff4ea82803426861e22a9daec6e6099e42",
+    "bench/cases.ts": "fb33a3d516f83e6940993957e939529dab33965203062d7dd1b70dd4fd00e043",
+    "bench/reference.ts": "fe3300b29e4cf2080ead1447f41dc03564c06dbe3fbb72efb62967926ce08d31",
+    "bench/endgame-reference.ts": "043bb1b0ec6ed051dff6b3a2508b235bafbe0c72e8d3076f24157f06b2c12407",
+    "src/lib/shared-prompt-v13.ts": "1642cf0d45dcf4dcac50cda130bfc7ab6b980d51032fe0678faf452c3e8bdb6e",
+    "src/components/benchmark.tsx": "01843eb7ecfcb32f830ba777f24991b3de74944a95caf0454505e01eb79ece7a"
+  }
+}

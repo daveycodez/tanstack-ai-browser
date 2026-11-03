@@ -3,7 +3,7 @@ import type { Game } from "../src/lib/mancala.ts"
 import type { OpponentSettings } from "../src/lib/opponents.ts"
 import type { BenchmarkCase } from "./types.ts"
 
-export const SUITE_VERSION = "mancala-tactics-v3"
+export const SUITE_VERSION = "mancala-tactics-v5"
 
 /** Frozen 48-seed teaching boards; the two bonus-steal regressions are replayed from real legal openings in tests. */
 export const CASES: BenchmarkCase[] = [
@@ -182,6 +182,28 @@ export const CASES: BenchmarkCase[] = [
       "Landing in an empty own pit captures only if the opposite pit has seeds. Observe the exact context without assuming a best move.",
     board: [3, 0, 1, 0, 3, 1, 14, 1, 1, 0, 2, 2, 2, 18],
     expectedPits: null
+  },
+  {
+    id: "sol-match-preserve-margin",
+    label: "Keep the stronger finish after a tempting capture",
+    category: "endgame",
+    partition: "calibration",
+    objective: "best-final-margin",
+    description:
+      "Move 26 from the Sol match: every legal action loses under best play, but pit 6 preserves 21–27 instead of the tempting nine-seed capture's 20–28. Compare the full final margin, not the four-turn tie.",
+    board: [1, 1, 0, 8, 0, 1, 17, 1, 1, 0, 0, 9, 1, 8],
+    expectedPits: [12]
+  },
+  {
+    id: "sol-match-save-forced-draw",
+    label: "Empty the threatened stash to preserve a draw",
+    category: "endgame",
+    partition: "calibration",
+    objective: "best-final-margin",
+    description:
+      "Move 32 from the v13 Sol match: the unique four-turn preference loses 23–25, while unloading pit 1 guarantees 24–24. Solve every legal alternative, even without a shallow tie.",
+    board: [2, 0, 3, 0, 1, 0, 17, 3, 1, 0, 1, 0, 0, 20],
+    expectedPits: [7]
   },
   {
     id: "holdout-bonus",

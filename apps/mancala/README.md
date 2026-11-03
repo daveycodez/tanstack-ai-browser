@@ -30,7 +30,7 @@ availability and development-only Apple opponent match Checkers. Models are
 loaded only for an AI turn or an explicitly started benchmark; there is no cloud
 inference or heuristic replacement of an invalid model answer.
 
-`shared-prompt.ts` now uses `shared-v12` whole-turn context. The worker checks four
+`shared-prompt.ts` uses `shared-v14` whole-turn context. The worker checks four
 completed turns per alternative (AI, Human, AI response, Human), including every
 bonus sow, captures and final sweeps. If the node limit prevents that horizon,
 all alternatives retry at the same three- or two-turn horizon. An unfinished
@@ -38,7 +38,7 @@ analysis has null scores and cannot create priority or steal-safe claims.
 
 The analysis records possible Human steal paths, landing pits, exposed AI
 stashes and exact seed loss after the selected AI bonus continuation. The
-current prompt condenses these facts into one row per legal action: immediate
+bounded-context prompt condenses these facts into one row per legal action: immediate
 capture, secured gain, bonus sow, capture exposure, checked margin and proved
 result. The full paths remain in report diagnostics. Its recommendation follows
 Chess/Checkers' checked context pattern while retaining every legal pit in the
@@ -102,12 +102,67 @@ solvers and sampling defaults are unchanged. [The v12 refinement archive](bench/
 includes all unsuccessful prompt experiments, diagnostic reasoning and independent
 full-game judgments. These remain small tactical measurements, not Elo claims.
 
+V13 follows a review of the original Sol-versus-LFM3 game, replayed to Human
+28–LFM3 20. All eleven LFM3 choices belonged to the old v12 preferred groups;
+the original session's exact presentation order was not retained. An independent
+terminal search established one inferior finish at move 26: pit 2 secures 20–28,
+while pit 6 secures 21–27 with perfect replies. Every legal choice already loses
+there; no thrown win or draw was established. Earlier unresolved positions are
+not labeled blunders merely because the game was lost.
+
+The new helper refines only a genuine unresolved tie in the existing preferred
+group. It first compares that tied subset through terminal play when no more than
+24 seeds remain; the original solver's default 22-seed boundary is unchanged.
+If exact comparison is incomplete, it tries a common deeper horizon of up to
+eight completed turns, with a 60,000-node budget per root per attempt and fallback
+only to a shared completed horizon deeper than the baseline. Partial rankings
+are discarded. Immediate wins, solved endgames and immediate draws retain their
+existing priority. All legal actions remain available to the language model;
+its actual generated choice determines the move.
+
+Suite v4 added one independently verified final-margin case from move 26 and
+left the original 19 boards and accepted actions intact. V12 and V13 remain frozen. [The Sol-game review archive](bench/fixtures/sol-game-review-2026-11-03/README.md)
+contains the original ledger, proof image, independent judgments, exact model
+reports and the fresh three-game validation protocol. Tactical passes and
+full-game outcomes are reported separately.
+
+The first v13 diagnostic game ended Sol 25–LFM3 23. Independent review then
+proved a different error at move 32: the unique bounded favorite loses 23–25,
+while another legal action forces 24–24. The diagnostic series was stopped after
+that complete game and a partial second game, both retained. This is a verified
+lost draw, unlike the original game's already-lost move-26 defense.
+
+V14 therefore attempts an exact terminal comparison of every legal root when
+at most 24 seeds remain, even if bounded context has a unique favorite. It keeps
+immediate-win handling, uses the existing 1,000,000-node / 75,000-table caps,
+and falls back to unchanged v13 context when the all-action comparison is
+incomplete. It does not narrow the legal schema or replace the model's answer.
+Suite v5 adds only the independently proved draw-preservation board, bringing
+the suite to 21 boards; the original 19 and the v4 addition keep their accepted
+actions. Versions v1–v14 remain selectable. The archive separates the stopped
+v13 diagnostics from the restarted, frozen-v14 three-game validation.
+
+With thinking off, LFM3, Qwen GGUF and the browser Prompt API each measured
+30/30 calibration objectives and 6/6 holdouts on suite v5. LFM3's draw-saving
+case improved from 0/4 under frozen v13 to 4/4 under v14; both baseline and
+rerun reports are retained. The restarted frozen-v14 series finished with three
+LFM3 wins against GPT-6.1 Sol high: **25–23, 29–19 and 28–20**, with no source
+changes between games. This meets the requested at-least-one-win target.
+A separate context replay finds
+that v13 and v14 have identical preferred sets on all 20 actual AI boards in
+the first win; Human play diverged from the earlier diagnostic game at move 15.
+That first win does not isolate a
+causal v14 advantage over v13. The two regression proofs and their model reruns
+supply separate evidence for the context fixes.
+
 The Prompt API requires a supporting browser; WebGL models require the existing
 WebGL runtime's browser/GPU capabilities. Model downloads can be substantial.
 See [bench/README.md](bench/README.md) for scoring limits and repeatable runs.
-Automated tests verify the rules, context, worker, runner, persistence and audio;
-they do not establish overall model strength. The checked-in LFM3 results cover
-only the stated tactical objectives.
+Final verification passed 123 automated tests, typecheck, lint, benchmark audit
+and the production static build, with the frozen source unchanged. Automated
+tests verify the rules, context, worker, runner, persistence and audio. Benchmark
+scores cover their stated tactical objectives; the archived game ledgers supply
+the separate three-game observations, without an overall strength estimate.
 
 ## Storage and build
 

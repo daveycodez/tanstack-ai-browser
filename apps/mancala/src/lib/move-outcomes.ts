@@ -44,6 +44,8 @@ export type TacticalMoveOutcome = {
 }
 export type TacticalOptions = {
   turns?: number
+  /** Lowest common fallback horizon. Historical callers retain the two-turn floor. */
+  minimumTurns?: number
   maxNodesPerMove?: number
   maxSafetyNodes?: number
 }
@@ -251,24 +253,28 @@ export function analyzeTacticalMoves(
     throw new Error("Tactical choices must be distinct legal AI pits.")
   if (!moves.length) return []
   const requested = options.turns ?? TACTICAL_TURNS
+  const minimumTurns = options.minimumTurns ?? 2
   const maxNodes = options.maxNodesPerMove ?? 60_000
   const maxSafetyNodes = options.maxSafetyNodes ?? 60_000
   if (
     !Number.isSafeInteger(requested) ||
     requested < 2 ||
-    requested > 4 ||
+    requested > 8 ||
+    !Number.isSafeInteger(minimumTurns) ||
+    minimumTurns < 2 ||
+    minimumTurns > requested ||
     !Number.isSafeInteger(maxNodes) ||
     maxNodes < 1 ||
     !Number.isSafeInteger(maxSafetyNodes) ||
     maxSafetyNodes < 1
   )
     throw new RangeError(
-      "Choose two to four turns and positive integer analysis limits."
+      "Choose two to eight turns, a minimum horizon no greater than the requested horizon, and positive integer analysis limits."
     )
   let turns = requested
   let searches = moves.map((pit) => checkedMove(game, pit, turns, maxNodes))
   const spent = searches.map((result) => result.nodes)
-  while (turns > 2 && searches.some((result) => !result.complete)) {
+  while (turns > minimumTurns && searches.some((result) => !result.complete)) {
     turns--
     const horizon = turns
     searches = moves.map((pit, i) => {

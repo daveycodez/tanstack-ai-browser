@@ -1,7 +1,7 @@
 import assert from "node:assert/strict"
 import test from "node:test"
 import { createGame, legalMoves } from "./mancala.ts"
-import { buildMovePrompt } from "./shared-prompt.ts"
+import { buildMovePrompt } from "./shared-prompt-v12.ts"
 test("resolved recommendation is an existing equally preferred choice, while the losing legal action remains available", () => {
   const game = {
     ...createGame(),

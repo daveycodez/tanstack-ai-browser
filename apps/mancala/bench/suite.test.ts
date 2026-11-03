@@ -1,5 +1,6 @@
 import assert from "node:assert/strict"
 import test from "node:test"
+import { readFileSync } from "node:fs"
 import { CASES, gameForCase } from "./cases.ts"
 import { auditSuite } from "./audit.ts"
 import { completeTurns, expectedForCase, objectiveValues } from "./reference.ts"
@@ -13,8 +14,8 @@ function getCase(id: string) {
 
 test("every frozen objective matches an exhaustive complete-turn audit", () => {
   const audit = auditSuite()
-  assert.equal(audit.cases, 19)
-  assert.equal(audit.scored, 16)
+  assert.equal(audit.cases, 21)
+  assert.equal(audit.scored, 18)
   assert.equal(audit.holdout, 3)
   assert.equal(new Set(CASES.map((item) => item.category)).size, 6)
 })
@@ -89,4 +90,62 @@ test("the formerly short-horizon miss is judged by its proven terminal margin", 
     { pit: 12, value: 2 }
   ])
   assert.deepEqual(expectedForCase(fixture), [11])
+})
+
+test("the Sol match regression replays from the actual opening and grades every terminal alternative", () => {
+  const recorded = JSON.parse(
+    readFileSync(
+      new URL(
+        "./fixtures/sol-game-review-2026-11-03/original-game.json",
+        import.meta.url
+      ),
+      "utf8"
+    )
+  ) as {
+    moves: {
+      move: number
+      player: string
+      pit: number
+      seeds: number
+      captured: number
+      extraTurn: boolean
+    }[]
+  }
+  let game = createGame()
+  const fixture = getCase("sol-match-preserve-margin")
+  for (const move of recorded.moves) {
+    if (move.move === 26) {
+      assert.equal(game.turn, "ai")
+      assert.deepEqual(game.board, fixture.board)
+    }
+    const isAI = move.player.startsWith("LFM3")
+    assert.equal(game.turn, isAI ? "ai" : "human")
+    const pit = isAI ? move.pit + 6 : move.pit - 1
+    assert.equal(game.board[pit], move.seeds)
+    const next = applyMove(game, pit)
+    const action = next.history.at(-1)
+    assert.equal(action?.captured, move.captured)
+    assert.equal(action?.extraTurn, move.extraTurn)
+    game = next
+  }
+  assert.equal(game.status, "human-won")
+  assert.equal(game.board[6], 28)
+  assert.equal(game.board[13], 20)
+  assert.deepEqual(objectiveValues(fixture), [
+    { pit: 7, value: -14 },
+    { pit: 8, value: -8 },
+    { pit: 11, value: -8 },
+    { pit: 12, value: -6 }
+  ])
+  assert.deepEqual(expectedForCase(fixture), [12])
+})
+
+test("the new draw-to-loss regression accepts only the independently proved drawing move", () => {
+  const fixture = getCase("sol-match-save-forced-draw")
+  assert.deepEqual(objectiveValues(fixture), [
+    { pit: 7, value: 0 },
+    { pit: 8, value: -2 },
+    { pit: 10, value: -2 }
+  ])
+  assert.deepEqual(expectedForCase(fixture), [7])
 })
