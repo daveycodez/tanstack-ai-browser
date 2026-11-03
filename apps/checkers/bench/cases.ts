@@ -4,7 +4,7 @@ import { EXCHANGE_REGRESSIONS } from "./exchange-regressions.ts"
 import { DEFENSIVE_REGRESSIONS } from "./defensive-regressions.ts"
 export { gameForCase } from "./fixtures.ts"
 
-export const SUITE_VERSION = "checkers-audited-v7"
+export const SUITE_VERSION = "checkers-audited-v9"
 
 /** Frozen constructed teaching positions and legal histories, not expert engine judgments. */
 export const CASES: BenchmarkCase[] = [
@@ -301,9 +301,9 @@ export const CASES: BenchmarkCase[] = [
   },
   {
     "id": "promotion-unseen",
-    "label": "Holdout: safe kinging opportunity",
-    "description": "Take any immediate promotion that keeps the new king uncapturable on Red's next turn and has no checked material loss or immediate Red win.",
-    "objective": "safe-promotion",
+    "label": "Holdout: non-losing play with promotion available",
+    "description": "Avoid immediate Red wins and checked material losses. Accept every non-losing alternative, including quiet moves that preserve or improve material; crowning is not the only valid choice in this position.",
+    "objective": "avoid-losing-exchange",
     "partition": "holdout",
     "setup": {
       "black": [
@@ -321,6 +321,11 @@ export const CASES: BenchmarkCase[] = [
       ]
     },
     "expectedMoveIds": [
+      "b6-a5",
+      "b6-c5",
+      "b4-a5",
+      "b4-c5",
+      "b4-a3",
       "b2-c1"
     ]
   },
@@ -451,9 +456,9 @@ export const CASES: BenchmarkCase[] = [
   },
   {
     "id": "take-third-repeat-behind",
-    "label": "Accept a repetition draw when behind",
-    "description": "Black is down a man and can finish a real threefold repetition immediately. Accept every immediate drawing move; no immediate or forced-next-turn Black win competes.",
-    "objective": "take-draw-behind",
+    "label": "Draw available while behind",
+    "description": "Ungraded draw preference: Black can repeat for a draw, but continuing with its king has no checked material loss or immediate Red win and is not a proven defeat.",
+    "objective": "diagnostic",
     "partition": "calibration",
     "setup": {
       "black": [
@@ -474,9 +479,9 @@ export const CASES: BenchmarkCase[] = [
       "b4-a3",
       "g7-h6"
     ],
-    "expectedMoveIds": [
-      "a3-b4"
-    ]
+    "expectedMoveIds": null,
+    "signalMoveIds": ["a3-b4"],
+    "signalDescription": "Taking the available draw is a preference; safe continuation is not a demonstrated blunder."
   },
   {
     "id": "opening-variety",

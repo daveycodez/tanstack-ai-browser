@@ -28,7 +28,7 @@ test("memoized analysis matches all 44 pre-change annotations and complete promp
   assert.equal(fixtures.length,44)
   for(const record of fixtures){
     assert.deepEqual(annotateMoves(record.game),record.annotations,record.id)
-    assert.deepEqual(buildMovePrompt(record.game),record.input,record.id)
+    assert.deepEqual(buildMovePrompt(record.game,undefined,record.input.version),record.input,record.id)
   }
 })
 
@@ -38,7 +38,7 @@ test("the real worker entry produces identical prompts, including draw-clock and
   try {
     for(const record of fixtures){
       const reply=once(worker,"message")
-      worker.postMessage({game:record.game,moves:legalMoves(record.game.board,"ai"),version:"shared-v9"})
+      worker.postMessage({game:record.game,moves:legalMoves(record.game.board,"ai"),version:record.input.version})
       const [value]=await reply
       assert.deepEqual(value,{input:record.input},record.id)
     }

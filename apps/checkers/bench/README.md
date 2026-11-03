@@ -133,10 +133,42 @@ comparison only** to omit cache replays; v8 remains a frozen comparison control.
 
 ## Smallest-loss defense (v9)
 
-The current v9 prompt adds a short smallest-loss fallback and, only when every
+The historical v9 prompt adds a short smallest-loss fallback and, only when every
 checked exchange is negative and safe defenses have different losses, a factual
 summary containing every tied smallest-loss action. All legal cards stay available;
 lookahead, material values, capture settlement, sampling and output budgets are unchanged.
-The suite now has 39 positions (29 scored), including the reported double-jump
+That suite had 39 positions (29 scored), including the reported double-jump
 crown and last-king giveaway. See [DEFENSE-FINDINGS.md](DEFENSE-FINDINGS.md) for
 independent grading, the failed sentence-only experiment, and LFM3/Nano results.
+
+## Checked priorities and fair grading (v10)
+
+The v10 prompt adds one provider-independent instruction and, when useful, a
+CHECKED PRIORITY CHOICES summary derived from the existing bounded outcomes.
+It follows the same tactical policy: wins, immediate safety, checked material,
+safe crowns/free captures, and guaranteed follow-up captures. Tied alternatives
+keep the caller's order. Every legal action remains in the prompt and output
+schema; the model still chooses the move. No search, adapter, sampling, output
+budget, or cache API changes are involved. Historical prompts v6-v9 stay frozen.
+
+Suite `checkers-audited-v9` retains all 39 positions, with 28 scored and 11
+diagnostics (including one forced move). Two grading corrections are deliberate:
+
+- `promotion-unseen` accepts all six non-losing choices. Its old promotion-only
+  grade rejected four quiet moves with checked net +1 while requiring a crown
+  with checked net 0. The revised objective still rejects the -2 development
+  move and -3 promotion.
+- `take-third-repeat-behind` records taking a draw as a diagnostic preference.
+  Being down a man does not prove the alternative king continuation loses;
+  that continuation has no immediate Red win or checked material loss.
+
+Immediate defeat, losing exchanges, smallest-loss defenses and guaranteed
+follow-up captures retain their strict, independently audited objectives.
+Regression tests compare priority summaries with the rule-only audit, preserve
+all legal cards and verify the two grading corrections. The historically named
+holdouts remain separate cases, but have now been inspected during development;
+they should not be described as untouched validation data.
+
+For manual validation use all positions, production per-game ordering, model
+default sampling and thinking off. Raw model results stay outside Git; the
+tracked latest summary remains labeled with its original suite and prompt.

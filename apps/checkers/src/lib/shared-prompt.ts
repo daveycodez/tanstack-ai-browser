@@ -3,9 +3,9 @@ import type { Game, Move } from "./checkers.ts"
 import { annotateMoves, describeMove, materialBalance, OUTCOME_VERSION } from "./move-outcomes.ts"
 import type { AnnotatedMove } from "./move-outcomes.ts"
 
-export const SHARED_PROMPT_VERSION = "shared-v9" as const
-export const PREVIOUS_PROMPT_VERSION = "shared-v8" as const
-export const PROMPT_VERSIONS = ["baseline-v1", "shared-v6", "shared-v7", "shared-v8", "shared-v9"] as const
+export const SHARED_PROMPT_VERSION = "shared-v10" as const
+export const PREVIOUS_PROMPT_VERSION = "shared-v9" as const
+export const PROMPT_VERSIONS = ["baseline-v1", "shared-v6", "shared-v7", "shared-v8", "shared-v9", "shared-v10"] as const
 export type PromptVersion = typeof PROMPT_VERSIONS[number]
 export const isPromptVersion = (value: string): value is PromptVersion => PROMPT_VERSIONS.some(version => version === value)
 export const SHARED_SYSTEM_PROMPT = "Choose one legal Black action using the verified checkers outcomes. Win now or force a win; otherwise prevent Red's immediate win. Prefer higher nonnegative checked material gains. Take free captures and crown a man now before ordinary quiet development when safe. Prevent free Red promotions when no better exchange exists. Avoid a draw when ahead; prefer an available draw when behind unless a listed win exists. When no tactic decides, favor safe quiet progress: advance men or use kings together to restrict safe escapes. Avoid needless reversals; a retreat can still be necessary. Each card is a separate alternative. Card order is not a recommendation."
@@ -37,6 +37,8 @@ export const COMPACT_OUTCOME_READING = "Red moves next. Exchange net (man=1, kin
 export const SHARED_V8_SYSTEM_PROMPT = [COMPACT_POLICY, COMPACT_RULES, COMPACT_OUTCOME_HEADING, COMPACT_OUTCOME_READING].join("\n")
 export const SMALLEST_LOSS_INSTRUCTION = "If every checked exchange loses material, prefer the smallest loss."
 export const SHARED_V9_SYSTEM_PROMPT = SHARED_V8_SYSTEM_PROMPT.replace("Prefer higher nonnegative checked material gains.", `Prefer higher nonnegative checked material gains. ${SMALLEST_LOSS_INSTRUCTION}`)
+export const PRIORITY_INSTRUCTION = "Choose from CHECKED PRIORITY CHOICES when listed; use other hints to break ties."
+export const SHARED_V10_SYSTEM_PROMPT = SHARED_V9_SYSTEM_PROMPT.replace("\nAmerican rules:", `\n${PRIORITY_INSTRUCTION}\nAmerican rules:`)
 const COMPACT_FACT_EXPLANATIONS: Record<typeof FACT_EXPLANATIONS[number][0], string> = {
   "BLACK CAN FORCE A WIN ON ITS NEXT TURN:": "Every legal Red reply permits a Black winning move.",
   "NON-LOSING CHECKED EXCHANGES:": "No immediate Red win or material loss across checked replies, responses, and forced captures.",
@@ -72,6 +74,32 @@ export function buildBaselinePrompt(game: Game, moves: readonly Move[]): PromptI
   ].join("\n") }
 }
 
+/** Summarize the existing bounded outcomes in the same provider-independent policy order.
+ * This is advice: every legal card stays in the schema and the model chooses its action.
+ */
+export function checkedPriorityChoices(game: Game, moves: readonly AnnotatedMove[]): AnnotatedMove[] {
+  let choices = [...moves]
+  const wins = choices.filter(move => move.outcome.status === "ai-won")
+  if (wins.length) return wins
+  const forcing = choices.filter(move => move.outcome.forcesWinNextTurn)
+  if (forcing.length) return forcing
+  const defenses = choices.filter(move => !move.outcome.allowsRedWin)
+  if (defenses.length) choices = defenses
+  const balance = materialBalance(game.board)
+  const draws = choices.filter(move => move.outcome.status === "draw")
+  if (balance < 0 && draws.length) return draws
+  if (balance > 0 && choices.some(move => move.outcome.status === "playing" && move.outcome.worstNetAfterResponse >= 0))
+    choices = choices.filter(move => move.outcome.status !== "draw")
+  const net = Math.max(...choices.map(move => move.outcome.worstNetAfterResponse))
+  choices = choices.filter(move => move.outcome.worstNetAfterResponse === net)
+  const immediate = choices.filter(move => move.outcome.worstNetAfterResponse >= 0 && (
+    move.promotes || move.captures.length > 0 && move.outcome.maxRedCaptureValue === 0))
+  if (immediate.length) choices = immediate
+  const capture = Math.max(0, ...choices.map(move => move.outcome.minNextCaptureValue))
+  if (capture > 0) choices = choices.filter(move => move.outcome.minNextCaptureValue === capture)
+  return choices
+}
+
 export function buildSharedPrompt(game: Game, annotated: readonly AnnotatedMove[], version: Exclude<PromptVersion, "baseline-v1"> = SHARED_PROMPT_VERSION): PromptInput {
   const choices = annotated.map(move => ({ id: move.id, label: move.label, outcome: describeMove(move) }))
   const wins = annotated.filter(move => move.outcome.status === "ai-won")
@@ -102,16 +130,21 @@ export function buildSharedPrompt(game: Game, annotated: readonly AnnotatedMove[
     else facts.push(`${balance < 0 ? "BLACK IS BEHIND. " : ""}AVAILABLE IMMEDIATE DRAWS: ${immediateDraws.map(move => move.label).join("; ")}. Black material balance now ${balance}; positive means Black is ahead.`)
   }
   if (!wins.length && !forcing.length && !freeCaptures.length && !safePromotions.length && !nextCaptures.length && !immediateDraws.length && quietProgress.length) facts.push(`SAFE QUIET PROGRESS: ${quietProgress.map(move => move.label).join("; ")}. These advance a man or bring a king closer without a checked loss or simply undoing its previous move. This is an activity hint, not a forced win; prefer purposeful progress when no tactic decides.`)
-  if (version === "shared-v9" && !wins.length && !forcing.length && !immediateDraws.length && annotated.length && annotated.every(move => move.outcome.worstNetAfterResponse < 0)) {
+  if ((version === "shared-v9" || version === "shared-v10") && !wins.length && !forcing.length && !immediateDraws.length && annotated.length && annotated.every(move => move.outcome.worstNetAfterResponse < 0)) {
     const defenses = annotated.filter(move => !move.outcome.allowsRedWin && move.outcome.status === "playing")
     const best = Math.max(...defenses.map(move => move.outcome.worstNetAfterResponse))
     const smallestLoss = defenses.filter(move => move.outcome.worstNetAfterResponse === best)
     if (smallestLoss.length && defenses.some(move => move.outcome.worstNetAfterResponse < best))
       facts.push(`SMALLEST CHECKED LOSS: Black net ${best}: ${smallestLoss.map(move => move.label).join("; ")}.`)
   }
-  const compact = version === "shared-v8" || version === "shared-v9"
+  if (version === "shared-v10") {
+    const priority = checkedPriorityChoices(game, annotated)
+    if (priority.length && priority.length < annotated.length)
+      facts.push(`CHECKED PRIORITY CHOICES: ${priority.map(move => move.label).join("; ")}.`)
+  }
+  const compact = version === "shared-v8" || version === "shared-v9" || version === "shared-v10"
   const definitions = version === "shared-v6" ? [] : FACT_EXPLANATIONS.filter(entry => facts.some(fact => factDefinition(fact) === entry)).map(([label, explanation]) => compact ? `${label} ${COMPACT_FACT_EXPLANATIONS[label]}` : `Definition of ${label} ${explanation}`)
-  return { version, systemPrompt: version === "shared-v6" ? SHARED_SYSTEM_PROMPT : version === "shared-v9" ? SHARED_V9_SYSTEM_PROMPT : compact ? SHARED_V8_SYSTEM_PROMPT : SHARED_V7_SYSTEM_PROMPT, outcomeVersion: OUTCOME_VERSION, choices, prompt: [
+  return { version, systemPrompt: version === "shared-v6" ? SHARED_SYSTEM_PROMPT : version === "shared-v10" ? SHARED_V10_SYSTEM_PROMPT : version === "shared-v9" ? SHARED_V9_SYSTEM_PROMPT : compact ? SHARED_V8_SYSTEM_PROMPT : SHARED_V7_SYSTEM_PROMPT, outcomeVersion: OUTCOME_VERSION, choices, prompt: [
     "Black to move. Use the checked outcomes below to choose a sensible casual move.",
     ...(definitions.length ? [compact ? "POSITION DEFINITIONS:" : "OUTCOME DEFINITIONS FOR THIS POSITION:", ...definitions] : []),
     ...(version === "shared-v6" ? [AMERICAN_RULES] : []),
