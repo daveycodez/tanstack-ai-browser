@@ -46,14 +46,14 @@ of a worse full-game action. No holdout or expected answer was changed.
 The v3 `capture-or-bonus` case was rerun twice with native thinking on and a
 4,096-token reasoning budget. Both choices passed. Each run exhausted the full
 4,096-token budget, taking 42.92s and 45.06s end to end. Its full returned reasoning
-is in `shared-v3-thinking-diagnostic.json.gz`. Thinking was used to diagnose
+is in [the thinking trace](../../fixtures/lfm3-2026-11-03/shared-v3-thinking-diagnostic.json.gz). Thinking was used to diagnose
 prompt wording; the shipped default remains thinking off. Diagnostic passes
 are not added to any default-mode score.
 
 ## Evidence and provenance
 
-`summary.json` contains settings, per-trial answers, accepted pits, chosen order,
-priority groups, hashes and timing. Each `.json.gz` is the exact downloaded full
+[bench/latest.json](../../latest.json) contains settings, per-trial answers, accepted pits, chosen order,
+priority groups, hashes and timing. Each `.json.gz` under [the fixture archive](../../fixtures/lfm3-2026-11-03/) is the exact downloaded full
 report, including every supplied prompt, raw answer, provider usage and any
 returned reasoning. There are 174 completed trials across eight archived runs.
 Every embedded system and position prompt was rebuilt from its board, order and
