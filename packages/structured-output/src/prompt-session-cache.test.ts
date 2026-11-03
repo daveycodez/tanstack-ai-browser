@@ -229,6 +229,81 @@ test("explicit cleanup and the existing shared cache bound include structured ba
   destroyPromptApiSessions();assert.ok(control.sessions.every(session=>session.destroyed))
 })
 
+test("concurrent distinct cold structured threads trim idle bases back to the retained limit", {timeout:2000}, async () => {
+  reset();let open=()=>undefined as void,started=()=>undefined as void
+  control.createGate=new Promise<void>(resolve=>{open=resolve})
+  const ready=new Promise<void>(resolve=>{started=resolve})
+  control.onCreate=()=>{if(control.creates.length===6)started()}
+  const runs=Array.from({length:6},(_,index)=>chat({adapter:promptApiText(),threadId:`cold-pool-${index}`,systemPrompts:["Stable system instructions"],messages:[{role:"user",content:"Choose a legal move"}],outputSchema:schema,stream:false}))
+  await ready;open();const answers=await Promise.all(runs)
+  assert.equal(answers.length,6)
+  assert.ok(answers.every(answer=>answer.moveId==="b6-a5"))
+  assert.equal(bases().filter(session=>!session.destroyed).length,4)
+  assert.ok(bases().slice(0,2).every(session=>session.destroyed),"oldest idle bases are evicted")
+  assert.ok(copies().every(session=>session.destroyed),"working clones are independently released")
+})
+
+test("pool trimming preserves independent concurrent clones and their cancellation", {timeout:2000}, async () => {
+  reset();let openCreate=()=>undefined as void,created=()=>undefined as void,openPrompt=()=>undefined as void,prompted=()=>undefined as void
+  control.createGate=new Promise<void>(resolve=>{openCreate=resolve})
+  control.promptGate=new Promise<void>(resolve=>{openPrompt=resolve})
+  const allCreated=new Promise<void>(resolve=>{created=resolve}),allPrompted=new Promise<void>(resolve=>{prompted=resolve})
+  control.onCreate=()=>{if(control.creates.length===6)created()}
+  control.onPrompt=()=>{if(control.prompts.length===6)prompted()}
+  const controller=new AbortController()
+  const runs=Array.from({length:6},(_,index)=>{
+    const options=request(`clone-pool-${index}`)
+    return promptApiText().structuredOutput({...options,chatOptions:{...options.chatOptions,...(index===0?{request:{signal:controller.signal}}:{})}})
+  })
+  await allCreated;openCreate();await allPrompted
+  try {
+    assert.equal(bases().filter(session=>!session.destroyed).length,4)
+    assert.equal(copies().filter(session=>!session.destroyed).length,6,"evicting idle parents does not cancel working clones")
+    controller.abort(new Error("cancel independent clone"))
+  } finally {openPrompt()}
+  const results=await Promise.allSettled(runs)
+  assert.equal(results[0].status,"rejected")
+  assert.ok(results.slice(1).every(result=>result.status==="fulfilled"))
+  assert.ok(copies().every(session=>session.destroyed))
+  assert.equal(bases().filter(session=>!session.destroyed).length,4)
+})
+
+test("trimming never destroys busy leases and keeps idle eviction in LRU order", async () => {
+  reset()
+  const make=(threadId:string)=>leaseSession({threadId,system:"System",prior:[],options:{},signal:undefined})
+  const leases=await Promise.all(Array.from({length:6},(_,index)=>make(`busy-pool-${index}`)))
+  assert.equal(bases().filter(session=>!session.destroyed).length,6,"active leases may temporarily exceed the idle bound")
+  leases[0].release([])
+  assert.equal(bases()[0].destroyed,true)
+  assert.ok(bases().slice(1).every(session=>!session.destroyed))
+  leases[1].release([])
+  assert.equal(bases()[1].destroyed,true)
+  for(const lease of leases.slice(2))lease.release([])
+  assert.equal(bases().filter(session=>!session.destroyed).length,4)
+  const touched=await make("busy-pool-2");touched.release([])
+  const added=await make("busy-pool-new");added.release([])
+  assert.equal(bases()[2].destroyed,false,"recently acquired idle entry survives")
+  assert.equal(bases()[3].destroyed,true,"oldest remaining idle entry is evicted")
+  assert.equal(bases().filter(session=>!session.destroyed).length,4)
+})
+
+test("concurrent cold chat leases sharing a key destroy the detached session on release", {timeout:2000}, async () => {
+  reset();let open=()=>undefined as void,created=()=>undefined as void
+  control.createGate=new Promise<void>(resolve=>{open=resolve})
+  const ready=new Promise<void>(resolve=>{created=resolve})
+  control.onCreate=()=>{if(control.creates.length===2)created()}
+  const options={threadId:"shared-cold-key",system:"System",prior:[],options:{},signal:undefined}
+  const runs=[leaseSession(options),leaseSession(options)]
+  await ready;open();const leases=await Promise.all(runs)
+  assert.ok(bases().every(session=>!session.destroyed),"both active leases remain usable")
+  leases[0].release([])
+  assert.equal(bases()[0].destroyed,true,"superseded entry is freed only when its owner returns it")
+  assert.equal(bases()[1].destroyed,false,"replacement stays intact")
+  leases[1].release([])
+  assert.equal(bases().filter(session=>!session.destroyed).length,1)
+  destroyPromptApiSessions();assert.ok(control.sessions.every(session=>session.destroyed))
+})
+
 test("clone overflow is reported on structured usage and invokes the existing callback", async () => {
   reset();let overflow=0
   const adapter=promptApiText({onContextOverflow:()=>{overflow++}})

@@ -229,10 +229,7 @@ async function leasePooledSession({
   })
   if (cacheKey && shared) {
     entries.set(cacheKey, created)
-    for (const [id, old] of entries) {
-      if (entries.size <= MAX_SESSIONS) break
-      if (!old.busy) drop(id, old)
-    }
+    trimIdleSessions()
   }
   return {
     ...lease(
@@ -258,14 +255,23 @@ function lease(
     createMs,
     overflowed: () => entry.overflowed,
     release: (history) => {
-      if (!threadId) return entry.session.destroy()
+      if (!threadId || entries.get(threadId) !== entry) return entry.session.destroy()
       entry.history = history.map(keyOf)
       entry.busy = false
+      trimIdleSessions()
     },
     discard: () => {
       if (threadId) drop(threadId, entry)
       else entry.session.destroy()
     }
+  }
+}
+
+/** Busy entries can exceed the bound temporarily; evict oldest idle entries on return. */
+function trimIdleSessions() {
+  for (const [id, entry] of entries) {
+    if (entries.size <= MAX_SESSIONS) break
+    if (!entry.busy) drop(id, entry)
   }
 }
 

@@ -1,0 +1,914 @@
+{
+  "startedAt": "2026-11-03T04:03:40.349Z",
+  "package": "@mlc-ai/web-xgrammar@0.1.27",
+  "generation": false,
+  "sampling": false,
+  "results": [
+    {
+      "name": "canonical finite literal \"Paris\"",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "value": {
+            "type": "string",
+            "const": "Paris"
+          }
+        },
+        "required": [
+          "value"
+        ],
+        "additionalProperties": false
+      },
+      "raw": "{\"value\":\"Paris\"}",
+      "expectedComplete": true,
+      "accepted": true,
+      "complete": true,
+      "failedByte": null,
+      "eosAccepted": true,
+      "terminatedBefore": false,
+      "terminatedAfter": true,
+      "pass": true,
+      "lexical": false
+    },
+    {
+      "name": "canonical finite literal \"Paris</think>Paris\"",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "value": {
+            "type": "string",
+            "const": "Paris</think>Paris"
+          }
+        },
+        "required": [
+          "value"
+        ],
+        "additionalProperties": false
+      },
+      "raw": "{\"value\":\"Paris<\\/think>Paris\"}",
+      "expectedComplete": true,
+      "accepted": true,
+      "complete": true,
+      "failedByte": null,
+      "eosAccepted": true,
+      "terminatedBefore": false,
+      "terminatedAfter": true,
+      "pass": true,
+      "lexical": false
+    },
+    {
+      "name": "canonical finite literal \"Paris</think>Paris <think>tag</think> héllo 👑\"",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "value": {
+            "type": "string",
+            "const": "Paris</think>Paris <think>tag</think> héllo 👑"
+          }
+        },
+        "required": [
+          "value"
+        ],
+        "additionalProperties": false
+      },
+      "raw": "{\"value\":\"Paris<\\/think>Paris <think>tag<\\/think> héllo 👑\"}",
+      "expectedComplete": true,
+      "accepted": true,
+      "complete": true,
+      "failedByte": null,
+      "eosAccepted": true,
+      "terminatedBefore": false,
+      "terminatedAfter": true,
+      "pass": true,
+      "lexical": false
+    },
+    {
+      "name": "canonical finite literal \"quoted \\\"text\\\" \\\\ slash / newline\\n\\t\\u0001\"",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "value": {
+            "type": "string",
+            "const": "quoted \"text\" \\ slash / newline\n\t\u0001"
+          }
+        },
+        "required": [
+          "value"
+        ],
+        "additionalProperties": false
+      },
+      "raw": "{\"value\":\"quoted \\\"text\\\" \\\\ slash \\/ newline\\n\\t\\u0001\"}",
+      "expectedComplete": true,
+      "accepted": true,
+      "complete": true,
+      "failedByte": null,
+      "eosAccepted": true,
+      "terminatedBefore": false,
+      "terminatedAfter": true,
+      "pass": true,
+      "lexical": false
+    },
+    {
+      "name": "alternative unescaped slash spelling",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "value": {
+            "type": "string",
+            "const": "Paris</think>Paris"
+          }
+        },
+        "required": [
+          "value"
+        ],
+        "additionalProperties": false
+      },
+      "raw": "{\"value\":\"Paris</think>Paris\"}",
+      "expectedComplete": true,
+      "accepted": false,
+      "complete": false,
+      "failedByte": 47,
+      "eosAccepted": false,
+      "terminatedBefore": false,
+      "terminatedAfter": false,
+      "pass": false,
+      "lexical": true
+    },
+    {
+      "name": "equivalent Unicode escape spelling",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "value": {
+            "type": "string",
+            "const": "Paris</think>Paris"
+          }
+        },
+        "required": [
+          "value"
+        ],
+        "additionalProperties": false
+      },
+      "raw": "{\"value\":\"Paris\\u003c/think>Paris\"}",
+      "expectedComplete": true,
+      "accepted": false,
+      "complete": false,
+      "failedByte": 92,
+      "eosAccepted": false,
+      "terminatedBefore": false,
+      "terminatedAfter": false,
+      "pass": false,
+      "lexical": true
+    },
+    {
+      "name": "equivalent Unicode surrogate spelling",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "value": {
+            "type": "string",
+            "const": "héllo 👑"
+          }
+        },
+        "required": [
+          "value"
+        ],
+        "additionalProperties": false
+      },
+      "raw": "{\"value\":\"h\\u00e9llo \\ud83d\\udc51\"}",
+      "expectedComplete": true,
+      "accepted": false,
+      "complete": false,
+      "failedByte": 92,
+      "eosAccepted": false,
+      "terminatedBefore": false,
+      "terminatedAfter": false,
+      "pass": false,
+      "lexical": true
+    },
+    {
+      "name": "reject wrong escaped quote",
+      "prefix": "{\"value\":\"Paris\\",
+      "candidate": 34,
+      "prefixAccepted": false,
+      "candidateAllowed": false,
+      "pass": true,
+      "rejectedEarlier": true
+    },
+    {
+      "name": "reject impossible partial Unicode escape",
+      "prefix": "{\"value\":\"Paris\\u",
+      "candidate": 51,
+      "prefixAccepted": false,
+      "candidateAllowed": false,
+      "pass": true,
+      "rejectedEarlier": true
+    },
+    {
+      "name": "reject incompatible UTF8 lead",
+      "prefix": "{\"value\":\"Paris",
+      "candidate": 194,
+      "prefixAccepted": true,
+      "candidateAllowed": false,
+      "pass": true,
+      "rejectedEarlier": false
+    },
+    {
+      "name": "tool arguments valid enum",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "city": {
+            "type": "string",
+            "enum": [
+              "Paris",
+              "Tokyo"
+            ]
+          },
+          "unit": {
+            "type": "string",
+            "enum": [
+              "C",
+              "F"
+            ]
+          }
+        },
+        "required": [
+          "city",
+          "unit"
+        ],
+        "additionalProperties": false
+      },
+      "raw": "{\"city\":\"Paris\",\"unit\":\"C\"}",
+      "expectedComplete": true,
+      "accepted": true,
+      "complete": true,
+      "failedByte": null,
+      "eosAccepted": true,
+      "terminatedBefore": false,
+      "terminatedAfter": true,
+      "pass": true,
+      "lexical": false
+    },
+    {
+      "name": "tool arguments invalid enum",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "city": {
+            "type": "string",
+            "enum": [
+              "Paris",
+              "Tokyo"
+            ]
+          },
+          "unit": {
+            "type": "string",
+            "enum": [
+              "C",
+              "F"
+            ]
+          }
+        },
+        "required": [
+          "city",
+          "unit"
+        ],
+        "additionalProperties": false
+      },
+      "raw": "{\"city\":\"London\",\"unit\":\"C\"}",
+      "expectedComplete": false,
+      "accepted": false,
+      "complete": false,
+      "failedByte": 76,
+      "eosAccepted": false,
+      "terminatedBefore": false,
+      "terminatedAfter": false,
+      "pass": true,
+      "lexical": false
+    },
+    {
+      "name": "tool arguments extra property",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "city": {
+            "type": "string",
+            "enum": [
+              "Paris",
+              "Tokyo"
+            ]
+          },
+          "unit": {
+            "type": "string",
+            "enum": [
+              "C",
+              "F"
+            ]
+          }
+        },
+        "required": [
+          "city",
+          "unit"
+        ],
+        "additionalProperties": false
+      },
+      "raw": "{\"city\":\"Paris\",\"unit\":\"C\",\"extra\":1}",
+      "expectedComplete": false,
+      "accepted": false,
+      "complete": false,
+      "failedByte": 44,
+      "eosAccepted": false,
+      "terminatedBefore": false,
+      "terminatedAfter": false,
+      "pass": true,
+      "lexical": false
+    },
+    {
+      "name": "tool arguments missing property",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "city": {
+            "type": "string",
+            "enum": [
+              "Paris",
+              "Tokyo"
+            ]
+          },
+          "unit": {
+            "type": "string",
+            "enum": [
+              "C",
+              "F"
+            ]
+          }
+        },
+        "required": [
+          "city",
+          "unit"
+        ],
+        "additionalProperties": false
+      },
+      "raw": "{\"city\":\"Paris\"}",
+      "expectedComplete": false,
+      "accepted": false,
+      "complete": false,
+      "failedByte": 125,
+      "eosAccepted": false,
+      "terminatedBefore": false,
+      "terminatedAfter": false,
+      "pass": true,
+      "lexical": false
+    },
+    {
+      "name": "nested array Unicode valid",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "value": {
+                  "enum": [
+                    "héllo",
+                    "☃"
+                  ]
+                }
+              },
+              "required": [
+                "value"
+              ],
+              "additionalProperties": false
+            },
+            "minItems": 1,
+            "maxItems": 2
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "additionalProperties": false
+      },
+      "raw": "{\"items\":[{\"value\":\"héllo\"},{\"value\":\"☃\"}]}",
+      "expectedComplete": true,
+      "accepted": true,
+      "complete": true,
+      "failedByte": null,
+      "eosAccepted": true,
+      "terminatedBefore": false,
+      "terminatedAfter": true,
+      "pass": true,
+      "lexical": false
+    },
+    {
+      "name": "nested array maxItems rejected",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "value": {
+                  "enum": [
+                    "héllo",
+                    "☃"
+                  ]
+                }
+              },
+              "required": [
+                "value"
+              ],
+              "additionalProperties": false
+            },
+            "minItems": 1,
+            "maxItems": 2
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "additionalProperties": false
+      },
+      "raw": "{\"items\":[{\"value\":\"héllo\"},{\"value\":\"héllo\"},{\"value\":\"héllo\"}]}",
+      "expectedComplete": false,
+      "accepted": false,
+      "complete": false,
+      "failedByte": 44,
+      "eosAccepted": false,
+      "terminatedBefore": false,
+      "terminatedAfter": false,
+      "pass": true,
+      "lexical": false
+    },
+    {
+      "name": "minimum/maximum valid",
+      "schema": {
+        "type": "number",
+        "minimum": 42,
+        "maximum": 43
+      },
+      "raw": "42.5",
+      "expectedComplete": true,
+      "accepted": true,
+      "complete": true,
+      "failedByte": null,
+      "eosAccepted": true,
+      "terminatedBefore": false,
+      "terminatedAfter": true,
+      "pass": true,
+      "lexical": false
+    },
+    {
+      "name": "minimum/maximum invalid",
+      "schema": {
+        "type": "number",
+        "minimum": 42,
+        "maximum": 43
+      },
+      "raw": "99",
+      "expectedComplete": false,
+      "accepted": false,
+      "complete": false,
+      "failedByte": 57,
+      "eosAccepted": false,
+      "terminatedBefore": false,
+      "terminatedAfter": false,
+      "pass": true,
+      "lexical": false
+    },
+    {
+      "name": "minLength/maxLength valid",
+      "schema": {
+        "type": "string",
+        "minLength": 2,
+        "maxLength": 3
+      },
+      "raw": "\"AB\"",
+      "expectedComplete": true,
+      "accepted": true,
+      "complete": true,
+      "failedByte": null,
+      "eosAccepted": true,
+      "terminatedBefore": false,
+      "terminatedAfter": true,
+      "pass": true,
+      "lexical": false
+    },
+    {
+      "name": "minLength/maxLength invalid",
+      "schema": {
+        "type": "string",
+        "minLength": 2,
+        "maxLength": 3
+      },
+      "raw": "\"ABCDE\"",
+      "expectedComplete": false,
+      "accepted": false,
+      "complete": false,
+      "failedByte": 68,
+      "eosAccepted": false,
+      "terminatedBefore": false,
+      "terminatedAfter": false,
+      "pass": true,
+      "lexical": false
+    },
+    {
+      "name": "pattern valid",
+      "schema": {
+        "type": "string",
+        "pattern": "^[A-Z]{2}$"
+      },
+      "raw": "\"AB\"",
+      "expectedComplete": true,
+      "accepted": true,
+      "complete": true,
+      "failedByte": null,
+      "eosAccepted": true,
+      "terminatedBefore": false,
+      "terminatedAfter": true,
+      "pass": true,
+      "lexical": false
+    },
+    {
+      "name": "pattern invalid",
+      "schema": {
+        "type": "string",
+        "pattern": "^[A-Z]{2}$"
+      },
+      "raw": "\"ab\"",
+      "expectedComplete": false,
+      "accepted": false,
+      "complete": false,
+      "failedByte": 97,
+      "eosAccepted": false,
+      "terminatedBefore": false,
+      "terminatedAfter": false,
+      "pass": true,
+      "lexical": false
+    },
+    {
+      "name": "multipleOf valid",
+      "schema": {
+        "type": "integer",
+        "multipleOf": 3
+      },
+      "raw": "6",
+      "expectedComplete": true,
+      "accepted": true,
+      "complete": true,
+      "failedByte": null,
+      "eosAccepted": true,
+      "terminatedBefore": false,
+      "terminatedAfter": true,
+      "pass": true,
+      "lexical": false
+    },
+    {
+      "name": "multipleOf invalid",
+      "schema": {
+        "type": "integer",
+        "multipleOf": 3
+      },
+      "raw": "7",
+      "expectedComplete": false,
+      "accepted": true,
+      "complete": true,
+      "failedByte": null,
+      "eosAccepted": true,
+      "terminatedBefore": false,
+      "terminatedAfter": true,
+      "pass": false,
+      "lexical": false
+    },
+    {
+      "name": "anyOf valid",
+      "schema": {
+        "anyOf": [
+          {
+            "const": "a"
+          },
+          {
+            "type": "integer",
+            "minimum": 2,
+            "maximum": 3
+          }
+        ]
+      },
+      "raw": "\"a\"",
+      "expectedComplete": true,
+      "accepted": true,
+      "complete": true,
+      "failedByte": null,
+      "eosAccepted": true,
+      "terminatedBefore": false,
+      "terminatedAfter": true,
+      "pass": true,
+      "lexical": false
+    },
+    {
+      "name": "anyOf invalid",
+      "schema": {
+        "anyOf": [
+          {
+            "const": "a"
+          },
+          {
+            "type": "integer",
+            "minimum": 2,
+            "maximum": 3
+          }
+        ]
+      },
+      "raw": "true",
+      "expectedComplete": false,
+      "accepted": false,
+      "complete": false,
+      "failedByte": 116,
+      "eosAccepted": false,
+      "terminatedBefore": false,
+      "terminatedAfter": false,
+      "pass": true,
+      "lexical": false
+    },
+    {
+      "name": "allOf valid",
+      "schema": {
+        "allOf": [
+          {
+            "type": "integer",
+            "minimum": 2
+          },
+          {
+            "maximum": 3
+          }
+        ]
+      },
+      "raw": "2",
+      "expectedComplete": true,
+      "accepted": true,
+      "complete": true,
+      "failedByte": null,
+      "eosAccepted": true,
+      "terminatedBefore": false,
+      "terminatedAfter": true,
+      "pass": true,
+      "lexical": false
+    },
+    {
+      "name": "allOf invalid",
+      "schema": {
+        "allOf": [
+          {
+            "type": "integer",
+            "minimum": 2
+          },
+          {
+            "maximum": 3
+          }
+        ]
+      },
+      "raw": "4",
+      "expectedComplete": false,
+      "accepted": true,
+      "complete": true,
+      "failedByte": null,
+      "eosAccepted": true,
+      "terminatedBefore": false,
+      "terminatedAfter": true,
+      "pass": false,
+      "lexical": false
+    },
+    {
+      "name": "not valid",
+      "schema": {
+        "type": "string",
+        "not": {
+          "const": "bad"
+        }
+      },
+      "raw": "\"good\"",
+      "expectedComplete": true,
+      "accepted": true,
+      "complete": true,
+      "failedByte": null,
+      "eosAccepted": true,
+      "terminatedBefore": false,
+      "terminatedAfter": true,
+      "pass": true,
+      "lexical": false
+    },
+    {
+      "name": "not invalid",
+      "schema": {
+        "type": "string",
+        "not": {
+          "const": "bad"
+        }
+      },
+      "raw": "\"bad\"",
+      "expectedComplete": false,
+      "accepted": true,
+      "complete": true,
+      "failedByte": null,
+      "eosAccepted": true,
+      "terminatedBefore": false,
+      "terminatedAfter": true,
+      "pass": false,
+      "lexical": false
+    },
+    {
+      "name": "default additionalProperties allowed valid",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "value": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "value"
+        ]
+      },
+      "raw": "{\"value\":\"ok\",\"extra\":1}",
+      "expectedComplete": true,
+      "accepted": true,
+      "complete": true,
+      "failedByte": null,
+      "eosAccepted": true,
+      "terminatedBefore": false,
+      "terminatedAfter": true,
+      "pass": true,
+      "lexical": false
+    },
+    {
+      "name": "default additionalProperties allowed invalid",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "value": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "value"
+        ]
+      },
+      "raw": "{\"extra\":1}",
+      "expectedComplete": false,
+      "accepted": false,
+      "complete": false,
+      "failedByte": 101,
+      "eosAccepted": false,
+      "terminatedBefore": false,
+      "terminatedAfter": false,
+      "pass": true,
+      "lexical": false
+    },
+    {
+      "name": "rollback restores exact mask",
+      "pass": true,
+      "maxRollback": -1
+    },
+    {
+      "name": "replay fork independence",
+      "pass": true
+    }
+  ],
+  "performance": {
+    "byteTokenizerInitMs": 34.036249999999995,
+    "replay": [
+      {
+        "acceptedTokens": 64,
+        "medianMs": 0.22545800000011695,
+        "samples": [
+          0.29995800000006057,
+          0.23966700000005403,
+          0.22545800000011695,
+          0.22537499999998545,
+          0.22158300000000963
+        ]
+      },
+      {
+        "acceptedTokens": 512,
+        "medianMs": 1.37762500000008,
+        "samples": [
+          2.0815000000000055,
+          1.8721659999998792,
+          1.37762500000008,
+          1.3460419999998976,
+          1.3468749999999545
+        ]
+      }
+    ],
+    "byteMaskCachedMedianMs": 0.013249999999970896,
+    "hfTokenizerInitMs": 218.35391700000014,
+    "hfCompileMs": 4.310541999999941,
+    "hfMaskMedianMs": 0.02643749999992906
+  },
+  "hf": {
+    "vocabSize": 125033,
+    "eos": 124900,
+    "maskType": "Int32Array",
+    "literalChecks": [
+      {
+        "value": "Paris</think>Paris",
+        "raw": "{\"value\":\"Paris<\\/think>Paris\"}",
+        "tokenCount": 10,
+        "accepted": true,
+        "complete": true,
+        "failedTokenId": null,
+        "maskMedianMs": 0.03681249999999636,
+        "maskMaxMs": 0.07816700000012133,
+        "tokens": [
+          38184,
+          4265,
+          41565,
+          41176,
+          28007,
+          23,
+          36442,
+          38,
+          41176,
+          106654
+        ]
+      },
+      {
+        "value": "Paris</think>Paris <think>tag</think> héllo 👑",
+        "raw": "{\"value\":\"Paris<\\/think>Paris <think>tag<\\/think> héllo 👑\"}",
+        "tokenCount": 22,
+        "accepted": true,
+        "complete": true,
+        "failedTokenId": null,
+        "maskMedianMs": 0.03916700000002038,
+        "maskMaxMs": 0.13066700000013043,
+        "tokens": [
+          38184,
+          4265,
+          41565,
+          41176,
+          28007,
+          23,
+          36442,
+          38,
+          41176,
+          229,
+          124901,
+          15625,
+          28007,
+          23,
+          36442,
+          38,
+          28850,
+          53029,
+          23304,
+          248,
+          248,
+          106654
+        ]
+      }
+    ]
+  },
+  "memory": {
+    "before": {
+      "rss": 334430208,
+      "heapTotal": 267714560,
+      "heapUsed": 168057888,
+      "external": 2295789,
+      "arrayBuffers": 161104
+    },
+    "after": {
+      "rss": 406241280,
+      "heapTotal": 232849408,
+      "heapUsed": 155228120,
+      "external": 20173724,
+      "arrayBuffers": 1022099
+    },
+    "scope": "whole Node process incl application/JIT/WASM; not isolated live grammar memory; WASM heap need not shrink after disposal"
+  },
+  "summary": {
+    "passed": 28,
+    "failed": 3,
+    "lexicalRestrictions": [
+      "alternative unescaped slash spelling",
+      "equivalent Unicode escape spelling",
+      "equivalent Unicode surrogate spelling"
+    ]
+  },
+  "finishedAt": "2026-11-03T04:03:40.914Z",
+  "integrationGapsFromPublicApiInspection": [
+    "Asynchronous mask/matcher factory versus current synchronous Constraint and Transformers callback",
+    "No public clone/fork; replay or rollback-based preview redesign required",
+    "No AbortSignal hook; cancellation requires adapter lifecycle handling",
+    "UMD package with misleading native ESM declaration; distribution shim required"
+  ],
+  "schemaSemanticFailures": [
+    "multipleOf invalid",
+    "allOf invalid",
+    "not invalid"
+  ]
+}

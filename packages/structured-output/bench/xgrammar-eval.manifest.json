@@ -1,0 +1,17 @@
+{
+  "package": "@mlc-ai/web-xgrammar",
+  "version": "0.1.27",
+  "installScope": "/private/tmp/xgrammar-eval only; workspace dependencies unchanged",
+  "publishedBundleSha256": "803713906fb3e53483ab03f33244a64d8ed818820be9abe520e615754bfd3e24",
+  "browserRunnerSha256": "743f40cb7e5a8c9d3e0ed6d2a2a0b5210cc8ff5e7562b8b2875a1c105798ae90",
+  "nodeRunnerSha256": "5fb9ffc42957afde7ad9e2a5c8cd6dc6cd718b86bf1172454610b7e51cec21fe",
+  "hfTokenizerMetadataSha256": "7e226e34bface23ccf6e495d157bf77186c1c30a7659880e1a8994db528c3701",
+  "noModelInference": true,
+  "noProductionDependencyChange": true,
+  "notes": [
+    "Browser runner adds process.memoryUsage capability guard; Node path semantics unchanged.",
+    "Node uses byte-identical temporary .cjs copy because published .js is UMD despite type:module.",
+    "Browser executes byte-identical published UMD as classic script.",
+    "Bundler global-shim build tested, execution not browser-tested; no unsafe eval/private handle used."
+  ]
+}
