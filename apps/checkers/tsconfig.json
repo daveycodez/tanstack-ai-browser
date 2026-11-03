@@ -21,6 +21,9 @@
   "exclude": ["src/**/*.test.ts"],
   "references": [
     {
+      "path": "../../packages/apfel"
+    },
+    {
       "path": "../../packages/webgl"
     },
     {
