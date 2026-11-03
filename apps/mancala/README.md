@@ -30,7 +30,7 @@ availability and development-only Apple opponent match Checkers. Models are
 loaded only for an AI turn or an explicitly started benchmark; there is no cloud
 inference or heuristic replacement of an invalid model answer.
 
-`shared-prompt.ts` now uses `shared-v2` whole-turn context. The worker checks four
+`shared-prompt.ts` now uses `shared-v5` whole-turn context. The worker checks four
 completed turns per alternative (AI, Human, AI response, Human), including every
 bonus sow, captures and final sweeps. If the node limit prevents that horizon,
 all alternatives retry at the same three- or two-turn horizon. An unfinished
@@ -46,8 +46,19 @@ a forced net loss, and a bounded store margin from a proved win.
 The original six-sow `shared-v1` prompt remains frozen in
 `shared-prompt-v1.ts` for A/B comparisons. Two legally reachable regression boards
 cover previously hidden eleven- and thirteen-seed steals after Human bonus sows.
-The default benchmark focus is LFM3 GGUF with thinking off; changing the context
-has not yet established an inference-quality gain.
+Literal action labels follow Chess's exact-label approach; numeric labels are
+retained only in frozen baselines. Immediate wins lead the priority group.
+The LFM3 failure-reasoning trace informed v5's shorter cards: equal checked
+scores remain ties, actor sequences use words instead of ambiguous arrows, and
+redundant illustrative counter-lines stay in diagnostics instead of the prompt.
+Tie-breakers compare supplied capture exposure and secured seeds before a bonus.
+
+The real local-Chrome LFM3 GGUF runs improved calibration objectives from 18/26
+on v1 to 25/26 on v5 with thinking off. Both steal-defense cases passed both
+choice orders (4/4); v5 also passed 6/6 trials on the three held-out positions.
+These are scoped tactical objectives, not full-game-strength measurements.
+[Reports and failure notes](bench/results/2026-11-03-lfm3/README.md) preserve all
+runs, exact prompts, answers, and the separate high-budget reasoning diagnostic.
 
 The strategy review used [Pekař et al.'s Kalah analysis](https://www.mdpi.com/2227-9709/7/3/34),
 which covers this app's no-empty-opposite capture rule and defensive exposure.
@@ -59,8 +70,8 @@ The Prompt API requires a supporting browser; WebGL models require the existing
 WebGL runtime's browser/GPU capabilities. Model downloads can be substantial.
 See [bench/README.md](bench/README.md) for scoring limits and repeatable runs.
 Automated tests verify the rules, context, worker, runner, persistence and audio;
-they do not establish model strength. No measured LLM benchmark scores are
-checked in.
+they do not establish overall model strength. The checked-in LFM3 results cover
+only the stated tactical objectives.
 
 ## Storage and build
 

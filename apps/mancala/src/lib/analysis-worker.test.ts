@@ -35,7 +35,13 @@ test("the real worker entry produces the identical production prompt", async () 
     { eval: true, execArgv: ["--experimental-strip-types"] }
   )
   try {
-    for (const version of ["shared-v1", "shared-v2"] as const) {
+    for (const version of [
+      "shared-v1",
+      "shared-v2",
+      "shared-v3",
+      "shared-v4",
+      "shared-v5"
+    ] as const) {
       const reply = once(worker, "message")
       worker.postMessage({ ...request, version })
       const [value] = await reply

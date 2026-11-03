@@ -447,7 +447,10 @@ export function BenchmarkView() {
                 setPromptVersion(event.target.value as PromptVersion)
               }
             >
-              <option value="shared-v2">Current · capture-aware v2</option>
+              <option value="shared-v5">Current · clarified context v5</option>
+              <option value="shared-v4">Win-now priority v4</option>
+              <option value="shared-v3">Literal actions v3</option>
+              <option value="shared-v2">Capture-aware v2</option>
               <option value="shared-v1">Baseline · original v1</option>
             </select>
           </label>
@@ -660,6 +663,23 @@ export function BenchmarkView() {
       <section className="mb-section">
         <div className="mb-section-heading">
           <h2>Run report</h2>
+          <button
+            className="mb-button"
+            disabled={!results.length}
+            onClick={() => {
+              const blob = new Blob([json(fullReport)], {
+                type: "application/json"
+              })
+              const url = URL.createObjectURL(blob)
+              const link = document.createElement("a")
+              link.href = url
+              link.download = `mancala-${report?.promptVersion ?? promptVersion}-${report?.finishedAt.replace(/[:.]/g, "-") ?? "partial"}.json`
+              link.click()
+              setTimeout(() => URL.revokeObjectURL(url), 1000)
+            }}
+          >
+            Download JSON
+          </button>
           <button
             className="mb-button"
             disabled={!results.length}

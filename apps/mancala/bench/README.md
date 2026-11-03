@@ -70,13 +70,12 @@ pnpm nx run mancala:test
 
 Use calibration positions while refining prompts. Freeze source and prompt before
 running holdouts. These are bounded tactical checks, not Elo, solved-game claims,
-or proof of overall playing strength. No benchmark model scores have been recorded
-yet; source tests and audits are not inference results.
+or proof of overall playing strength. Actual LFM3-only results are archived in [the 2026-11-03 report](results/2026-11-03-lfm3/README.md). Source tests and audits remain separate from inference results.
 
 ## Current/baseline and Mac parallel runs
 
-The **Prompt** selector runs either the current capture-aware `shared-v2` context
-or the frozen original `shared-v1` baseline through the same model, case set,
+The **Prompt** selector runs the current clarified `shared-v5` context or the
+frozen `shared-v1` through `shared-v4` historical variants through the same model, case set,
 reasoning settings and paired order policy. The chosen version is saved in each
 report. Use identical settings for an A/B comparison, then check holdouts without
 changing the frozen prompt.
@@ -105,7 +104,8 @@ parallel test harness.
 
 Use **LFM3-1.7B-GGUF**, thinking **off**, two repetitions and the calibration
 positions. Run the frozen `shared-v1` baseline, export its JSON, then repeat the
-same settings with current `shared-v2`. Inspect the new bonus-steal cases first,
+same settings with current `shared-v5`. Inspect the new bonus-steal cases first,
 then overall scoped objective passes, errors and order sensitivity. Keep the
 three holdouts frozen for the final check. Do not invoke the all-three batch for
-this evaluation. No measured LFM3 v1/v2 results have been recorded yet.
+this evaluation. The archived comparison records v1-v5 default-mode results plus a separate
+4,096-token reasoning diagnostic on the remaining capture-versus-bonus case.

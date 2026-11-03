@@ -6,7 +6,7 @@ import {
   buildMovePrompt,
   checkedPriorityChoices,
   SHARED_PROMPT_VERSION
-} from "./shared-prompt.ts"
+} from "./shared-prompt-v2.ts"
 import { buildMovePrompt as baselinePrompt } from "./shared-prompt-v1.ts"
 import type { Game } from "./mancala.ts"
 

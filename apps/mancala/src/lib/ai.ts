@@ -28,6 +28,7 @@ import { SHARED_PROMPT_VERSION, PROMPT_VERSIONS } from "./shared-prompt"
 import { analyzeMovePrompt } from "./analysis-worker"
 import type { PromptInput, PromptVersion } from "./shared-prompt"
 import { orderMovesForGame } from "./move-order"
+import { resolvePitLabel } from "./move-choice"
 
 export type { ModelStatus } from "@tanstack-ai-browser/webgl"
 export const GAME_PROMPT_VERSION = SHARED_PROMPT_VERSION
@@ -254,7 +255,7 @@ export async function chooseAiMove(
               modelOptions: { maxTokens: MAX_OUTPUT_TOKENS }
             })
     controller.signal.throwIfAborted()
-    const pit = Number(outputSchema.parse(answer).pit) + 6
+    const pit = resolvePitLabel(input.choices, outputSchema.parse(answer).pit)
     if (!moves.includes(pit))
       throw new Error("Your opponent chose an invalid pit. Retry its turn.")
     return pit
