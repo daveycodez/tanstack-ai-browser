@@ -6,6 +6,11 @@ game. Only pressing **Run benchmark** invokes a model. Tests, builds, prerenderi
 and CI do not run inference. Results and full JSON print in-page; nothing is
 automatically downloaded.
 
+See [the Checkers integration review](CHECKERS-INTEGRATION.md) for current adapter
+behavior, cache limitations and both-model verification. Within one benchmark run,
+turns/retries share a game thread; New game mode separates threads per repetition.
+Reports retain the thread identity and actual provider-reported cache counts.
+
 ## Run
 
 ```sh

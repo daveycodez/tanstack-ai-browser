@@ -1,5 +1,13 @@
 # LFM3 prefix cache and per-game ordering — 2026-11-02
 
+## Integration update
+
+The temporary adapter patch described below was removed when Checkers through
+`7c5f856` was merged. The current WebGL engine preserves natural prefill batches;
+short changing Chess prefixes can consequently remain uncached. Stable per-game
+move presentation remains active. See [the integration review](CHECKERS-INTEGRATION.md)
+for fresh results and the explicit tradeoff. The measurements below are historical.
+
 The current game uses **shared-v19**, no thinking by default, and a stable
 presentation seed from the persisted game session ID. This is an ordering seed,
 not a model sampling seed. A new game gets a different ordering; unchanged legal
