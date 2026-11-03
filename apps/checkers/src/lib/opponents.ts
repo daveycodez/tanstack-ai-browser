@@ -24,7 +24,7 @@ export const PROMPT_API_OPTION: OpponentOption = {
 }
 export const WEBGL_OPPONENTS: OpponentOption[] = WEBGL_TEXT_MODELS.filter(
   (id) => !id.includes("-Web-")
-).map((id) => {
+).map((id): OpponentOption => {
   const meta = WEBGL_MODEL_META[id]
   return {
     id,
