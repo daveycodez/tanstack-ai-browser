@@ -1,4 +1,9 @@
-# Chess fixture audit: audited-v9
+# Chess fixture audit: audited-v10
+
+Current correction: non-capturing Qd5+ forces a safe rook capture after all six
+White evasions. The old capture-check-only predicate was too narrow. See
+[the compact repair and independent proof](COMPACT-PROMPT-REPAIR.md). Historical
+raw grades are preserved; regrading views identify the corrected false negative.
 
 This audit precedes further prompt tuning. The suite has 39 cases: 36 calibration cases and three holdouts, with 21 scored cases and 18 ungraded diagnostics. Recent
 calibration cases cover exposure of a different piece, defender withdrawal, a losing
@@ -72,9 +77,9 @@ unrecaptured queen/rook capture; signals must exercise their named factual predi
   audited fixture has no competing immediate mate. Quiet safe moves can be sensible
   elsewhere but do not satisfy this particular opportunity test.
 - **Direct or forcing capture opportunity:** accept the best immediate safe free
-  captures and a capture-check whose every legal opponent evasion permits a safe
+  captures and a checking move (capturing or not) whose every legal evasion permits a safe
   follow-up capture giving at least that much total material. The knight case
-  independently checks all three king evasions. This is a local nonexclusive
+  independently checks the Qxf2+ and Qd5+ evasion trees. This is a local nonexclusive
   tactical contract; it does not require the largest first-ply capture.
 - **Immediate promotion safety:** require no immediate mate or uncompensated major
   loss, then accept either no legal opponent promotion next turn (capture, block,
@@ -119,7 +124,7 @@ unrecaptured queen/rook capture; signals must exercise their named factual predi
 | calibration-knight-pawn-exchange         | calibration | synthetic                |    12 |       10 | all-piece material safety for a knight-for-pawn trade       |
 | observed-ne2-knight-loss                 | calibration | exact user-game history  |    26 |       17 | all-piece safety before the quiet Ne2 rook threat           |
 | observed-free-bishop-before-a4           | calibration | exact user-game history  |    35 |        1 | highest safe immediate capture before the pawn push         |
-| observed-free-knight-after-nxf5          | calibration | exact user-game history  |    24 |        2 | direct Qxf5 or forcing Qxf2+ capture opportunity            |
+| observed-free-knight-after-nxf5          | calibration | exact user-game history  |    24 |        3 | direct Qxf5 or forcing Qxf2+/Qd5+ opportunity            |
 | observed-free-pawn-on-h7                 | calibration | exact user-game history  |    23 |       10 | broad immediate promotion defense; pawn capture is a signal |
 | observed-phone-queen-check-loss          | calibration | exact phone-game history |    43 |       29 | material safety; checking queen trade is not justified      |
 | observed-free-bishop-on-a6               | calibration | exact user-game history  |    22 |        1 | sole safe bishop capture after the five-ply opening         |
@@ -217,7 +222,7 @@ knight capture for3. The earlier immediate-capture-only grade incorrectly reject
 `Qxf2+` as only a pawn1. That check has exactly three legal White evasions: `Kd3`,
 `Kd1`, and `Kc1`. After every one, Black can safely play `Qxf5`, with no legal queen
 recapture, negative immediate exchange, or White mate in one. The total gain is4.
-Both `Qxf5` and `Qxf2+` are now accepted. Quiet moves still do not meet this capture
+`Qxf5`, `Qxf2+` and non-capturing `Qd5+` are accepted in v10. Quiet moves still do not meet this capture
 opportunity objective. The correction follows exhaustive legal-evasion proof, not
 an assumption that a model selecting the smaller first capture made a mistake.
 

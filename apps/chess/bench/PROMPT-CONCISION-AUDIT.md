@@ -1,5 +1,10 @@
 # Chess prompt concision audit — 2026-11-02
 
+**Superseded:** [shared-v25 compact repair](COMPACT-PROMPT-REPAIR.md) keeps the20%+
+reduction with concise corrections. The old v9 grader wrongly rejected Qd5+, so
+aggressive LFM3 run129 regrades to41/42 rather than40/42. Raw results below remain
+historical; the prior rollback decision is no longer active.
+
 **Retained: shared-v22, one prompt for every model.** Chess-authored system text is
 631 characters, down from1,018 (38%). The redundant JSON/action-label answer footer
 is removed. The tactical hierarchy appears once, in SYSTEM; its longer USER copy

@@ -1,8 +1,8 @@
 # Manual chess AI benchmark
 
-Current prompt audit: [Chess-only concision findings](PROMPT-CONCISION-AUDIT.md). The retained prompt saves about191–192 input tokens/turn
-without changing the main models' matched tactical grades. More aggressive cuts
-were tested and rejected. No shared packages were modified.
+Current prompt audit: [Compact prompt repair](COMPACT-PROMPT-REPAIR.md). The20%+ reduction is
+retained:554 fewer input tokens/turn on LFM3 (20.8%) and580 on Nano (22.3%). Main
+scores are42/42 and41/42; all four models have78/78 legal outputs. No package changes.
 
 Current follow-up: Checkers through `62752c6` is merged, including the session-pool
 fix. See [the latest cache verification](CACHE-VERIFICATION.md) for normal/disabled
@@ -48,7 +48,7 @@ WebGL's total generation
 ceiling is 8,192 tokens; Prompt API's browser-managed final-output limit is recorded
 as `null`. These are different capabilities. See [the reasoning audit](REASONING-AUDIT.md).
 
-Every model receives the same **shared-v22** system and user assembly, standard
+Every model receives the same **shared-v25** system and user assembly, standard
 piece values and model-default sampling. There are no active profile, context,
 queen-weight or per-model prompt switches. Guidance is phase-relevant: urgent
 positions omit soft generic coaching; quiet positions receive applicable opening,
@@ -62,7 +62,7 @@ a sole legal choice needs no generation.
 
 ## Suite and grading
 
-The current **audited-v9** suite contains **39 positions: 36 calibration and 3 held
+The current **audited-v10** suite contains **39 positions: 36 calibration and 3 held
 out**, with **21 scored objectives and 18 neutral diagnostics**. Calibration has
 18 scored positions and 18 diagnostics. At the default two repetitions this is
 72 calibration trials or 78 trials for the complete suite. Four-repetition
@@ -83,6 +83,8 @@ Important corrections:
 
 - **Qxf2+ is valid:** after each of the three legal king evasions, Qxf5 safely
   follows, gaining 4 in total versus the direct knight capture's 3.
+- **Qd5+ is valid:** all six White evasions allow safe Qxh1, winning rook5. The
+  checking move need not itself capture. See the independent forcing proof.
 - **H7 has ten valid defenses:** Qxh7+ is a separate capture signal. Retaining
   an answer to promotion can also satisfy the objective. Qh8 from h4 is blocked
   by the h7 pawn and remains illegal.

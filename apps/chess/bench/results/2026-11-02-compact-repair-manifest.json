@@ -1,0 +1,255 @@
+{
+  "commit": "2fc7d793974161b9f56bb398a60290616d31f601",
+  "activePromptVersion": "shared-v25",
+  "suiteVersion": "audited-v10",
+  "sourceHashes": {
+    "apps/chess/src/lib/shared-prompt.ts": "948774087432d6c039075bcbb52884528a41cbc88109a0f0ca38e4f3783ca83f",
+    "apps/chess/src/lib/ai.ts": "d9d7b79f3beebc639d56b97884f860d35efa7b489e039332232e81b2e99bf268",
+    "apps/chess/src/lib/move-output.ts": "79783cf7f3b807096ccb8aa82bad63743426092694c6f47c98e37d4de35491e6",
+    "apps/chess/bench/runner.ts": "37a05ae5e458dd32405ffc3b0f6511fd53281f9b115dad1fd3dc78e89d5a2643",
+    "apps/chess/bench/cases.ts": "4d978b4a76337183832477089a48021daa456a90fcdbf744c42c33c93fcc2491",
+    "apps/chess/bench/audit.ts": "8e75a3530dbad9a642471abd44c9a8c9e053acdecc9b3122754af5b6c7180245",
+    "packages/webgl/src/adapter.ts": "6427f5001e6b39fbc76642745d5a275954bad1c8f624b413c5ce7689f29dbfa9",
+    "packages/prompt-api/src/adapter.ts": "c169ce28ddd93c7f990d57ed18cca2351058f0b9b900f861798579cd5f6413b9"
+  },
+  "userConstraint": "Retain at least20% input reduction; improve within compact representation, do not restore verbose inputs merely to chase perfection.",
+  "scope": "Chess app only; packages/engine/output schema/sampling unchanged",
+  "reports": {
+    "134": {
+      "path": "2026-11-02-134-compact-repair-lfm.json.gz",
+      "sha256": "11cb3034a5c43cc9ceeb7c591447b27730c2ec0bb895b577afa4a67d2a4ac2d6",
+      "uncompressedSha256": "711eb4430bb019e951930cdaaf54b1b917e79367994785f4a73a546b8a7e9e8e",
+      "promptVersion": "shared-v24",
+      "suiteVersion": "audited-v10",
+      "model": "LiquidAI/LFM3-1.7B-GGUF",
+      "accepted": false,
+      "partial": false,
+      "summary": {
+        "total": 78,
+        "legal": 78,
+        "passed": 42,
+        "scored": 42,
+        "firstOption": 19,
+        "medianSeconds": 1.017150000035763
+      },
+      "schemaErrors": []
+    },
+    "135": {
+      "path": "2026-11-02-135-compact-repair-nano.json.gz",
+      "sha256": "ab9ebd796c46832d71d7eb471dd5e2c291e6bd695c791fe206221a6605f198cf",
+      "uncompressedSha256": "62703a06427bd0145117b25a1ce92fc3119e5faf2047f85818063ab526611d75",
+      "promptVersion": "shared-v24",
+      "suiteVersion": "audited-v10",
+      "model": "prompt-api",
+      "accepted": false,
+      "partial": false,
+      "summary": {
+        "total": 78,
+        "legal": 78,
+        "passed": 41,
+        "scored": 42,
+        "firstOption": 8,
+        "medianSeconds": 1.1373999999761581
+      },
+      "schemaErrors": []
+    },
+    "136": {
+      "path": "2026-11-02-136-compact-v24-instruct.json.gz",
+      "sha256": "30d708d708a5ad24bec078beee20c58433c96b958b441a3f7f047a8a1946a53a",
+      "uncompressedSha256": "5f25694f2d28f7dae071779fdf54ef8150bb79b95e5aa6cbc11ce4ce05ea4bf2",
+      "promptVersion": "shared-v24",
+      "suiteVersion": "audited-v10",
+      "model": "LiquidAI/LFM2.5-1.2B-Instruct-ONNX",
+      "accepted": false,
+      "partial": false,
+      "summary": {
+        "total": 78,
+        "legal": 78,
+        "passed": 31,
+        "scored": 42,
+        "firstOption": 31,
+        "medianSeconds": 0.7833499999642373
+      },
+      "schemaErrors": []
+    },
+    "137": {
+      "path": "2026-11-02-137-compact-v25-nano.json",
+      "sha256": "8c21c2e53b6a43778d1844388f2131988b1c38c3e119181e028b1c6a9fa3bce0",
+      "uncompressedSha256": "8c21c2e53b6a43778d1844388f2131988b1c38c3e119181e028b1c6a9fa3bce0",
+      "promptVersion": "shared-v25",
+      "suiteVersion": "audited-v10",
+      "model": "prompt-api",
+      "accepted": true,
+      "partial": false,
+      "summary": {
+        "total": 78,
+        "legal": 78,
+        "passed": 41,
+        "scored": 42,
+        "firstOption": 6,
+        "medianSeconds": 1.048350000023842
+      },
+      "schemaErrors": []
+    },
+    "138": {
+      "path": "2026-11-02-138-compact-v25-instruct.json",
+      "sha256": "2c1e33f00168a21e2062aa034d671878a8703520cfdb7a5d1e00f55932f7f7af",
+      "uncompressedSha256": "2c1e33f00168a21e2062aa034d671878a8703520cfdb7a5d1e00f55932f7f7af",
+      "promptVersion": "shared-v25",
+      "suiteVersion": "audited-v10",
+      "model": "LiquidAI/LFM2.5-1.2B-Instruct-ONNX",
+      "accepted": true,
+      "partial": false,
+      "summary": {
+        "total": 78,
+        "legal": 78,
+        "passed": 34,
+        "scored": 42,
+        "firstOption": 27,
+        "medianSeconds": 0.737550000011921
+      },
+      "schemaErrors": []
+    },
+    "139": {
+      "path": "2026-11-02-139-compact-v25-350m.json",
+      "sha256": "636896bd1329d721d5e309745e784680894c35051ac27789d1ee6274bf37a2ea",
+      "uncompressedSha256": "636896bd1329d721d5e309745e784680894c35051ac27789d1ee6274bf37a2ea",
+      "promptVersion": "shared-v25",
+      "suiteVersion": "audited-v10",
+      "model": "LiquidAI/LFM2.5-350M-ONNX",
+      "accepted": true,
+      "partial": false,
+      "summary": {
+        "total": 78,
+        "legal": 78,
+        "passed": 30,
+        "scored": 42,
+        "firstOption": 33,
+        "medianSeconds": 0.36924999999999997
+      },
+      "schemaErrors": []
+    },
+    "140": {
+      "path": "2026-11-02-140-compact-v25-lfm.json",
+      "sha256": "b0a0dd10a2dd220d54072b7216f282c9ed38ccbec217b2e4e34a5ba6670970f9",
+      "uncompressedSha256": "b0a0dd10a2dd220d54072b7216f282c9ed38ccbec217b2e4e34a5ba6670970f9",
+      "promptVersion": "shared-v25",
+      "suiteVersion": "audited-v10",
+      "model": "LiquidAI/LFM3-1.7B-GGUF",
+      "accepted": true,
+      "partial": false,
+      "summary": {
+        "total": 78,
+        "legal": 78,
+        "passed": 42,
+        "scored": 42,
+        "firstOption": 17,
+        "medianSeconds": 1.303399999976158
+      },
+      "schemaErrors": []
+    }
+  },
+  "tokenSavings": {
+    "LiquidAI/LFM3-1.7B-GGUF": {
+      "baselineReport": "2026-11-02-100-latest-lfm-full.json",
+      "beforeMean": 2662.051282051282,
+      "afterMean": 2108.051282051282,
+      "savedMean": 554,
+      "percentSaved": 20.81101907146985,
+      "savedRange": [
+        353,
+        764
+      ],
+      "systemPrefixReduction": 68,
+      "systemMeasurement": "Identical-schema prefix delta across77 calls",
+      "gradeChangesAgainstOriginalBaseline": [
+        {
+          "caseId": "observed-free-bishop-on-h6",
+          "repetition": 1,
+          "before": false,
+          "after": true,
+          "moveId": "g8h6"
+        }
+      ]
+    },
+    "prompt-api": {
+      "baselineReport": "2026-11-02-103-latest-nano-full.json",
+      "beforeMean": 2603.128205128205,
+      "afterMean": 2023.179487179487,
+      "savedMean": 579.9487179487179,
+      "percentSaved": 22.278914914993795,
+      "savedRange": [
+        362,
+        809
+      ],
+      "systemPrefixReduction": 63,
+      "systemMeasurement": "Native system base212 to149 context tokens",
+      "gradeChangesAgainstOriginalBaseline": [
+        {
+          "caseId": "calibration-exposure-defender-withdrawal",
+          "repetition": 2,
+          "before": true,
+          "after": false,
+          "moveId": "e6e2"
+        },
+        {
+          "caseId": "holdout-castle-safe-play",
+          "repetition": 1,
+          "before": false,
+          "after": true,
+          "moveId": "h7h6"
+        }
+      ]
+    }
+  },
+  "regradedHistorical": {
+    "129": {
+      "report": "2026-11-02-129-agent-trim-lfm.json.gz",
+      "rawPassed": 40,
+      "correctedPassed": 41,
+      "scored": 42,
+      "changes": [
+        {
+          "caseId": "observed-free-knight-after-nxf5",
+          "repetition": 1,
+          "moveId": "c5d5",
+          "rawGrade": false,
+          "correctedGrade": true
+        }
+      ]
+    },
+    "130": {
+      "report": "2026-11-02-130-agent-trim-nano.json.gz",
+      "rawPassed": 40,
+      "correctedPassed": 40,
+      "scored": 42,
+      "changes": []
+    }
+  },
+  "remainingWeaknesses": [
+    {
+      "model": "prompt-api",
+      "caseId": "calibration-exposure-defender-withdrawal",
+      "repetition": 2,
+      "moveId": "e6e2"
+    }
+  ],
+  "gradingCorrection": {
+    "caseId": "observed-free-knight-after-nxf5",
+    "addedAlternative": "c5d5",
+    "cause": "Old independent audit wrongly required the first checking move to capture.",
+    "proof": "2026-11-02-qd5-forcing-proof.json",
+    "legalWhiteReplies": 6,
+    "guaranteedBoundedGain": 5,
+    "historicalRawReportsModified": false,
+    "affectsLLMInput": false
+  },
+  "notes": [
+    "One shared prompt for all models; thinking off.",
+    "Output enums and outcome facts preserved. Only concise general tactical instructions changed relative to the compact candidate.",
+    "LFM3/Nano graded tactically; Instruct/350M only for structured/legal validity.",
+    "No engine-driven move choice or safe-move schema filtering added; every legal action remains available.",
+    "No latency claim; these are actual input-token counts on the same39 positions with two seeds.",
+    "Previous audit rejection is superseded. One apparent LFM3 failure was an independently disproved grading error."
+  ]
+}
