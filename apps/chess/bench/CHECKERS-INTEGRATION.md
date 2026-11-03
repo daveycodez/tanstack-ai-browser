@@ -57,7 +57,25 @@ are fabricated.
    working clone and must be processed again even on retries. This is intentional
    isolation, not full-board caching. Optional further reuse must preserve exact
    message/constraint semantics and avoid retaining generated answers.
-5. **No new adapter/engine correctness blocker found in this review.** Upstream
+5. **Confirmed idle-session pool bound issue:** six concurrent cold structured
+   calls with distinct thread IDs leave **six idle base sessions** alive after all
+   calls complete, despite `MAX_SESSIONS = 4`. In `sessions.ts`, insertion-time
+   trimming skips busy entries and `lease.release()` only clears `busy`; it does
+   not trim again. The shared pool code predates this merge; structured reuse now
+   uses it too. Request a trim after bases become idle without destroying active
+   leases or clones. The fake-native diagnostic below reproduces six retained
+   bases, all disposable clones destroyed, and explicit cleanup still works.
+   Its assertion intentionally confirms the current defect; the upstream
+   regression should require at most four retained idle bases. No library patch
+   was added here, so this can be fixed in Checkers and merged back.
+
+   Reproduce from `packages/structured-output`:
+
+   ```sh
+   node --experimental-strip-types ../../apps/chess/bench/results/2026-11-02-prompt-pool-bound-repro.ts
+   ```
+
+6. **No new game-move correctness blocker found in this review.** Upstream
    retained GPU fixtures restored 1,536 tokens for LFM3 and Qwen3.5 with equal
    cold/restored logits and matched-batching copy controls, within existing
    snapshot budgets. Those archived native checks were reviewed, not rerun here

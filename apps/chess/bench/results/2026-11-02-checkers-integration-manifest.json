@@ -337,6 +337,18 @@
   "validationLogs": {
     "2026-11-02-checkers-integration-nx.log": "2d1c7c60429fe28e976a68d0f9a43041370ac2288b4a39a760bcadbec3d33fcd",
     "2026-11-02-checkers-final-build.log": "7757ddb2363638b6cdbafeb901bb37fc4ad191d0856aaf846494a6f01a611520",
-    "2026-11-02-checkers-bench-nx.log": "5e092a418ea347d3dae683be0ff31d2682439dcf5f3c84c1f62d5e8da752066a"
+    "2026-11-02-checkers-bench-nx.log": "5e092a418ea347d3dae683be0ff31d2682439dcf5f3c84c1f62d5e8da752066a",
+    "2026-11-02-prompt-pool-bound-repro.log": "fca11bcec8b71fdabe7ae33c1c0366808c56dac5deb616dc27693143bd374c26"
+  },
+  "reviewFinding": {
+    "id": "prompt-api-idle-pool-bound",
+    "configuredMax": 4,
+    "concurrentDistinctColdCalls": 6,
+    "retainedIdleBasesAfterCompletion": 6,
+    "allClonesDestroyed": true,
+    "productionFixApplied": false,
+    "reproducer": "2026-11-02-prompt-pool-bound-repro.ts",
+    "log": "2026-11-02-prompt-pool-bound-repro.log",
+    "assertion": "The diagnostic asserts the current defect; the upstream regression should assert the desired limit instead."
   }
 }
