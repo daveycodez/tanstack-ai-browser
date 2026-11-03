@@ -1,5 +1,10 @@
 # Checkers integration review — 2026-11-02
 
+Current follow-up: Checkers through `62752c6` is merged, including the session-pool
+fix. See [the latest cache verification](CACHE-VERIFICATION.md) for normal/disabled
+cache controls, full-suite results and the GPU-contention timing limitation. Older
+measurements and reproducer assertions below are historical evidence.
+
 Reviewed and merged Checkers through **7c5f856**, including `390c71a`
 (Prompt API structured session reuse), `3f3db14` (optional Apfel working notes),
 and its Checkers gameplay, benchmark and audio changes. Merge: **6a76070**.

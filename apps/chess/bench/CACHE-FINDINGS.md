@@ -1,5 +1,10 @@
 # LFM3 prefix cache and per-game ordering — 2026-11-02
 
+Current follow-up: Checkers through `62752c6` is merged, including the session-pool
+fix. See [the latest cache verification](CACHE-VERIFICATION.md) for normal/disabled
+cache controls, full-suite results and the GPU-contention timing limitation. Older
+measurements and reproducer assertions below are historical evidence.
+
 ## Integration update
 
 The temporary adapter patch described below was removed when Checkers through

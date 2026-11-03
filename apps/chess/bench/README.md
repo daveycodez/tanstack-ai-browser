@@ -1,5 +1,10 @@
 # Manual chess AI benchmark
 
+Current follow-up: Checkers through `62752c6` is merged, including the session-pool
+fix. See [the latest cache verification](CACHE-VERIFICATION.md) for normal/disabled
+cache controls, full-suite results and the GPU-contention timing limitation. Older
+measurements and reproducer assertions below are historical evidence.
+
 `/bench` is a TanStack Start route for explicitly requested browser model checks.
 It uses the production `chooseAiMove()` path and never reads or writes the saved
 game. Only pressing **Run benchmark** invokes a model. Tests, builds, prerendering

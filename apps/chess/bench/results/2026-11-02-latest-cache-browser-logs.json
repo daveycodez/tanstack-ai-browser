@@ -1,0 +1,8 @@
+[
+  {
+    "level": "error",
+    "message": "Error: Cannot read properties of undefined (reading 'global')",
+    "timestamp": "2026-11-03T04:50:53.203Z",
+    "url": "http://127.0.0.1:3003/bench"
+  }
+]
