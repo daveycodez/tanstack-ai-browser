@@ -87,6 +87,6 @@ export type ComparisonQualityPhase = {
 }
 export type CacheComparisonReport = {
   schemaVersion: 1; runId: string; startedAt: string; finishedAt: string; revision: string; partial: boolean; phase: string
-  config: { model: CacheComparisonModel; runtimeModel?: { id: string; name: string; browser: string | null }; before: PromptVersion; after: PromptVersion; reasoning: "off"; reasoningBudgetTokens: 512; maxOutputTokens: 8192 | null; sampling: "model defaults"; promptCache: "long"; suiteVersion: string; caseIds: string[]; quality: boolean; qualityRepetitions: 0 | 1; includeProductionOrder: boolean; sessionId: string; selectedPlies: number[]; skippedForcedPlies: number[]; notes: string[] }
+  config: { model: CacheComparisonModel; runtimeModel?: { id: string; name: string; browser: string | null }; before: PromptVersion; after: PromptVersion; reasoning: "off"; reasoningBudgetTokens: 512; maxOutputTokens: 8192 | null; sampling: "model defaults"; promptCache: "long"; suiteVersion: string; caseIds: string[]; quality: boolean; cache?: boolean; qualityRepetitions: 0 | 1; includeProductionOrder: boolean; sessionId: string; selectedPlies: number[]; skippedForcedPlies: number[]; notes: string[] }
   quality: ComparisonQualityPhase[]; cache: CacheReplayReport[]
 }

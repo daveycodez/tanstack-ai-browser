@@ -42,7 +42,7 @@ test("move 6 counts Red's compulsory final recapture instead of claiming an even
   assert.match(describeMove(losing), /Red g3xe5 → Black f6xd4 → Red c3xe5/)
   const input = buildMovePrompt(game)
   assert.ok(input.choices.some(choice => choice.id === losing.id), "bad moves remain legal selectable alternatives")
-  const safe = input.prompt.split("\n").find(line => line.startsWith("NON-LOSING CHECKED EXCHANGES:"))
+  const safe = input.prompt.split("\n").reverse().find(line => line.startsWith("NON-LOSING CHECKED EXCHANGES:"))
   assert.ok(safe)
   assert.ok(!safe.includes(losing.label), "the losing exchange is no longer advertised as nonlosing")
 })

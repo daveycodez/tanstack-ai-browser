@@ -15,6 +15,8 @@ export type CacheComparisonOptions = {
   includeProductionOrder?: boolean
   /** False runs only the 28 recorded-game cache trials. */
   quality?: boolean
+  /** False compares prompt quality without the 28 recorded-game cache trials. */
+  cache?: boolean
   signal: AbortSignal
   onUpdate: (report: CacheComparisonReport) => void
   onProgress?: (label: string) => void
@@ -25,15 +27,16 @@ export async function runCacheComparison(options: CacheComparisonOptions): Promi
   if (options.model !== "LiquidAI/LFM3-1.7B-GGUF" && options.model !== "prompt-api") throw new Error("Choose LFM3 GGUF or Prompt API.")
   const { positions, skippedForcedPlies } = cacheReplayPositions()
   const quality = options.quality !== false
+  const cache = options.cache !== false
   const includeProductionOrder = quality && options.includeProductionOrder !== false
   const report: CacheComparisonReport = {
     schemaVersion: 1, runId: crypto.randomUUID(), startedAt: new Date().toISOString(), finishedAt: "", revision: __CHECKERS_BENCH_REVISION__, partial: false, phase: quality ? "Preparing comparison" : "Preparing cache replay",
-    config: { model: options.model, ...(options.model === "prompt-api" && { runtimeModel: promptApiModel() }), before: PREVIOUS_PROMPT_VERSION, after: SHARED_PROMPT_VERSION, reasoning: "off", reasoningBudgetTokens: 512, maxOutputTokens: options.model === "prompt-api" ? null : 8192, sampling: "model defaults", promptCache: "long", suiteVersion: SUITE_VERSION, caseIds: quality ? CASES.map(testCase => testCase.id) : [], quality, qualityRepetitions: quality ? 1 : 0, includeProductionOrder, sessionId: SESSION, selectedPlies: positions.map(game => game.history.length), skippedForcedPlies,
+    config: { model: options.model, ...(options.model === "prompt-api" && { runtimeModel: promptApiModel() }), before: PREVIOUS_PROMPT_VERSION, after: SHARED_PROMPT_VERSION, reasoning: "off", reasoningBudgetTokens: 512, maxOutputTokens: options.model === "prompt-api" ? null : 8192, sampling: "model defaults", promptCache: "long", suiteVersion: SUITE_VERSION, caseIds: quality ? CASES.map(testCase => testCase.id) : [], quality, cache, qualityRepetitions: quality ? 1 : 0, includeProductionOrder, sessionId: SESSION, selectedPlies: positions.map(game => game.history.length), skippedForcedPlies,
       notes: [
-        quality ? "Quality uses every unchanged suite case with its existing expected moves; v6/v7 paired presentation orders match exactly." : "Cache-replay-only protocol: all quality passes are deliberately skipped.",
-        "When enabled, both v6 and v7 also run quality controls with the same production per-game stable action-ordering algorithm.",
-        "Cache replay follows recorded human/AI history, not model-generated continuations; each chosen position is sent twice before advancing.",
-        "Both cache versions use the same sessionId and current production stable ordering. The v6 cache run controls ordering and is not its old random-order shipping behavior.",
+        quality ? "Quality uses every unchanged suite case with its existing expected moves; before/after paired presentation orders match exactly." : "Cache-replay-only protocol: all quality passes are deliberately skipped.",
+        "When enabled, both versions also run quality controls with the same production per-game stable action-ordering algorithm.",
+        cache ? "Cache replay follows recorded human/AI history, not model-generated continuations; each chosen position is sent twice before advancing." : "Quality-only comparison: the recorded-game cache replay is deliberately skipped.",
+        "Both cache versions use the same sessionId and current production stable ordering. The previous-prompt cache run controls ordering and is not its old random-order shipping behavior.",
         "No engine cache flags or cache flush are used. The first sample is not claimed cold; changed turns and exact repeats are separate observations.",
         "Missing provider cache/prefill counters remain null. For WebGL, its adapter omits cachedTokens when zero, which is recorded as zero. Prompt API cache/prefill counters are not invented."
       ] }, quality: [], cache: []
@@ -41,11 +44,11 @@ export async function runCacheComparison(options: CacheComparisonOptions): Promi
   const update = (phase?: string) => { if (phase) { report.phase = phase; options.onProgress?.(phase) }; options.onUpdate({ ...report, quality: [...report.quality], cache: [...report.cache] }) }
   update()
   const qualityPlans = quality ? [
-    { id: "v6-paired", label: `${PREVIOUS_PROMPT_VERSION} · paired quality`, version: PREVIOUS_PROMPT_VERSION, order: "paired" as const },
-    { id: "v7-paired", label: `${SHARED_PROMPT_VERSION} · paired quality`, version: SHARED_PROMPT_VERSION, order: "paired" as const },
+    { id: "before-paired", label: `${PREVIOUS_PROMPT_VERSION} · paired quality`, version: PREVIOUS_PROMPT_VERSION, order: "paired" as const },
+    { id: "after-paired", label: `${SHARED_PROMPT_VERSION} · paired quality`, version: SHARED_PROMPT_VERSION, order: "paired" as const },
     ...(includeProductionOrder ? [
-      { id: "v6-production", label: `${PREVIOUS_PROMPT_VERSION} · production-order quality`, version: PREVIOUS_PROMPT_VERSION, order: "production" as const },
-      { id: "v7-production", label: `${SHARED_PROMPT_VERSION} · production-order quality`, version: SHARED_PROMPT_VERSION, order: "production" as const }
+      { id: "before-production", label: `${PREVIOUS_PROMPT_VERSION} · production-order quality`, version: PREVIOUS_PROMPT_VERSION, order: "production" as const },
+      { id: "after-production", label: `${SHARED_PROMPT_VERSION} · production-order quality`, version: SHARED_PROMPT_VERSION, order: "production" as const }
     ] : [])
   ] : []
   try {
@@ -61,7 +64,7 @@ export async function runCacheComparison(options: CacheComparisonOptions): Promi
       delete phase.results
       update()
     }
-    if (!options.signal.aborted) {
+    if (!options.signal.aborted && cache) {
       const execute = async () => {
         for (const version of [PREVIOUS_PROMPT_VERSION, SHARED_PROMPT_VERSION]) {
           if (options.signal.aborted) break
@@ -111,7 +114,7 @@ export async function runCacheComparison(options: CacheComparisonOptions): Promi
   } finally {
     report.partial ||= options.signal.aborted
     report.finishedAt = new Date().toISOString()
-    update(report.partial ? "Comparison stopped; completed trials preserved." : (quality ? "Comparison complete." : "Cache replay complete."))
+    update(report.partial ? "Comparison stopped; completed trials preserved." : (quality ? cache ? "Comparison complete." : "Quality comparison complete." : "Cache replay complete."))
   }
   return report
 }

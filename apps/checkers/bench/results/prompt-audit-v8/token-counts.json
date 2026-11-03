@@ -1,0 +1,293 @@
+{
+  "scope": "LFM3 raw app-authored system/user text; native schema guidance and chat-template framing excluded",
+  "tokenizerSha256": "7e226e34bface23ccf6e495d157bf77186c1c30a7659880e1a8994db528c3701",
+  "system": {
+    "before": 380,
+    "after": 327,
+    "saved": 53
+  },
+  "sections": [
+    {
+      "name": "Policy",
+      "before": 127,
+      "after": 113
+    },
+    {
+      "name": "American rules",
+      "before": 78,
+      "after": 72
+    },
+    {
+      "name": "Outcome heading",
+      "before": 8,
+      "after": 4
+    },
+    {
+      "name": "Outcome interpretation",
+      "before": 167,
+      "after": 138
+    }
+  ],
+  "rows": [
+    {
+      "caseId": "reported-exchange-move-6",
+      "inference": true,
+      "beforeUser": 1237,
+      "afterUser": 1220,
+      "savedUser": 17
+    },
+    {
+      "caseId": "reported-exchange-move-28",
+      "inference": true,
+      "beforeUser": 1171,
+      "afterUser": 1154,
+      "savedUser": 17
+    },
+    {
+      "caseId": "reported-runner-guard-82",
+      "inference": true,
+      "beforeUser": 843,
+      "afterUser": 831,
+      "savedUser": 12
+    },
+    {
+      "caseId": "reported-runner-too-late-84",
+      "inference": true,
+      "beforeUser": 826,
+      "afterUser": 826,
+      "savedUser": 0
+    },
+    {
+      "caseId": "reported-runner-compensation-48",
+      "inference": true,
+      "beforeUser": 888,
+      "afterUser": 871,
+      "savedUser": 17
+    },
+    {
+      "caseId": "win-full-chain",
+      "inference": true,
+      "beforeUser": 271,
+      "afterUser": 271,
+      "savedUser": 0
+    },
+    {
+      "caseId": "win-by-blockade",
+      "inference": true,
+      "beforeUser": 944,
+      "afterUser": 944,
+      "savedUser": 0
+    },
+    {
+      "caseId": "win-unseen-endgame",
+      "inference": true,
+      "beforeUser": 304,
+      "afterUser": 304,
+      "savedUser": 0
+    },
+    {
+      "caseId": "avoid-fatal-double-jump",
+      "inference": true,
+      "beforeUser": 602,
+      "afterUser": 602,
+      "savedUser": 0
+    },
+    {
+      "caseId": "protect-last-king",
+      "inference": true,
+      "beforeUser": 426,
+      "afterUser": 414,
+      "savedUser": 12
+    },
+    {
+      "caseId": "avoid-blocked-loss",
+      "inference": true,
+      "beforeUser": 446,
+      "afterUser": 425,
+      "savedUser": 21
+    },
+    {
+      "caseId": "defense-unseen",
+      "inference": true,
+      "beforeUser": 483,
+      "afterUser": 462,
+      "savedUser": 21
+    },
+    {
+      "caseId": "capture-king-value",
+      "inference": true,
+      "beforeUser": 536,
+      "afterUser": 528,
+      "savedUser": 8
+    },
+    {
+      "caseId": "count-full-capture-chain",
+      "inference": true,
+      "beforeUser": 493,
+      "afterUser": 493,
+      "savedUser": 0
+    },
+    {
+      "caseId": "recapture-compensation",
+      "inference": true,
+      "beforeUser": 543,
+      "afterUser": 531,
+      "savedUser": 12
+    },
+    {
+      "caseId": "exchange-unseen",
+      "inference": true,
+      "beforeUser": 388,
+      "afterUser": 380,
+      "savedUser": 8
+    },
+    {
+      "caseId": "safe-crowning",
+      "inference": true,
+      "beforeUser": 600,
+      "afterUser": 593,
+      "savedUser": 7
+    },
+    {
+      "caseId": "promotion-not-at-any-cost",
+      "inference": true,
+      "beforeUser": 1002,
+      "afterUser": 983,
+      "savedUser": 19
+    },
+    {
+      "caseId": "promotion-unseen",
+      "inference": true,
+      "beforeUser": 1222,
+      "afterUser": 1203,
+      "savedUser": 19
+    },
+    {
+      "caseId": "deny-red-promotion",
+      "inference": true,
+      "beforeUser": 1159,
+      "afterUser": 1138,
+      "savedUser": 21
+    },
+    {
+      "caseId": "deny-red-promotion-alternative",
+      "inference": true,
+      "beforeUser": 363,
+      "afterUser": 355,
+      "savedUser": 8
+    },
+    {
+      "caseId": "force-next-turn-win",
+      "inference": true,
+      "beforeUser": 1330,
+      "afterUser": 1316,
+      "savedUser": 14
+    },
+    {
+      "caseId": "force-next-turn-win-alternative",
+      "inference": true,
+      "beforeUser": 716,
+      "afterUser": 702,
+      "savedUser": 14
+    },
+    {
+      "caseId": "avoid-third-repeat-ahead",
+      "inference": true,
+      "beforeUser": 351,
+      "afterUser": 351,
+      "savedUser": 0
+    },
+    {
+      "caseId": "take-third-repeat-behind",
+      "inference": true,
+      "beforeUser": 285,
+      "afterUser": 285,
+      "savedUser": 0
+    },
+    {
+      "caseId": "opening-variety",
+      "inference": true,
+      "beforeUser": 1077,
+      "afterUser": 1067,
+      "savedUser": 10
+    },
+    {
+      "caseId": "king-activity",
+      "inference": true,
+      "beforeUser": 497,
+      "afterUser": 483,
+      "savedUser": 14
+    },
+    {
+      "caseId": "back-row-development",
+      "inference": true,
+      "beforeUser": 607,
+      "afterUser": 593,
+      "savedUser": 14
+    },
+    {
+      "caseId": "forced-full-chain",
+      "inference": false,
+      "beforeUser": 263,
+      "afterUser": 255,
+      "savedUser": 8
+    },
+    {
+      "caseId": "endgame-two-kings-force-king",
+      "inference": true,
+      "beforeUser": 1043,
+      "afterUser": 1029,
+      "savedUser": 14
+    },
+    {
+      "caseId": "endgame-three-kings-corner-net",
+      "inference": true,
+      "beforeUser": 1021,
+      "afterUser": 1007,
+      "savedUser": 14
+    },
+    {
+      "caseId": "endgame-force-capture-with-man",
+      "inference": true,
+      "beforeUser": 1143,
+      "afterUser": 1126,
+      "savedUser": 17
+    },
+    {
+      "caseId": "endgame-force-king-over-man",
+      "inference": true,
+      "beforeUser": 1561,
+      "afterUser": 1547,
+      "savedUser": 14
+    },
+    {
+      "caseId": "endgame-pressure-negative-control",
+      "inference": true,
+      "beforeUser": 786,
+      "afterUser": 765,
+      "savedUser": 21
+    },
+    {
+      "caseId": "endgame-reversal-diagnostic",
+      "inference": true,
+      "beforeUser": 671,
+      "afterUser": 657,
+      "savedUser": 14
+    },
+    {
+      "caseId": "endgame-holdout-a",
+      "inference": true,
+      "beforeUser": 1372,
+      "afterUser": 1372,
+      "savedUser": 0
+    },
+    {
+      "caseId": "endgame-holdout-b",
+      "inference": true,
+      "beforeUser": 762,
+      "afterUser": 745,
+      "savedUser": 17
+    }
+  ],
+  "dynamicSaved": 404
+}

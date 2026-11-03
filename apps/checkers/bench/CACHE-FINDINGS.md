@@ -1,5 +1,9 @@
 # Checkers prompt caching, 2026-11-02
 
+**Prompt v8 update:** these historical cache measurements concern v7. The new
+[versioned compression audit](PROMPT-AUDIT.md) saves 53 static system tokens and
+records unchanged-suite quality; its shorter static prefix naturally has fewer cached tokens.
+
 **Subsequent engine fix:** the unchanged lean prompt now reuses short prefixes
 inside WebGL batches. See [engine integration](#webgl-engine-integration); earlier
 zero-reuse observations below refer to the previous engine.

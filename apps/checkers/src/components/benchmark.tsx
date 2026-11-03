@@ -7,7 +7,7 @@ import { runCacheComparison } from "../../bench/cache-replay"
 import type { BenchmarkReport, BenchmarkResult, PromptVersion, CacheComparisonModel, CacheComparisonReport } from "../../bench/types"
 import { DEFAULT_OPPONENT, opponentOption, WEBGL_OPPONENTS } from "../lib/opponents"
 import type { OpponentModel } from "../lib/opponents"
-import { PREVIOUS_PROMPT_VERSION, SHARED_PROMPT_VERSION } from "../lib/shared-prompt"
+import { PREVIOUS_PROMPT_VERSION, PROMPT_VERSIONS, SHARED_PROMPT_VERSION } from "../lib/shared-prompt"
 import { usePromptApiAvailable } from "../lib/use-prompt-api"
 
 const subscribeHydration = () => () => undefined
@@ -79,7 +79,7 @@ function CacheComparisonResults({ report }: { report: CacheComparisonReport }) {
       const trials = replay.trials.filter(trial => trial.kind === kind)
       return <tr key={`${replay.promptVersion}:${kind}`}><td>{replay.promptVersion}<small>{kind}</small></td><td>{trials.filter(trial => trial.legal).length} / {trials.length} legal</td><td>{metric(trials.map(trial => trial.metrics.inputTokens))}</td><td>{metric(trials.map(trial => trial.metrics.cachedInputTokens))}</td><td>{metric(trials.map(trial => trial.metrics.prefillMs), true)}</td><td>{metric(trials.map(trial => trial.metrics.totalMs), true)}</td></tr>
     }))}</tbody></table></div>
-    <p className="bench-note" style={{ marginTop: 12 }}>Both replay versions use the same production per-game ordering and session ID. This isolates the prompt layout; the v6 control does not use its previous random ordering. The runtime is not flushed, so the first turn is not claimed cold. Missing counters stay unreported, including unavailable Prompt API cache/prefill statistics.</p>
+    <p className="bench-note" style={{ marginTop: 12 }}>{report.config.cache === false ? "Quality-only run; no cache replay was requested." : "Both replay versions use the same production per-game ordering and session ID. The runtime is not flushed, so the first turn is not claimed cold. Missing counters stay unreported, including unavailable Prompt API cache/prefill statistics."}</p>
     <div className="bench-section-heading" style={{ marginTop: 24 }}><h3>Raw comparison</h3><button className="bench-button" type="button" onClick={() => { void navigator.clipboard.writeText(json(report)).then(() => setCopyStatus("Comparison copied."), () => setCopyStatus("Select the JSON below to copy it.")) }}>Copy comparison</button></div>
     <p className="bench-note" aria-live="polite">{copyStatus || "Full quality trials, replay inputs, answers and usage remain in the report."}</p>
     <details className="bench-report" id="cache-comparison-report" onToggle={event => setOpen(event.currentTarget.open)}><summary>Cache comparison JSON</summary>{open && <pre id="cache-comparison-results-json">{json(report)}</pre>}</details>
@@ -169,7 +169,7 @@ export function BenchmarkView() {
     }
   }
 
-  async function startComparison(event: FormEvent<HTMLFormElement> | undefined, quality = true) {
+  async function startComparison(event: FormEvent<HTMLFormElement> | undefined, quality = true, cache = true) {
     event?.preventDefault()
     if (!ready || controller.current) return
     const active = new AbortController()
@@ -177,9 +177,9 @@ export function BenchmarkView() {
     setRunning(true)
     setError(undefined)
     setComparison(undefined)
-    setStatus(quality ? "Preparing quality and cache comparison…" : "Preparing cache replay only…")
+    setStatus(quality ? cache ? "Preparing quality and cache comparison…" : "Preparing quality comparison…" : "Preparing cache replay only…")
     try {
-      const output = await runCacheComparison({ model: comparisonModel, includeProductionOrder: productionOrder, quality, signal: active.signal,
+      const output = await runCacheComparison({ model: comparisonModel, includeProductionOrder: productionOrder, quality, cache, signal: active.signal,
         onUpdate(value) { if (mounted.current && controller.current === active) setComparison(value) },
         onProgress(label) { if (mounted.current && controller.current === active) setStatus(label) }
       })
@@ -210,7 +210,7 @@ export function BenchmarkView() {
             {promptApiAvailable && <option value="prompt-api">{opponentOption("prompt-api").label}</option>}
             {WEBGL_OPPONENTS.map(option => <option key={option.id} value={option.id}>{option.label}</option>)}
           </select></label>
-          <label>Prompt version<select aria-label="Prompt version" value={promptVersion} onChange={event => setPromptVersion(event.currentTarget.value as PromptVersion)}><option value={SHARED_PROMPT_VERSION}>{SHARED_PROMPT_VERSION} · cache-friendly</option><option value={PREVIOUS_PROMPT_VERSION}>{PREVIOUS_PROMPT_VERSION} · previous layout</option><option value="baseline-v1">Original baseline</option></select></label>
+          <label>Prompt version<select aria-label="Prompt version" value={promptVersion} onChange={event => setPromptVersion(event.currentTarget.value as PromptVersion)}>{PROMPT_VERSIONS.map(version => <option key={version} value={version}>{version === "baseline-v1" ? "Original baseline" : `${version}${version === SHARED_PROMPT_VERSION ? " · compact" : version === PREVIOUS_PROMPT_VERSION ? " · previous prompt" : " · historical"}`}</option>)}</select></label>
           <label>Action ordering<select aria-label="Action ordering" value={orderPolicy} onChange={event => setOrderPolicy(event.currentTarget.value as "paired" | "production")}><option value="paired">Paired benchmark order</option><option value="production">Production per-game order</option></select></label>
           <label>Repetitions<input aria-label="Repetitions" type="number" min={1} max={20} step={1} required value={repetitions} onChange={event => setRepetitions(Number(event.currentTarget.value))} /></label>
           <label>Positions<select aria-label="Positions" value={position} onChange={event => setPosition(event.currentTarget.value)}>
@@ -228,10 +228,10 @@ export function BenchmarkView() {
     <form className="bench-controls" style={{ marginTop: 24 }} onSubmit={event => { void startComparison(event) }}>
       <fieldset disabled={running || !ready}><legend>Prompt cache and quality comparison</legend><div className="bench-control-grid">
         <label>Comparison model<select aria-label="Comparison model" value={comparisonModel} onChange={event => setComparisonModel(event.currentTarget.value as CacheComparisonModel)}><option value="LiquidAI/LFM3-1.7B-GGUF">LFM3-1.7B-GGUF</option>{promptApiAvailable && <option value="prompt-api">{opponentOption("prompt-api").label}</option>}</select></label>
-        <label>Production-order controls<span className="bench-check-row"><input aria-label="Include production ordering" type="checkbox" checked={productionOrder} onChange={event => setProductionOrder(event.currentTarget.checked)} />Both v6 and v7</span></label>
+        <label>Production-order controls<span className="bench-check-row"><input aria-label="Include production ordering" type="checkbox" checked={productionOrder} onChange={event => setProductionOrder(event.currentTarget.checked)} />Both prompt versions</span></label>
       </div></fieldset>
-      <div className="bench-run-row"><button className="bench-button bench-button-primary" type="submit" disabled={running || !ready}>Run comparison</button><button className="bench-button" type="button" disabled={running || !ready} onClick={() => { void startComparison(undefined, false) }}>Run cache replay only</button><button className="bench-button" type="button" disabled={!running} onClick={() => { controller.current?.abort(); setStatus("Stopping the active trial…") }}>Stop comparison</button><span>{CASES.length} frozen cases × {productionOrder ? 4 : 2} quality passes + 28 cache trials</span></div>
-      <p className="bench-note">Compare {PREVIOUS_PROMPT_VERSION} and {SHARED_PROMPT_VERSION} on identical paired legal orders, then optionally check both versions with the same production ordering. Replays send the first seven non-forced AI decisions from the recorded game twice each. Run cache replay only skips all quality passes and performs just those 28 cache trials. No saved-game access or engine cache flags; reasoning stays off, standard prompt caching uses long retention, and final output remains 8,192 tokens on WebGL or browser-managed on Prompt API.</p>
+      <div className="bench-run-row"><button className="bench-button bench-button-primary" type="submit" disabled={running || !ready}>Run comparison</button><button className="bench-button" type="button" disabled={running || !ready} onClick={() => { void startComparison(undefined, true, false) }}>Run quality comparison only</button><button className="bench-button" type="button" disabled={running || !ready} onClick={() => { void startComparison(undefined, false) }}>Run cache replay only</button><button className="bench-button" type="button" disabled={!running} onClick={() => { controller.current?.abort(); setStatus("Stopping the active trial…") }}>Stop comparison</button><span>{CASES.length} frozen cases × {productionOrder ? 4 : 2} quality passes + 28 cache trials</span></div>
+      <p className="bench-note">Compare {PREVIOUS_PROMPT_VERSION} and {SHARED_PROMPT_VERSION} on identical paired legal orders, then optionally check both versions with the same production ordering. Replays send the first seven non-forced AI decisions from the recorded game twice each. Quality comparison only skips the cache replay. Cache replay only skips all quality passes and performs just those 28 cache trials. No saved-game access or engine cache flags; reasoning stays off, standard prompt caching uses long retention, and final output remains 8,192 tokens on WebGL or browser-managed on Prompt API.</p>
     </form>
     <div className="bench-status" role="status" aria-live="polite">{status}</div>
     {error && <p className="bench-error" role="alert">{error}</p>}

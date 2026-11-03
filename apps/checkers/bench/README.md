@@ -39,7 +39,7 @@ Original raw v1 reports remain intact; the audit explains the corrected grading.
 ## Shared production path
 
 The runner calls `chooseAiMove`, exactly as the game does, with instrumentation callbacks.
-The original baseline (`baseline-v1`) is preserved unchanged. The current `shared-v7`
+The original baseline (`baseline-v1`) is preserved unchanged. The current `shared-v8`
 contract uses descriptive actions such as `Jump king d2 over c3 to b4`. Every legal action
 remains in the enum; neither card order nor a hidden fallback selects a move for the model.
 
@@ -87,7 +87,7 @@ See [FINDINGS.md](FINDINGS.md) for completed browser measurements and raw report
 ## Prompt caching comparison
 
 The game passes the standard TanStack `promptCache: "long"` and its existing per-game
-`threadId` for every adapter. `shared-v7` places unchanged common rules and outcome-reading guidance
+`threadId` for every adapter. `shared-v8` places common rules and outcome-reading guidance
 in a stable system prefix, with conditional definitions and live position/card/fact
 payloads after it. No cache-specific consumer API, adapter change, schema relocation,
 extra generation pass, or dummy padding is used. Legal-action schemas stay exact.
@@ -116,5 +116,13 @@ No padding or consumer cache hints are used. WebGL now learns short shared bound
 inside existing batches after observing reuse.
 
 Earlier zero-reuse lean measurements predate the WebGL engine's short-prefix fix.
-The unchanged current prompt now reuses about 410 input tokens after warmup; exact
+The lean v7 prompt reused about 410 input tokens after warmup; exact
 retries still cache. See the engine-integration section of CACHE-FINDINGS.md.
+
+## Compact v8 prompt
+
+The current v8 instruction audit saves 53 static LFM3 system tokens (380→327), plus
+shorter conditional text. v6/v7 remain frozen comparison controls. See
+[PROMPT-AUDIT.md](PROMPT-AUDIT.md) for section coverage, actual native input savings,
+unchanged-suite LFM3/Nano results, diagnostics and reproduction. Use **Run quality
+comparison only** to omit cache replays; gameplay defaults to the validated v8.
