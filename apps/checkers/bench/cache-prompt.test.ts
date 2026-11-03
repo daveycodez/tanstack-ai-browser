@@ -194,14 +194,14 @@ test("compact v8 retains every board, history, horizon, legal card and position 
 
 
 test("benchmark validation accepts every historical and candidate prompt version", () => {
-  for (const version of ["baseline-v1", "shared-v6", "shared-v7", "shared-v8", "shared-v9", "shared-v10", "shared-v11", "shared-v12"]) assert.equal(isPromptVersion(version), true)
-  for (const version of ["", "shared-v13", "unknown"]) assert.equal(isPromptVersion(version), false)
+  for (const version of ["baseline-v1", "shared-v6", "shared-v7", "shared-v8", "shared-v9", "shared-v10", "shared-v11", "shared-v12", "shared-v13"]) assert.equal(isPromptVersion(version), true)
+  for (const version of ["", "shared-v14", "unknown"]) assert.equal(isPromptVersion(version), false)
 })
 
 
 test("v9 keeps the smallest-loss fallback conditional and preserves every existing dynamic input", () => {
-  assert.equal(PREVIOUS_PROMPT_VERSION, "shared-v11")
-  assert.equal(SHARED_PROMPT_VERSION, "shared-v12")
+  assert.equal(PREVIOUS_PROMPT_VERSION, "shared-v12")
+  assert.equal(SHARED_PROMPT_VERSION, "shared-v13")
   assert.equal(SHARED_V9_SYSTEM_PROMPT.replace(` ${SMALLEST_LOSS_INSTRUCTION}`, ""), SHARED_V8_SYSTEM_PROMPT)
   for (const fixture of CASES) {
     const game = gameForCase(fixture), moves = legalMoves(game.board, "ai")
@@ -296,5 +296,26 @@ test("v12 uses pieces and kings without changing the complete legal choices or o
     assert.deepEqual(after.choices.map(choice => choice.id), before.choices.map(choice => choice.id))
     assert.equal(new Set(after.choices.map(choice => choice.label)).size, after.choices.length)
     assert.equal(after.outcomeVersion, before.outcomeVersion)
+  }
+})
+
+
+test("v13 uses stable AI and Human roles and correct colors for either assignment", () => {
+  for (const fixture of CASES) {
+    const game = gameForCase(fixture)
+    const white = buildMovePrompt({ ...game, humanColor: "white" }, undefined, "shared-v13")
+    const black = buildMovePrompt({ ...game, humanColor: "black" }, undefined, "shared-v13")
+    assert.equal(white.systemPrompt, black.systemPrompt)
+    assert.match(white.systemPrompt, /^Play checkers as AI against Human\./)
+    assert.match(white.systemPrompt, /White moves first\./)
+    assert.doesNotMatch(white.systemPrompt, /\b(?:Black|Red)\b/)
+    assert.match(white.prompt, /AI \(you, black\):/)
+    assert.match(white.prompt, /Human \(white\):/)
+    assert.match(black.prompt, /AI \(you, white\):/)
+    assert.match(black.prompt, /Human \(black\):/)
+    assert.equal(white.prompt.replace("AI (you, black):", "AI (you, white):").replace("Human (white):", "Human (black):"), black.prompt)
+    assert.deepEqual(white.choices, black.choices)
+    assert.deepEqual(white.choices.map(choice => choice.id), buildMovePrompt(game, undefined, "shared-v12").choices.map(choice => choice.id))
+    assert.equal(white.outcomeVersion, black.outcomeVersion)
   }
 })

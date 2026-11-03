@@ -11,6 +11,7 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as BenchRouteImport } from './routes/bench'
+import { Route as BenchRuntimeRouteImport } from './routes/bench-runtime'
 import { Route as GameRouteImport } from './routes/game'
 
 const IndexRoute = IndexRouteImport.update({
@@ -23,6 +24,11 @@ const BenchRoute = BenchRouteImport.update({
   path: '/bench',
   getParentRoute: () => rootRouteImport,
 } as any)
+const BenchRuntimeRoute = BenchRuntimeRouteImport.update({
+  id: '/bench-runtime',
+  path: '/bench-runtime',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const GameRoute = GameRouteImport.update({
   id: '/game',
   path: '/game',
@@ -32,30 +38,34 @@ const GameRoute = GameRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/bench': typeof BenchRoute
+  '/bench-runtime': typeof BenchRuntimeRoute
   '/game': typeof GameRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/bench': typeof BenchRoute
+  '/bench-runtime': typeof BenchRuntimeRoute
   '/game': typeof GameRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/bench': typeof BenchRoute
+  '/bench-runtime': typeof BenchRuntimeRoute
   '/game': typeof GameRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/bench' | '/game'
+  fullPaths: '/' | '/bench' | '/bench-runtime' | '/game'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/bench' | '/game'
-  id: '__root__' | '/' | '/bench' | '/game'
+  to: '/' | '/bench' | '/bench-runtime' | '/game'
+  id: '__root__' | '/' | '/bench' | '/bench-runtime' | '/game'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   BenchRoute: typeof BenchRoute
+  BenchRuntimeRoute: typeof BenchRuntimeRoute
   GameRoute: typeof GameRoute
 }
 
@@ -75,6 +85,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof BenchRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/bench-runtime': {
+      id: '/bench-runtime'
+      path: '/bench-runtime'
+      fullPath: '/bench-runtime'
+      preLoaderRoute: typeof BenchRuntimeRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/game': {
       id: '/game'
       path: '/game'
@@ -88,6 +105,7 @@ declare module '@tanstack/react-router' {
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   BenchRoute: BenchRoute,
+  BenchRuntimeRoute: BenchRuntimeRoute,
   GameRoute: GameRoute,
 }
 export const routeTree = rootRouteImport

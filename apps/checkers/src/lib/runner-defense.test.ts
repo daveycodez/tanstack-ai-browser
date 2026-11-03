@@ -71,7 +71,7 @@ test("a compensated promotion is not automatically graded as a failure", () => {
 test("the promotion horizon is explicit and only expands for an uncrowned near-crown Red runner", () => {
   const { game } = reported(82)
   const original = JSON.stringify(game)
-  assert.match(buildMovePrompt(game).prompt, /TWO Red turns and TWO Black responses/)
+  assert.match(buildMovePrompt(game).prompt, /TWO Human turns and TWO AI responses/)
   assert.equal(JSON.stringify(game), original)
   const kingInstead = { ...game, board: game.board.map((piece, square) => square === 17 && piece ? { ...piece, king: true } : piece) }
   assert.ok(annotateMoves(kingInstead).every(move => move.outcome.redTurnsChecked === 1))

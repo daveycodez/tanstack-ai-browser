@@ -3,7 +3,7 @@ import { useBoardMotion } from "../lib/use-board-motion"
 import { playGameSound } from "../lib/sounds"
 import { SoundToggle } from "./sound-toggle"
 import type { KeyboardEvent } from "react"
-import { legalMoves, previewBoard, squareName } from "../lib/checkers"
+import { colorForSide, legalMoves, previewBoard, squareName } from "../lib/checkers"
 import type { Game, Move } from "../lib/checkers"
 import { PieceArt } from "./menu"
 import { OpponentPicker } from "./opponent-picker"
@@ -44,6 +44,8 @@ export function GameView({
   onMenu,
   onBoardSettled
 }: GameProps) {
+  const humanColor = colorForSide(game, "human")
+  const aiColor = colorForSide(game, "ai")
   const position = `${game.sessionId}:${game.history.length}`
   const [selection, setSelection] = useState<{ position: string; path: number[]; submitted?: boolean }>({ position, path: [] })
   const path = selection.position === position ? selection.path : []
@@ -152,7 +154,7 @@ export function GameView({
   }
 
   return (
-    <div className="app-shell game-shell">
+    <div className={`app-shell game-shell human-${humanColor}`} data-human-color={humanColor}>
       <header className="game-header">
         <button className="brand brand-button" onClick={onMenu}>
           <span className="brand-mark" aria-hidden="true">
@@ -234,7 +236,7 @@ export function GameView({
             className={`player-strip opponent-strip${turn === "ai" && active ? " is-turn" : ""}`}
           >
             <span className="player-avatar avatar-ai">
-              <PieceArt side="ai" />
+              <PieceArt side="ai" color={aiColor} />
             </span>
             <div>
               <OpponentPicker
@@ -243,7 +245,7 @@ export function GameView({
                 disabled={busy || moving || awaitingSave}
                 onChange={onOpponentChange}
               />
-              <span>Black pieces</span>
+              <span>{aiColor === "black" ? "Black" : "White"} pieces</span>
             </div>
             <span className="piece-count">
               {aiPieces}
@@ -282,7 +284,7 @@ export function GameView({
                 const isSelected = selected === square
                 const isLastMove =
                   !path.length && lastMove?.path.includes(square)
-                const label = `${squareName(square)}${piece ? `, ${piece.side === "human" ? "your red" : "opponent navy"} ${piece.king ? "king" : "piece"}` : ", empty"}${active && piece ? (turnMovable ? ", movable" : ", cannot move this turn") : ""}${target ? ", move here" : ""}${capturePiece ? ", capture available" : ""}${isSelected ? ", selected" : ""}`
+                const label = `${squareName(square)}${piece ? `, ${piece.side === "human" ? "your" : "opponent"} ${colorForSide(game, piece.side)} ${piece.king ? "king" : "piece"}` : ", empty"}${active && piece ? (turnMovable ? ", movable" : ", cannot move this turn") : ""}${target ? ", move here" : ""}${capturePiece ? ", capture available" : ""}${isSelected ? ", selected" : ""}`
                 return (
                   <button
                     key={square}
@@ -314,7 +316,7 @@ export function GameView({
                         {"abcdefgh"[square % 8]}
                       </span>
                     )}
-                    {piece && <PieceArt side={piece.side} king={piece.king} />}
+                    {piece && <PieceArt side={piece.side} color={colorForSide(game, piece.side)} king={piece.king} />}
                     {target && !moving && (
                       <span className="target-dot" aria-hidden="true" />
                     )}
@@ -324,7 +326,7 @@ export function GameView({
               {step && (
                 <span key={motionId} className="travelling-piece" ref={pieceRef} aria-hidden="true" style={{ left: `${(step.from % 8) * 12.5}%`, top: `${Math.floor(step.from / 8) * 12.5}%` }}>
                   <span className="moving-shadow" />
-                  <PieceArt side={step.piece.side} king={step.piece.king} />
+                  <PieceArt side={step.piece.side} color={colorForSide(game, step.piece.side)} king={step.piece.king} />
                 </span>
               )}
             </div>
@@ -333,11 +335,11 @@ export function GameView({
             className={`player-strip human-strip${turn === "human" && active ? " is-turn" : ""}`}
           >
             <span className="player-avatar avatar-human">
-              <PieceArt side="human" />
+              <PieceArt side="human" color={humanColor} />
             </span>
             <div>
               <strong>You</strong>
-              <span>Red pieces</span>
+              <span>{humanColor === "black" ? "Black" : "White"} pieces</span>
             </div>
             <span className="piece-count">
               {humanPieces}
@@ -406,7 +408,7 @@ export function GameView({
                 ))}
               </ol>
             ) : (
-              <p className="empty-moves">A fresh board. Make the first move.</p>
+              <p className="empty-moves">White moves first.</p>
             )}
           </section>
           <div className="rules-note">

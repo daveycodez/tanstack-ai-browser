@@ -1,110 +1,183 @@
 {
   "schemaVersion": 2,
   "suiteVersion": "checkers-audited-v10",
-  "promptVersion": "shared-v12",
+  "promptVersion": "shared-v13",
   "outcomeVersion": "runner-replies-v4",
+  "execution": "Mac same-tab model parallelism, one persistent runtime per model",
   "config": {
     "thinking": false,
     "sampling": "model defaults",
     "repetitions": 1,
+    "humanColors": [
+      "white",
+      "black"
+    ],
     "orderPolicy": "production per-game stable action priorities",
     "promptCache": "long"
   },
-  "tokenChange": {
-    "fromPromptVersion": "shared-v11",
+  "systemPromptTokens": {
     "tokenizer": "production LFM3",
-    "systemBefore": 358,
-    "systemAfter": 358,
-    "additionalUserTokens": {
-      "min": 0,
-      "median": 1,
-      "max": 9
-    }
+    "previous": 358,
+    "current": 367
   },
+  "systemPromptSha256": "f0fe01b7838099cb288610f3f4ae617338c37412d1993e64e54c58dd0aea180a",
   "notes": [
-    "One fresh Chrome run per model: 39 positions, including 27 scored and one forced move.",
-    "Timings are descriptive, not a counterbalanced performance comparison."
+    "One fresh complete multi-model evaluation: 39 positions per human color, 27 scored and one forced per color.",
+    "Color fixtures are role-equivalent tactical recolorings; actual white-first openings and persistence are separately verified.",
+    "Timings include concurrent GPU work and are not comparable with earlier serial runs."
   ],
   "runs": [
     {
       "model": "apple-foundationmodel",
       "label": "Apple-FoundationModel",
-      "runId": "e70eac14-6313-4940-9cd3-562bc5cb1f71",
-      "startedAt": "2026-11-03T12:56:58.195Z",
-      "finishedAt": "2026-11-03T12:57:42.860Z",
+      "runId": "37b757c4-0993-4387-b61e-94884270aa9a",
+      "startedAt": "2026-11-03T14:12:44.159Z",
+      "finishedAt": "2026-11-03T14:14:28.477Z",
       "maxOutputTokens": 8192,
       "summary": {
-        "total": 39,
-        "inferred": 38,
-        "legal": 39,
-        "scored": 27,
-        "passed": 27,
-        "firstOption": 13,
-        "medianSeconds": 1.138
+        "total": 78,
+        "inferred": 76,
+        "legal": 78,
+        "scored": 54,
+        "passed": 54,
+        "firstOption": 27,
+        "medianSeconds": 1.234
+      },
+      "byHumanColor": {
+        "white": {
+          "total": 39,
+          "legal": 39,
+          "scored": 27,
+          "passed": 27
+        },
+        "black": {
+          "total": 39,
+          "legal": 39,
+          "scored": 27,
+          "passed": 27
+        }
       },
       "failures": []
     },
     {
       "model": "LiquidAI/LFM2.5-1.2B-Instruct-GGUF",
-      "runId": "f119e859-ed32-47db-becc-46e93de174e0",
-      "startedAt": "2026-11-03T12:52:21.799Z",
-      "finishedAt": "2026-11-03T12:52:50.424Z",
+      "runId": "f57ba432-bd4e-4753-bef0-8cc923643b7a",
+      "startedAt": "2026-11-03T14:12:44.484Z",
+      "finishedAt": "2026-11-03T14:14:38.581Z",
       "maxOutputTokens": 8192,
       "summary": {
-        "total": 39,
-        "inferred": 38,
-        "legal": 39,
-        "scored": 27,
-        "passed": 27,
-        "firstOption": 10,
-        "medianSeconds": 0.704
+        "total": 78,
+        "inferred": 76,
+        "legal": 78,
+        "scored": 54,
+        "passed": 54,
+        "firstOption": 21,
+        "medianSeconds": 1.488
+      },
+      "byHumanColor": {
+        "white": {
+          "total": 39,
+          "legal": 39,
+          "scored": 27,
+          "passed": 27
+        },
+        "black": {
+          "total": 39,
+          "legal": 39,
+          "scored": 27,
+          "passed": 27
+        }
       },
       "failures": []
     },
     {
       "model": "LiquidAI/LFM2.5-350M-GGUF",
-      "runId": "2ee9a8b2-894d-4bd8-ad6b-018a001213ff",
-      "startedAt": "2026-11-03T12:53:14.124Z",
-      "finishedAt": "2026-11-03T12:53:23.627Z",
+      "runId": "9bb7ba9b-6c94-4f9a-99d8-430ce919d009",
+      "startedAt": "2026-11-03T14:12:44.487Z",
+      "finishedAt": "2026-11-03T14:14:24.315Z",
       "maxOutputTokens": 8192,
       "summary": {
-        "total": 39,
-        "inferred": 38,
-        "legal": 39,
-        "scored": 27,
-        "passed": 24,
-        "firstOption": 15,
-        "medianSeconds": 0.234
+        "total": 78,
+        "inferred": 76,
+        "legal": 78,
+        "scored": 54,
+        "passed": 50,
+        "firstOption": 30,
+        "medianSeconds": 1.355
+      },
+      "byHumanColor": {
+        "white": {
+          "total": 39,
+          "legal": 39,
+          "scored": 27,
+          "passed": 25
+        },
+        "black": {
+          "total": 39,
+          "legal": 39,
+          "scored": 27,
+          "passed": 25
+        }
       },
       "failures": [
         {
           "caseId": "capture-king-value",
-          "moveId": "a3xc5"
+          "humanColor": "white",
+          "moveId": "a3xc5",
+          "checkedNet": 1,
+          "bestAcceptedNet": 3
         },
         {
           "caseId": "deny-red-promotion",
-          "moveId": "a5-b6"
+          "humanColor": "white",
+          "moveId": "a5-b6",
+          "checkedNet": -3,
+          "bestAcceptedNet": 0
         },
         {
-          "caseId": "force-next-turn-win-alternative",
-          "moveId": "d8-c7"
+          "caseId": "capture-king-value",
+          "humanColor": "black",
+          "moveId": "a3xc5",
+          "checkedNet": 1,
+          "bestAcceptedNet": 3
+        },
+        {
+          "caseId": "deny-red-promotion",
+          "humanColor": "black",
+          "moveId": "a5-b6",
+          "checkedNet": -3,
+          "bestAcceptedNet": 0
         }
       ]
     },
     {
       "model": "LiquidAI/LFM3-1.7B-GGUF",
-      "runId": "af9f060c-262d-46a2-88e5-4f7d2a5aa410",
-      "startedAt": "2026-11-03T12:53:42.557Z",
-      "finishedAt": "2026-11-03T12:54:07.724Z",
+      "runId": "da628e90-6f1b-42a7-b2bf-64c75282d68c",
+      "startedAt": "2026-11-03T14:12:44.505Z",
+      "finishedAt": "2026-11-03T14:15:00.106Z",
       "maxOutputTokens": 8192,
       "summary": {
-        "total": 39,
-        "inferred": 38,
-        "legal": 39,
-        "scored": 27,
-        "passed": 27,
-        "firstOption": 13,
-        "medianSeconds": 0.557
+        "total": 78,
+        "inferred": 76,
+        "legal": 78,
+        "scored": 54,
+        "passed": 54,
+        "firstOption": 28,
+        "medianSeconds": 1.625
+      },
+      "byHumanColor": {
+        "white": {
+          "total": 39,
+          "legal": 39,
+          "scored": 27,
+          "passed": 27
+        },
+        "black": {
+          "total": 39,
+          "legal": 39,
+          "scored": 27,
+          "passed": 27
+        }
       },
       "failures": []
     },
@@ -115,37 +188,73 @@
         "name": "Gemini Nano",
         "browser": "Chrome"
       },
-      "runId": "83ea492f-9107-40bd-aa77-7c946d8b34c3",
-      "startedAt": "2026-11-03T12:55:39.335Z",
-      "finishedAt": "2026-11-03T12:56:48.450Z",
+      "runId": "fafda54f-aff7-409f-bac7-35d9731dc926",
+      "startedAt": "2026-11-03T14:12:44.160Z",
+      "finishedAt": "2026-11-03T14:15:05.134Z",
       "maxOutputTokens": null,
       "summary": {
-        "total": 39,
-        "inferred": 38,
-        "legal": 39,
-        "scored": 27,
-        "passed": 27,
-        "firstOption": 14,
-        "medianSeconds": 1.623
+        "total": 78,
+        "inferred": 76,
+        "legal": 78,
+        "scored": 54,
+        "passed": 54,
+        "firstOption": 24,
+        "medianSeconds": 1.751
+      },
+      "byHumanColor": {
+        "white": {
+          "total": 39,
+          "legal": 39,
+          "scored": 27,
+          "passed": 27
+        },
+        "black": {
+          "total": 39,
+          "legal": 39,
+          "scored": 27,
+          "passed": 27
+        }
       },
       "failures": []
     },
     {
       "model": "unsloth/Qwen3.5-2B-GGUF",
-      "runId": "5b80b6ef-d81a-4207-8df6-5226e10c87c5",
-      "startedAt": "2026-11-03T12:54:38.576Z",
-      "finishedAt": "2026-11-03T12:55:18.334Z",
+      "runId": "40d0f60d-cb7d-4969-919c-ce689a1e8e4d",
+      "startedAt": "2026-11-03T14:12:44.512Z",
+      "finishedAt": "2026-11-03T14:15:12.607Z",
       "maxOutputTokens": 8192,
       "summary": {
-        "total": 39,
-        "inferred": 38,
-        "legal": 39,
-        "scored": 27,
-        "passed": 27,
-        "firstOption": 13,
-        "medianSeconds": 0.829
+        "total": 78,
+        "inferred": 76,
+        "legal": 78,
+        "scored": 54,
+        "passed": 53,
+        "firstOption": 25,
+        "medianSeconds": 1.998
       },
-      "failures": []
+      "byHumanColor": {
+        "white": {
+          "total": 39,
+          "legal": 39,
+          "scored": 27,
+          "passed": 27
+        },
+        "black": {
+          "total": 39,
+          "legal": 39,
+          "scored": 27,
+          "passed": 26
+        }
+      },
+      "failures": [
+        {
+          "caseId": "reported-smallest-loss-44",
+          "humanColor": "black",
+          "moveId": "f6-g5",
+          "checkedNet": -4,
+          "bestAcceptedNet": -1
+        }
+      ]
     }
   ]
 }

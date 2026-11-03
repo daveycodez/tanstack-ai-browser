@@ -4,6 +4,8 @@ import { isPromptVersion } from "../src/lib/shared-prompt.ts"
 import { OUTCOME_VERSION } from "../src/lib/move-outcomes.ts"
 import { applyMove, legalMoves } from "../src/lib/checkers.ts"
 import { opponentOption, resolveOpponent, usesEmulatedReasoning } from "../src/lib/opponents.ts"
+import { canRunParallelBench } from "./parallel.ts"
+import type { PieceColor } from "../src/lib/checkers.ts"
 import type { OpponentModel } from "../src/lib/opponents.ts"
 import { CASES, SUITE_VERSION, gameForCase } from "./cases.ts"
 import type { BenchmarkReport, BenchmarkResult, PromptVersion } from "./types.ts"
@@ -20,6 +22,8 @@ export type BenchmarkOptions = {
   onResult: (result: BenchmarkResult) => void
   onProgress?: (label: string) => void
   orderPolicy?: "paired" | "production"
+  humanColor?: PieceColor | "both"
+  isolationKey?: string
 }
 export function benchmarkOrder(caseId: string, repetition: number, ids: readonly string[]): string[] {
   let seed = 2166136261
@@ -48,6 +52,9 @@ export function summarize(results: readonly BenchmarkResult[]): BenchmarkReport[
 export async function runBenchmark(options: BenchmarkOptions): Promise<BenchmarkReport> {
   if (!Number.isInteger(options.repetitions) || options.repetitions < 1 || options.repetitions > 20) throw new RangeError("Repetitions must be between 1 and 20.")
   if (!isPromptVersion(options.promptVersion)) throw new Error("Unknown prompt version.")
+  const selectedColor = options.humanColor ?? "white"
+  if (!["white", "black", "both"].includes(selectedColor)) throw new Error("Unknown player color.")
+  const humanColors: PieceColor[] = selectedColor === "both" ? ["white", "black"] : [selectedColor]
   const budget = options.reasoningBudgetTokens ?? 512
   if (!Number.isSafeInteger(budget) || budget < 0) throw new RangeError("Reasoning budget must be a nonnegative safe integer.")
   const selected = options.caseIds ?? CASES.filter(testCase => testCase.partition === "calibration").map(testCase => testCase.id)
@@ -60,16 +67,18 @@ export async function runBenchmark(options: BenchmarkOptions): Promise<Benchmark
       ...(opponent.model === "prompt-api" && { runtimeModel: promptApiModel() }),
       reasoningMode: !opponent.thinking ? "off" : usesEmulatedReasoning(opponent.model) ? "emulated-working-notes" : "native",
       reasoningBudgetTokens: budget, maxOutputTokens: opponent.model === "prompt-api" ? null : 8192, sampling: "model defaults", promptCache: "long",
-      repetitions: options.repetitions, caseIds: cases.map(testCase => testCase.id), suiteVersion: SUITE_VERSION, promptVersion: options.promptVersion,
+      humanColor: selectedColor, repetitions: options.repetitions, caseIds: cases.map(testCase => testCase.id), suiteVersion: SUITE_VERSION, promptVersion: options.promptVersion,
       ...(options.promptVersion !== "baseline-v1" && { outcomeVersion: OUTCOME_VERSION }),
       orderPolicy: options.orderPolicy === "production" ? "production per-game stable action priorities" : "case/repetition seeded permutations, identical across models and prompt versions", outputContract: options.promptVersion === "baseline-v1" ? "legal-moveId-enum" : "legal-action-label-enum" },
     results: [], summary: summarize([])
   }
   const execute = async () => {
-    outer: for (const testCase of cases) for (let repetition = 0; repetition < options.repetitions; repetition++) {
+    outer: for (const humanColor of humanColors) for (const testCase of cases) for (let repetition = 0; repetition < options.repetitions; repetition++) {
       if (options.signal.aborted) break outer
       const game = gameForCase(testCase)
       game.opponent = opponent
+      // Recolor role-equivalent tactical fixtures; standard opening order is tested separately.
+      game.humanColor = humanColor
       if (options.orderPolicy === "production") game.sessionId = `checkers-suite-${testCase.id}-${repetition}`
       const moves = legalMoves(game.board, "ai")
       const result: BenchmarkResult = {
@@ -79,13 +88,13 @@ export async function runBenchmark(options: BenchmarkOptions): Promise<Benchmark
         signal: testCase.signalMoveIds ? false : null, inference: moves.length !== 1, index: -1, seconds: 0, choices: [], reasoningText: ""
       }
       const started = performance.now()
-      options.onProgress?.(`Trial ${result.trial}/${cases.length * options.repetitions}: ${testCase.label}`)
+      options.onProgress?.(`Trial ${result.trial}/${cases.length * options.repetitions * humanColors.length}: ${testCase.label} · human ${humanColor}`)
       const controller = new AbortController()
       const abort = () => controller.abort(options.signal.reason)
       options.signal.addEventListener("abort", abort, { once: true })
       try {
         result.moveId = await chooseAiMove(game, controller,
-          phase => options.onProgress?.(`Trial ${result.trial}: ${testCase.label} — ${phase}`),
+          phase => options.onProgress?.(`Trial ${result.trial}: ${testCase.label} · human ${humanColor} — ${phase}`),
           delta => { result.reasoningText += delta },
           { promptVersion: options.promptVersion, reasoningBudgetTokens: budget, ...(options.orderPolicy !== "production" && { moveOrder: benchmarkOrder(testCase.id, repetition, moves.map(move => move.id)) }),
             onInput(input) { result.choices = input.choices; result.prompt = input.prompt; result.systemPrompt = input.systemPrompt },
@@ -109,7 +118,9 @@ export async function runBenchmark(options: BenchmarkOptions): Promise<Benchmark
     }
   }
   try {
-    if (navigator.locks) await navigator.locks.request("checkers-ai-turn", { signal: options.signal }, execute)
+    const lock = options.isolationKey && canRunParallelBench(navigator.platform, navigator.maxTouchPoints)
+      ? `checkers-benchmark-${options.isolationKey}` : "checkers-ai-turn"
+    if (navigator.locks) await navigator.locks.request(lock, { signal: options.signal }, execute)
     else await execute()
   } catch (error) {
     if (!options.signal.aborted) throw error
