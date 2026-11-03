@@ -108,6 +108,8 @@ export function BenchmarkView() {
   const [movePresentation, setMovePresentation] = useState<"game" | "new-games" | "stress">("game")
   const [moveOrderSeed, setMoveOrderSeed] = useState("chess-benchmark-v1")
   const [repetitions, setRepetitions] = useState(2)
+  const [disablePromptCache, setDisablePromptCache] = useState(false)
+  const [otherGpuWorkload, setOtherGpuWorkload] = useState(false)
   const [reasoningBudgetTokens, setReasoningBudgetTokens] = useState<
     512 | 1024 | null
   >(512)
@@ -198,6 +200,10 @@ export function BenchmarkView() {
           ? "emulated-working-notes"
           : "native",
       repetitions,
+      disablePromptCache,
+      otherGpuWorkload,
+      promptCache: disablePromptCache ? "none" : "default",
+      timingComparable: !otherGpuWorkload,
       movePresentation,
       moveOrderSeed,
       caseIds: selectedCases.map((testCase) => testCase.id),
@@ -228,6 +234,8 @@ export function BenchmarkView() {
         model,
         thinking: effectiveThinking,
         repetitions,
+        disablePromptCache,
+        otherGpuWorkload,
         movePresentation,
         moveOrderSeed,
         reasoningBudgetTokens,
@@ -392,6 +400,19 @@ export function BenchmarkView() {
               <input value={moveOrderSeed} disabled={movePresentation === "stress"}
                 onChange={(event) => setMoveOrderSeed(event.target.value)} />
             </label>
+            <label className="budget-control">
+              Prompt cache
+              <select value={disablePromptCache ? "none" : "default"}
+                onChange={(event) => setDisablePromptCache(event.target.value === "none")}>
+                <option value="default">Normal reuse</option>
+                <option value="none">Disabled (control)</option>
+              </select>
+            </label>
+            <label className="checkbox-label">
+              <input type="checkbox" checked={otherGpuWorkload}
+                onChange={(event) => setOtherGpuWorkload(event.target.checked)} />
+              <span>Other GPU workload active</span>
+            </label>
             <span>
               Output cap:{" "}
               <strong>
@@ -470,6 +491,9 @@ export function BenchmarkView() {
           {results.length} {results.length === 1 ? "trial" : "trials"}
         </span>
       </section>
+      {(report?.config.timingComparable === false || (running && otherGpuWorkload)) && (
+        <p className="configuration-notes" role="note">Other GPU workload active: use these results for cache reuse and move quality; timings are diagnostic only.</p>
+      )}
       {error && (
         <p className="fatal-error" role="alert">
           {error}

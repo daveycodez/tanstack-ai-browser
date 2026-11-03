@@ -15,6 +15,8 @@ export type BenchmarkOptions = {
   movePresentation?: "game" | "new-games" | "stress"
   moveOrderSeed?: string
   repetitions: number
+  disablePromptCache?: boolean
+  otherGpuWorkload?: boolean
   reasoningBudgetTokens?: 512 | 1024 | null
   caseIds?: string[]
   signal: AbortSignal
@@ -72,6 +74,9 @@ export async function runBenchmark(
       reasoningBudgetTokens,
       maxOutputTokens: opponent.model === "prompt-api" ? null : 8192,
       sampling: "model defaults",
+      promptCache: options.disablePromptCache ? "none" : "default",
+      timingComparable: !options.otherGpuWorkload,
+      timingConditions: options.otherGpuWorkload ? "Other GPU workload active; timings are diagnostic only" : "No competing GPU workload declared",
       repetitions: options.repetitions,
       caseIds: cases.map((c) => c.id),
       suiteVersion: cases.every(c => c.id.startsWith("cache-"))
@@ -151,6 +156,7 @@ export async function runBenchmark(
           },
           {
             reasoningBudgetTokens,
+            disablePromptCache: options.disablePromptCache,
             moveOrderSeed: options.movePresentation === "new-games"
               ? `${moveOrderSeed}:${repetition + 1}`
               : moveOrderSeed,

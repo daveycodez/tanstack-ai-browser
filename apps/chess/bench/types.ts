@@ -62,6 +62,9 @@ export type BenchmarkReport = {
     reasoningBudgetTokens: 512 | 1024 | null
     maxOutputTokens: 8192 | null
     sampling: "model defaults"
+    promptCache?: "default" | "none"
+    timingComparable?: boolean
+    timingConditions?: string
     repetitions: number
     caseIds: string[]
     suiteVersion: string

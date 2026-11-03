@@ -36,6 +36,8 @@ export type AiMoveOptions = {
   moveOrder?: readonly string[]
   /** Manual replay seed; normal games use their persisted session ID. */
   moveOrderSeed?: string
+  /** Manual cache ablation; gameplay retains the adapter's normal reuse. */
+  disablePromptCache?: boolean
   onInput?: (input: {
     choices: { id: string; notation: string; label: string; outcome: string }[]
     prompt: string
@@ -180,6 +182,7 @@ export async function chooseAiMove(
     onPhase?.("processing")
     const chatOptions = {
       threadId: `chess-${game.sessionId}`,
+      ...(options?.disablePromptCache && { promptCache: "none" as const }),
       systemPrompts: [SHARED_SYSTEM_PROMPT],
       messages: [
         {
