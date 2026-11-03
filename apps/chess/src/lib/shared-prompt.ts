@@ -11,11 +11,11 @@ import { describePosition } from "./ai-position.ts"
 import { buildCompactChoices } from "./prompt-options.ts"
 import { moveChoiceLabel } from "./move-choice.ts"
 
-export const SHARED_PROMPT_VERSION = "shared-v24"
+export const SHARED_PROMPT_VERSION = "shared-v25"
 
 export const SHARED_SYSTEM_PROMPT = [
   "Play Black in a sensible casual game. Choose one supplied legal move; card order is not a ranking.",
-  "Priorities: CHECKMATE now; prevent mate/answer check; save or win a queen; safe material gains; otherwise castle or develop.",
+  "Priorities: CHECKMATE now; prevent White's next-turn mate/answer check; save or win a queen; safe material gains; otherwise castle or develop.",
   "Each card is a separate position after that move. Never combine threats or outcomes across cards. CHECK means that move checks White; Black-in-check describes the current board.",
   "Weigh recaptures and forcing follow-ups. Forcing gains can outweigh immediate captures; check alone cannot justify material loss. Protection is not immunity. Values: pawn 1, knight/bishop 3, rook 5, queen 9."
 ].join("\n\n")
@@ -246,7 +246,7 @@ export function positiveSafetySummaries({
     facts.push("URGENT RESPONSE PRIORITY:")
     if (hasKingSafeChoices)
       facts.push(
-        "Before ordinary development or castling, choose one of the KING-SAFE choices above to address the immediate threat."
+        "Some moves allow White to mate next turn. Choose a KING-SAFE move before captures, checks, development or castling."
       )
     if (hasQueenRescueChoices)
       facts.push(
@@ -255,8 +255,8 @@ export function positiveSafetySummaries({
     if (hasMaterialSafeChoices)
       facts.push(
         tacticalFocus
-          ? "After king/queen emergencies, prefer MATERIAL-SAFE captures or forcing material gains over quiet moves or non-winning checks. Avoid negative exchange nets."
-          : "After king/queen emergencies, avoid negative exchange nets. Otherwise castle or develop among MATERIAL-SAFE choices."
+          ? "After king/queen safety, choose among MATERIAL-SAFE moves. Prefer captures or forcing gains over quiet moves or non-winning checks; avoid negative exchange nets."
+          : "After king/queen safety, choose among MATERIAL-SAFE moves and avoid negative exchange nets; otherwise castle or develop."
       )
   }
   return facts.length ? ["URGENT POSITION FACTS:", ...facts] : []
