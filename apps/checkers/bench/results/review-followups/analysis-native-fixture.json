@@ -1,0 +1,535 @@
+{
+  "game": {
+    "id": "current",
+    "sessionId": "c2fb4fef-593c-41d1-9d06-24079df3148f",
+    "board": [
+      null,
+      {
+        "side": "ai",
+        "king": false
+      },
+      null,
+      {
+        "side": "ai",
+        "king": false
+      },
+      null,
+      {
+        "side": "ai",
+        "king": false
+      },
+      null,
+      {
+        "side": "ai",
+        "king": false
+      },
+      {
+        "side": "human",
+        "king": false
+      },
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      {
+        "side": "ai",
+        "king": false
+      },
+      null,
+      null,
+      null,
+      {
+        "side": "ai",
+        "king": false
+      },
+      null,
+      {
+        "side": "ai",
+        "king": false
+      },
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      {
+        "side": "human",
+        "king": false
+      },
+      {
+        "side": "human",
+        "king": false
+      },
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      {
+        "side": "human",
+        "king": false
+      },
+      null,
+      {
+        "side": "human",
+        "king": false
+      },
+      null,
+      {
+        "side": "human",
+        "king": false
+      },
+      {
+        "side": "human",
+        "king": false
+      },
+      null,
+      {
+        "side": "human",
+        "king": false
+      },
+      null,
+      {
+        "side": "human",
+        "king": false
+      },
+      null,
+      null,
+      null
+    ],
+    "initialBoard": [
+      null,
+      {
+        "side": "ai",
+        "king": false
+      },
+      null,
+      {
+        "side": "ai",
+        "king": false
+      },
+      null,
+      {
+        "side": "ai",
+        "king": false
+      },
+      null,
+      {
+        "side": "ai",
+        "king": false
+      },
+      {
+        "side": "ai",
+        "king": false
+      },
+      null,
+      {
+        "side": "ai",
+        "king": false
+      },
+      null,
+      {
+        "side": "ai",
+        "king": false
+      },
+      null,
+      {
+        "side": "ai",
+        "king": false
+      },
+      null,
+      null,
+      {
+        "side": "ai",
+        "king": false
+      },
+      null,
+      {
+        "side": "ai",
+        "king": false
+      },
+      null,
+      {
+        "side": "ai",
+        "king": false
+      },
+      null,
+      {
+        "side": "ai",
+        "king": false
+      },
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      {
+        "side": "human",
+        "king": false
+      },
+      null,
+      {
+        "side": "human",
+        "king": false
+      },
+      null,
+      {
+        "side": "human",
+        "king": false
+      },
+      null,
+      {
+        "side": "human",
+        "king": false
+      },
+      null,
+      null,
+      {
+        "side": "human",
+        "king": false
+      },
+      null,
+      {
+        "side": "human",
+        "king": false
+      },
+      null,
+      {
+        "side": "human",
+        "king": false
+      },
+      null,
+      {
+        "side": "human",
+        "king": false
+      },
+      {
+        "side": "human",
+        "king": false
+      },
+      null,
+      {
+        "side": "human",
+        "king": false
+      },
+      null,
+      {
+        "side": "human",
+        "king": false
+      },
+      null,
+      {
+        "side": "human",
+        "king": false
+      },
+      null
+    ],
+    "initialTurn": "human",
+    "aiFailures": [],
+    "turn": "ai",
+    "status": "playing",
+    "history": [
+      {
+        "side": "human",
+        "notation": "g3-f4",
+        "path": [
+          46,
+          37
+        ],
+        "captures": [],
+        "promoted": false
+      },
+      {
+        "side": "ai",
+        "notation": "b6-c5",
+        "path": [
+          17,
+          26
+        ],
+        "captures": [],
+        "promoted": false
+      },
+      {
+        "side": "human",
+        "notation": "c3-d4",
+        "path": [
+          42,
+          35
+        ],
+        "captures": [],
+        "promoted": false
+      },
+      {
+        "side": "ai",
+        "notation": "f6-e5",
+        "path": [
+          21,
+          28
+        ],
+        "captures": [],
+        "promoted": false
+      },
+      {
+        "side": "human",
+        "notation": "d4xf6",
+        "path": [
+          35,
+          21
+        ],
+        "captures": [
+          28
+        ],
+        "promoted": false
+      },
+      {
+        "side": "ai",
+        "notation": "g7xe5xg3",
+        "path": [
+          14,
+          28,
+          46
+        ],
+        "captures": [
+          21,
+          37
+        ],
+        "promoted": false
+      },
+      {
+        "side": "human",
+        "notation": "f2xh4",
+        "path": [
+          53,
+          39
+        ],
+        "captures": [
+          46
+        ],
+        "promoted": false
+      },
+      {
+        "side": "ai",
+        "notation": "c5-d4",
+        "path": [
+          26,
+          35
+        ],
+        "captures": [],
+        "promoted": false
+      },
+      {
+        "side": "human",
+        "notation": "e3xc5",
+        "path": [
+          44,
+          26
+        ],
+        "captures": [
+          35
+        ],
+        "promoted": false
+      },
+      {
+        "side": "ai",
+        "notation": "d6xb4",
+        "path": [
+          19,
+          33
+        ],
+        "captures": [
+          26
+        ],
+        "promoted": false
+      },
+      {
+        "side": "human",
+        "notation": "a3xc5",
+        "path": [
+          40,
+          26
+        ],
+        "captures": [
+          33
+        ],
+        "promoted": false
+      },
+      {
+        "side": "ai",
+        "notation": "a7-b6",
+        "path": [
+          8,
+          17
+        ],
+        "captures": [],
+        "promoted": false
+      },
+      {
+        "side": "human",
+        "notation": "c5xa7",
+        "path": [
+          26,
+          8
+        ],
+        "captures": [
+          17
+        ],
+        "promoted": false
+      },
+      {
+        "side": "ai",
+        "notation": "c7-b6",
+        "path": [
+          10,
+          17
+        ],
+        "captures": [],
+        "promoted": false
+      },
+      {
+        "side": "human",
+        "notation": "b2-a3",
+        "path": [
+          49,
+          40
+        ],
+        "captures": [],
+        "promoted": false
+      },
+      {
+        "side": "ai",
+        "notation": "e7-f6",
+        "path": [
+          12,
+          21
+        ],
+        "captures": [],
+        "promoted": false
+      },
+      {
+        "side": "human",
+        "notation": "g1-f2",
+        "path": [
+          62,
+          53
+        ],
+        "captures": [],
+        "promoted": false
+      }
+    ],
+    "updatedAt": 0,
+    "quietMoves": 0,
+    "positions": [
+      "human:.a.a.a.aa.a.a.a..a.a.a.a................h.h.h.h..h.h.h.hh.h.h.h.",
+      "ai:.a.a.a.aa.a.a.a..a.a.a.a.............h..h.h.h....h.h.h.hh.h.h.h.",
+      "human:.a.a.a.aa.a.a.a....a.a.a..a..........h..h.h.h....h.h.h.hh.h.h.h.",
+      "ai:.a.a.a.aa.a.a.a....a.a.a..a........h.h..h...h....h.h.h.hh.h.h.h.",
+      "human:.a.a.a.aa.a.a.a....a...a..a.a......h.h..h...h....h.h.h.hh.h.h.h.",
+      "ai:.a.a.a.aa.a.a.a....a.h.a..a..........h..h...h....h.h.h.hh.h.h.h.",
+      "human:.a.a.a.aa.a.a......a...a..a.............h...h.a..h.h.h.hh.h.h.h.",
+      "ai:.a.a.a.aa.a.a......a...a..a............hh...h....h.h...hh.h.h.h.",
+      "human:.a.a.a.aa.a.a......a...a...........a...hh...h....h.h...hh.h.h.h.",
+      "ai:.a.a.a.aa.a.a......a...a..h............hh........h.h...hh.h.h.h.",
+      "human:.a.a.a.aa.a.a..........a.........a.....hh........h.h...hh.h.h.h.",
+      "ai:.a.a.a.aa.a.a..........a..h............h.........h.h...hh.h.h.h.",
+      "human:.a.a.a.a..a.a....a.....a..h............h.........h.h...hh.h.h.h.",
+      "ai:.a.a.a.ah.a.a..........a...............h.........h.h...hh.h.h.h.",
+      "human:.a.a.a.ah...a....a.....a...............h.........h.h...hh.h.h.h.",
+      "ai:.a.a.a.ah...a....a.....a...............hh..........h...hh.h.h.h.",
+      "human:.a.a.a.ah........a...a.a...............hh..........h...hh.h.h.h.",
+      "ai:.a.a.a.ah........a...a.a...............hh..........h.h.hh.h.h..."
+    ]
+  },
+  "input": {
+    "version": "shared-v9",
+    "systemPrompt": "Choose one legal Black action from verified outcomes. Win now or force a win; otherwise prevent Red's immediate win. Prefer higher nonnegative checked material gains. If every checked exchange loses material, prefer the smallest loss. When safe, prefer free captures and immediate crowning over ordinary quiet development. Prevent free Red promotions unless a better exchange exists. Avoid draws ahead; prefer an available draw behind unless a listed win exists. When no tactic decides, favor safe quiet progress: advance men or coordinate kings to restrict safe escapes. Avoid needless reversals; retreat may be necessary. Cards are independent, unranked alternatives.\nAmerican rules: Black men step and jump forward toward rank 1; Red toward rank 8. A jump goes two diagonal squares over an adjacent enemy and removes it. Kings are crowned men: they step or jump diagonally both ways and can be captured. Captures and full jump chains are compulsory; crowning ends the turn. All listed actions are legal.\nOUTCOMES:\nRed moves next. Exchange net (man=1, king=2) counts this move, every legal Red reply and best Black response, then forced captures until a turn has no capture or the game ends. A Red man within two ranks of crowning adds one complete Red/Black pair before capture settlement. Both sides optimize material; net shows the worst checked Red reply. This bounded material preview does not prove a positional win. King distance hints at quiet activity, not safety. A Red king's safe replies are actual Red replies leaving no legal Black capture of that same king next turn, wherever it moved. Fewer replies alone is no benefit if Black loses material.",
+    "outcomeVersion": "runner-replies-v4",
+    "choices": [
+      {
+        "id": "b8-c7",
+        "label": "Move man b8 to c7",
+        "outcome": "Move man b8 to c7 | No capture; Checked exchange net: Black breaks even at 0 points; No immediate Red win; Red has no immediate legal capture; Red has 10 legal complete replies from 8 pieces; Red can crown a man on 1 next-turn choices; Man distance to crowning 7 to 6 ranks."
+      },
+      {
+        "id": "d8-c7",
+        "label": "Move man d8 to c7",
+        "outcome": "Move man d8 to c7 | No capture; Checked exchange net: Black breaks even at 0 points; No immediate Red win; Red has no immediate legal capture; Red has 9 legal complete replies from 7 pieces; Man distance to crowning 7 to 6 ranks."
+      },
+      {
+        "id": "d8-e7",
+        "label": "Move man d8 to e7",
+        "outcome": "Move man d8 to e7 | No capture; Checked exchange net: Black breaks even at 0 points; No immediate Red win; Red has no immediate legal capture; Red has 9 legal complete replies from 7 pieces; Man distance to crowning 7 to 6 ranks."
+      },
+      {
+        "id": "f8-e7",
+        "label": "Move man f8 to e7",
+        "outcome": "Move man f8 to e7 | No capture; Checked exchange net: Black breaks even at 0 points; No immediate Red win; Red has no immediate legal capture; Red has 9 legal complete replies from 7 pieces; Man distance to crowning 7 to 6 ranks."
+      },
+      {
+        "id": "f8-g7",
+        "label": "Move man f8 to g7",
+        "outcome": "Move man f8 to g7 | No capture; Checked exchange net: Black breaks even at 0 points; No immediate Red win; Red has no immediate legal capture; Red has 9 legal complete replies from 7 pieces; Man distance to crowning 7 to 6 ranks."
+      },
+      {
+        "id": "h8-g7",
+        "label": "Move man h8 to g7",
+        "outcome": "Move man h8 to g7 | No capture; Checked exchange net: Black breaks even at 0 points; No immediate Red win; Red has no immediate legal capture; Red has 9 legal complete replies from 7 pieces; Man distance to crowning 7 to 6 ranks."
+      },
+      {
+        "id": "b6-a5",
+        "label": "Move man b6 to a5",
+        "outcome": "Move man b6 to a5 | No capture; Checked exchange net: Black breaks even at 0 points; No immediate Red win; Red has no immediate legal capture; Red has 9 legal complete replies from 7 pieces; Man distance to crowning 5 to 4 ranks."
+      },
+      {
+        "id": "b6-c5",
+        "label": "Move man b6 to c5",
+        "outcome": "Move man b6 to c5 | No capture; Checked exchange net: Black breaks even at 0 points; No immediate Red win; Red has no immediate legal capture; Worst checked exchange: Red d2-c3 \u2192 Black d8-c7 \u2192 Red c3-b4 \u2192 Black f8-g7 \u2192 Red b4xd6 \u2192 Black c7xe5; net Black 0 points including this move and all forced capture continuations; Red has 9 legal complete replies from 7 pieces; Man distance to crowning 5 to 4 ranks."
+      },
+      {
+        "id": "f6-e5",
+        "label": "Move man f6 to e5",
+        "outcome": "Move man f6 to e5 | No capture; Checked exchange net: Black breaks even at 0 points; No immediate Red win; Red has no immediate legal capture; Worst checked exchange: Red h4-g5 \u2192 Black h6xf4 \u2192 Red f2-e3 \u2192 Black b8-c7 \u2192 Red e3xg5; net Black 0 points including this move and all forced capture continuations; Red has 9 legal complete replies from 7 pieces; Man distance to crowning 5 to 4 ranks."
+      },
+      {
+        "id": "f6-g5",
+        "label": "Move man f6 to g5",
+        "outcome": "Move man f6 to g5 | No capture; Checked exchange net: Black breaks even at 0 points; No immediate Red win; Red's legal jump chains: maximum 1 Black pieces; maximum 1 points; the moved piece is exposed; Worst checked exchange: Red h4xf6 \u2192 Black f8-e7 \u2192 Red f6-g7 \u2192 Black h8xf6; net Black 0 points including this move and all forced capture continuations; Red has 1 legal complete replies from 1 pieces; Man distance to crowning 5 to 4 ranks."
+      },
+      {
+        "id": "h6-g5",
+        "label": "Move man h6 to g5",
+        "outcome": "Move man h6 to g5 | No capture; Checked exchange net: Black breaks even at 0 points; No immediate Red win; Red has no immediate legal capture; Red has 8 legal complete replies from 6 pieces; Man distance to crowning 5 to 4 ranks."
+      }
+    ],
+    "prompt": "Black to move. Use the checked outcomes below to choose a sensible casual move.\nPOSITION DEFINITIONS:\nSAFE QUIET PROGRESS: Advance a man or bring a king closer without checked loss or undoing its previous move. An activity hint, not a forced win; prefer progress when no tactic decides.\nBOARD NOW:\nBlack (you): man b8, man d8, man f8, man h8, man b6, man f6, man h6.\nRed (human): man a7, man h4, man a3, man d2, man f2, man h2, man a1, man c1, man e1.\nMaterial: Black 7 pieces; Red 9 pieces; balance -2 points.\nCapture required now: no. Quiet turns 0/80; third repetition draws.\nLAST 5 TURNS (oldest first):\nRed: c5xa7\nBlack: c7-b6\nRed: b2-a3\nBlack: e7-f6\nRed: g1-f2\nThis position checks TWO Red turns and TWO Black responses: account for the runner approaching its crown, not only immediate promotion; forced captures are always settled.\nALL LEGAL ACTIONS (unranked order):\nMove man b8 to c7 | No capture; Checked exchange net: Black breaks even at 0 points; No immediate Red win; Red has no immediate legal capture; Red has 10 legal complete replies from 8 pieces; Red can crown a man on 1 next-turn choices; Man distance to crowning 7 to 6 ranks.\nMove man d8 to c7 | No capture; Checked exchange net: Black breaks even at 0 points; No immediate Red win; Red has no immediate legal capture; Red has 9 legal complete replies from 7 pieces; Man distance to crowning 7 to 6 ranks.\nMove man d8 to e7 | No capture; Checked exchange net: Black breaks even at 0 points; No immediate Red win; Red has no immediate legal capture; Red has 9 legal complete replies from 7 pieces; Man distance to crowning 7 to 6 ranks.\nMove man f8 to e7 | No capture; Checked exchange net: Black breaks even at 0 points; No immediate Red win; Red has no immediate legal capture; Red has 9 legal complete replies from 7 pieces; Man distance to crowning 7 to 6 ranks.\nMove man f8 to g7 | No capture; Checked exchange net: Black breaks even at 0 points; No immediate Red win; Red has no immediate legal capture; Red has 9 legal complete replies from 7 pieces; Man distance to crowning 7 to 6 ranks.\nMove man h8 to g7 | No capture; Checked exchange net: Black breaks even at 0 points; No immediate Red win; Red has no immediate legal capture; Red has 9 legal complete replies from 7 pieces; Man distance to crowning 7 to 6 ranks.\nMove man b6 to a5 | No capture; Checked exchange net: Black breaks even at 0 points; No immediate Red win; Red has no immediate legal capture; Red has 9 legal complete replies from 7 pieces; Man distance to crowning 5 to 4 ranks.\nMove man b6 to c5 | No capture; Checked exchange net: Black breaks even at 0 points; No immediate Red win; Red has no immediate legal capture; Worst checked exchange: Red d2-c3 \u2192 Black d8-c7 \u2192 Red c3-b4 \u2192 Black f8-g7 \u2192 Red b4xd6 \u2192 Black c7xe5; net Black 0 points including this move and all forced capture continuations; Red has 9 legal complete replies from 7 pieces; Man distance to crowning 5 to 4 ranks.\nMove man f6 to e5 | No capture; Checked exchange net: Black breaks even at 0 points; No immediate Red win; Red has no immediate legal capture; Worst checked exchange: Red h4-g5 \u2192 Black h6xf4 \u2192 Red f2-e3 \u2192 Black b8-c7 \u2192 Red e3xg5; net Black 0 points including this move and all forced capture continuations; Red has 9 legal complete replies from 7 pieces; Man distance to crowning 5 to 4 ranks.\nMove man f6 to g5 | No capture; Checked exchange net: Black breaks even at 0 points; No immediate Red win; Red's legal jump chains: maximum 1 Black pieces; maximum 1 points; the moved piece is exposed; Worst checked exchange: Red h4xf6 \u2192 Black f8-e7 \u2192 Red f6-g7 \u2192 Black h8xf6; net Black 0 points including this move and all forced capture continuations; Red has 1 legal complete replies from 1 pieces; Man distance to crowning 5 to 4 ranks.\nMove man h6 to g5 | No capture; Checked exchange net: Black breaks even at 0 points; No immediate Red win; Red has no immediate legal capture; Red has 8 legal complete replies from 6 pieces; Man distance to crowning 5 to 4 ranks.\nSAFE QUIET PROGRESS: Move man b8 to c7; Move man d8 to c7; Move man d8 to e7; Move man f8 to e7; Move man f8 to g7; Move man h8 to g7; Move man b6 to a5; Move man b6 to c5; Move man f6 to e5; Move man f6 to g5; Move man h6 to g5."
+  }
+}

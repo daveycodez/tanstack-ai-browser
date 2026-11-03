@@ -1,0 +1,12 @@
+{
+  "pass": true,
+  "conflictingMoves": [
+    true,
+    false
+  ],
+  "retainedPly": 1,
+  "restartRejectsLateReply": true,
+  "opponentMergePreservedMove": true,
+  "oldOpponentReplyRejected": true,
+  "bothReactiveViewsConverged": true
+}

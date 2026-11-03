@@ -58,6 +58,7 @@ export type MoveRecord = {
   analysis?: AiDecisionTrace
 }
 export type Game = {
+  storageVersion?: string
   id: "current"
   sessionId: string
   opponent?: OpponentSettings
@@ -213,9 +214,25 @@ export function previewBoard(board: Board, path: number[]): Board {
   return next
 }
 
+/** Per-analysis memoization of board-only legality; history/draw state stays per transition. */
+export function createMoveSearch() {
+  const cache = new Map<string, Move[]>()
+  const moves = (board: Board, turn: Side) => {
+    const key = positionKey(board, turn)
+    let found = cache.get(key)
+    if (!found) { found = legalMoves(board, turn); cache.set(key, found) }
+    return found
+  }
+  return { moves, apply: (game: Game, id: string) => applyWithMoves(game, id, moves) }
+}
+
 export function applyMove(game: Game, moveId: string): Game {
+  return applyWithMoves(game, moveId, legalMoves)
+}
+
+function applyWithMoves(game: Game, moveId: string, moves: typeof legalMoves): Game {
   if (game.status !== "playing") throw new Error("This game is already over.")
-  const move = legalMoves(game.board, game.turn).find(
+  const move = moves(game.board, game.turn).find(
     (candidate) => candidate.id === moveId
   )
   if (!move) throw new Error(`Illegal move: ${moveId}`)
@@ -231,7 +248,7 @@ export function applyMove(game: Game, moveId: string): Game {
   const key = positionKey(board, turn)
   const positions = [...game.positions, key]
   let status: Game["status"] = "playing"
-  if (!legalMoves(board, turn).length) {
+  if (!moves(board, turn).length) {
     status = game.turn === "human" ? "human-won" : "ai-won"
   } else if (
     quietMoves >= 80 ||
