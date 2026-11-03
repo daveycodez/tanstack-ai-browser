@@ -11,13 +11,13 @@ import { describePosition } from "./ai-position.ts"
 import { buildCompactChoices } from "./prompt-options.ts"
 import { moveChoiceLabel } from "./move-choice.ts"
 
-export const SHARED_PROMPT_VERSION = "shared-v19"
+export const SHARED_PROMPT_VERSION = "shared-v22"
 
 export const SHARED_SYSTEM_PROMPT = [
-  "Play Black using the supplied chess facts. Take immediate mate first; otherwise prevent mate and protect an attacked queen. Prefer safe material gains. A forcing check that wins material on a later move can be better than a larger immediate capture. A check alone does not justify an uncompensated queen loss. Castle or develop when no better opportunity exists. The schema lists every legal move; neither enum order nor card order recommends a move.",
-  "A check alone is not a material gain. Account for forcing follow-up captures and the conditional exchange losses before taking material. Protection is not immunity. Pawn 1, knight/bishop 3, rook 5, queen 9.",
-  "HOW TO READ THE CARDS:",
-  "The supplied board is the position now. Each card describes a separate possible position after only that Black move. Its DANGER and exchange facts apply only to that move; destinations and threats from different cards do not occur together. CHECK on a card means that move checks White. The current Black-in-check field describes now."
+  "Play Black in a sensible casual game. Choose one supplied legal move; card order is not a ranking.",
+  "Priorities: CHECKMATE now; prevent mate/answer check; save or win a queen; safe material gains; otherwise castle or develop.",
+  "Each card is a separate position after that move. Never combine threats or outcomes across cards. CHECK means White is checked after the move; Black-in-check describes the current board.",
+  "Account for recaptures and forcing follow-ups. Forcing gains can outweigh immediate captures; check alone does not justify a material loss. Protection is not immunity. Values: pawn 1, knight/bishop 3, rook 5, queen 9."
 ].join("\n\n")
 
 export type SharedPromptInput = {
@@ -528,10 +528,7 @@ export function buildSharedPrompt({
     !wins.length &&
     moves.some((move) => (move.outcome.promotionReplies?.length ?? 0) > 0)
   const prompt = [
-    "Black to move. Play a fun, sensible casual game. Choose one legal card.",
-    tacticalFocus
-      ? "Priorities: CHECKMATE now; prevent White's mate and answer check; save a threatened queen or take a free queen; take safe material gains, including forcing checks that win material."
-      : "Priorities: CHECKMATE now; prevent White's mate and answer check; save a threatened queen or take a free queen; take safe material gains, including forcing checks that win material; otherwise consider castling or purposeful development with a knight, bishop, or central pawn.",
+    "Current position:",
     ...(showOpening
       ? [
           "In the opening, central pawn pushes gain space and can free bishops or knights for development."
@@ -564,12 +561,8 @@ export function buildSharedPrompt({
     ...(focusCastling
       ? [
           "CASTLING CHECK BEFORE YOUR ANSWER:",
-          `Castling preference applies to: ${preferredCastles.map((move) => move.label).join(", ")}.`,
-          `Black in check now: ${game.inCheck ? "yes" : "no"}.`,
-          ...threats.filter((threat) => /^Black queen\b/i.test(threat)),
-          "For these castling choices without a listed conditional material-loss branch, prefer castling over quiet moves, non-winning checks, and equal trades.",
-          "Choose another move instead only to win immediately, prevent White's immediate mate, save an attacked queen, capture a free queen, make a clearly favorable material capture, or play a forcing check that wins material.",
-          "A check alone is not an exception. A capture marked as losing material if recaptured is not a clearly favorable trade. If no castle is listed, use the normal priorities."
+          `Prefer these castles over quiet moves, non-winning checks or equal trades: ${preferredCastles.map((move) => move.label).join(", ")}.`,
+          "Override for mate, stopping mate, queen rescue, a free queen, or a clearly favorable capture or forcing gain. A losing exchange is not favorable."
         ]
       : []),
     ...positiveSafetySummaries({ game, moves, currentThreats }),
@@ -584,12 +577,6 @@ export function buildSharedPrompt({
             `Available captures with no immediate legal recapture of the moved piece: ${safeCaptures.map((move) => move.label).join("; ")}. Checked replies show no net material loss or White mate in one.`
           ]
         : []),
-    ...(!wins.length && safeCaptures.length
-      ? [
-          "After addressing the king, any attacked queen, and immediate mate, favor safe material gains. A forcing check that wins further material can be better than a larger immediate capture. A check alone does not justify a listed material loss."
-        ]
-      : []),
-    "Return exactly one JSON object: key move, value the exact action label at the start of the chosen card. Copy the full label, including coordinates and any promotion or en passant text. Stop after the closing brace."
   ].join("\n")
   return { prompt, choices }
 }

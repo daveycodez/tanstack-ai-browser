@@ -1,0 +1,551 @@
+diff --git a/apps/chess/package.json b/apps/chess/package.json
+index 208ebe1..683fbf4 100644
+--- a/apps/chess/package.json
++++ b/apps/chess/package.json
+@@ -12,7 +12,8 @@
+     "test": "node --experimental-strip-types --test src/lib/chess.test.ts src/lib/ai-position.test.ts src/lib/ai-move.test.ts src/lib/move-order.test.ts src/lib/move-outcomes.test.ts src/lib/ai-outcomes.test.ts src/lib/prompt-options.test.ts src/lib/shared-prompt.test.ts src/lib/move-output.test.ts src/lib/exposure-context.test.ts src/lib/game-audio.test.ts",
+     "bench": "vite dev --port 3003 --host 127.0.0.1",
+     "bench-check": "tsc --noEmit --project bench/tsconfig.json",
+-    "bench-audit": "node --experimental-strip-types bench/audit.ts"
++    "bench-audit": "node --experimental-strip-types bench/audit.ts",
++    "bench-concision-audit": "node --experimental-strip-types bench/concision-audit.ts"
+   },
+   "dependencies": {
+     "@tanstack-ai-browser/prompt-api": "workspace:*",
+diff --git a/apps/chess/src/lib/exposure-context.test.ts b/apps/chess/src/lib/exposure-context.test.ts
+index baba937..2eceb5d 100644
+--- a/apps/chess/src/lib/exposure-context.test.ts
++++ b/apps/chess/src/lib/exposure-context.test.ts
+@@ -10,6 +10,7 @@ import {
+   newGame
+ } from "./chess.ts"
+ import { buildSharedPrompt } from "./shared-prompt.ts"
++import { resolveActionLabel } from "./move-choice.ts"
+ 
+ const fixtures = [
+   {
+@@ -563,9 +564,9 @@ test("the normal game that exceeded the former character guard preserves its boa
+     prompt
+       .split("\n")
+       .filter((line) =>
+-        /^[^|]+ \| SAN [^|]+ \| UCI [a-h][1-8][a-h][1-8][qrbn]? \|/.test(line)
++        /^[^|]+ \| SAN [^|]+ \|/.test(line)
+       )
+-      .map((line) => line.split(" | ")[2].replace("UCI ", "")),
++      .map((line) => resolveActionLabel(moves, line.split(" | ")[0])),
+     legalIds
+   )
+   assert.deepEqual(
+diff --git a/apps/chess/src/lib/shared-prompt.test.ts b/apps/chess/src/lib/shared-prompt.test.ts
+index e762a43..e934638 100644
+--- a/apps/chess/src/lib/shared-prompt.test.ts
++++ b/apps/chess/src/lib/shared-prompt.test.ts
+@@ -7,7 +7,8 @@ import {
+   currentThreats,
+   fromFen,
+   legalMoves,
+-  newGame
++  newGame,
++  squareName
+ } from "./chess.ts"
+ import {
+   buildSharedPrompt,
+@@ -221,8 +222,18 @@ function choiceLabelOf(input: SharedPromptInput, id: string) {
+   return moveChoiceLabel(move)
+ }
+ 
++function restoreAuditCardHeaders(moves: SharedPromptInput["moves"], prompt: string) {
++  const names = { p: "pawn", n: "knight", b: "bishop", r: "rook", q: "queen", k: "king" }
++  for (const move of moves) {
++    const short = `${moveChoiceLabel(move)} | SAN ${move.notation} | `
++    const full = `${short}UCI ${move.id} | ${names[move.piece]} ${squareName(move.path[0])}-${squareName(move.path[1])} | `
++    if (!prompt.includes(full)) prompt = prompt.replace(short, full)
++  }
++  return prompt
++}
++
+ function legacyCardPrefix(input: SharedPromptInput, prompt: string) {
+-  let result = prompt
++  let result = restoreAuditCardHeaders(input.moves, prompt)
+   for (const move of input.moves)
+     result = result.replace(
+       `${moveChoiceLabel(move)} | SAN ${move.notation} | UCI ${move.id} | `,
+@@ -259,21 +270,31 @@ function legacyCardPrefix(input: SharedPromptInput, prompt: string) {
+ 
+ // Historical factual projection only: guidance moved from USER to SYSTEM in V19.
+ // Restore the old positions so existing independent facts hashes remain unchanged.
+-function restoreLegacyUserLayout(prompt: string): string {
+-  return prompt
++function restoreLegacyUserLayout(prompt: string, quiet = false, input?: SharedPromptInput): string {
++  if (input) prompt = restoreAuditCardHeaders(input.moves, prompt)
++  for (const [short, full] of [["Central pawn pushes gain space and can free bishops or knights.", "In the opening, central pawn pushes gain space and can free bishops or knights for development."], ["Near-files counts pawn files on the two pawn ranks nearest home. Balance cover with space, piece activity and castling; no material score or pawn-move ban.", "Balance king-flank pawn cover with space, piece activity and castling; near-cover counts describe pawn files on the two pawn ranks nearest home, not a material score or a ban on useful pawn moves."], ["Answer promotion threats unless legal recaptures or material gains compensate.", "Address uncompensated promotion threats; legal recaptures or material gains can justify allowing promotion."], ["Coordinate king and major pieces to restrict the enemy king; keep material, avoid stalemate. Destination counts alone do not prove mate.", "With few opposing pieces, coordinate king and major pieces to restrict the enemy king while preserving material and avoiding stalemate; destination counts alone do not prove mate."], ["ALL LEGAL CARDS:", "ALL LEGAL CARDS (presentation order, no ranking):"], ["White capture possibilities on the unchanged board:", "Current White capture possibilities on the unchanged board:"], ["Legal castles now:", "Legal castling moves now:"]]) prompt = prompt.replace(short, full)
++  prompt = prompt.replace("Black pieces:", "Black pieces (you):").replace("White pieces:", "White pieces (opponent):")
++  const values = { king: "royal", queen: 9, rook: 5, bishop: 3, knight: 3, pawn: 1 }
++  prompt = prompt.split("\n").map((line) => line.startsWith("Black ") && line.includes("can be captured by White")
++    ? line.replace(/\b(king|queen|rook|bishop|knight|pawn) ([a-h][1-8])/g, (_, piece: keyof typeof values, square: string) => `${piece} (${values[piece]}) on ${square}`) : line).join("\n")
++  // Restore the historical answer footer only for the existing V15/V18 snapshot hashes.
++  const capturePriority = prompt.includes("Available captures with no immediate legal recapture of the moved piece:") ? "\nAfter addressing the king, any attacked queen, and immediate mate, favor safe material gains. A forcing check that wins further material can be better than a larger immediate capture. A check alone does not justify a listed material loss." : ""
++  const oldPriorities = quiet ? "Priorities: CHECKMATE now; prevent White's mate and answer check; save a threatened queen or take a free queen; take safe material gains, including forcing checks that win material; otherwise consider castling or purposeful development with a knight, bishop, or central pawn." : "Priorities: CHECKMATE now; prevent White's mate and answer check; save a threatened queen or take a free queen; take safe material gains, including forcing checks that win material."
++  const legacy = prompt.replace("Current position:", "Black to move. Play a fun, sensible casual game. Choose one legal card.\n" + oldPriorities) + capturePriority + "\nReturn exactly one JSON object: key move, value the exact action label at the start of the chosen card. Copy the full label, including coordinates and any promotion or en passant text. Stop after the closing brace."
++  return legacy
+     .replace(/^(Priorities:.*)$/m, "$1\nA check alone is not a material gain. Account for forcing follow-up captures and the conditional exchange losses before taking material. Protection is not immunity. Pawn 1, knight/bishop 3, rook 5, queen 9.")
+     .replace("ALL LEGAL CARDS (presentation order, no ranking):", "HOW TO READ THE CARDS:\nThe board above is the position now. Each card describes a separate possible position after only that Black move. Its DANGER and exchange facts apply only to that move; destinations and threats from different cards do not occur together. CHECK on a card means that move checks White. Black in check above describes now.\nALL LEGAL CARDS (random order, no ranking):")
+ }
+ 
+ for (const fixture of recorded) {
+-  test(`shared-v19 preserves recorded ${fixture.caseId} facts and adds recent-move context`, () => {
++  test(`shared-v23 preserves recorded ${fixture.caseId} facts and adds recent-move context`, () => {
+     const input = fixtureInput(fixture)
+     const before = JSON.stringify(input)
+     const result = buildSharedPrompt(input)
+     assert.equal(
+       createHash("sha256")
+         .update(
+-          legacyCardPrefix(input, restoreLegacyUserLayout(result.prompt))
++          legacyCardPrefix(input, restoreLegacyUserLayout(result.prompt, fixture.caseId === "context-castle-now", input))
+             .replace(
+               "In the opening, central pawn pushes gain space and can free bishops or knights for development. Balance king-flank pawn cover with space, piece activity and castling; near-cover counts describe pawn files on the two pawn ranks nearest home, not a material score or a ban on useful pawn moves.\n",
+               ""
+@@ -340,7 +361,7 @@ test("shared prompt has no model or reasoning options and ignores opponent model
+   >
+   const forbidden: Record<ForbiddenKeys, never> = {}
+   assert.deepEqual(forbidden, {})
+-  assert.equal(SHARED_PROMPT_VERSION, "shared-v19")
++  assert.equal(SHARED_PROMPT_VERSION, "shared-v23")
+   const input = fixtureInput(recorded[0])
+   const before = buildSharedPrompt(input)
+   for (const model of ["prompt-api", "LiquidAI/LFM3-1.7B-GGUF"] as const) {
+@@ -372,7 +393,7 @@ test("shared prompt includes exactly the last eight individual moves, oldest fir
+     currentThreats: currentThreats(game)
+   })
+   const heading = "Recent 8 moves (oldest first):"
+-  const cardsHeading = "ALL LEGAL CARDS (presentation order, no ranking):"
++  const cardsHeading = "ALL LEGAL CARDS:"
+   const section = result.prompt
+     .split(heading)[1]
+     ?.split(cardsHeading)[0]
+@@ -440,7 +461,6 @@ test("positive king-safety summary retains every qualifying ID in supplied order
+     header >
+       result.prompt.indexOf(result.choices[result.choices.length - 1].outcome)
+   )
+-  assert.ok(header < result.prompt.indexOf("Return exactly one JSON object:"))
+ })
+ 
+ test("an immediately recapturable queen remains a positive choice when the queen trade has a legal compensating pawn recapture", () => {
+@@ -568,7 +588,7 @@ test("a genuine winning mate card retains its original positive CHECKMATE marker
+   assert.ok(mate)
+   assert.equal(
+     mate.outcome,
+-    "Move queen d8 to h4 | SAN Qh4# | UCI d8h4 | queen d8-h4 | CHECKMATE: wins now"
++    "Move queen d8 to h4 | SAN Qh4# | CHECKMATE: wins now"
+   )
+   assert.doesNotMatch(mate.outcome, /DANGER TO BLACK/)
+ })
+@@ -874,7 +894,7 @@ test("recorded Nh3 loss cannot simultaneously claim a compensating recapture", (
+   assert.ok(knight)
+   assert.match(
+     knight.outcome,
+-    /^Move knight f4 to h3 \| SAN Nh3 \| UCI f4h3 \| knight f4-h3 \| DANGER TO BLACK:/
++    /^Move knight f4 to h3 \| SAN Nh3 \| DANGER TO BLACK:/
+   )
+   assert.match(
+     knight.outcome,
+@@ -899,12 +919,12 @@ test("the shared factual legend distinguishes current board facts, independent c
+     "r3b2B/ppk2p1B/8/1P1P2p1/2P2n2/8/5PPP/2R1K2R b K - 0 29"
+   )
+   const result = buildSharedPrompt(input)
+-  const heading = "HOW TO READ THE CARDS:"
+-  const cards = "ALL LEGAL CARDS (presentation order, no ranking):"
+-  const legend = SHARED_SYSTEM_PROMPT.split(heading)[1]?.trim()
++  const heading = "Each card is a separate position after that move."
++  const cards = "ALL LEGAL CARDS:"
++  const legend = SHARED_SYSTEM_PROMPT.split("\n\n").find((part) => part.startsWith("Each card"))
+   assert.equal(
+     legend,
+-    "The supplied board is the position now. Each card describes a separate possible position after only that Black move. Its DANGER and exchange facts apply only to that move; destinations and threats from different cards do not occur together. CHECK on a card means that move checks White. The current Black-in-check field describes now."
++    "Each card is a separate position after that move. Never combine threats or outcomes across cards. CHECK means that move checks White; Black-in-check describes the current board."
+   )
+   assert.equal(SHARED_SYSTEM_PROMPT.split(heading).length, 2)
+   assert.ok(!result.prompt.includes(heading))
+@@ -927,23 +947,17 @@ test("the shared factual legend distinguishes current board facts, independent c
+ test("capture priority favors larger safe material gains after queen safety and before castling without changing cards", () => {
+   const input = safetyInput("r3k2r/5pp1/7p/3q4/4P3/8/5PPK/8 b kq - 0 1")
+   const result = buildSharedPrompt(input)
+-  const priority = result.prompt
++  const priority = SHARED_SYSTEM_PROMPT
+     .split("\n")
+     .find((line) => line.startsWith("Priorities:"))
+   assert.ok(priority)
+-  const queen = priority.indexOf("save a threatened queen or take a free queen")
+-  const gain = priority.indexOf(
+-    "take safe material gains, including forcing checks that win material"
+-  )
+-  const castle = priority.indexOf(
+-    "otherwise consider castling or purposeful development"
+-  )
++  const queen = priority.indexOf("save or win a queen")
++  const gain = priority.indexOf("safe material gains")
++  const castle = priority.indexOf("otherwise castle or develop")
+   assert.ok(queen >= 0 && gain > queen)
+-  assert.equal(castle, -1)
++  assert.ok(castle > gain)
+   assert.equal(
+-    result.prompt.split(
+-      "take safe material gains, including forcing checks that win material"
+-    ).length,
++    SHARED_SYSTEM_PROMPT.split("safe material gains").length,
+     2
+   )
+   assert.deepEqual(
+@@ -997,8 +1011,8 @@ test("capture opportunities include every eligible piece value in caller order w
+     ordered.moves.map((move) => move.id)
+   )
+   assert.match(
+-    result.prompt,
+-    /After addressing the king, any attacked queen, and immediate mate, favor safe material gains/
++    SHARED_SYSTEM_PROMPT,
++    /safe material gains/
+   )
+ })
+ 
+@@ -1084,10 +1098,7 @@ test("immediate wins retain priority over the general capture opportunity remind
+     )
+   )
+   assert.equal(captureSummary(result.prompt), undefined)
+-  assert.doesNotMatch(
+-    result.prompt,
+-    /After addressing the king, any attacked queen, and immediate mate, favor safe material gains/
+-  )
++  assert.doesNotMatch(result.prompt, /After addressing the king, any attacked queen, and immediate mate/)
+   assert.deepEqual(
+     result.choices.map((choice) => choice.id),
+     input.moves.map((move) => move.id)
+@@ -1107,23 +1118,23 @@ const v10CardHashes: Record<string, string> = {
+     "94c08c952c55208f55a8aea3755e7c1b158ff23b639734bb6a18245847aa58a6"
+ }
+ 
+-test("the shared static system role carries strategy and unordered-schema meaning without model or reasoning directives", () => {
++test("the concise shared system role carries card interpretation and material guidance without model or reasoning directives", () => {
+   assert.equal(SHARED_SYSTEM_PROMPT.split("Protection is not immunity.").length, 2)
+   assert.match(
+     SHARED_SYSTEM_PROMPT,
+-    /Take immediate mate first; otherwise prevent mate and protect an attacked queen/
++    /Play Black in a sensible casual game\. Choose one supplied legal move/
+   )
+   assert.match(
+     SHARED_SYSTEM_PROMPT,
+-    /A forcing check that wins material on a later move can be better than a larger immediate capture/
++    /Forcing gains can outweigh immediate captures/
+   )
+   assert.match(
+     SHARED_SYSTEM_PROMPT,
+-    /A check alone does not justify an uncompensated queen loss/
++    /check alone cannot justify material loss/
+   )
+   assert.match(
+     SHARED_SYSTEM_PROMPT,
+-    /neither enum order nor card order recommends a move/
++    /card order is not a ranking/
+   )
+   assert.doesNotMatch(
+     SHARED_SYSTEM_PROMPT,
+@@ -1152,7 +1163,7 @@ for (const fixture of recorded) {
+         .update(
+           result.choices
+             .map((choice) =>
+-              choice.outcome
++              restoreAuditCardHeaders(input.moves, choice.outcome)
+                 .replace(
+                   `${choice.label} | SAN ${choice.notation} | UCI ${choice.id} | `,
+                   `${choice.id} | `
+@@ -1184,7 +1195,7 @@ test("every model-facing card and summary uses the action label while SAN and UC
+   for (const choice of result.choices)
+     assert.ok(
+       choice.outcome.startsWith(
+-        `${choice.label} | SAN ${choice.notation} | UCI ${choice.id} | `
++        `${choice.label} | SAN ${choice.notation} | `
+       )
+     )
+   const summary = captureSummary(result.prompt)
+@@ -1192,11 +1203,11 @@ test("every model-facing card and summary uses the action label while SAN and UC
+   assert.match(summary, /Capture knight \(3\): queen c5 to f5/)
+   assert.match(summary, /Capture pawn \(1\): queen c5 to f2/)
+   assert.doesNotMatch(summary, /Qxf5|Qxf2\+|c5f5|c5f2/)
+-  assert.match(result.prompt, /key move, value the exact action label/)
++  assert.doesNotMatch(result.prompt, /Return exactly one JSON object|Copy the full label|Stop after the closing brace/)
+   assert.doesNotMatch(result.prompt, /key moveId/)
+ })
+ 
+-test("immediate capture opportunities follow safety summaries directly before the generic capture priority and JSON answer", () => {
++test("immediate capture opportunities follow safety summaries without a repeated capture footer", () => {
+   const input = safetyInput(
+     "1B2kbnN/4p1pp/1pp5/2q2N2/8/2P3P1/R2K1P1P/7R b - - 0 25"
+   )
+@@ -1205,19 +1216,11 @@ test("immediate capture opportunities follow safety summaries directly before th
+   const opportunities = result.prompt.indexOf(
+     "AVAILABLE IMMEDIATE OPPORTUNITIES:"
+   )
+-  const capture = result.prompt.indexOf(
+-    "After addressing the king, any attacked queen, and immediate mate, favor safe material gains"
+-  )
+-  const answer = result.prompt.indexOf("Return exactly one JSON object:")
+-  assert.ok(
+-    safety >= 0 &&
+-      opportunities > safety &&
+-      capture > opportunities &&
+-      answer > capture
+-  )
++  assert.ok(safety >= 0 && opportunities > safety)
++  assert.doesNotMatch(result.prompt, /After addressing the king, any attacked queen, and immediate mate/)
+   assert.match(
+-    result.prompt,
+-    /A forcing check that wins further material can be better than a larger immediate capture/
++    SHARED_SYSTEM_PROMPT,
++    /Forcing gains can outweigh immediate captures/
+   )
+   const summary = captureSummary(result.prompt)
+   assert.ok(summary)
+@@ -1240,24 +1243,24 @@ test("shared priorities allow forcing material-winning checks without treating a
+   const result = buildSharedPrompt(input)
+   assert.match(
+     SHARED_SYSTEM_PROMPT,
+-    /Take immediate mate first; otherwise prevent mate and protect an attacked queen/
++    /Play Black in a sensible casual game\. Choose one supplied legal move/
+   )
+   assert.match(
+     SHARED_SYSTEM_PROMPT,
+-    /forcing check that wins material on a later move/
++    /forcing follow-ups/
+   )
+   assert.match(
+     SHARED_SYSTEM_PROMPT,
+-    /check alone does not justify an uncompensated queen loss/
++    /check alone cannot justify material loss/
+   )
+-  assert.match(result.prompt, /including forcing checks that win material/)
++  assert.match(SHARED_SYSTEM_PROMPT, /forcing follow-ups/)
+   assert.match(
+-    result.prompt,
+-    /A forcing check that wins further material can be better than a larger immediate capture/
++    SHARED_SYSTEM_PROMPT,
++    /Forcing gains can outweigh immediate captures/
+   )
+   assert.match(
+-    result.prompt,
+-    /A check alone does not justify a listed material loss/
++    SHARED_SYSTEM_PROMPT,
++    /check alone cannot justify material loss/
+   )
+   assert.doesNotMatch(
+     result.prompt,
+@@ -1512,12 +1515,12 @@ test("full near-file cover retains the focused castle preference, including ordi
+     assert.match(result.prompt, /CASTLING CHECK BEFORE YOUR ANSWER/)
+     assert.ok(
+       result.prompt.includes(
+-        `Castling preference applies to: ${moveChoiceLabel(castle)}.`
++        `Prefer these castles over quiet moves, non-winning checks or equal trades: ${moveChoiceLabel(castle)}.`
+       )
+     )
+     assert.match(
+       result.prompt,
+-      /For these castling choices without a listed conditional material-loss branch, prefer castling/
++      /Override for mate, stopping mate, queen rescue/
+     )
+     assert.deepEqual(
+       result.choices.map((choice) => choice.id),
+@@ -1541,8 +1544,8 @@ test("thin or empty landing cover stays legal and factual without a hard castle
+       /CASTLING CHECK BEFORE YOUR ANSWER|otherwise CASTLE when listed|castle if a listed castle is MATERIAL-SAFE/
+     )
+     assert.match(
+-      result.prompt,
+-      /otherwise consider castling or purposeful development/
++      SHARED_SYSTEM_PROMPT,
++      /otherwise castle or develop/
+     )
+     const card = result.choices.find((choice) => choice.id === castle.id)
+     assert.ok(card)
+@@ -1568,7 +1571,7 @@ test("a full-cover wing can retain a preference without imposing it on the thin-
+   const result = buildSharedPrompt(input)
+   const preference = result.prompt
+     .split("\n")
+-    .find((line) => line.startsWith("Castling preference applies to:"))
++    .find((line) => line.startsWith("Prefer these castles over"))
+   assert.ok(preference)
+   assert.ok(preference.includes(moveChoiceLabel(queenside)))
+   assert.ok(!preference.includes(moveChoiceLabel(kingside)))
+@@ -1874,13 +1877,13 @@ test("current queen urgency omits soft unthreatened support while preserving all
+ })
+ 
+ const openingAdvice =
+-  "In the opening, central pawn pushes gain space and can free bishops or knights for development."
++  "Central pawn pushes gain space and can free bishops or knights."
+ const coverAdvice =
+-  "Balance king-flank pawn cover with space, piece activity and castling; near-cover counts describe pawn files on the two pawn ranks nearest home, not a material score or a ban on useful pawn moves."
++  "Near-files counts pawn files on the two pawn ranks nearest home. Balance cover with space, piece activity and castling; no material score or pawn-move ban."
+ const promotionAdvice =
+-  "Address uncompensated promotion threats; legal recaptures or material gains can justify allowing promotion."
++  "Answer promotion threats unless legal recaptures or material gains compensate."
+ const coordinationAdvice =
+-  "With few opposing pieces, coordinate king and major pieces to restrict the enemy king while preserving material and avoiding stalemate; destination counts alone do not prove mate."
++  "Coordinate king and major pieces to restrict the enemy king; keep material, avoid stalemate. Destination counts alone do not prove mate."
+ 
+ function fullInput(game: ReturnType<typeof newGame>): SharedPromptInput {
+   return {
+@@ -1908,8 +1911,8 @@ const tacticalFallbackV18 =
+ const tacticalFallbackV15 =
+   "After addressing the king and any attacked queen, prefer a MATERIAL-SAFE choice. When there is no urgent threat, castle if a listed castle is MATERIAL-SAFE."
+ 
+-function normalizeIntentionalTacticalDifferences(prompt: string): string {
+-  return restoreLegacyUserLayout(prompt)
++function normalizeIntentionalTacticalDifferences(prompt: string, input: SharedPromptInput): string {
++  return restoreLegacyUserLayout(prompt, false, input)
+     .replace(tacticalPriorityV18, tacticalPriorityV15)
+     .replace(tacticalFallbackV18, tacticalFallbackV15)
+     .replace(
+@@ -1944,7 +1947,7 @@ for (const control of v15TacticalControls) {
+       result = buildSharedPrompt(input)
+     assert.equal(
+       createHash("sha256")
+-        .update(normalizeIntentionalTacticalDifferences(result.prompt))
++        .update(normalizeIntentionalTacticalDifferences(result.prompt, input))
+         .digest("hex"),
+       control.hash
+     )
+@@ -1955,7 +1958,8 @@ for (const control of v15TacticalControls) {
+       coordinationAdvice
+     ])
+       assert.ok(!result.prompt.includes(advice))
+-    assert.ok(result.prompt.split("\n").includes(tacticalPriorityV18))
++    assert.match(SHARED_SYSTEM_PROMPT, /Priorities: CHECKMATE now; prevent mate\/answer check/)
++    assert.ok(!result.prompt.split("\n").some((line) => line.startsWith("Priorities:")))
+     assert.ok(result.prompt.includes(tacticalFallbackV18))
+     assert.doesNotMatch(tacticalPriorityV18, /castle|develop/i)
+     const material = positiveSafetySummaries(input).find((line) =>
+@@ -1990,8 +1994,8 @@ test("quiet early pawn-cover positions retain opening and cover advice only whil
+   assert.ok(!result.prompt.includes(coordinationAdvice))
+   assert.match(result.prompt, /near-files/)
+   assert.match(
+-    result.prompt,
+-    /otherwise consider castling or purposeful development/
++    SHARED_SYSTEM_PROMPT,
++    /otherwise castle or develop/
+   )
+   const later = fromFen(game.fen.replace(/\d+$/, "40"))
+   const lateResult = buildSharedPrompt(fullInput(later))
+diff --git a/apps/chess/src/lib/shared-prompt.ts b/apps/chess/src/lib/shared-prompt.ts
+index b769038..6af3408 100644
+--- a/apps/chess/src/lib/shared-prompt.ts
++++ b/apps/chess/src/lib/shared-prompt.ts
+@@ -11,13 +11,13 @@ import { describePosition } from "./ai-position.ts"
+ import { buildCompactChoices } from "./prompt-options.ts"
+ import { moveChoiceLabel } from "./move-choice.ts"
+ 
+-export const SHARED_PROMPT_VERSION = "shared-v19"
++export const SHARED_PROMPT_VERSION = "shared-v23"
+ 
+ export const SHARED_SYSTEM_PROMPT = [
+-  "Play Black using the supplied chess facts. Take immediate mate first; otherwise prevent mate and protect an attacked queen. Prefer safe material gains. A forcing check that wins material on a later move can be better than a larger immediate capture. A check alone does not justify an uncompensated queen loss. Castle or develop when no better opportunity exists. The schema lists every legal move; neither enum order nor card order recommends a move.",
+-  "A check alone is not a material gain. Account for forcing follow-up captures and the conditional exchange losses before taking material. Protection is not immunity. Pawn 1, knight/bishop 3, rook 5, queen 9.",
+-  "HOW TO READ THE CARDS:",
+-  "The supplied board is the position now. Each card describes a separate possible position after only that Black move. Its DANGER and exchange facts apply only to that move; destinations and threats from different cards do not occur together. CHECK on a card means that move checks White. The current Black-in-check field describes now."
++  "Play Black in a sensible casual game. Choose one supplied legal move; card order is not a ranking.",
++  "Priorities: CHECKMATE now; prevent mate/answer check; save or win a queen; safe material gains; otherwise castle or develop.",
++  "Each card is a separate position after that move. Never combine threats or outcomes across cards. CHECK means that move checks White; Black-in-check describes the current board.",
++  "Weigh recaptures and forcing follow-ups. Forcing gains can outweigh immediate captures; check alone cannot justify material loss. Protection is not immunity. Values: pawn 1, knight/bishop 3, rook 5, queen 9."
+ ].join("\n\n")
+ 
+ export type SharedPromptInput = {
+@@ -431,7 +431,7 @@ export function buildSharedPrompt({
+       id: choice.id,
+       notation: move.notation,
+       label: moveChoiceLabel(move),
+-      outcome: `${moveChoiceLabel(move)} | SAN ${move.notation} | UCI ${choice.id} | ${outcome.slice(choice.id.length + 3)}`
++      outcome: `${moveChoiceLabel(move)} | SAN ${move.notation} | ${outcome.slice(outcome.indexOf(" | ", choice.id.length + 3) + 3)}`
+     }
+   })
+   const board = describePosition(game)
+@@ -441,9 +441,11 @@ export function buildSharedPrompt({
+         line
+       )
+     )
++    .map((line) => line.replace("Black pieces (you):", "Black pieces:").replace("White pieces (opponent):", "White pieces:"))
++  const currentPieceLabel = (piece: PieceRef) => `${pieceNames[piece.piece]} ${squareName(piece.square)}`
+   const threats = currentThreats.map(
+     (threat) =>
+-      `Black ${pieceLabel(threat.target)} can be captured by White ${threat.attackers.map(pieceLabel).join(", ")}.`
++      `Black ${currentPieceLabel(threat.target)} can be captured by White ${threat.attackers.map(currentPieceLabel).join(", ")}.`
+   )
+   const castles = moves.flatMap((move) =>
+     move.notation.startsWith("O-O")
+@@ -528,48 +530,41 @@ export function buildSharedPrompt({
+     !wins.length &&
+     moves.some((move) => (move.outcome.promotionReplies?.length ?? 0) > 0)
+   const prompt = [
+-    "Black to move. Play a fun, sensible casual game. Choose one legal card.",
+-    tacticalFocus
+-      ? "Priorities: CHECKMATE now; prevent White's mate and answer check; save a threatened queen or take a free queen; take safe material gains, including forcing checks that win material."
+-      : "Priorities: CHECKMATE now; prevent White's mate and answer check; save a threatened queen or take a free queen; take safe material gains, including forcing checks that win material; otherwise consider castling or purposeful development with a knight, bishop, or central pawn.",
++    "Current position:",
+     ...(showOpening
+       ? [
+-          "In the opening, central pawn pushes gain space and can free bishops or knights for development."
++          "Central pawn pushes gain space and can free bishops or knights."
+         ]
+       : []),
+     ...(showCover
+       ? [
+-          "Balance king-flank pawn cover with space, piece activity and castling; near-cover counts describe pawn files on the two pawn ranks nearest home, not a material score or a ban on useful pawn moves."
++          "Near-files counts pawn files on the two pawn ranks nearest home. Balance cover with space, piece activity and castling; no material score or pawn-move ban."
+         ]
+       : []),
+     ...(showPromotion
+       ? [
+-          "Address uncompensated promotion threats; legal recaptures or material gains can justify allowing promotion."
++          "Answer promotion threats unless legal recaptures or material gains compensate."
+         ]
+       : []),
+     ...(showCoordination
+       ? [
+-          "With few opposing pieces, coordinate king and major pieces to restrict the enemy king while preserving material and avoiding stalemate; destination counts alone do not prove mate."
++          "Coordinate king and major pieces to restrict the enemy king; keep material, avoid stalemate. Destination counts alone do not prove mate."
+         ]
+       : []),
+     ...board,
+     `Black in check: ${game.inCheck ? "yes" : "no"}.`,
+-    "Current White capture possibilities on the unchanged board:",
++    "White capture possibilities on the unchanged board:",
+     ...(threats.length ? threats : ["No threatened Black non-king pieces."]),
+-    `Legal castling moves now: ${castleIds}.`,
++    `Legal castles now: ${castleIds}.`,
+     "Recent 8 moves (oldest first):",
+     ...(recent.length ? recent : ["none"]),
+-    "ALL LEGAL CARDS (presentation order, no ranking):",
++    "ALL LEGAL CARDS:",
+     ...choices.map((choice) => choice.outcome),
+     ...(focusCastling
+       ? [
+           "CASTLING CHECK BEFORE YOUR ANSWER:",
+-          `Castling preference applies to: ${preferredCastles.map((move) => move.label).join(", ")}.`,
+-          `Black in check now: ${game.inCheck ? "yes" : "no"}.`,
+-          ...threats.filter((threat) => /^Black queen\b/i.test(threat)),
+-          "For these castling choices without a listed conditional material-loss branch, prefer castling over quiet moves, non-winning checks, and equal trades.",
+-          "Choose another move instead only to win immediately, prevent White's immediate mate, save an attacked queen, capture a free queen, make a clearly favorable material capture, or play a forcing check that wins material.",
+-          "A check alone is not an exception. A capture marked as losing material if recaptured is not a clearly favorable trade. If no castle is listed, use the normal priorities."
++          `Prefer these castles over quiet moves, non-winning checks or equal trades: ${preferredCastles.map((move) => move.label).join(", ")}.`,
++          "Override for mate, stopping mate, queen rescue, a free queen, or a clearly favorable capture or forcing gain. A losing exchange is not favorable."
+         ]
+       : []),
+     ...positiveSafetySummaries({ game, moves, currentThreats }),
+@@ -584,12 +579,6 @@ export function buildSharedPrompt({
+             `Available captures with no immediate legal recapture of the moved piece: ${safeCaptures.map((move) => move.label).join("; ")}. Checked replies show no net material loss or White mate in one.`
+           ]
+         : []),
+-    ...(!wins.length && safeCaptures.length
+-      ? [
+-          "After addressing the king, any attacked queen, and immediate mate, favor safe material gains. A forcing check that wins further material can be better than a larger immediate capture. A check alone does not justify a listed material loss."
+-        ]
+-      : []),
+-    "Return exactly one JSON object: key move, value the exact action label at the start of the chosen card. Copy the full label, including coordinates and any promotion or en passant text. Stop after the closing brace."
+   ].join("\n")
+   return { prompt, choices }
+ }

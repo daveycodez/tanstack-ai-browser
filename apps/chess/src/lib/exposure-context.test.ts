@@ -10,6 +10,7 @@ import {
   newGame
 } from "./chess.ts"
 import { buildSharedPrompt } from "./shared-prompt.ts"
+import { resolveActionLabel } from "./move-choice.ts"
 
 const fixtures = [
   {
@@ -563,9 +564,9 @@ test("the normal game that exceeded the former character guard preserves its boa
     prompt
       .split("\n")
       .filter((line) =>
-        /^[^|]+ \| SAN [^|]+ \| UCI [a-h][1-8][a-h][1-8][qrbn]? \|/.test(line)
+        /^[^|]+ \| SAN [^|]+ \|/.test(line)
       )
-      .map((line) => line.split(" | ")[2].replace("UCI ", "")),
+      .map((line) => resolveActionLabel(moves, line.split(" | ")[0])),
     legalIds
   )
   assert.deepEqual(

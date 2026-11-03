@@ -1,5 +1,9 @@
 # Manual chess AI benchmark
 
+Current prompt audit: [Chess-only concision findings](PROMPT-CONCISION-AUDIT.md). The retained prompt saves about191–192 input tokens/turn
+without changing the main models' matched tactical grades. More aggressive cuts
+were tested and rejected. No shared packages were modified.
+
 Current follow-up: Checkers through `62752c6` is merged, including the session-pool
 fix. See [the latest cache verification](CACHE-VERIFICATION.md) for normal/disabled
 cache controls, full-suite results and the GPU-contention timing limitation. Older
@@ -44,7 +48,7 @@ WebGL's total generation
 ceiling is 8,192 tokens; Prompt API's browser-managed final-output limit is recorded
 as `null`. These are different capabilities. See [the reasoning audit](REASONING-AUDIT.md).
 
-Every model receives the same **shared-v19** system and user assembly, standard
+Every model receives the same **shared-v22** system and user assembly, standard
 piece values and model-default sampling. There are no active profile, context,
 queen-weight or per-model prompt switches. Guidance is phase-relevant: urgent
 positions omit soft generic coaching; quiet positions receive applicable opening,
@@ -152,3 +156,11 @@ See [cache and ordering findings](CACHE-FINDINGS.md) for the final per-game poli
 opening variety, raw reports 84–91 and the temporary WebGL patch awaiting Checkers
 integration. The original 39-case tactical inventory is unchanged; the independent
 audit additionally validates the seven neutral replay fixtures.
+
+For a separate model-free check of move facts and serialization preservation:
+
+```sh
+pnpm nx run chess:bench-concision-audit
+```
+
+It never calls an LLM and is independent of the regular test target.

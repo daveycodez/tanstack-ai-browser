@@ -1,5 +1,9 @@
 # Chess
 
+Current prompt audit: [Chess-only concision findings](bench/PROMPT-CONCISION-AUDIT.md). The retained prompt saves about191–192 input tokens/turn
+without changing the main models' matched tactical grades. More aggressive cuts
+were tested and rejected. No shared packages were modified.
+
 A responsive blue-and-silver chess game built with TanStack Start, React, TanStack DB,
 and this workspace’s local Prompt API and WebGL adapters. Human plays White; the
 selected language model plays Black. No hosted inference or API key is required.
@@ -48,7 +52,7 @@ castles, the last eight individual moves, and every legal move with concise outc
 facts. FEN, full history, castling rights, en passant, and counters remain authoritative
 inside the rules engine; the model does not have to decode FEN.
 
-The active **shared-v19** prompt makes context relevant to the position. Tactical
+The active **shared-v22** prompt makes context relevant to the position. Tactical
 positions retain concrete dangers and opportunities without generic opening or
 endgame coaching. Quiet positions receive early-development advice, actual
 pawn-cover context, or simplified king-coordination facts when relevant.

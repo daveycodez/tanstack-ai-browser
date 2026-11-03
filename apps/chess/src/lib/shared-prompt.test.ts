@@ -259,21 +259,25 @@ function legacyCardPrefix(input: SharedPromptInput, prompt: string) {
 
 // Historical factual projection only: guidance moved from USER to SYSTEM in V19.
 // Restore the old positions so existing independent facts hashes remain unchanged.
-function restoreLegacyUserLayout(prompt: string): string {
-  return prompt
+function restoreLegacyUserLayout(prompt: string, quiet = false): string {
+  // Restore the historical answer footer only for the existing V15/V18 snapshot hashes.
+  const capturePriority = prompt.includes("Available captures with no immediate legal recapture of the moved piece:") ? "\nAfter addressing the king, any attacked queen, and immediate mate, favor safe material gains. A forcing check that wins further material can be better than a larger immediate capture. A check alone does not justify a listed material loss." : ""
+  const oldPriorities = quiet ? "Priorities: CHECKMATE now; prevent White's mate and answer check; save a threatened queen or take a free queen; take safe material gains, including forcing checks that win material; otherwise consider castling or purposeful development with a knight, bishop, or central pawn." : "Priorities: CHECKMATE now; prevent White's mate and answer check; save a threatened queen or take a free queen; take safe material gains, including forcing checks that win material."
+  const legacy = prompt.replace("Current position:", "Black to move. Play a fun, sensible casual game. Choose one legal card.\n" + oldPriorities) + capturePriority + "\nReturn exactly one JSON object: key move, value the exact action label at the start of the chosen card. Copy the full label, including coordinates and any promotion or en passant text. Stop after the closing brace."
+  return legacy
     .replace(/^(Priorities:.*)$/m, "$1\nA check alone is not a material gain. Account for forcing follow-up captures and the conditional exchange losses before taking material. Protection is not immunity. Pawn 1, knight/bishop 3, rook 5, queen 9.")
     .replace("ALL LEGAL CARDS (presentation order, no ranking):", "HOW TO READ THE CARDS:\nThe board above is the position now. Each card describes a separate possible position after only that Black move. Its DANGER and exchange facts apply only to that move; destinations and threats from different cards do not occur together. CHECK on a card means that move checks White. Black in check above describes now.\nALL LEGAL CARDS (random order, no ranking):")
 }
 
 for (const fixture of recorded) {
-  test(`shared-v19 preserves recorded ${fixture.caseId} facts and adds recent-move context`, () => {
+  test(`shared-v22 preserves recorded ${fixture.caseId} facts and adds recent-move context`, () => {
     const input = fixtureInput(fixture)
     const before = JSON.stringify(input)
     const result = buildSharedPrompt(input)
     assert.equal(
       createHash("sha256")
         .update(
-          legacyCardPrefix(input, restoreLegacyUserLayout(result.prompt))
+          legacyCardPrefix(input, restoreLegacyUserLayout(result.prompt, fixture.caseId === "context-castle-now"))
             .replace(
               "In the opening, central pawn pushes gain space and can free bishops or knights for development. Balance king-flank pawn cover with space, piece activity and castling; near-cover counts describe pawn files on the two pawn ranks nearest home, not a material score or a ban on useful pawn moves.\n",
               ""
@@ -340,7 +344,7 @@ test("shared prompt has no model or reasoning options and ignores opponent model
   >
   const forbidden: Record<ForbiddenKeys, never> = {}
   assert.deepEqual(forbidden, {})
-  assert.equal(SHARED_PROMPT_VERSION, "shared-v19")
+  assert.equal(SHARED_PROMPT_VERSION, "shared-v22")
   const input = fixtureInput(recorded[0])
   const before = buildSharedPrompt(input)
   for (const model of ["prompt-api", "LiquidAI/LFM3-1.7B-GGUF"] as const) {
@@ -440,7 +444,6 @@ test("positive king-safety summary retains every qualifying ID in supplied order
     header >
       result.prompt.indexOf(result.choices[result.choices.length - 1].outcome)
   )
-  assert.ok(header < result.prompt.indexOf("Return exactly one JSON object:"))
 })
 
 test("an immediately recapturable queen remains a positive choice when the queen trade has a legal compensating pawn recapture", () => {
@@ -899,12 +902,12 @@ test("the shared factual legend distinguishes current board facts, independent c
     "r3b2B/ppk2p1B/8/1P1P2p1/2P2n2/8/5PPP/2R1K2R b K - 0 29"
   )
   const result = buildSharedPrompt(input)
-  const heading = "HOW TO READ THE CARDS:"
+  const heading = "Each card is a separate position after that move."
   const cards = "ALL LEGAL CARDS (presentation order, no ranking):"
-  const legend = SHARED_SYSTEM_PROMPT.split(heading)[1]?.trim()
+  const legend = SHARED_SYSTEM_PROMPT.split("\n\n").find((part) => part.startsWith("Each card"))
   assert.equal(
     legend,
-    "The supplied board is the position now. Each card describes a separate possible position after only that Black move. Its DANGER and exchange facts apply only to that move; destinations and threats from different cards do not occur together. CHECK on a card means that move checks White. The current Black-in-check field describes now."
+    "Each card is a separate position after that move. Never combine threats or outcomes across cards. CHECK means White is checked after the move; Black-in-check describes the current board."
   )
   assert.equal(SHARED_SYSTEM_PROMPT.split(heading).length, 2)
   assert.ok(!result.prompt.includes(heading))
@@ -927,23 +930,17 @@ test("the shared factual legend distinguishes current board facts, independent c
 test("capture priority favors larger safe material gains after queen safety and before castling without changing cards", () => {
   const input = safetyInput("r3k2r/5pp1/7p/3q4/4P3/8/5PPK/8 b kq - 0 1")
   const result = buildSharedPrompt(input)
-  const priority = result.prompt
+  const priority = SHARED_SYSTEM_PROMPT
     .split("\n")
     .find((line) => line.startsWith("Priorities:"))
   assert.ok(priority)
-  const queen = priority.indexOf("save a threatened queen or take a free queen")
-  const gain = priority.indexOf(
-    "take safe material gains, including forcing checks that win material"
-  )
-  const castle = priority.indexOf(
-    "otherwise consider castling or purposeful development"
-  )
+  const queen = priority.indexOf("save or win a queen")
+  const gain = priority.indexOf("safe material gains")
+  const castle = priority.indexOf("otherwise castle or develop")
   assert.ok(queen >= 0 && gain > queen)
-  assert.equal(castle, -1)
+  assert.ok(castle > gain)
   assert.equal(
-    result.prompt.split(
-      "take safe material gains, including forcing checks that win material"
-    ).length,
+    SHARED_SYSTEM_PROMPT.split("safe material gains").length,
     2
   )
   assert.deepEqual(
@@ -997,8 +994,8 @@ test("capture opportunities include every eligible piece value in caller order w
     ordered.moves.map((move) => move.id)
   )
   assert.match(
-    result.prompt,
-    /After addressing the king, any attacked queen, and immediate mate, favor safe material gains/
+    SHARED_SYSTEM_PROMPT,
+    /safe material gains/
   )
 })
 
@@ -1084,10 +1081,7 @@ test("immediate wins retain priority over the general capture opportunity remind
     )
   )
   assert.equal(captureSummary(result.prompt), undefined)
-  assert.doesNotMatch(
-    result.prompt,
-    /After addressing the king, any attacked queen, and immediate mate, favor safe material gains/
-  )
+  assert.doesNotMatch(result.prompt, /After addressing the king, any attacked queen, and immediate mate/)
   assert.deepEqual(
     result.choices.map((choice) => choice.id),
     input.moves.map((move) => move.id)
@@ -1107,23 +1101,23 @@ const v10CardHashes: Record<string, string> = {
     "94c08c952c55208f55a8aea3755e7c1b158ff23b639734bb6a18245847aa58a6"
 }
 
-test("the shared static system role carries strategy and unordered-schema meaning without model or reasoning directives", () => {
+test("the concise shared system role carries card interpretation and material guidance without model or reasoning directives", () => {
   assert.equal(SHARED_SYSTEM_PROMPT.split("Protection is not immunity.").length, 2)
   assert.match(
     SHARED_SYSTEM_PROMPT,
-    /Take immediate mate first; otherwise prevent mate and protect an attacked queen/
+    /Play Black in a sensible casual game\. Choose one supplied legal move/
   )
   assert.match(
     SHARED_SYSTEM_PROMPT,
-    /A forcing check that wins material on a later move can be better than a larger immediate capture/
+    /Forcing gains can outweigh immediate captures/
   )
   assert.match(
     SHARED_SYSTEM_PROMPT,
-    /A check alone does not justify an uncompensated queen loss/
+    /check alone does not justify a material loss/
   )
   assert.match(
     SHARED_SYSTEM_PROMPT,
-    /neither enum order nor card order recommends a move/
+    /card order is not a ranking/
   )
   assert.doesNotMatch(
     SHARED_SYSTEM_PROMPT,
@@ -1192,11 +1186,11 @@ test("every model-facing card and summary uses the action label while SAN and UC
   assert.match(summary, /Capture knight \(3\): queen c5 to f5/)
   assert.match(summary, /Capture pawn \(1\): queen c5 to f2/)
   assert.doesNotMatch(summary, /Qxf5|Qxf2\+|c5f5|c5f2/)
-  assert.match(result.prompt, /key move, value the exact action label/)
+  assert.doesNotMatch(result.prompt, /Return exactly one JSON object|Copy the full label|Stop after the closing brace/)
   assert.doesNotMatch(result.prompt, /key moveId/)
 })
 
-test("immediate capture opportunities follow safety summaries directly before the generic capture priority and JSON answer", () => {
+test("immediate capture opportunities follow safety summaries without a repeated capture footer", () => {
   const input = safetyInput(
     "1B2kbnN/4p1pp/1pp5/2q2N2/8/2P3P1/R2K1P1P/7R b - - 0 25"
   )
@@ -1205,19 +1199,11 @@ test("immediate capture opportunities follow safety summaries directly before th
   const opportunities = result.prompt.indexOf(
     "AVAILABLE IMMEDIATE OPPORTUNITIES:"
   )
-  const capture = result.prompt.indexOf(
-    "After addressing the king, any attacked queen, and immediate mate, favor safe material gains"
-  )
-  const answer = result.prompt.indexOf("Return exactly one JSON object:")
-  assert.ok(
-    safety >= 0 &&
-      opportunities > safety &&
-      capture > opportunities &&
-      answer > capture
-  )
+  assert.ok(safety >= 0 && opportunities > safety)
+  assert.doesNotMatch(result.prompt, /After addressing the king, any attacked queen, and immediate mate/)
   assert.match(
-    result.prompt,
-    /A forcing check that wins further material can be better than a larger immediate capture/
+    SHARED_SYSTEM_PROMPT,
+    /Forcing gains can outweigh immediate captures/
   )
   const summary = captureSummary(result.prompt)
   assert.ok(summary)
@@ -1240,24 +1226,24 @@ test("shared priorities allow forcing material-winning checks without treating a
   const result = buildSharedPrompt(input)
   assert.match(
     SHARED_SYSTEM_PROMPT,
-    /Take immediate mate first; otherwise prevent mate and protect an attacked queen/
+    /Play Black in a sensible casual game\. Choose one supplied legal move/
   )
   assert.match(
     SHARED_SYSTEM_PROMPT,
-    /forcing check that wins material on a later move/
+    /forcing follow-ups/
   )
   assert.match(
     SHARED_SYSTEM_PROMPT,
-    /check alone does not justify an uncompensated queen loss/
+    /check alone does not justify a material loss/
   )
-  assert.match(result.prompt, /including forcing checks that win material/)
+  assert.match(SHARED_SYSTEM_PROMPT, /forcing follow-ups/)
   assert.match(
-    result.prompt,
-    /A forcing check that wins further material can be better than a larger immediate capture/
+    SHARED_SYSTEM_PROMPT,
+    /Forcing gains can outweigh immediate captures/
   )
   assert.match(
-    result.prompt,
-    /A check alone does not justify a listed material loss/
+    SHARED_SYSTEM_PROMPT,
+    /check alone does not justify a material loss/
   )
   assert.doesNotMatch(
     result.prompt,
@@ -1512,12 +1498,12 @@ test("full near-file cover retains the focused castle preference, including ordi
     assert.match(result.prompt, /CASTLING CHECK BEFORE YOUR ANSWER/)
     assert.ok(
       result.prompt.includes(
-        `Castling preference applies to: ${moveChoiceLabel(castle)}.`
+        `Prefer these castles over quiet moves, non-winning checks or equal trades: ${moveChoiceLabel(castle)}.`
       )
     )
     assert.match(
       result.prompt,
-      /For these castling choices without a listed conditional material-loss branch, prefer castling/
+      /Override for mate, stopping mate, queen rescue/
     )
     assert.deepEqual(
       result.choices.map((choice) => choice.id),
@@ -1541,8 +1527,8 @@ test("thin or empty landing cover stays legal and factual without a hard castle 
       /CASTLING CHECK BEFORE YOUR ANSWER|otherwise CASTLE when listed|castle if a listed castle is MATERIAL-SAFE/
     )
     assert.match(
-      result.prompt,
-      /otherwise consider castling or purposeful development/
+      SHARED_SYSTEM_PROMPT,
+      /otherwise castle or develop/
     )
     const card = result.choices.find((choice) => choice.id === castle.id)
     assert.ok(card)
@@ -1568,7 +1554,7 @@ test("a full-cover wing can retain a preference without imposing it on the thin-
   const result = buildSharedPrompt(input)
   const preference = result.prompt
     .split("\n")
-    .find((line) => line.startsWith("Castling preference applies to:"))
+    .find((line) => line.startsWith("Prefer these castles over"))
   assert.ok(preference)
   assert.ok(preference.includes(moveChoiceLabel(queenside)))
   assert.ok(!preference.includes(moveChoiceLabel(kingside)))
@@ -1955,7 +1941,8 @@ for (const control of v15TacticalControls) {
       coordinationAdvice
     ])
       assert.ok(!result.prompt.includes(advice))
-    assert.ok(result.prompt.split("\n").includes(tacticalPriorityV18))
+    assert.match(SHARED_SYSTEM_PROMPT, /Priorities: CHECKMATE now; prevent mate\/answer check/)
+    assert.ok(!result.prompt.split("\n").some((line) => line.startsWith("Priorities:")))
     assert.ok(result.prompt.includes(tacticalFallbackV18))
     assert.doesNotMatch(tacticalPriorityV18, /castle|develop/i)
     const material = positiveSafetySummaries(input).find((line) =>
@@ -1990,8 +1977,8 @@ test("quiet early pawn-cover positions retain opening and cover advice only whil
   assert.ok(!result.prompt.includes(coordinationAdvice))
   assert.match(result.prompt, /near-files/)
   assert.match(
-    result.prompt,
-    /otherwise consider castling or purposeful development/
+    SHARED_SYSTEM_PROMPT,
+    /otherwise castle or develop/
   )
   const later = fromFen(game.fen.replace(/\d+$/, "40"))
   const lateResult = buildSharedPrompt(fullInput(later))
