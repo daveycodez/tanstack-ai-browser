@@ -81,7 +81,7 @@ export async function runBenchmark(
       caseIds: cases.map((c) => c.id),
       suiteVersion: cases.every(c => c.id.startsWith("cache-"))
         ? "cache-replay-v1"
-        : "audited-v9",
+        : "audited-v10",
       outputContract: "human-action-enum-v3",
       promptVersion: SHARED_PROMPT_VERSION,
       moveOrderSeed,

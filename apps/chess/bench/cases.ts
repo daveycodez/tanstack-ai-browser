@@ -1884,7 +1884,7 @@ const MATERIAL_CALIBRATION_CASES: BenchmarkCase[] = [
     id: "observed-free-knight-after-nxf5",
     label: "Observed game: recapture the knight after Nxf5",
     description:
-      "Exact replay through White25.Nxf5. Qxf5 directly wins knight3 safely. Qxf2+ is ALSO accepted: all three legal White king evasions allow safe Qxf5 next, guaranteeing pawn1+knight3. Grade a direct maximum safe capture or an independently verified forcing capture continuation at least as valuable; quiet moves do not satisfy this opportunity objective. No long-term engine-best claim.",
+      "Exact replay through White25.Nxf5. Qxf5 directly wins knight3 safely. Qxf2+ is ALSO accepted: all three legal White king evasions allow safe Qxf5 next, guaranteeing pawn1+knight3. Qd5+ is accepted too: all six legal White replies allow an unrecapturable Qxh1 next, gaining rook5. Grade a direct maximum safe capture or an independently verified forcing capture continuation at least as valuable; quiet moves do not satisfy this opportunity objective. No long-term engine-best claim.",
     fen: "1B2kbnN/4p1pp/1pp5/2q2N2/8/2P3P1/R2K1P1P/7R b - - 0 25",
     history: [
       "e2e4",
@@ -1939,7 +1939,7 @@ const MATERIAL_CALIBRATION_CASES: BenchmarkCase[] = [
     ],
     suite: "core",
     partition: "calibration",
-    expectedMoveIds: ["c5f5", "c5f2"],
+    expectedMoveIds: ["c5f5", "c5f2", "c5d5"],
     orders: [
       [
         "g8f6",
@@ -1995,10 +1995,10 @@ const MATERIAL_CALIBRATION_CASES: BenchmarkCase[] = [
       ]
     ],
     condition:
-      "Earlier immediate-capture-only grading excluded Qxf2+ incorrectly. Independent exhaustive White-evasion proof accepts both intelligent capture opportunities; raw historical reports remain unchanged.",
+      "Earlier grading excluded Qxf2+ and non-capturing Qd5+ incorrectly. Independent exhaustive White-evasion proofs accept all three intelligent opportunities, including Qd5+ forcing rook5; raw historical reports remain unchanged.",
     signalMoveIds: ["c5f5"],
     signalDescription:
-      "Direct same-square Qxf5 selected; forcing Qxf2+ also passes and is not a failure."
+      "Direct same-square Qxf5 selected; forcing Qxf2+ and Qd5+ also pass and are not failures."
   },
   {
     id: "observed-free-pawn-on-h7",

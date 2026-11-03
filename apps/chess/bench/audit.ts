@@ -152,10 +152,9 @@ function safeImmediateCaptures(legal: Move[]): Move[] {
       avoidsConditionalMaterialLoss(move, false)
   )
 }
-/** A capture-check may win more on every legal evasion than a direct capture. */
+/** Any checking move may force a safe capture on every legal evasion. */
 function hasForcingCaptureGain(move: Move, minimumGain: number): boolean {
   if (
-    !move.captured ||
     !new Chess(move.after).isCheck() ||
     !avoidsConditionalMaterialLoss(move, false)
   )
