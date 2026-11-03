@@ -159,7 +159,7 @@ export function BenchmarkView() {
   const scored = results.filter((result) => result.passed !== null)
   const diagnostics = results.filter((result) => result.passed === null)
   const cacheResults = results.filter(result =>
-    typeof result.usage?.providerUsageDetails?.promptMs === "number"
+    typeof result.usage?.promptTokens === "number"
   )
   const cachedTokens = cacheResults.reduce((sum, result) =>
     sum + (result.usage?.promptTokensDetails?.cachedTokens ?? 0), 0)

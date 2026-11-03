@@ -80,6 +80,7 @@ export async function runBenchmark(
       outputContract: "human-action-enum-v3",
       promptVersion: SHARED_PROMPT_VERSION,
       moveOrderSeed,
+      sessionPolicy: "one thread per run; new-games uses one thread per repetition",
       movePresentation: options.movePresentation ?? "game",
       orderPolicy: options.movePresentation === "stress"
         ? "recorded pair then deterministic novel permutations"
@@ -106,6 +107,9 @@ export async function runBenchmark(
         : fromFen(testCase.fen)
       if (game.fen !== testCase.fen)
         throw new Error(`Fixture history mismatch: ${testCase.id}`)
+      // Match gameplay: each turn/retry shares a clean provider prefix within a game.
+      // The board remains request-local; the native structured adapter clones its base.
+      game.sessionId = `bench-${report.runId}${options.movePresentation === "new-games" ? `-${repetition + 1}` : ""}`
       game.opponent = opponent
       const controller = new AbortController()
       const abort = () => controller.abort(options.signal.reason)
@@ -116,6 +120,7 @@ export async function runBenchmark(
         caseId: testCase.id,
         label: testCase.label,
         fen: game.fen,
+        threadId: `chess-${game.sessionId}`,
         objective: testCase.description,
         expectedMoveIds: testCase.expectedMoveIds,
         partition: testCase.partition ?? "calibration",

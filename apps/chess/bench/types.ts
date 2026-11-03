@@ -25,6 +25,7 @@ export type BenchmarkResult = {
   objective: string
   expectedMoveIds: string[] | null
   partition: "calibration" | "holdout"
+  threadId?: string
   rawAnswer?: string
   moveId?: string
   legal: boolean
@@ -68,6 +69,7 @@ export type BenchmarkReport = {
     promptVersion: string
     orderPolicy: string
     movePresentation?: "game" | "new-games" | "stress"
+    sessionPolicy?: string
     moveOrderSeed?: string
   }
   results: BenchmarkResult[]
