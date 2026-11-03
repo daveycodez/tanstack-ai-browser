@@ -1,0 +1,106 @@
+{
+  "runtime": "wllama",
+  "profile": "current",
+  "startedAt": "2026-11-03T01:04:41.194Z",
+  "settings": {
+    "sampling": "model defaults",
+    "outputLimit": "model default",
+    "context": "model default",
+    "reasoning": "off"
+  },
+  "checks": [
+    {
+      "name": "uncached",
+      "pass": true,
+      "details": {
+        "answer": {
+          "value": "alpha"
+        },
+        "usage": {
+          "promptTokens": 36,
+          "completionTokens": 11,
+          "totalTokens": 47,
+          "providerUsageDetails": {
+            "promptMs": 108.299,
+            "decodeMs": 74,
+            "decodeTokens": 11
+          }
+        },
+        "promptCache": "none"
+      }
+    },
+    {
+      "name": "cached",
+      "pass": true,
+      "details": {
+        "answer": {
+          "value": "alpha"
+        },
+        "usage": {
+          "promptTokens": 36,
+          "completionTokens": 11,
+          "totalTokens": 47,
+          "promptTokensDetails": {
+            "cachedTokens": 32
+          },
+          "providerUsageDetails": {
+            "promptMs": 15.2,
+            "decodeMs": 74.101,
+            "decodeTokens": 11
+          }
+        },
+        "promptCache": "short"
+      }
+    },
+    {
+      "name": "changed-schema",
+      "pass": true,
+      "details": {
+        "answer": {
+          "value": "gamma"
+        },
+        "usage": {
+          "promptTokens": 36,
+          "completionTokens": 12,
+          "totalTokens": 48,
+          "promptTokensDetails": {
+            "cachedTokens": 32
+          },
+          "providerUsageDetails": {
+            "promptMs": 17.3,
+            "decodeMs": 82.199,
+            "decodeTokens": 12
+          }
+        },
+        "promptCache": "long"
+      }
+    },
+    {
+      "name": "disabled-after-warm",
+      "pass": true,
+      "details": {
+        "answer": {
+          "value": "gamma"
+        },
+        "usage": {
+          "promptTokens": 36,
+          "completionTokens": 12,
+          "totalTokens": 48,
+          "providerUsageDetails": {
+            "promptMs": 101.3,
+            "decodeMs": 83.7,
+            "decodeTokens": 12
+          }
+        },
+        "promptCache": "none"
+      }
+    }
+  ],
+  "stages": [],
+  "events": [],
+  "error": null,
+  "backend": "runtime default",
+  "webgpuAvailable": true,
+  "model": "LiquidAI/LFM2.5-350M-GGUF",
+  "finishedAt": "2026-11-03T01:04:42.355Z"
+}

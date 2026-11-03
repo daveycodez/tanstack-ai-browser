@@ -8,7 +8,8 @@ import type { IndexedDBInstance } from "@tanstack/react-db"
 import { createContext, useContext, useEffect, useState } from "react"
 import type { ReactNode } from "react"
 import { applyMove, newGame } from "./checkers"
-import type { Game } from "./checkers"
+import type { AiDecisionTrace, Game } from "./checkers"
+import { attachMoveAnalysis, traceMatchesPosition } from "./turn-log"
 import { resolveOpponent, sameOpponent } from "./opponents"
 import type { OpponentSettings } from "./opponents"
 
@@ -147,7 +148,8 @@ export function commitMove(
   sessionId: string,
   ply: number,
   moveId: string,
-  expectedOpponent?: OpponentSettings
+  expectedOpponent?: OpponentSettings,
+  analysis?: AiDecisionTrace
 ) {
   return write(async (games) => {
     const current = games.get("current")
@@ -161,7 +163,19 @@ export function commitMove(
         !sameOpponent(current.opponent, expectedOpponent))
     )
       return false
-    await save(games, applyMove(current, moveId))
+    await save(games, attachMoveAnalysis(current, applyMove(current, moveId), analysis))
+    return true
+  })
+}
+
+/** A failed attempt cannot be attached to another session, ply, or opponent. */
+export function recordAiFailure(sessionId: string, ply: number, analysis: AiDecisionTrace, expectedOpponent: OpponentSettings) {
+  return write(async (games) => {
+    const current = games.get("current")
+    if (!current || current.sessionId !== sessionId || current.history.length !== ply ||
+      !sameOpponent(current.opponent, expectedOpponent) || !traceMatchesPosition(current, analysis, expectedOpponent) || analysis.status !== "error") return false
+    if (current.aiFailures?.some(attempt => attempt.id === analysis.id)) return false
+    await save(games, { ...current, aiFailures: [...(current.aiFailures ?? []), analysis], updatedAt: Date.now() })
     return true
   })
 }

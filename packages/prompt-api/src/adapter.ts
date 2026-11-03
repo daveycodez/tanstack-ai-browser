@@ -342,8 +342,10 @@ export class PromptApiTextAdapter extends BaseTextAdapter<
       ...(tools.length > 0 && !native ? [toolsPrompt(tools)] : [])
     ].join("\n\n")
     const media = new Map<string, Promise<Blob>>()
+    const reasoningEnabled = promptReasoningOptions(options.reasoning).enabled
     const lease = await leaseSession({
-      threadId: promptReasoningOptions(options.reasoning).enabled ? undefined : options.threadId,
+      threadId: reasoningEnabled ? undefined : options.promptCache?.key ?? options.threadId,
+      ...(reasoningEnabled || options.promptCache?.retention === "none" ? { retain: false } : {}),
       system,
       prior,
       options: this.createOptions(options.modelOptions, {
@@ -717,6 +719,9 @@ export class PromptApiTextAdapter extends BaseTextAdapter<
     let action: string | undefined
     if (typeof choice === "object" && names.includes(choice.name)) {
       action = choice.name
+    } else if (choice === "required" && tools.length === 1) {
+      // The only allowed route is already known; constrain its arguments directly.
+      action = names[0]
     } else {
       const raw = await promptCopy(session, input, signal, {
         responseConstraint: decisionSchema(names, choice === "required")
@@ -762,8 +767,10 @@ export class PromptApiTextAdapter extends BaseTextAdapter<
     const { prior, input: inputMessages } = splitAtLastReply(conversation)
     const media = new Map<string, Promise<Blob>>()
     const lease = await leaseSession({
-      // A session of its own, freed after.
-      threadId: undefined,
+      // Reuse the input prefix, keeping this answer on a disposable clone.
+      threadId: chatOptions.promptCache?.key ?? chatOptions.threadId,
+      isolated: true,
+      ...(chatOptions.promptCache?.retention === "none" ? { retain: false } : {}),
       system: normalizeSystemPrompts(chatOptions.systemPrompts)
         .map((p) => p.content)
         .join("\n\n"),
@@ -823,10 +830,9 @@ export class PromptApiTextAdapter extends BaseTextAdapter<
           usage: usageOf(
             session.contextUsage - completionTokens,
             completionTokens,
-            0,
+            lease.cachedTokens,
             {
-              contextUsage: session.contextUsage,
-              contextWindow: session.contextWindow,
+              ...this.sessionDetails(lease, chatOptions.threadId, chatOptions.logger),
               ...reasoningUsage
             }
           )

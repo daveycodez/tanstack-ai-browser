@@ -9,7 +9,8 @@
     "preview": "vite preview --port 3002",
     "deploy": "wrangler deploy",
     "deploy-dry-run": "wrangler deploy --dry-run",
-    "test": "node --experimental-strip-types --test src/lib/checkers.test.ts"
+    "test": "node --experimental-strip-types --test src/lib/*.test.ts bench/*.test.ts",
+    "bench-audit": "node --experimental-strip-types bench/audit.ts"
   },
   "dependencies": {
     "@tanstack-ai-browser/prompt-api": "workspace:*",

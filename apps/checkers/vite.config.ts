@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process"
 import { cloudflare } from "@cloudflare/vite-plugin"
 import { tanstackStart } from "@tanstack/react-start/plugin/vite"
 import react from "@vitejs/plugin-react"
@@ -8,6 +9,7 @@ import {
 } from "vite"
 
 export default defineConfig({
+  define: { __CHECKERS_BENCH_REVISION__: JSON.stringify(execFileSync("git", ["rev-parse", "--short", "HEAD"], { encoding: "utf8" }).trim() + "+working") },
   resolve: {
     conditions: ["@tanstack-ai-browser/source", ...defaultClientConditions]
   },

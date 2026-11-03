@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react"
 import { legalMoves } from "./checkers"
 import type { Game } from "./checkers"
-import { commitMove, currentGame } from "./db"
+import { commitMove, currentGame, recordAiFailure } from "./db"
+import { createAiTrace, finishAiTrace } from "./turn-log"
 import { resolveOpponent, sameOpponent } from "./opponents"
 
 export type AiTurnState = {
@@ -61,62 +62,49 @@ export function useAiTurn(game: Game | undefined, busy: boolean) {
       )
         return
       const moves = legalMoves(active.board, "ai")
-      if (moves.length === 1) {
-        await commitMove(
-          expected.sessionId,
-          expected.history.length,
-          moves[0].id,
-          expectedOpponent
-        )
-        return
-      }
-      const ai = await import("./ai")
-      if (controller.signal.aborted) return
-      const loadingStore = ai.loadingStoreFor(expectedOpponent)
-      const syncProgress = () => {
-        if (controller.signal.aborted) return
-        const loading = loadingStore.get()
-        if (loading.state === "loading")
-          setState({
-            phase: "loading",
-            progress: Math.floor(loading.progress * 100) / 100,
-            cached: loading.cached
-          })
-        else if (loading.state === "ready") setState({ phase: "processing" })
-      }
-      unsubscribe = loadingStore.subscribe(syncProgress)
-      syncProgress()
-      const move = await ai.chooseAiMove(
-        expected,
-        controller,
-        (phase) => {
-          if (controller.signal.aborted) return
-          if (phase === "processing")
-            setThoughts({
-              sessionId: expected.sessionId,
-              runKey: key,
-              text: ""
-            })
-          setState({
-            phase: phase === "processing" ? "processing" : "choosing"
-          })
-        },
-        (delta) => {
-          if (controller.signal.aborted) return
-          setThoughts((previous) => ({
-            sessionId: expected.sessionId,
-            runKey: key,
-            text: (previous?.runKey === key ? previous.text : "") + delta
-          }))
+      const trace = createAiTrace(active, expectedOpponent, moves.length === 1 ? "forced" : "model")
+      try {
+        if (moves.length === 1) {
+          await commitMove(expected.sessionId, expected.history.length, moves[0].id, expectedOpponent, finishAiTrace(trace, { moveId: moves[0].id }))
+          return
         }
-      )
-      if (!controller.signal.aborted)
-        await commitMove(
-          expected.sessionId,
-          expected.history.length,
-          move,
-          expectedOpponent
+        const ai = await import("./ai")
+        if (controller.signal.aborted) return
+        trace.maxOutputTokens = expectedOpponent.model === "prompt-api" ? null : ai.MAX_OUTPUT_TOKENS
+        trace.reasoningBudgetTokens = trace.thinking ? ai.REASONING_BUDGET_TOKENS : null
+        const loadingStore = ai.loadingStoreFor(expectedOpponent)
+        const syncProgress = () => {
+          if (controller.signal.aborted) return
+          const loading = loadingStore.get()
+          if (loading.state === "loading") setState({ phase: "loading", progress: Math.floor(loading.progress * 100) / 100, cached: loading.cached })
+          else if (loading.state === "ready") setState({ phase: "processing" })
+        }
+        unsubscribe = loadingStore.subscribe(syncProgress)
+        syncProgress()
+        const move = await ai.chooseAiMove(
+          expected,
+          controller,
+          (phase) => {
+            if (controller.signal.aborted) return
+            if (phase === "processing") setThoughts({ sessionId: expected.sessionId, runKey: key, text: "" })
+            setState({ phase: phase === "processing" ? "processing" : "choosing" })
+          },
+          (delta) => {
+            if (controller.signal.aborted) return
+            trace.reasoningText += delta
+            setThoughts(previous => ({ sessionId: expected.sessionId, runKey: key, text: (previous?.runKey === key ? previous.text : "") + delta }))
+          },
+          {
+            onInput: (input) => { trace.input = input },
+            onAnswer: (rawAnswer) => { trace.rawAnswer = rawAnswer },
+            onUsage: (usage) => { trace.usage = usage }
+          }
         )
+        if (!controller.signal.aborted) await commitMove(expected.sessionId, expected.history.length, move, expectedOpponent, finishAiTrace(trace, { moveId: move }))
+      } catch (error) {
+        if (!controller.signal.aborted) await recordAiFailure(expected.sessionId, expected.history.length, finishAiTrace(trace, { error }), expectedOpponent).catch(() => undefined)
+        throw error
+      }
     }
 
     // Across same-origin tabs only one model reply runs at a time.

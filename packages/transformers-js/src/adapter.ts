@@ -548,6 +548,7 @@ export class TransformersJsTextAdapter<
       id: callId,
       chat,
       tools,
+      ...(options.promptCache?.retention === "none" && { cachePrompt: false }),
       ...thinking,
       sampling,
       maxTokens,
@@ -688,6 +689,7 @@ export class TransformersJsTextAdapter<
         ...toChatTurns(chatOptions.messages, this.toolFormat)
       ],
       tools: [],
+      ...(chatOptions.promptCache?.retention === "none" && { cachePrompt: false }),
       ...thinking,
       outputSchema,
       sampling: this.sampling(chatOptions.modelOptions),

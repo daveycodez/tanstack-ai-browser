@@ -10,6 +10,7 @@ export {
 } from "./adapter.js"
 export type {
   ApfelModelOptions,
+  ApfelReasoning,
   ApfelProviderUsageDetails,
   ApfelTextConfig,
   ApfelTextModel

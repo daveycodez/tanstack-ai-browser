@@ -1,0 +1,403 @@
+{
+  "schemaVersion": 1,
+  "localInferenceOnly": true,
+  "reports": [
+    {
+      "file": "01-lfm-original-initial.json",
+      "sha256": "4887faaa8e19b6ca2ddfba3aa706e6e295800e400194a0d0493cb7b55af59fea",
+      "model": "LiquidAI/LFM3-1.7B-GGUF",
+      "promptVersion": "baseline-v1",
+      "suiteVersion": "checkers-audited-v1",
+      "thinking": false,
+      "reasoningMode": "off",
+      "summary": {
+        "total": 40,
+        "inferred": 38,
+        "legal": 40,
+        "scored": 32,
+        "passed": 14,
+        "firstOption": 17,
+        "medianSeconds": 0.25655000001192096
+      }
+    },
+    {
+      "file": "02-nano-original-initial.json",
+      "sha256": "d628ba67940fa24ac05438532a1388522dc79f92d5c28e48774ae1aae10f4dd5",
+      "model": "prompt-api",
+      "promptVersion": "baseline-v1",
+      "suiteVersion": "checkers-audited-v1",
+      "thinking": false,
+      "reasoningMode": "off",
+      "summary": {
+        "total": 40,
+        "inferred": 38,
+        "legal": 40,
+        "scored": 32,
+        "passed": 15,
+        "firstOption": 12,
+        "medianSeconds": 0.46889999997615817
+      }
+    },
+    {
+      "file": "03-lfm-shared-v1.json",
+      "sha256": "c9bd851adb57aa9010746f4e448c7f6111f696ea21462ed15252486ee9d94b07",
+      "model": "LiquidAI/LFM3-1.7B-GGUF",
+      "promptVersion": "shared-v1",
+      "suiteVersion": "checkers-audited-v1",
+      "thinking": false,
+      "reasoningMode": "off",
+      "summary": {
+        "total": 40,
+        "inferred": 38,
+        "legal": 40,
+        "scored": 32,
+        "passed": 26,
+        "firstOption": 19,
+        "medianSeconds": 0.4893499999642372
+      }
+    },
+    {
+      "file": "04-nano-shared-v1.json",
+      "sha256": "320dacffcf5c98b1d7b66395d7776f1411ae1427e50299d0b4e42353ee38a683",
+      "model": "prompt-api",
+      "promptVersion": "shared-v1",
+      "suiteVersion": "checkers-audited-v1",
+      "thinking": false,
+      "reasoningMode": "off",
+      "summary": {
+        "total": 40,
+        "inferred": 38,
+        "legal": 40,
+        "scored": 32,
+        "passed": 23,
+        "firstOption": 14,
+        "medianSeconds": 0.6625
+      }
+    },
+    {
+      "file": "05-lfm-v1-thinking-512.json",
+      "sha256": "5c389f7e83aa24ad4e740f8f871d55d5258844ba3d4dd1811b0ef137534f9518",
+      "model": "LiquidAI/LFM3-1.7B-GGUF",
+      "promptVersion": "shared-v1",
+      "suiteVersion": "checkers-audited-v1",
+      "thinking": true,
+      "reasoningMode": "native",
+      "summary": {
+        "total": 2,
+        "inferred": 2,
+        "legal": 2,
+        "scored": 2,
+        "passed": 0,
+        "firstOption": 2,
+        "medianSeconds": 6.461099999964237
+      }
+    },
+    {
+      "file": "06-nano-v1-working-notes-512.json",
+      "sha256": "6c5b29953ee3638da800e58ca20904485b20d43ee01257a20b26945c0b42da05",
+      "model": "prompt-api",
+      "promptVersion": "shared-v1",
+      "suiteVersion": "checkers-audited-v1",
+      "thinking": true,
+      "reasoningMode": "emulated-working-notes",
+      "summary": {
+        "total": 2,
+        "inferred": 2,
+        "legal": 2,
+        "scored": 2,
+        "passed": 2,
+        "firstOption": 1,
+        "medianSeconds": 10.951050000011922
+      }
+    },
+    {
+      "file": "07-lfm-shared-v2.json",
+      "sha256": "d063e7861217e871bf93b9e051f19ad5cec33065fc760044a83b365c3f5ebef0",
+      "model": "LiquidAI/LFM3-1.7B-GGUF",
+      "promptVersion": "shared-v2",
+      "suiteVersion": "checkers-audited-v2",
+      "thinking": false,
+      "reasoningMode": "off",
+      "summary": {
+        "total": 40,
+        "inferred": 38,
+        "legal": 40,
+        "scored": 30,
+        "passed": 27,
+        "firstOption": 19,
+        "medianSeconds": 0.50075
+      }
+    },
+    {
+      "file": "08-nano-shared-v2.json",
+      "sha256": "a897d9c3df8d614c3bd84d39e4b180c93506642067bd4f99dbaf33560f9a9c4a",
+      "model": "prompt-api",
+      "promptVersion": "shared-v2",
+      "suiteVersion": "checkers-audited-v2",
+      "thinking": false,
+      "reasoningMode": "off",
+      "summary": {
+        "total": 40,
+        "inferred": 38,
+        "legal": 40,
+        "scored": 30,
+        "passed": 27,
+        "firstOption": 10,
+        "medianSeconds": 0.6796999999880791
+      }
+    },
+    {
+      "file": "09-lfm-v2-thinking-2048.json",
+      "sha256": "6666eb0c2e009809ad909860a5d6e687c05f64f2cbca131e5a5fc0be1cce673e",
+      "model": "LiquidAI/LFM3-1.7B-GGUF",
+      "promptVersion": "shared-v2",
+      "suiteVersion": "checkers-audited-v2",
+      "thinking": true,
+      "reasoningMode": "native",
+      "summary": {
+        "total": 2,
+        "inferred": 2,
+        "legal": 2,
+        "scored": 2,
+        "passed": 2,
+        "firstOption": 1,
+        "medianSeconds": 20.743950000047683
+      }
+    },
+    {
+      "file": "10-lfm-final-original.json",
+      "sha256": "d05076bf981fb5363d454645135de6d93cf927b5727218a0f1ac797dfe811639",
+      "model": "LiquidAI/LFM3-1.7B-GGUF",
+      "promptVersion": "baseline-v1",
+      "suiteVersion": "checkers-audited-v3",
+      "thinking": false,
+      "reasoningMode": "off",
+      "summary": {
+        "total": 52,
+        "inferred": 50,
+        "legal": 52,
+        "scored": 38,
+        "passed": 13,
+        "firstOption": 25,
+        "medianSeconds": 0.6180500000119209
+      }
+    },
+    {
+      "file": "11-nano-final-original.json",
+      "sha256": "b25c1378edadc617b20e0552edce117f5d04a8b559fd313a8b5a393e59eaa284",
+      "model": "prompt-api",
+      "promptVersion": "baseline-v1",
+      "suiteVersion": "checkers-audited-v3",
+      "thinking": false,
+      "reasoningMode": "off",
+      "summary": {
+        "total": 52,
+        "inferred": 50,
+        "legal": 52,
+        "scored": 38,
+        "passed": 17,
+        "firstOption": 17,
+        "medianSeconds": 0.4790499999523163
+      }
+    },
+    {
+      "file": "12-lfm-shared-v3.json",
+      "sha256": "d2cefeda4ab6dd114e2a20039af533779e75d22d7834826975713d19fb473407",
+      "model": "LiquidAI/LFM3-1.7B-GGUF",
+      "promptVersion": "shared-v3",
+      "suiteVersion": "checkers-audited-v3",
+      "thinking": false,
+      "reasoningMode": "off",
+      "summary": {
+        "total": 52,
+        "inferred": 50,
+        "legal": 52,
+        "scored": 38,
+        "passed": 38,
+        "firstOption": 19,
+        "medianSeconds": 0.5792500000596046
+      }
+    },
+    {
+      "file": "13-nano-shared-v3.json",
+      "sha256": "008bb590c2e739be352dc938d420141175eb9ed957eae2af8835df6d548cca26",
+      "model": "prompt-api",
+      "promptVersion": "shared-v3",
+      "suiteVersion": "checkers-audited-v3",
+      "thinking": false,
+      "reasoningMode": "off",
+      "summary": {
+        "total": 52,
+        "inferred": 50,
+        "legal": 52,
+        "scored": 38,
+        "passed": 36,
+        "firstOption": 15,
+        "medianSeconds": 1.4390499999523163
+      }
+    },
+    {
+      "file": "14-lfm-v3-king-activity.json",
+      "sha256": "d8d23f99ffac5094949b7803876db8434cb1e5858ab1eb2e2c1dfef8d839e111",
+      "model": "LiquidAI/LFM3-1.7B-GGUF",
+      "promptVersion": "shared-v3",
+      "suiteVersion": "checkers-audited-v3",
+      "thinking": false,
+      "reasoningMode": "off",
+      "summary": {
+        "total": 8,
+        "inferred": 8,
+        "legal": 8,
+        "scored": 0,
+        "passed": 0,
+        "firstOption": 8,
+        "medianSeconds": 0.4904000000357628
+      }
+    },
+    {
+      "file": "15-nano-v3-king-activity.json",
+      "sha256": "08fc0f93507d9a74fc12f068452593d2862c6ce2aa15270aab836a0208401576",
+      "model": "prompt-api",
+      "promptVersion": "shared-v3",
+      "suiteVersion": "checkers-audited-v3",
+      "thinking": false,
+      "reasoningMode": "off",
+      "summary": {
+        "total": 8,
+        "inferred": 8,
+        "legal": 8,
+        "scored": 0,
+        "passed": 0,
+        "firstOption": 6,
+        "medianSeconds": 0.6597999999523163
+      }
+    },
+    {
+      "file": "16-lfm-shared-v4.json",
+      "sha256": "38e368021d52a53dfd7d48ac9fb157e93ed54c042c984062f63e0c3a8928fb54",
+      "model": "LiquidAI/LFM3-1.7B-GGUF",
+      "promptVersion": "shared-v4",
+      "suiteVersion": "checkers-audited-v3",
+      "thinking": false,
+      "reasoningMode": "off",
+      "summary": {
+        "total": 52,
+        "inferred": 50,
+        "legal": 52,
+        "scored": 38,
+        "passed": 38,
+        "firstOption": 19,
+        "medianSeconds": 0.7523500000238419
+      }
+    },
+    {
+      "file": "17-nano-shared-v4.json",
+      "sha256": "50a60508ff84e6ff0df912e9fa0548ce3879ec65ebb51987dc758594078e0f6f",
+      "model": "prompt-api",
+      "promptVersion": "shared-v4",
+      "suiteVersion": "checkers-audited-v3",
+      "thinking": false,
+      "reasoningMode": "off",
+      "summary": {
+        "total": 52,
+        "inferred": 50,
+        "legal": 52,
+        "scored": 38,
+        "passed": 37,
+        "firstOption": 16,
+        "medianSeconds": 1.778699999988079
+      }
+    },
+    {
+      "file": "18-lfm-v4-king-activity.json",
+      "sha256": "fcb2080e11f7b297b2de1bd88502ee72c362d5c59a5d0536ee23020e79456e2a",
+      "model": "LiquidAI/LFM3-1.7B-GGUF",
+      "promptVersion": "shared-v4",
+      "suiteVersion": "checkers-audited-v3",
+      "thinking": false,
+      "reasoningMode": "off",
+      "summary": {
+        "total": 8,
+        "inferred": 8,
+        "legal": 8,
+        "scored": 0,
+        "passed": 0,
+        "firstOption": 4,
+        "medianSeconds": 0.5123499999642372
+      }
+    },
+    {
+      "file": "19-nano-v4-king-activity.json",
+      "sha256": "1bb53dc95dd7495bb099bd3c3695b9abc4163601357389c5f32e36e8e8316609",
+      "model": "prompt-api",
+      "promptVersion": "shared-v4",
+      "suiteVersion": "checkers-audited-v3",
+      "thinking": false,
+      "reasoningMode": "off",
+      "summary": {
+        "total": 8,
+        "inferred": 8,
+        "legal": 8,
+        "scored": 0,
+        "passed": 0,
+        "firstOption": 4,
+        "medianSeconds": 0.681
+      }
+    },
+    {
+      "file": "20-lfm-v4-holdout.json",
+      "sha256": "8b371195296aaf93842ca8117bb5d9d7efa454197ebe16ad15da6e68206cf9c2",
+      "model": "LiquidAI/LFM3-1.7B-GGUF",
+      "promptVersion": "shared-v4",
+      "suiteVersion": "checkers-audited-v3",
+      "thinking": false,
+      "reasoningMode": "off",
+      "summary": {
+        "total": 12,
+        "inferred": 12,
+        "legal": 12,
+        "scored": 12,
+        "passed": 12,
+        "firstOption": 2,
+        "medianSeconds": 0.6274000000357628
+      }
+    },
+    {
+      "file": "21-nano-v4-holdout.json",
+      "sha256": "aebe9ee1fd5b23346f432e57db3c1ca27ebd62e387af2162cbca3cb410651bf2",
+      "model": "prompt-api",
+      "promptVersion": "shared-v4",
+      "suiteVersion": "checkers-audited-v3",
+      "thinking": false,
+      "reasoningMode": "off",
+      "summary": {
+        "total": 12,
+        "inferred": 12,
+        "legal": 12,
+        "scored": 12,
+        "passed": 12,
+        "firstOption": 2,
+        "medianSeconds": 0.7417499999403954
+      }
+    }
+  ],
+  "excludedSetupAttempts": [
+    {
+      "prompt": "shared-v1",
+      "reason": "Development reload interrupted an early setup run; no completed report was retained and it is excluded from comparisons."
+    }
+  ],
+  "finalSourceHashes": {
+    "src/lib/checkers.ts": "b08bb072d317520bd228c7ad02b8c94e576fd53574377884ff21b0cfec085574",
+    "src/lib/move-outcomes.ts": "00384f5a0306fc89721e4a5a322b6c5752adf064480da918674b110201d359de",
+    "src/lib/shared-prompt.ts": "f60a513eb54e242caf8fe0762148a77e0ce245bf263901bab63758d8d6266caf",
+    "src/lib/ai.ts": "eb714de6fcc1c726617724087b3e1a3bd96816eb404d8ce2d4b1400553693f72",
+    "bench/cases.ts": "a89da3de8676147eef5def85ed450e9add36efb2188debee711dadab7a96b818",
+    "bench/audit.ts": "f877a4f0013b9b215425b3a7263e8e24195c550c242abd4121e8803e075670ef",
+    "bench/runner.ts": "106663053a8a95c82014808ed1dfab882747d018c99f22b730cb3153e9b2d031"
+  },
+  "finalPairedInputsVerified": true,
+  "completedTrials": 614,
+  "forcedTrials": 24,
+  "allReportedLegal": 614
+}

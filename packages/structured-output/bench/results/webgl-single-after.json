@@ -1,0 +1,1043 @@
+{
+  "runtime": "webgl",
+  "profile": "current",
+  "startedAt": "2026-11-03T01:08:04.779Z",
+  "settings": {
+    "sampling": "model defaults",
+    "reasoning": "off",
+    "outputLimit": "model default",
+    "context": "model default",
+    "promptCache": "automatic"
+  },
+  "results": [
+    {
+      "caseId": "text-France",
+      "group": "text",
+      "input": {
+        "system": "Answer the user concisely.",
+        "messages": [
+          {
+            "role": "user",
+            "content": "What is the capital of France? Answer with the city name only."
+          }
+        ]
+      },
+      "expected": "Paris",
+      "correct": false,
+      "data": {
+        "text": "Paris</think>Paris",
+        "chunks": [
+          {
+            "type": "RUN_STARTED",
+            "runId": "run_mvzzo17u_0",
+            "threadId": "single-prompt-text",
+            "timestamp": 1793668086570,
+            "metadata": {
+              "tanstack": {
+                "source": {
+                  "provider": "webgl",
+                  "api": "webgl",
+                  "model": "LiquidAI/LFM3-1.7B-GGUF"
+                },
+                "model": "LiquidAI/LFM3-1.7B-GGUF"
+              }
+            }
+          },
+          {
+            "type": "TEXT_MESSAGE_START",
+            "messageId": "msg_mvzzo17u_1",
+            "role": "assistant",
+            "timestamp": 1793668086642,
+            "metadata": {
+              "tanstack": {
+                "source": {
+                  "provider": "webgl",
+                  "api": "webgl",
+                  "model": "LiquidAI/LFM3-1.7B-GGUF"
+                },
+                "model": "LiquidAI/LFM3-1.7B-GGUF"
+              }
+            }
+          },
+          {
+            "type": "TEXT_MESSAGE_CONTENT",
+            "messageId": "msg_mvzzo17u_1",
+            "delta": "Paris",
+            "timestamp": 1793668086642,
+            "metadata": {
+              "tanstack": {
+                "source": {
+                  "provider": "webgl",
+                  "api": "webgl",
+                  "model": "LiquidAI/LFM3-1.7B-GGUF"
+                }
+              }
+            }
+          },
+          {
+            "type": "TEXT_MESSAGE_CONTENT",
+            "messageId": "msg_mvzzo17u_1",
+            "delta": "</think>",
+            "timestamp": 1793668086648,
+            "metadata": {
+              "tanstack": {
+                "source": {
+                  "provider": "webgl",
+                  "api": "webgl",
+                  "model": "LiquidAI/LFM3-1.7B-GGUF"
+                }
+              }
+            }
+          },
+          {
+            "type": "TEXT_MESSAGE_CONTENT",
+            "messageId": "msg_mvzzo17u_1",
+            "delta": "Paris",
+            "timestamp": 1793668086660,
+            "metadata": {
+              "tanstack": {
+                "source": {
+                  "provider": "webgl",
+                  "api": "webgl",
+                  "model": "LiquidAI/LFM3-1.7B-GGUF"
+                }
+              }
+            }
+          },
+          {
+            "type": "TEXT_MESSAGE_END",
+            "messageId": "msg_mvzzo17u_1",
+            "timestamp": 1793668086671,
+            "metadata": {
+              "tanstack": {
+                "source": {
+                  "provider": "webgl",
+                  "api": "webgl",
+                  "model": "LiquidAI/LFM3-1.7B-GGUF"
+                },
+                "model": "LiquidAI/LFM3-1.7B-GGUF"
+              }
+            }
+          },
+          {
+            "type": "RUN_FINISHED",
+            "runId": "run_mvzzo17u_0",
+            "threadId": "single-prompt-text",
+            "timestamp": 1793668086671,
+            "usage": {
+              "promptTokens": 35,
+              "completionTokens": 4,
+              "totalTokens": 39,
+              "providerUsageDetails": {
+                "firstTokenMs": 64.79999995231628,
+                "promptMs": 61.39999997615814,
+                "tokenizeMs": 2.899999976158142,
+                "schemaMs": 0,
+                "cacheRestoreMs": 0.10000002384185791,
+                "cacheMatchedTokens": 0,
+                "cachePrefixTokens": 0,
+                "cacheAnchorTokens": 35,
+                "decodeMs": 29.200000047683716,
+                "decodeTokens": 3
+              }
+            },
+            "metadata": {
+              "tanstack": {
+                "source": {
+                  "provider": "webgl",
+                  "api": "webgl",
+                  "model": "LiquidAI/LFM3-1.7B-GGUF"
+                },
+                "model": "LiquidAI/LFM3-1.7B-GGUF",
+                "finishReason": "stop",
+                "usage": {
+                  "providerUsageDetails": {
+                    "firstTokenMs": 64.79999995231628,
+                    "promptMs": 61.39999997615814,
+                    "tokenizeMs": 2.899999976158142,
+                    "schemaMs": 0,
+                    "cacheRestoreMs": 0.10000002384185791,
+                    "cacheMatchedTokens": 0,
+                    "cachePrefixTokens": 0,
+                    "cacheAnchorTokens": 35,
+                    "decodeMs": 29.200000047683716,
+                    "decodeTokens": 3
+                  }
+                }
+              }
+            }
+          }
+        ]
+      },
+      "raw": "Paris</think>Paris",
+      "usage": {
+        "promptTokens": 35,
+        "completionTokens": 4,
+        "totalTokens": 39,
+        "providerUsageDetails": {
+          "firstTokenMs": 64.79999995231628,
+          "promptMs": 61.39999997615814,
+          "tokenizeMs": 2.899999976158142,
+          "schemaMs": 0,
+          "cacheRestoreMs": 0.10000002384185791,
+          "cacheMatchedTokens": 0,
+          "cachePrefixTokens": 0,
+          "cacheAnchorTokens": 35,
+          "decodeMs": 29.200000047683716,
+          "decodeTokens": 3
+        }
+      },
+      "totalMs": 101.5
+    },
+    {
+      "caseId": "text-Japan",
+      "group": "text",
+      "input": {
+        "system": "Answer the user concisely.",
+        "messages": [
+          {
+            "role": "user",
+            "content": "What is the capital of Japan? Answer with the city name only."
+          }
+        ]
+      },
+      "expected": "Tokyo",
+      "correct": false,
+      "data": {
+        "text": "Tokyo</think>Tokyo",
+        "chunks": [
+          {
+            "type": "RUN_STARTED",
+            "runId": "run_mvzzo1ao_4",
+            "threadId": "single-prompt-text",
+            "timestamp": 1793668086672,
+            "metadata": {
+              "tanstack": {
+                "source": {
+                  "provider": "webgl",
+                  "api": "webgl",
+                  "model": "LiquidAI/LFM3-1.7B-GGUF"
+                },
+                "model": "LiquidAI/LFM3-1.7B-GGUF"
+              }
+            }
+          },
+          {
+            "type": "TEXT_MESSAGE_START",
+            "messageId": "msg_mvzzo1ao_5",
+            "role": "assistant",
+            "timestamp": 1793668086734,
+            "metadata": {
+              "tanstack": {
+                "source": {
+                  "provider": "webgl",
+                  "api": "webgl",
+                  "model": "LiquidAI/LFM3-1.7B-GGUF"
+                },
+                "model": "LiquidAI/LFM3-1.7B-GGUF"
+              }
+            }
+          },
+          {
+            "type": "TEXT_MESSAGE_CONTENT",
+            "messageId": "msg_mvzzo1ao_5",
+            "delta": "Tok",
+            "timestamp": 1793668086734,
+            "metadata": {
+              "tanstack": {
+                "source": {
+                  "provider": "webgl",
+                  "api": "webgl",
+                  "model": "LiquidAI/LFM3-1.7B-GGUF"
+                }
+              }
+            }
+          },
+          {
+            "type": "TEXT_MESSAGE_CONTENT",
+            "messageId": "msg_mvzzo1ao_5",
+            "delta": "yo",
+            "timestamp": 1793668086745,
+            "metadata": {
+              "tanstack": {
+                "source": {
+                  "provider": "webgl",
+                  "api": "webgl",
+                  "model": "LiquidAI/LFM3-1.7B-GGUF"
+                }
+              }
+            }
+          },
+          {
+            "type": "TEXT_MESSAGE_CONTENT",
+            "messageId": "msg_mvzzo1ao_5",
+            "delta": "</think>",
+            "timestamp": 1793668086754,
+            "metadata": {
+              "tanstack": {
+                "source": {
+                  "provider": "webgl",
+                  "api": "webgl",
+                  "model": "LiquidAI/LFM3-1.7B-GGUF"
+                }
+              }
+            }
+          },
+          {
+            "type": "TEXT_MESSAGE_CONTENT",
+            "messageId": "msg_mvzzo1ao_5",
+            "delta": "Tok",
+            "timestamp": 1793668086765,
+            "metadata": {
+              "tanstack": {
+                "source": {
+                  "provider": "webgl",
+                  "api": "webgl",
+                  "model": "LiquidAI/LFM3-1.7B-GGUF"
+                }
+              }
+            }
+          },
+          {
+            "type": "TEXT_MESSAGE_CONTENT",
+            "messageId": "msg_mvzzo1ao_5",
+            "delta": "yo",
+            "timestamp": 1793668086775,
+            "metadata": {
+              "tanstack": {
+                "source": {
+                  "provider": "webgl",
+                  "api": "webgl",
+                  "model": "LiquidAI/LFM3-1.7B-GGUF"
+                }
+              }
+            }
+          },
+          {
+            "type": "TEXT_MESSAGE_END",
+            "messageId": "msg_mvzzo1ao_5",
+            "timestamp": 1793668086799,
+            "metadata": {
+              "tanstack": {
+                "source": {
+                  "provider": "webgl",
+                  "api": "webgl",
+                  "model": "LiquidAI/LFM3-1.7B-GGUF"
+                },
+                "model": "LiquidAI/LFM3-1.7B-GGUF"
+              }
+            }
+          },
+          {
+            "type": "RUN_FINISHED",
+            "runId": "run_mvzzo1ao_4",
+            "threadId": "single-prompt-text",
+            "timestamp": 1793668086799,
+            "usage": {
+              "promptTokens": 35,
+              "completionTokens": 6,
+              "totalTokens": 41,
+              "providerUsageDetails": {
+                "firstTokenMs": 59.40000009536743,
+                "promptMs": 58.5,
+                "tokenizeMs": 0.40000009536743164,
+                "schemaMs": 0,
+                "cacheRestoreMs": 0.5,
+                "cacheMatchedTokens": 19,
+                "cachePrefixTokens": 0,
+                "cacheAnchorTokens": 35,
+                "decodeMs": 65.39999997615814,
+                "decodeTokens": 5
+              }
+            },
+            "metadata": {
+              "tanstack": {
+                "source": {
+                  "provider": "webgl",
+                  "api": "webgl",
+                  "model": "LiquidAI/LFM3-1.7B-GGUF"
+                },
+                "model": "LiquidAI/LFM3-1.7B-GGUF",
+                "finishReason": "stop",
+                "usage": {
+                  "providerUsageDetails": {
+                    "firstTokenMs": 59.40000009536743,
+                    "promptMs": 58.5,
+                    "tokenizeMs": 0.40000009536743164,
+                    "schemaMs": 0,
+                    "cacheRestoreMs": 0.5,
+                    "cacheMatchedTokens": 19,
+                    "cachePrefixTokens": 0,
+                    "cacheAnchorTokens": 35,
+                    "decodeMs": 65.39999997615814,
+                    "decodeTokens": 5
+                  }
+                }
+              }
+            }
+          }
+        ]
+      },
+      "raw": "Tokyo</think>Tokyo",
+      "usage": {
+        "promptTokens": 35,
+        "completionTokens": 6,
+        "totalTokens": 41,
+        "providerUsageDetails": {
+          "firstTokenMs": 59.40000009536743,
+          "promptMs": 58.5,
+          "tokenizeMs": 0.40000009536743164,
+          "schemaMs": 0,
+          "cacheRestoreMs": 0.5,
+          "cacheMatchedTokens": 19,
+          "cachePrefixTokens": 0,
+          "cacheAnchorTokens": 35,
+          "decodeMs": 65.39999997615814,
+          "decodeTokens": 5
+        }
+      },
+      "totalMs": 127.89999997615814
+    },
+    {
+      "caseId": "text-Italy",
+      "group": "text",
+      "input": {
+        "system": "Answer the user concisely.",
+        "messages": [
+          {
+            "role": "user",
+            "content": "What is the capital of Italy? Answer with the city name only."
+          }
+        ]
+      },
+      "expected": "Rome",
+      "correct": false,
+      "data": {
+        "text": "Rome</think>Rome",
+        "chunks": [
+          {
+            "type": "RUN_STARTED",
+            "runId": "run_mvzzo1e8_8",
+            "threadId": "single-prompt-text",
+            "timestamp": 1793668086800,
+            "metadata": {
+              "tanstack": {
+                "source": {
+                  "provider": "webgl",
+                  "api": "webgl",
+                  "model": "LiquidAI/LFM3-1.7B-GGUF"
+                },
+                "model": "LiquidAI/LFM3-1.7B-GGUF"
+              }
+            }
+          },
+          {
+            "type": "TEXT_MESSAGE_START",
+            "messageId": "msg_mvzzo1e8_9",
+            "role": "assistant",
+            "timestamp": 1793668086863,
+            "metadata": {
+              "tanstack": {
+                "source": {
+                  "provider": "webgl",
+                  "api": "webgl",
+                  "model": "LiquidAI/LFM3-1.7B-GGUF"
+                },
+                "model": "LiquidAI/LFM3-1.7B-GGUF"
+              }
+            }
+          },
+          {
+            "type": "TEXT_MESSAGE_CONTENT",
+            "messageId": "msg_mvzzo1e8_9",
+            "delta": "R",
+            "timestamp": 1793668086863,
+            "metadata": {
+              "tanstack": {
+                "source": {
+                  "provider": "webgl",
+                  "api": "webgl",
+                  "model": "LiquidAI/LFM3-1.7B-GGUF"
+                }
+              }
+            }
+          },
+          {
+            "type": "TEXT_MESSAGE_CONTENT",
+            "messageId": "msg_mvzzo1e8_9",
+            "delta": "ome",
+            "timestamp": 1793668086873,
+            "metadata": {
+              "tanstack": {
+                "source": {
+                  "provider": "webgl",
+                  "api": "webgl",
+                  "model": "LiquidAI/LFM3-1.7B-GGUF"
+                }
+              }
+            }
+          },
+          {
+            "type": "TEXT_MESSAGE_CONTENT",
+            "messageId": "msg_mvzzo1e8_9",
+            "delta": "</think>",
+            "timestamp": 1793668086882,
+            "metadata": {
+              "tanstack": {
+                "source": {
+                  "provider": "webgl",
+                  "api": "webgl",
+                  "model": "LiquidAI/LFM3-1.7B-GGUF"
+                }
+              }
+            }
+          },
+          {
+            "type": "TEXT_MESSAGE_CONTENT",
+            "messageId": "msg_mvzzo1e8_9",
+            "delta": "R",
+            "timestamp": 1793668086894,
+            "metadata": {
+              "tanstack": {
+                "source": {
+                  "provider": "webgl",
+                  "api": "webgl",
+                  "model": "LiquidAI/LFM3-1.7B-GGUF"
+                }
+              }
+            }
+          },
+          {
+            "type": "TEXT_MESSAGE_CONTENT",
+            "messageId": "msg_mvzzo1e8_9",
+            "delta": "ome",
+            "timestamp": 1793668086903,
+            "metadata": {
+              "tanstack": {
+                "source": {
+                  "provider": "webgl",
+                  "api": "webgl",
+                  "model": "LiquidAI/LFM3-1.7B-GGUF"
+                }
+              }
+            }
+          },
+          {
+            "type": "TEXT_MESSAGE_END",
+            "messageId": "msg_mvzzo1e8_9",
+            "timestamp": 1793668086927,
+            "metadata": {
+              "tanstack": {
+                "source": {
+                  "provider": "webgl",
+                  "api": "webgl",
+                  "model": "LiquidAI/LFM3-1.7B-GGUF"
+                },
+                "model": "LiquidAI/LFM3-1.7B-GGUF"
+              }
+            }
+          },
+          {
+            "type": "RUN_FINISHED",
+            "runId": "run_mvzzo1e8_8",
+            "threadId": "single-prompt-text",
+            "timestamp": 1793668086927,
+            "usage": {
+              "promptTokens": 35,
+              "completionTokens": 6,
+              "totalTokens": 41,
+              "providerUsageDetails": {
+                "firstTokenMs": 59.5,
+                "promptMs": 58.700000047683716,
+                "tokenizeMs": 0.2999999523162842,
+                "schemaMs": 0,
+                "cacheRestoreMs": 0.2999999523162842,
+                "cacheMatchedTokens": 19,
+                "cachePrefixTokens": 0,
+                "cacheAnchorTokens": 35,
+                "decodeMs": 64.10000002384186,
+                "decodeTokens": 5
+              }
+            },
+            "metadata": {
+              "tanstack": {
+                "source": {
+                  "provider": "webgl",
+                  "api": "webgl",
+                  "model": "LiquidAI/LFM3-1.7B-GGUF"
+                },
+                "model": "LiquidAI/LFM3-1.7B-GGUF",
+                "finishReason": "stop",
+                "usage": {
+                  "providerUsageDetails": {
+                    "firstTokenMs": 59.5,
+                    "promptMs": 58.700000047683716,
+                    "tokenizeMs": 0.2999999523162842,
+                    "schemaMs": 0,
+                    "cacheRestoreMs": 0.2999999523162842,
+                    "cacheMatchedTokens": 19,
+                    "cachePrefixTokens": 0,
+                    "cacheAnchorTokens": 35,
+                    "decodeMs": 64.10000002384186,
+                    "decodeTokens": 5
+                  }
+                }
+              }
+            }
+          }
+        ]
+      },
+      "raw": "Rome</think>Rome",
+      "usage": {
+        "promptTokens": 35,
+        "completionTokens": 6,
+        "totalTokens": 41,
+        "providerUsageDetails": {
+          "firstTokenMs": 59.5,
+          "promptMs": 58.700000047683716,
+          "tokenizeMs": 0.2999999523162842,
+          "schemaMs": 0,
+          "cacheRestoreMs": 0.2999999523162842,
+          "cacheMatchedTokens": 19,
+          "cachePrefixTokens": 0,
+          "cacheAnchorTokens": 35,
+          "decodeMs": 64.10000002384186,
+          "decodeTokens": 5
+        }
+      },
+      "totalMs": 127.39999997615814
+    },
+    {
+      "caseId": "text-Spain",
+      "group": "text",
+      "input": {
+        "system": "Answer the user concisely.",
+        "messages": [
+          {
+            "role": "user",
+            "content": "What is the capital of Spain? Answer with the city name only."
+          }
+        ]
+      },
+      "expected": "Madrid",
+      "correct": false,
+      "data": {
+        "text": "Madrid</think>Madrid",
+        "chunks": [
+          {
+            "type": "RUN_STARTED",
+            "runId": "run_mvzzo1hr_c",
+            "threadId": "single-prompt-text",
+            "timestamp": 1793668086927,
+            "metadata": {
+              "tanstack": {
+                "source": {
+                  "provider": "webgl",
+                  "api": "webgl",
+                  "model": "LiquidAI/LFM3-1.7B-GGUF"
+                },
+                "model": "LiquidAI/LFM3-1.7B-GGUF"
+              }
+            }
+          },
+          {
+            "type": "TEXT_MESSAGE_START",
+            "messageId": "msg_mvzzo1hr_d",
+            "role": "assistant",
+            "timestamp": 1793668086990,
+            "metadata": {
+              "tanstack": {
+                "source": {
+                  "provider": "webgl",
+                  "api": "webgl",
+                  "model": "LiquidAI/LFM3-1.7B-GGUF"
+                },
+                "model": "LiquidAI/LFM3-1.7B-GGUF"
+              }
+            }
+          },
+          {
+            "type": "TEXT_MESSAGE_CONTENT",
+            "messageId": "msg_mvzzo1hr_d",
+            "delta": "Mad",
+            "timestamp": 1793668086990,
+            "metadata": {
+              "tanstack": {
+                "source": {
+                  "provider": "webgl",
+                  "api": "webgl",
+                  "model": "LiquidAI/LFM3-1.7B-GGUF"
+                }
+              }
+            }
+          },
+          {
+            "type": "TEXT_MESSAGE_CONTENT",
+            "messageId": "msg_mvzzo1hr_d",
+            "delta": "rid",
+            "timestamp": 1793668087000,
+            "metadata": {
+              "tanstack": {
+                "source": {
+                  "provider": "webgl",
+                  "api": "webgl",
+                  "model": "LiquidAI/LFM3-1.7B-GGUF"
+                }
+              }
+            }
+          },
+          {
+            "type": "TEXT_MESSAGE_CONTENT",
+            "messageId": "msg_mvzzo1hr_d",
+            "delta": "</think>",
+            "timestamp": 1793668087011,
+            "metadata": {
+              "tanstack": {
+                "source": {
+                  "provider": "webgl",
+                  "api": "webgl",
+                  "model": "LiquidAI/LFM3-1.7B-GGUF"
+                }
+              }
+            }
+          },
+          {
+            "type": "TEXT_MESSAGE_CONTENT",
+            "messageId": "msg_mvzzo1hr_d",
+            "delta": "Mad",
+            "timestamp": 1793668087021,
+            "metadata": {
+              "tanstack": {
+                "source": {
+                  "provider": "webgl",
+                  "api": "webgl",
+                  "model": "LiquidAI/LFM3-1.7B-GGUF"
+                }
+              }
+            }
+          },
+          {
+            "type": "TEXT_MESSAGE_CONTENT",
+            "messageId": "msg_mvzzo1hr_d",
+            "delta": "rid",
+            "timestamp": 1793668087030,
+            "metadata": {
+              "tanstack": {
+                "source": {
+                  "provider": "webgl",
+                  "api": "webgl",
+                  "model": "LiquidAI/LFM3-1.7B-GGUF"
+                }
+              }
+            }
+          },
+          {
+            "type": "TEXT_MESSAGE_END",
+            "messageId": "msg_mvzzo1hr_d",
+            "timestamp": 1793668087054,
+            "metadata": {
+              "tanstack": {
+                "source": {
+                  "provider": "webgl",
+                  "api": "webgl",
+                  "model": "LiquidAI/LFM3-1.7B-GGUF"
+                },
+                "model": "LiquidAI/LFM3-1.7B-GGUF"
+              }
+            }
+          },
+          {
+            "type": "RUN_FINISHED",
+            "runId": "run_mvzzo1hr_c",
+            "threadId": "single-prompt-text",
+            "timestamp": 1793668087054,
+            "usage": {
+              "promptTokens": 35,
+              "completionTokens": 6,
+              "totalTokens": 41,
+              "providerUsageDetails": {
+                "firstTokenMs": 59.699999928474426,
+                "promptMs": 59.09999990463257,
+                "tokenizeMs": 0.2999999523162842,
+                "schemaMs": 0,
+                "cacheRestoreMs": 0.30000007152557373,
+                "cacheMatchedTokens": 19,
+                "cachePrefixTokens": 0,
+                "cacheAnchorTokens": 35,
+                "decodeMs": 64.20000004768372,
+                "decodeTokens": 5
+              }
+            },
+            "metadata": {
+              "tanstack": {
+                "source": {
+                  "provider": "webgl",
+                  "api": "webgl",
+                  "model": "LiquidAI/LFM3-1.7B-GGUF"
+                },
+                "model": "LiquidAI/LFM3-1.7B-GGUF",
+                "finishReason": "stop",
+                "usage": {
+                  "providerUsageDetails": {
+                    "firstTokenMs": 59.699999928474426,
+                    "promptMs": 59.09999990463257,
+                    "tokenizeMs": 0.2999999523162842,
+                    "schemaMs": 0,
+                    "cacheRestoreMs": 0.30000007152557373,
+                    "cacheMatchedTokens": 19,
+                    "cachePrefixTokens": 0,
+                    "cacheAnchorTokens": 35,
+                    "decodeMs": 64.20000004768372,
+                    "decodeTokens": 5
+                  }
+                }
+              }
+            }
+          }
+        ]
+      },
+      "raw": "Madrid</think>Madrid",
+      "usage": {
+        "promptTokens": 35,
+        "completionTokens": 6,
+        "totalTokens": 41,
+        "providerUsageDetails": {
+          "firstTokenMs": 59.699999928474426,
+          "promptMs": 59.09999990463257,
+          "tokenizeMs": 0.2999999523162842,
+          "schemaMs": 0,
+          "cacheRestoreMs": 0.30000007152557373,
+          "cacheMatchedTokens": 19,
+          "cachePrefixTokens": 0,
+          "cacheAnchorTokens": 35,
+          "decodeMs": 64.20000004768372,
+          "decodeTokens": 5
+        }
+      },
+      "totalMs": 127.20000004768372
+    },
+    {
+      "caseId": "structured-France",
+      "group": "structured",
+      "input": {
+        "system": "Answer the user concisely.",
+        "messages": [
+          {
+            "role": "user",
+            "content": "What is the capital of France? Return the city in the requested JSON object."
+          }
+        ],
+        "schema": {
+          "type": "object",
+          "properties": {
+            "city": {
+              "type": "string",
+              "enum": [
+                "Paris",
+                "Tokyo",
+                "Rome",
+                "Madrid"
+              ]
+            }
+          },
+          "required": [
+            "city"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "expected": "Paris",
+      "correct": true,
+      "data": {
+        "city": "Paris"
+      },
+      "raw": "{\"city\":\"Paris\"}",
+      "usage": {
+        "promptTokens": 84,
+        "completionTokens": 6,
+        "totalTokens": 90,
+        "providerUsageDetails": {
+          "firstTokenMs": 282.39999997615814,
+          "promptMs": 77.29999995231628,
+          "tokenizeMs": 1.2000000476837158,
+          "schemaMs": 203.60000002384186,
+          "cacheRestoreMs": 0.2999999523162842,
+          "cacheMatchedTokens": 8,
+          "cachePrefixTokens": 0,
+          "cacheAnchorTokens": 84,
+          "decodeMs": 55.200000047683716,
+          "decodeTokens": 5
+        }
+      },
+      "totalMs": 341.40000009536743
+    },
+    {
+      "caseId": "structured-Japan",
+      "group": "structured",
+      "input": {
+        "system": "Answer the user concisely.",
+        "messages": [
+          {
+            "role": "user",
+            "content": "What is the capital of Japan? Return the city in the requested JSON object."
+          }
+        ],
+        "schema": {
+          "type": "object",
+          "properties": {
+            "city": {
+              "type": "string",
+              "enum": [
+                "Paris",
+                "Tokyo",
+                "Rome",
+                "Madrid"
+              ]
+            }
+          },
+          "required": [
+            "city"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "expected": "Tokyo",
+      "correct": true,
+      "data": {
+        "city": "Tokyo"
+      },
+      "raw": "{\"city\":\"Tokyo\"}",
+      "usage": {
+        "promptTokens": 84,
+        "completionTokens": 7,
+        "totalTokens": 91,
+        "providerUsageDetails": {
+          "firstTokenMs": 75.19999992847443,
+          "promptMs": 73.79999995231628,
+          "tokenizeMs": 0.5999999046325684,
+          "schemaMs": 0.6000000238418579,
+          "cacheRestoreMs": 0.20000004768371582,
+          "cacheMatchedTokens": 66,
+          "cachePrefixTokens": 0,
+          "cacheAnchorTokens": 84,
+          "decodeMs": 69.20000004768372,
+          "decodeTokens": 6
+        }
+      },
+      "totalMs": 154.80000007152557
+    },
+    {
+      "caseId": "structured-Italy",
+      "group": "structured",
+      "input": {
+        "system": "Answer the user concisely.",
+        "messages": [
+          {
+            "role": "user",
+            "content": "What is the capital of Italy? Return the city in the requested JSON object."
+          }
+        ],
+        "schema": {
+          "type": "object",
+          "properties": {
+            "city": {
+              "type": "string",
+              "enum": [
+                "Paris",
+                "Tokyo",
+                "Rome",
+                "Madrid"
+              ]
+            }
+          },
+          "required": [
+            "city"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "expected": "Rome",
+      "correct": true,
+      "data": {
+        "city": "Rome"
+      },
+      "raw": "{\"city\":\"Rome\"}",
+      "usage": {
+        "promptTokens": 84,
+        "completionTokens": 7,
+        "totalTokens": 91,
+        "providerUsageDetails": {
+          "firstTokenMs": 76.29999995231628,
+          "promptMs": 75.29999995231628,
+          "tokenizeMs": 0.2999999523162842,
+          "schemaMs": 0.5,
+          "cacheRestoreMs": 0.20000004768371582,
+          "cacheMatchedTokens": 66,
+          "cachePrefixTokens": 0,
+          "cacheAnchorTokens": 84,
+          "decodeMs": 73.10000002384186,
+          "decodeTokens": 6
+        }
+      },
+      "totalMs": 160.90000009536743
+    },
+    {
+      "caseId": "structured-Spain",
+      "group": "structured",
+      "input": {
+        "system": "Answer the user concisely.",
+        "messages": [
+          {
+            "role": "user",
+            "content": "What is the capital of Spain? Return the city in the requested JSON object."
+          }
+        ],
+        "schema": {
+          "type": "object",
+          "properties": {
+            "city": {
+              "type": "string",
+              "enum": [
+                "Paris",
+                "Tokyo",
+                "Rome",
+                "Madrid"
+              ]
+            }
+          },
+          "required": [
+            "city"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "expected": "Madrid",
+      "correct": true,
+      "data": {
+        "city": "Madrid"
+      },
+      "raw": "{\"city\":\"Madrid\"}",
+      "usage": {
+        "promptTokens": 84,
+        "completionTokens": 7,
+        "totalTokens": 91,
+        "providerUsageDetails": {
+          "firstTokenMs": 79.39999997615814,
+          "promptMs": 78.39999997615814,
+          "tokenizeMs": 0.3999999761581421,
+          "schemaMs": 0.3999999761581421,
+          "cacheRestoreMs": 0.20000004768371582,
+          "cacheMatchedTokens": 66,
+          "cachePrefixTokens": 0,
+          "cacheAnchorTokens": 84,
+          "decodeMs": 71.60000002384186,
+          "decodeTokens": 6
+        }
+      },
+      "totalMs": 157.39999997615814
+    }
+  ],
+  "error": null,
+  "model": "LiquidAI/LFM3-1.7B-GGUF",
+  "finishedAt": "2026-11-03T01:08:07.870Z"
+}

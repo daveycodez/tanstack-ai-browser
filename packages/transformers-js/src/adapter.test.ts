@@ -65,12 +65,16 @@ test("required and specific tools use constrained decisions and arguments, emitt
     }
     const chunks = []
     for await (const chunk of transformersJsText(MODEL).chatStream({ ...options(), tools, toolChoice })) chunks.push(chunk)
-    assert.equal(requests, toolChoice === "required" ? 2 : 1)
+    assert.equal(requests, 1)
     const end = chunks.find(chunk => chunk.type === "TOOL_CALL_END")
     assert.ok(end && end.type === "TOOL_CALL_END")
     assert.equal(end.toolCallName, "lookup")
     assert.deepEqual(end.input, { query: "checkers" })
     assert.equal(chunks.filter(chunk => chunk.type === "RUN_STARTED").length, 1)
+    const guided = FakeWorker.last.posted.filter((request): request is Extract<WorkerRequest, { type: "generate" }> => request.type === "generate" && !!request.outputSchema)
+    assert.equal(guided.length,1)
+    assert.deepEqual(guided[0].outputSchema,tools[0].inputSchema)
+    assert.ok(guided[0].chat[0]?.content.includes("Return the arguments"))
     unloadModel()
   }
 })
@@ -263,4 +267,147 @@ test("malformed native auto envelopes fail before any tool event", async () => {
     assert.ok(chunks.some(chunk => chunk.type === "RUN_ERROR" && chunk.message.includes("malformed")))
     assert.ok(!chunks.some(chunk => chunk.type === "TOOL_CALL_START"))
   } finally { unloadModel() }
+})
+
+
+test("SDK promptCache controls both adapter paths without changing default retention or generation settings", async () => {
+  const { transformersJsText } = await import("./adapter.js")
+  const { unloadModel } = await import("./client.js")
+  const adapter=transformersJsText(MODEL)
+  for(const promptCache of [undefined,{retention:"short" as const},{retention:"long" as const},{retention:"none" as const},{retention:"long" as const,key:"shared-prefix"},{retention:"short" as const,key:""}]){
+    unloadModel()
+    const sent:Array<Extract<WorkerRequest,{type:"generate"}>>=[]
+    FakeWorker.generate=(worker,request)=>{
+      sent.push(request)
+      worker.send({type:"token",id:request.id,text:request.outputSchema?'{"moveId":"b6-a5"}':"answer"})
+      worker.send({type:"done",id:request.id,stats})
+    }
+    const callOptions={...options(),...(promptCache===undefined?{}:{promptCache})}
+    await adapter.structuredOutput({chatOptions:callOptions,outputSchema:schema})
+    for await(const chunk of adapter.chatStream(callOptions))assert.ok(chunk)
+    assert.equal(sent.length,2)
+    for(const request of sent){
+      assert.equal(Object.hasOwn(request,"cachePrompt"),promptCache?.retention==="none")
+      assert.equal(request.cachePrompt,promptCache?.retention==="none"?false:undefined)
+      assert.equal(request.maxTokens,8192)
+      assert.equal(request.contextLength,undefined)
+      assert.equal(request.thinkingBudgetTokens,512)
+      assert.ok(!JSON.stringify(request.chat).includes("shared-prefix"),"cache identity is never rendered into model text")
+    }
+  }
+  unloadModel()
+})
+
+
+
+test("required multiple tools still route under a schema before exact argument generation",async()=>{
+  const {transformersJsText}=await import("./adapter.js")
+  const {unloadModel}=await import("./client.js")
+  unloadModel()
+  const inputSchema={type:"object",properties:{query:{type:"string",minLength:1}},required:["query"],additionalProperties:false}
+  const tools=[{name:"lookup",description:"Look up a query",inputSchema},{name:"calendar",description:"Read the calendar",inputSchema:{type:"object",properties:{},additionalProperties:false}}]
+  const sent:Array<Extract<WorkerRequest,{type:"generate"}>>=[]
+  FakeWorker.generate=(worker,request)=>{
+    sent.push(request)
+    if(sent.length===1){
+      const route=request.outputSchema as {properties:{action:{enum:string[]}}}
+      assert.deepEqual(route.properties.action.enum,["lookup","calendar"])
+    }else assert.deepEqual(request.outputSchema,inputSchema)
+    worker.send({type:"token",id:request.id,text:sent.length===1?'{"action":"lookup"}':'{"query":"status"}'})
+    worker.send({type:"done",id:request.id,stats})
+  }
+  try{
+    const chunks=[]
+    for await(const chunk of transformersJsText(MODEL).chatStream({...options(),tools,toolChoice:"required"}))chunks.push(chunk)
+    assert.equal(sent.length,2)
+    assert.match(sent[0].chat[0]?.content??"",/Choose action/)
+    assert.match(sent[1].chat[0]?.content??"",/Return the arguments for lookup/)
+    const call=chunks.find(chunk=>chunk.type==="TOOL_CALL_END")
+    assert.ok(call&&call.type==="TOOL_CALL_END")
+    assert.equal(call.toolCallName,"lookup")
+    assert.deepEqual(call.input,{query:"status"})
+  }finally{unloadModel()}
+})
+
+test("structured serialization stays byte-for-byte in the original system/schema layout with current tool context",async()=>{
+  const {transformersJsText}=await import("./adapter.js")
+  const {unloadModel}=await import("./client.js")
+  unloadModel()
+  const messages=[
+    {role:"user" as const,content:"Earlier request"},
+    {role:"assistant" as const,content:"Earlier answer",thinking:[{content:"OLD_EXPLICIT_THOUGHT"}],toolCalls:[{id:"old",type:"function" as const,function:{name:"lookup",arguments:'{"key":"old"}'}}]},
+    {role:"tool" as const,toolCallId:"old",content:"Earlier result"},
+    {role:"user" as const,content:"Use the current result"},
+    {role:"assistant" as const,content:"",thinking:[{content:"CURRENT_EXPLICIT_THOUGHT"}],toolCalls:[{id:"current",type:"function" as const,function:{name:"lookup",arguments:'{"key":"current"}'}}]},
+    {role:"tool" as const,toolCallId:"current",content:'{"answer":"authoritative"}'}
+  ]
+  const original=JSON.stringify(messages)
+  const callerSystem=["Stable instructions\nKeep original whitespace.","Second system block"]
+  const expected=[
+    {role:"system",content:callerSystem.join("\n\n")+"\n\nAnswer with only a JSON value matching this JSON Schema:\n"+JSON.stringify(schema)},
+    {role:"user",content:"Earlier request"},
+    {role:"assistant",content:"Earlier answer"},
+    {role:"user",content:"Use the current result"},
+    {role:"assistant",content:"",tool_calls:[{id:"current",type:"function",function:{name:"lookup",arguments:{key:"current"}}}],thinking:"CURRENT_EXPLICIT_THOUGHT"},
+    {role:"tool",content:'{"answer":"authoritative"}',tool_call_id:"current",name:"lookup"}
+  ]
+  FakeWorker.generate=(worker,request)=>{
+    assert.equal(JSON.stringify(request.chat),JSON.stringify(expected))
+    assert.deepEqual(request.outputSchema,schema)
+    for(const field of ["cacheAnchorMessages","cacheAnchorContentLength","cacheScope"])assert.equal(field in request,false)
+    assert.equal(request.thinking,false)
+    worker.send({type:"token",id:request.id,text:'{"moveId":"b6-a5"}'})
+    worker.send({type:"done",id:request.id,stats})
+  }
+  try{
+    await transformersJsText("daveycodez/LFM3-1.7B-Web-ONNX").structuredOutput({chatOptions:{...options(),systemPrompts:callerSystem,messages,reasoning:{level:"off",summary:true}},outputSchema:schema})
+    assert.equal(JSON.stringify(messages),original)
+  }finally{unloadModel()}
+})
+
+test("guided tool arguments retain original instruction/schema serialization in the system message",async()=>{
+  const {transformersJsText}=await import("./adapter.js")
+  const {unloadModel}=await import("./client.js")
+  unloadModel()
+  const inputSchema={type:"object",properties:{query:{type:"string"}},required:["query"],additionalProperties:false}
+  const expectedSystem="Stable caller instructions\n\nReturn the arguments for lookup. Look up a query\n\nAnswer with only a JSON value matching this JSON Schema:\n"+JSON.stringify(inputSchema)
+  FakeWorker.generate=(worker,request)=>{
+    assert.equal(request.chat[0].content,expectedSystem)
+    assert.deepEqual(request.chat.slice(1),[{role:"user",content:"Look up status"}])
+    assert.deepEqual(request.outputSchema,inputSchema)
+    worker.send({type:"token",id:request.id,text:'{"query":"status"}'})
+    worker.send({type:"done",id:request.id,stats})
+  }
+  try{
+    for await(const chunk of transformersJsText(MODEL).chatStream({...options(),systemPrompts:["Stable caller instructions"],messages:[{role:"user",content:"Look up status"}],tools:[{name:"lookup",description:"Look up a query",inputSchema}],toolChoice:"required"}))assert.ok(chunk)
+  }finally{unloadModel()}
+})
+
+test("the same public SDK promptCache policy matrix works without provider-specific consumer options",async()=>{
+  const {chat}=await import("@tanstack/ai")
+  const {transformersJsText}=await import("./adapter.js")
+  const {unloadModel}=await import("./client.js")
+  const invoke=(adapter:unknown,promptCache:unknown,stream=false)=>(chat as (options:Record<string,unknown>)=>unknown)({adapter,threadId:"portable-cache",systemPrompts:["Stable instructions"],messages:[{role:"user",content:"Return a legal move"}],promptCache,reasoning:"off",...(stream?{stream:true}:{stream:false,outputSchema:schema})})
+  for(const policy of [undefined,"none","short","long",{retention:"short",key:"portable-cache-key"}]){
+    unloadModel()
+    const sent:Array<Extract<WorkerRequest,{type:"generate"}>>=[]
+    FakeWorker.generate=(worker,request)=>{
+      sent.push(request)
+      worker.send({type:"token",id:request.id,text:request.outputSchema?'{"moveId":"b6-a5"}':"answer"})
+      worker.send({type:"done",id:request.id,stats})
+    }
+    try{
+      const adapter=transformersJsText("daveycodez/LFM3-1.7B-Web-ONNX")
+      assert.deepEqual(await invoke(adapter,policy),{moveId:"b6-a5"})
+      for await(const chunk of invoke(adapter,policy,true) as AsyncIterable<unknown>)assert.ok(chunk)
+      assert.equal(sent.length,2)
+      for(const request of sent){
+        assert.equal(Object.hasOwn(request,"cachePrompt"),policy==="none")
+        assert.equal(request.cachePrompt,policy==="none"?false:undefined)
+        assert.equal(request.maxTokens,undefined,"consumer did not need an output setting")
+        assert.equal(request.contextLength,undefined)
+        assert.ok(!JSON.stringify(request.chat).includes("portable-cache-key"))
+      }
+    }finally{unloadModel()}
+  }
 })

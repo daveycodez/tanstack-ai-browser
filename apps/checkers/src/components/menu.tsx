@@ -1,4 +1,5 @@
 import { ThemeSelect } from "./theme-select"
+import { SoundToggle } from "./sound-toggle"
 import type { Game } from "../lib/checkers"
 
 type MenuProps = {
@@ -22,7 +23,7 @@ export function PieceArt({
       className={`piece piece-${side}${king ? " piece-king" : ""}`}
       aria-hidden="true"
     >
-      <span>{king ? "♛" : ""}</span>
+      <span className="piece-face"><span>{king ? "♛" : ""}</span></span>
     </span>
   )
 }
@@ -68,7 +69,7 @@ export function MenuView({
         </span>
         <span>Checkers</span>
         </div>
-        <ThemeSelect />
+        <div className="menu-header-actions"><SoundToggle /><ThemeSelect /></div>
       </header>
       <main className="menu-main">
         <div className="menu-copy">

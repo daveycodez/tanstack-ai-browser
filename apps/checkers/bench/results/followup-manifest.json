@@ -1,0 +1,615 @@
+{
+  "scope": "Reported-game capture settlement and runner-defense followup; historical reports unchanged",
+  "suiteVersion": "checkers-audited-v6",
+  "promptVersion": "shared-v6",
+  "outcomeVersion": "runner-replies-v4",
+  "systemPromptUnchanged": true,
+  "generationSettingsUnchanged": true,
+  "reports": [
+    {
+      "file": "22-lfm-exchange-before-v4.json",
+      "sha256": "59c992a79bd528bbb5c090b1e49cb8a5a9a8883ae801017331212870460ca9d8",
+      "config": {
+        "model": "LiquidAI/LFM3-1.7B-GGUF",
+        "thinking": false,
+        "reasoningMode": "off",
+        "reasoningBudgetTokens": 512,
+        "maxOutputTokens": 8192,
+        "sampling": "model defaults",
+        "repetitions": 4,
+        "caseIds": [
+          "reported-exchange-move-6",
+          "reported-exchange-move-28"
+        ],
+        "suiteVersion": "checkers-audited-v4",
+        "promptVersion": "shared-v4",
+        "outcomeVersion": "legal-replies-v2",
+        "orderPolicy": "case/repetition seeded permutations, identical across models and prompt versions",
+        "outputContract": "legal-action-label-enum"
+      },
+      "summary": {
+        "total": 8,
+        "inferred": 8,
+        "legal": 8,
+        "scored": 8,
+        "passed": 7,
+        "firstOption": 2,
+        "medianSeconds": 0.907550000011921
+      }
+    },
+    {
+      "file": "23-nano-exchange-before-v4.json",
+      "sha256": "00a182299495c1d43fed681762e737baa15d2496e8bfa0d6ead74fd2f6a54624",
+      "config": {
+        "model": "prompt-api",
+        "thinking": false,
+        "runtimeModel": {
+          "id": "gemini-nano",
+          "name": "Gemini Nano",
+          "browser": "Chrome"
+        },
+        "reasoningMode": "off",
+        "reasoningBudgetTokens": 512,
+        "maxOutputTokens": null,
+        "sampling": "model defaults",
+        "repetitions": 4,
+        "caseIds": [
+          "reported-exchange-move-6",
+          "reported-exchange-move-28"
+        ],
+        "suiteVersion": "checkers-audited-v4",
+        "promptVersion": "shared-v4",
+        "outcomeVersion": "legal-replies-v2",
+        "orderPolicy": "case/repetition seeded permutations, identical across models and prompt versions",
+        "outputContract": "legal-action-label-enum"
+      },
+      "summary": {
+        "total": 8,
+        "inferred": 8,
+        "legal": 8,
+        "scored": 8,
+        "passed": 8,
+        "firstOption": 1,
+        "medianSeconds": 2.3430999999642372
+      }
+    },
+    {
+      "file": "24-lfm-exchange-settled-v5.json",
+      "sha256": "d46a4780d384c8dc297426433f85550d1d3aac88c6fef7e4d5d0322c18b342df",
+      "config": {
+        "model": "LiquidAI/LFM3-1.7B-GGUF",
+        "thinking": false,
+        "reasoningMode": "off",
+        "reasoningBudgetTokens": 512,
+        "maxOutputTokens": 8192,
+        "sampling": "model defaults",
+        "repetitions": 4,
+        "caseIds": [
+          "reported-exchange-move-6",
+          "reported-exchange-move-28"
+        ],
+        "suiteVersion": "checkers-audited-v4",
+        "promptVersion": "shared-v5",
+        "outcomeVersion": "settled-captures-v3",
+        "orderPolicy": "case/repetition seeded permutations, identical across models and prompt versions",
+        "outputContract": "legal-action-label-enum"
+      },
+      "summary": {
+        "total": 8,
+        "inferred": 8,
+        "legal": 8,
+        "scored": 8,
+        "passed": 8,
+        "firstOption": 2,
+        "medianSeconds": 0.7939500000476838
+      }
+    },
+    {
+      "file": "25-nano-exchange-settled-v5.json",
+      "sha256": "70aee5bc0fedfdde6d06b8c40e3c33037ea80b2d29ed16d1f4748f12a134219d",
+      "config": {
+        "model": "prompt-api",
+        "thinking": false,
+        "runtimeModel": {
+          "id": "gemini-nano",
+          "name": "Gemini Nano",
+          "browser": "Chrome"
+        },
+        "reasoningMode": "off",
+        "reasoningBudgetTokens": 512,
+        "maxOutputTokens": null,
+        "sampling": "model defaults",
+        "repetitions": 4,
+        "caseIds": [
+          "reported-exchange-move-6",
+          "reported-exchange-move-28"
+        ],
+        "suiteVersion": "checkers-audited-v4",
+        "promptVersion": "shared-v5",
+        "outcomeVersion": "settled-captures-v3",
+        "orderPolicy": "case/repetition seeded permutations, identical across models and prompt versions",
+        "outputContract": "legal-action-label-enum"
+      },
+      "summary": {
+        "total": 8,
+        "inferred": 8,
+        "legal": 8,
+        "scored": 8,
+        "passed": 8,
+        "firstOption": 2,
+        "medianSeconds": 0.8803999999761581
+      }
+    },
+    {
+      "file": "26-lfm-full-settled-v5.json",
+      "sha256": "682f79e136845e04ad2e9af1077334dd90259e40a6a6e13175c39c0f710b59ef",
+      "config": {
+        "model": "LiquidAI/LFM3-1.7B-GGUF",
+        "thinking": false,
+        "reasoningMode": "off",
+        "reasoningBudgetTokens": 512,
+        "maxOutputTokens": 8192,
+        "sampling": "model defaults",
+        "repetitions": 2,
+        "caseIds": [
+          "reported-exchange-move-6",
+          "reported-exchange-move-28",
+          "win-full-chain",
+          "win-by-blockade",
+          "win-unseen-endgame",
+          "avoid-fatal-double-jump",
+          "protect-last-king",
+          "avoid-blocked-loss",
+          "defense-unseen",
+          "capture-king-value",
+          "count-full-capture-chain",
+          "recapture-compensation",
+          "exchange-unseen",
+          "safe-crowning",
+          "promotion-not-at-any-cost",
+          "promotion-unseen",
+          "deny-red-promotion",
+          "deny-red-promotion-alternative",
+          "force-next-turn-win",
+          "force-next-turn-win-alternative",
+          "avoid-third-repeat-ahead",
+          "take-third-repeat-behind",
+          "opening-variety",
+          "king-activity",
+          "back-row-development",
+          "forced-full-chain",
+          "endgame-two-kings-force-king",
+          "endgame-three-kings-corner-net",
+          "endgame-force-capture-with-man",
+          "endgame-force-king-over-man",
+          "endgame-pressure-negative-control",
+          "endgame-reversal-diagnostic",
+          "endgame-holdout-a",
+          "endgame-holdout-b"
+        ],
+        "suiteVersion": "checkers-audited-v4",
+        "promptVersion": "shared-v5",
+        "outcomeVersion": "settled-captures-v3",
+        "orderPolicy": "case/repetition seeded permutations, identical across models and prompt versions",
+        "outputContract": "legal-action-label-enum"
+      },
+      "summary": {
+        "total": 68,
+        "inferred": 66,
+        "legal": 68,
+        "scored": 54,
+        "passed": 53,
+        "firstOption": 22,
+        "medianSeconds": 0.6865499999523164
+      }
+    },
+    {
+      "file": "27-nano-full-settled-v5.json",
+      "sha256": "fb6df2153505091904b3636875870b76f83543d32e0b800ea06c141ae3d25ca6",
+      "config": {
+        "model": "prompt-api",
+        "thinking": false,
+        "runtimeModel": {
+          "id": "gemini-nano",
+          "name": "Gemini Nano",
+          "browser": "Chrome"
+        },
+        "reasoningMode": "off",
+        "reasoningBudgetTokens": 512,
+        "maxOutputTokens": null,
+        "sampling": "model defaults",
+        "repetitions": 2,
+        "caseIds": [
+          "reported-exchange-move-6",
+          "reported-exchange-move-28",
+          "win-full-chain",
+          "win-by-blockade",
+          "win-unseen-endgame",
+          "avoid-fatal-double-jump",
+          "protect-last-king",
+          "avoid-blocked-loss",
+          "defense-unseen",
+          "capture-king-value",
+          "count-full-capture-chain",
+          "recapture-compensation",
+          "exchange-unseen",
+          "safe-crowning",
+          "promotion-not-at-any-cost",
+          "promotion-unseen",
+          "deny-red-promotion",
+          "deny-red-promotion-alternative",
+          "force-next-turn-win",
+          "force-next-turn-win-alternative",
+          "avoid-third-repeat-ahead",
+          "take-third-repeat-behind",
+          "opening-variety",
+          "king-activity",
+          "back-row-development",
+          "forced-full-chain",
+          "endgame-two-kings-force-king",
+          "endgame-three-kings-corner-net",
+          "endgame-force-capture-with-man",
+          "endgame-force-king-over-man",
+          "endgame-pressure-negative-control",
+          "endgame-reversal-diagnostic",
+          "endgame-holdout-a",
+          "endgame-holdout-b"
+        ],
+        "suiteVersion": "checkers-audited-v4",
+        "promptVersion": "shared-v5",
+        "outcomeVersion": "settled-captures-v3",
+        "orderPolicy": "case/repetition seeded permutations, identical across models and prompt versions",
+        "outputContract": "legal-action-label-enum"
+      },
+      "summary": {
+        "total": 68,
+        "inferred": 66,
+        "legal": 68,
+        "scored": 54,
+        "passed": 52,
+        "firstOption": 18,
+        "medianSeconds": 0.9283999999761581
+      }
+    },
+    {
+      "file": "28-lfm-runner-before-v5.json",
+      "sha256": "1cb888da8eb63f97528d54a61ed1adc11a04715dd04a90c29190b2869a7207df",
+      "config": {
+        "model": "LiquidAI/LFM3-1.7B-GGUF",
+        "thinking": false,
+        "reasoningMode": "off",
+        "reasoningBudgetTokens": 512,
+        "maxOutputTokens": 8192,
+        "sampling": "model defaults",
+        "repetitions": 4,
+        "caseIds": [
+          "reported-runner-guard-82",
+          "reported-runner-too-late-84",
+          "reported-runner-compensation-48"
+        ],
+        "suiteVersion": "checkers-audited-v5",
+        "promptVersion": "shared-v5",
+        "outcomeVersion": "settled-captures-v3",
+        "orderPolicy": "case/repetition seeded permutations, identical across models and prompt versions",
+        "outputContract": "legal-action-label-enum"
+      },
+      "summary": {
+        "total": 12,
+        "inferred": 12,
+        "legal": 12,
+        "scored": 4,
+        "passed": 0,
+        "firstOption": 2,
+        "medianSeconds": 0.6160000000596046
+      }
+    },
+    {
+      "file": "29-nano-runner-before-v5.json",
+      "sha256": "9aa9996d21d39519fd37c19db0557567a494dd7c2a79ca592422ab7b1f35fbee",
+      "config": {
+        "model": "prompt-api",
+        "thinking": false,
+        "runtimeModel": {
+          "id": "gemini-nano",
+          "name": "Gemini Nano",
+          "browser": "Chrome"
+        },
+        "reasoningMode": "off",
+        "reasoningBudgetTokens": 512,
+        "maxOutputTokens": null,
+        "sampling": "model defaults",
+        "repetitions": 4,
+        "caseIds": [
+          "reported-runner-guard-82",
+          "reported-runner-too-late-84",
+          "reported-runner-compensation-48"
+        ],
+        "suiteVersion": "checkers-audited-v5",
+        "promptVersion": "shared-v5",
+        "outcomeVersion": "settled-captures-v3",
+        "orderPolicy": "case/repetition seeded permutations, identical across models and prompt versions",
+        "outputContract": "legal-action-label-enum"
+      },
+      "summary": {
+        "total": 12,
+        "inferred": 12,
+        "legal": 12,
+        "scored": 4,
+        "passed": 1,
+        "firstOption": 2,
+        "medianSeconds": 0.7354000000357628
+      }
+    },
+    {
+      "file": "30-lfm-reported-final-v6.json",
+      "sha256": "0ea69fb7ee3f72f4f66c86a7eebfb8f0156260649875d3af3e98ab9f883805fc",
+      "config": {
+        "model": "LiquidAI/LFM3-1.7B-GGUF",
+        "thinking": false,
+        "reasoningMode": "off",
+        "reasoningBudgetTokens": 512,
+        "maxOutputTokens": 8192,
+        "sampling": "model defaults",
+        "repetitions": 4,
+        "caseIds": [
+          "reported-exchange-move-6",
+          "reported-exchange-move-28",
+          "reported-runner-guard-82",
+          "reported-runner-too-late-84",
+          "reported-runner-compensation-48"
+        ],
+        "suiteVersion": "checkers-audited-v6",
+        "promptVersion": "shared-v6",
+        "outcomeVersion": "runner-replies-v4",
+        "orderPolicy": "case/repetition seeded permutations, identical across models and prompt versions",
+        "outputContract": "legal-action-label-enum"
+      },
+      "summary": {
+        "total": 20,
+        "inferred": 20,
+        "legal": 20,
+        "scored": 12,
+        "passed": 12,
+        "firstOption": 6,
+        "medianSeconds": 0.8056999999880792
+      }
+    },
+    {
+      "file": "31-nano-reported-final-v6.json",
+      "sha256": "2d56a1734196abd5a4b494fd2487036070dd9e8e572b97ad4907aa045c328155",
+      "config": {
+        "model": "prompt-api",
+        "thinking": false,
+        "runtimeModel": {
+          "id": "gemini-nano",
+          "name": "Gemini Nano",
+          "browser": "Chrome"
+        },
+        "reasoningMode": "off",
+        "reasoningBudgetTokens": 512,
+        "maxOutputTokens": null,
+        "sampling": "model defaults",
+        "repetitions": 4,
+        "caseIds": [
+          "reported-exchange-move-6",
+          "reported-exchange-move-28",
+          "reported-runner-guard-82",
+          "reported-runner-too-late-84",
+          "reported-runner-compensation-48"
+        ],
+        "suiteVersion": "checkers-audited-v6",
+        "promptVersion": "shared-v6",
+        "outcomeVersion": "runner-replies-v4",
+        "orderPolicy": "case/repetition seeded permutations, identical across models and prompt versions",
+        "outputContract": "legal-action-label-enum"
+      },
+      "summary": {
+        "total": 20,
+        "inferred": 20,
+        "legal": 20,
+        "scored": 12,
+        "passed": 12,
+        "firstOption": 3,
+        "medianSeconds": 0.977
+      }
+    },
+    {
+      "file": "32-lfm-full-final-v6.json",
+      "sha256": "9f25936318cd568e94969ca8136d5ea0b6362f2946aa878cf93cc0f91824ef85",
+      "config": {
+        "model": "LiquidAI/LFM3-1.7B-GGUF",
+        "thinking": false,
+        "reasoningMode": "off",
+        "reasoningBudgetTokens": 512,
+        "maxOutputTokens": 8192,
+        "sampling": "model defaults",
+        "repetitions": 2,
+        "caseIds": [
+          "reported-exchange-move-6",
+          "reported-exchange-move-28",
+          "reported-runner-guard-82",
+          "reported-runner-too-late-84",
+          "reported-runner-compensation-48",
+          "win-full-chain",
+          "win-by-blockade",
+          "win-unseen-endgame",
+          "avoid-fatal-double-jump",
+          "protect-last-king",
+          "avoid-blocked-loss",
+          "defense-unseen",
+          "capture-king-value",
+          "count-full-capture-chain",
+          "recapture-compensation",
+          "exchange-unseen",
+          "safe-crowning",
+          "promotion-not-at-any-cost",
+          "promotion-unseen",
+          "deny-red-promotion",
+          "deny-red-promotion-alternative",
+          "force-next-turn-win",
+          "force-next-turn-win-alternative",
+          "avoid-third-repeat-ahead",
+          "take-third-repeat-behind",
+          "opening-variety",
+          "king-activity",
+          "back-row-development",
+          "forced-full-chain",
+          "endgame-two-kings-force-king",
+          "endgame-three-kings-corner-net",
+          "endgame-force-capture-with-man",
+          "endgame-force-king-over-man",
+          "endgame-pressure-negative-control",
+          "endgame-reversal-diagnostic",
+          "endgame-holdout-a",
+          "endgame-holdout-b"
+        ],
+        "suiteVersion": "checkers-audited-v6",
+        "promptVersion": "shared-v6",
+        "outcomeVersion": "runner-replies-v4",
+        "orderPolicy": "case/repetition seeded permutations, identical across models and prompt versions",
+        "outputContract": "legal-action-label-enum"
+      },
+      "summary": {
+        "total": 74,
+        "inferred": 72,
+        "legal": 74,
+        "scored": 54,
+        "passed": 54,
+        "firstOption": 26,
+        "medianSeconds": 0.8121500000357628
+      }
+    },
+    {
+      "file": "33-nano-full-final-v6.json",
+      "sha256": "6e3bb7615e4b4855d347f4026464f71f2495fb5fcc1aa333a7863cbd80e9c416",
+      "config": {
+        "model": "prompt-api",
+        "thinking": false,
+        "runtimeModel": {
+          "id": "gemini-nano",
+          "name": "Gemini Nano",
+          "browser": "Chrome"
+        },
+        "reasoningMode": "off",
+        "reasoningBudgetTokens": 512,
+        "maxOutputTokens": null,
+        "sampling": "model defaults",
+        "repetitions": 2,
+        "caseIds": [
+          "reported-exchange-move-6",
+          "reported-exchange-move-28",
+          "reported-runner-guard-82",
+          "reported-runner-too-late-84",
+          "reported-runner-compensation-48",
+          "win-full-chain",
+          "win-by-blockade",
+          "win-unseen-endgame",
+          "avoid-fatal-double-jump",
+          "protect-last-king",
+          "avoid-blocked-loss",
+          "defense-unseen",
+          "capture-king-value",
+          "count-full-capture-chain",
+          "recapture-compensation",
+          "exchange-unseen",
+          "safe-crowning",
+          "promotion-not-at-any-cost",
+          "promotion-unseen",
+          "deny-red-promotion",
+          "deny-red-promotion-alternative",
+          "force-next-turn-win",
+          "force-next-turn-win-alternative",
+          "avoid-third-repeat-ahead",
+          "take-third-repeat-behind",
+          "opening-variety",
+          "king-activity",
+          "back-row-development",
+          "forced-full-chain",
+          "endgame-two-kings-force-king",
+          "endgame-three-kings-corner-net",
+          "endgame-force-capture-with-man",
+          "endgame-force-king-over-man",
+          "endgame-pressure-negative-control",
+          "endgame-reversal-diagnostic",
+          "endgame-holdout-a",
+          "endgame-holdout-b"
+        ],
+        "suiteVersion": "checkers-audited-v6",
+        "promptVersion": "shared-v6",
+        "outcomeVersion": "runner-replies-v4",
+        "orderPolicy": "case/repetition seeded permutations, identical across models and prompt versions",
+        "outputContract": "legal-action-label-enum"
+      },
+      "summary": {
+        "total": 74,
+        "inferred": 72,
+        "legal": 74,
+        "scored": 54,
+        "passed": 54,
+        "firstOption": 20,
+        "medianSeconds": 0.9593999999761581
+      }
+    }
+  ],
+  "pairs": [
+    {
+      "files": [
+        "22-lfm-exchange-before-v4.json",
+        "23-nano-exchange-before-v4.json"
+      ],
+      "trials": 8,
+      "appInputsIdentical": true
+    },
+    {
+      "files": [
+        "24-lfm-exchange-settled-v5.json",
+        "25-nano-exchange-settled-v5.json"
+      ],
+      "trials": 8,
+      "appInputsIdentical": true
+    },
+    {
+      "files": [
+        "26-lfm-full-settled-v5.json",
+        "27-nano-full-settled-v5.json"
+      ],
+      "trials": 68,
+      "appInputsIdentical": true
+    },
+    {
+      "files": [
+        "28-lfm-runner-before-v5.json",
+        "29-nano-runner-before-v5.json"
+      ],
+      "trials": 12,
+      "appInputsIdentical": true
+    },
+    {
+      "files": [
+        "30-lfm-reported-final-v6.json",
+        "31-nano-reported-final-v6.json"
+      ],
+      "trials": 20,
+      "appInputsIdentical": true
+    },
+    {
+      "files": [
+        "32-lfm-full-final-v6.json",
+        "33-nano-full-final-v6.json"
+      ],
+      "trials": 74,
+      "appInputsIdentical": true
+    }
+  ],
+  "sourceHashes": {
+    "src/lib/move-outcomes.ts": "676158909ea2e9e9bdecf3cb9740dae5d452046fa8a8500aeeefce1a75033d43",
+    "src/lib/shared-prompt.ts": "086ec03fda424d1ffd643c7cd0e7744400a4c3e4303d128e20a6150c2cb8ced4",
+    "bench/audit.ts": "7057ae56d696b822bb9351a644fc8e38ca4766803347b0a931128675a21e5d98",
+    "bench/cases.ts": "b769c790cd2a225e19b6119877cf00980e2f582cd30439d7830a7a4358ea0a8d",
+    "bench/exchange-regressions.ts": "5fe925cbe32b2270fdb783b2758b64aa859675f5573b60d0515506adc06e0271",
+    "bench/runner-regressions.ts": "6eb41574fecd7d8dab41479d78458c98499fe68525ff8059089b43326c9f39f1",
+    "bench/reported-game.ts": "0ab06a0557c2c5e61314de4b491ef91bb55aaa9a50a1f5ee3f6fd83ae2d01e37"
+  },
+  "totalTrials": 380,
+  "forcedTurns": 8
+}

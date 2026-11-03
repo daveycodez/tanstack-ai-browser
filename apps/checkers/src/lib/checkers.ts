@@ -1,4 +1,5 @@
 import type { OpponentSettings } from "./opponents"
+import type { UsageInfo } from "@tanstack/ai"
 
 export type Side = "human" | "ai"
 export type Piece = { side: Side; king: boolean }
@@ -9,20 +10,63 @@ export type Move = {
   captures: number[]
   promotes: boolean
 }
+export type GameStatus = "playing" | "human-won" | "ai-won" | "draw"
+export type PositionSnapshot = {
+  board: Board
+  turn: Side
+  status: GameStatus
+  quietMoves: number
+  positions: string[]
+}
+export type AiDecisionTrace = {
+  id: string
+  sessionId: string
+  ply: number
+  mode: "forced" | "model"
+  status: "success" | "error"
+  positionBefore: PositionSnapshot
+  model: OpponentSettings["model"]
+  requestedThinking: boolean
+  thinking: boolean
+  reasoningMode: "off" | "native" | "emulated-working-notes"
+  reasoningBudgetTokens: number | null
+  maxOutputTokens: number | null
+  sampling: "model defaults"
+  legalMoveIds: string[]
+  selectedMoveId?: string
+  input?: {
+    version: string
+    systemPrompt: string
+    outcomeVersion?: string
+    prompt: string
+    choices: { id: string; label: string; outcome: string }[]
+  }
+  rawAnswer?: string
+  reasoningText: string
+  usage?: UsageInfo
+  startedAt: string
+  finishedAt: string
+  elapsedMs: number
+  error?: string
+}
 export type MoveRecord = {
   side: Side
   notation: string
   path: number[]
   captures: number[]
   promoted: boolean
+  analysis?: AiDecisionTrace
 }
 export type Game = {
   id: "current"
   sessionId: string
   opponent?: OpponentSettings
   board: Board
+  initialBoard?: Board
+  initialTurn?: Side
+  aiFailures?: AiDecisionTrace[]
   turn: Side
-  status: "playing" | "human-won" | "ai-won" | "draw"
+  status: GameStatus
   history: MoveRecord[]
   updatedAt: number
   quietMoves: number
@@ -46,7 +90,7 @@ export function squareName(index: number): string {
   return `${String.fromCharCode(97 + col(index))}${8 - row(index)}`
 }
 
-function positionKey(board: Board, turn: Side): string {
+export function positionKey(board: Board, turn: Side): string {
   return `${turn}:${board.map((piece) => (!piece ? "." : piece.side === "human" ? (piece.king ? "H" : "h") : piece.king ? "A" : "a")).join("")}`
 }
 
@@ -69,6 +113,9 @@ export function newGame(): Game {
     id: "current",
     sessionId: crypto.randomUUID(),
     board,
+    initialBoard: cloneBoard(board),
+    initialTurn: "human",
+    aiFailures: [],
     turn: "human",
     status: "playing",
     history: [],

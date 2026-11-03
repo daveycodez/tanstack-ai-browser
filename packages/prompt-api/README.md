@@ -53,6 +53,35 @@ An answer then streams from the session unconstrained, with Markdown. Asked to w
 
 Each thread keeps one session, which holds the conversation the model has read. When the next request extends it (a follow-up, or the step after a tool call), only the new messages are read; anything else (an edited message, another system prompt, tools or options, an image in a text-only thread) starts a new session, and the adapter's logger says why. Only the system prompt is an initial prompt; the conversation is appended after it, so when a thread outgrows the context the browser drops its oldest turns (never the system prompt), and a new session leaves out the oldest turns that don't fit. When the browser drops turns, `RUN_FINISHED`'s `usage.providerUsageDetails.contextOverflow` is `true` and `promptApiText({ onContextOverflow })` is called. A single message too long for the model fails with an error that says so.
 
+Structured output (`chat({ outputSchema })`) keeps a separate input-prefix session
+and generates on a disposable clone. It reuses matching system instructions, options,
+and compatible history; without a `threadId`, matching system/options bases are reused
+for stateless calls too. Generated JSON and optional working notes never enter that
+base. Changing a schema does not require a new base: the original schema is still
+passed to each constrained prompt unchanged. Structured bases and chat/tool sessions
+share the existing four-session cache bound but have separate identities, so finalizing
+JSON cannot replace a tool conversation. Only base preparation is serialized for calls
+sharing a structured prefix; their clones can generate independently. Cancellation,
+failed generation and unsupported schemas destroy the clone without discarding its
+healthy base. `destroyPromptApiSessions()` frees retained structured bases too, and
+structured-output usage reports the prefix reused in `promptTokensDetails.cachedTokens`.
+This count excludes new input and newly appended history; it is not a guarantee that
+all prompt tokens or the generated output were cached.
+
+The standard `chat({ promptCache })` option controls managed reuse in both streaming
+and structured-output paths. `promptCache: 'none'` uses a fresh per-request session,
+reports no managed cached tokens, and destroys that session when the call completes,
+fails, or is cancelled; it also disables anonymous structured bases. This does not
+unload browser model weights or prevent the inference cache needed inside a single
+generation. `promptCache.key` selects the cache identity instead of `threadId`, while
+AG-UI run correlation still uses the caller's original thread. Reuse additionally
+requires matching instructions/options and compatible supplied history. `short` and
+`long` use the existing bounded, opportunistic session cache; this adapter does not
+promise provider retention durations or add a TTL. Direct adapter calls that omit
+`promptCache` retain their existing behavior. Emulated-reasoning streaming calls
+remain ephemeral regardless of a supplied cache key, so working notes cannot leak
+into retained conversational state.
+
 An aborted or failed call frees its session, and the next request starts again from the messages. Aborting a request never destroys the session a thread keeps, and a kept session the browser destroyed is replaced on the next request. `destroyPromptApiSessions()` frees every kept session.
 
 ## Usage

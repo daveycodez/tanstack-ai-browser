@@ -106,7 +106,10 @@
   list-style: none;
   cursor: pointer;
 }
-.theme-trigger:hover, .theme-select[data-open="true"] .theme-trigger { background: var(--secondary); }
+.theme-select[data-open="true"] .theme-trigger { background: var(--secondary); }
+@media (hover: hover) {
+  .theme-trigger:hover { background: var(--secondary); }
+}
 .theme-trigger:focus-visible, .theme-menu button:focus-visible { outline: 2px solid var(--focus); outline-offset: 3px; }
 .theme-trigger:focus:not(:focus-visible), .theme-menu button:focus:not(:focus-visible) { outline: none; }
 .theme-moon { display: none; }
@@ -141,7 +144,10 @@
   color: var(--ink);
   font-size: 13px;
 }
-.theme-menu button:hover, .theme-menu button:focus-visible { background: var(--hover); }
+.theme-menu button:focus-visible { background: var(--hover); }
+@media (hover: hover) {
+  .theme-menu button:hover { background: var(--hover); }
+}
 .theme-option-label { display: flex; align-items: center; gap: 10px; }
 .theme-option-label > svg { flex-shrink: 0; color: var(--muted); }
 .theme-check { visibility: hidden; color: var(--coral); }
@@ -205,22 +211,30 @@ a {
   height: 28px;
 }
 .brand-mark i {
+  --mark-face: var(--navy);
+  --mark-edge: #1b293d;
   position: absolute;
+  left: 0;
+  top: 0;
   width: 20px;
   height: 20px;
+  border-radius: 50% / 47.5%;
+  background: var(--mark-edge);
+  box-shadow: 0 2px 3px #26364c28;
+}
+.brand-mark i:before {
+  content: "";
+  position: absolute;
+  inset: 0 0 5%;
   border-radius: 50%;
-  background: var(--navy);
-  box-shadow:
-    inset 0 0 0 3px #ffffff1c,
-    0 2px 0 #1b293d;
+  background: var(--mark-face);
+  box-shadow: inset 0 0 0 3px #ffffff1c;
 }
 .brand-mark i:last-child {
+  --mark-face: var(--coral);
+  --mark-edge: #b74a45;
   left: 9px;
   top: 8px;
-  background: var(--coral);
-  box-shadow:
-    inset 0 0 0 3px #ffffff2c,
-    0 2px 0 #b74a45;
 }
 .brand-button {
   border: 0;
@@ -320,15 +334,19 @@ a {
   color: #fff;
   box-shadow: 0 3px 0 #1b2c43;
 }
-.button-primary:hover:not(:disabled) {
-  background: #364d6b;
+@media (hover: hover) {
+  .button-primary:hover:not(:disabled) {
+    background: #364d6b;
+  }
 }
 .button-secondary {
   background: var(--secondary);
   border-color: var(--border);
 }
-.button-secondary:hover:not(:disabled) {
-  background: var(--secondary-hover);
+@media (hover: hover) {
+  .button-secondary:hover:not(:disabled) {
+    background: var(--secondary-hover);
+  }
 }
 .button-small {
   min-height: 40px;
@@ -420,20 +438,27 @@ a {
   place-items: center;
   position: relative;
   width: 73%;
-  height: 73%;
-  border-radius: 50%;
+  height: auto;
+  aspect-ratio: 1;
+  border-radius: 50% / 47.5%;
   transition:
     transform 0.15s,
     opacity 0.15s,
     filter 0.15s;
-  box-shadow:
-    inset 0 1px 1px #ffffff4d,
-    0 4px 0 var(--piece-edge),
-    0 5px 4px #26364c35;
-  background: var(--piece-color);
+  box-shadow: 0 2px 5px #26364c40;
+  background: var(--piece-edge);
   color: #fff;
 }
-.piece:before {
+.piece-face {
+  position: absolute;
+  inset: 0 0 5%;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--piece-color);
+  box-shadow: inset 0 1px 2px #ffffff4d;
+}
+.piece-face:before {
   content: "";
   position: absolute;
   inset: 12%;
@@ -449,13 +474,14 @@ a {
   --piece-color: #344964;
   --piece-edge: #1f3048;
 }
-.piece > span {
+.piece-face > span {
+  transform: translateY(-0.08em);
   font-size: clamp(19px, 3vw, 31px);
   line-height: 1;
   z-index: 1;
   color: #fff1d2;
 }
-.piece-king:before {
+.piece-king .piece-face:before {
   border: 2px solid #fff1d29c;
 }
 .menu-footer {
@@ -497,8 +523,10 @@ a {
   gap: 9px;
   align-items: center;
 }
-.text-button:hover {
-  color: var(--ink);
+@media (hover: hover) {
+  .text-button:hover {
+    color: var(--ink);
+  }
 }
 .game-main {
   width: min(925px, 100%);
@@ -523,6 +551,7 @@ a {
 .board {
   display: grid;
   grid-template-columns: repeat(8, minmax(0, 1fr));
+  grid-template-rows: repeat(8, minmax(0, 1fr));
   aspect-ratio: 1;
   overflow: hidden;
   border-radius: 1px;
@@ -542,19 +571,18 @@ a {
 .square-target {
   cursor: pointer;
 }
-.square-movable:hover .piece {
-  transform: translateY(-2px);
+@media (hover: hover) {
+  .square-movable:hover .piece {
+    transform: translateY(-2px);
+  }
 }
 .square-dimmed .piece {
-  opacity: 0.6;
-  filter: saturate(0.6);
+  opacity: 0.75;
+  filter: saturate(0.75);
 }
 .square-selected .piece {
-  transform: translateY(-3px);
-  box-shadow:
-    inset 0 1px 1px #ffffff4d,
-    0 6px 0 var(--piece-edge),
-    0 8px 6px #26364c35;
+  transform: translateY(-2px);
+  box-shadow: 0 3px 7px #26364c40;
 }
 .square-last:before {
   content: "";
@@ -624,9 +652,7 @@ a {
 .player-avatar .piece {
   width: 25px;
   height: 25px;
-  box-shadow:
-    inset 0 1px 1px #ffffff4d,
-    0 2px 0 var(--piece-edge);
+  box-shadow: 0 1px 3px #26364c30;
 }
 .avatar-human {
   background: var(--avatar-human);
@@ -700,6 +726,18 @@ a {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+.turn-panel.turn-panel-result {
+  height: auto;
+  min-height: 52px;
+}
+.turn-panel-result h1 {
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
+}
+.turn-panel-result .turn-status {
+  display: none;
 }
 .game-sidebar > .button {
   margin-bottom: 24px;
@@ -987,10 +1025,7 @@ a {
       0 17px 30px #29364a18;
   }
   .menu-board .piece {
-    box-shadow:
-      inset 0 1px 1px #ffffff4d,
-      0 2px 0 var(--piece-edge),
-      0 3px 2px #26364c35;
+    box-shadow: 0 2px 4px #26364c40;
   }
   .menu-footer {
     display: block;
@@ -1135,7 +1170,7 @@ a {
   }
   .piece {
     width: 72%;
-    height: 72%;
+    height: auto;
   }
   .game-main {
     gap: 15px;
@@ -1351,14 +1386,18 @@ a {
   border-radius: 6px;
   cursor: pointer;
 }
-.opponent-option:hover {
-  background: var(--hover);
+@media (hover: hover) {
+  .opponent-option:hover {
+    background: var(--hover);
+  }
 }
 .opponent-option-selected {
   background: var(--selected);
 }
-.opponent-option-selected:hover {
-  background: var(--active);
+@media (hover: hover) {
+  .opponent-option-selected:hover {
+    background: var(--active);
+  }
 }
 .opponent-option input,
 .opponent-thinking input {
@@ -1487,9 +1526,11 @@ a {
   background: transparent;
   color: var(--muted);
 }
-.thinking-dialog-close:hover {
-  background: var(--hover);
-  color: var(--ink);
+@media (hover: hover) {
+  .thinking-dialog-close:hover {
+    background: var(--hover);
+    color: var(--ink);
+  }
 }
 .thinking-dialog-content {
   height: min(55svh, 440px);
@@ -1540,6 +1581,52 @@ a {
   cursor: pointer;
   white-space: nowrap;
 }
-.thinking-button:hover {
-  color: var(--ink);
+@media (hover: hover) {
+  .thinking-button:hover {
+    color: var(--ink);
+  }
+}
+
+
+/* Motion stays on the board; controls and surrounding layout remain still. */
+.menu-header-actions,
+.game-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+}
+.board {
+  position: relative;
+  overflow: visible;
+}
+.square-piece-moving > .piece {
+  visibility: hidden;
+}
+.travelling-piece {
+  position: absolute;
+  width: 12.5%;
+  height: 12.5%;
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+  z-index: 10;
+  will-change: transform;
+}
+.travelling-piece .piece {
+  transition: none;
+  will-change: transform;
+}
+.moving-shadow {
+  position: absolute;
+  width: 70%;
+  height: 18%;
+  top: 71%;
+  left: 15%;
+  border-radius: 50%;
+  background: #172334;
+  filter: blur(4px);
+  opacity: .25;
+}
+@media (max-width: 680px) {
+  .game-header-actions { gap: 12px; }
 }

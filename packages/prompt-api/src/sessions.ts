@@ -29,6 +29,7 @@ type Entry = {
 }
 
 const entries = new Map<string, Entry>()
+const preparing = new Map<string, Promise<void>>()
 
 const startsWith = (list: Array<string>, start: Array<string>) =>
   start.length <= list.length && start.every((key, i) => list[i] === key)
@@ -42,13 +43,13 @@ export type Lease = {
   createMs: number
   /** Why the thread's kept session couldn't be used, if it had one. */
   miss?: string
-  /** True for the thread's kept session, false for one made for this call. */
+  /** Whether this call reused a previously prepared input prefix. */
   reused: boolean
   /** Whether the browser dropped old turns to make room since the lease began. */
   overflowed: () => boolean
   /** Gives the session back, having read `history` (after the system prompt). */
   release: (history: Array<PromptMessage>) => void
-  /** Frees the session: after an abort or error, what it holds is unknown. */
+  /** Frees this session; for an isolated call, only its working clone is freed. */
   discard: () => void
 }
 
@@ -57,24 +58,121 @@ export type Lease = {
  * thread's own if it has read a start of them (the rest is appended), else
  * a new one. `media` caches the images and audio loaded for the call.
  */
-export async function leaseSession({
-  threadId,
-  system,
-  prior,
-  options,
-  signal,
-  media
-}: {
+type SessionOptions = {
   threadId: string | undefined
   system: string
   prior: Array<PromptMessage>
   options: LanguageModelCreateOptions
   signal: AbortSignal | undefined
   media?: Map<string, Promise<Blob>>
-}): Promise<Lease> {
+  /** Generate on a disposable clone of a cached, unmodified input-prefix session. */
+  isolated?: boolean
+  /** Disable managed cross-request reuse and retention for this lease only. */
+  retain?: boolean
+}
+
+/** Serialize base preparation only; independent clones generate concurrently. */
+async function lockPreparation(key: string, signal: AbortSignal | undefined) {
+  const previous = preparing.get(key) ?? Promise.resolve()
+  let unlock = () => undefined as void
+  const done = new Promise<void>(resolve => { unlock = resolve })
+  const queued = previous.then(() => done)
+  preparing.set(key, queued)
+  void queued.then(() => { if (preparing.get(key) === queued) preparing.delete(key) })
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const cancel = () => reject(signal?.reason)
+      signal?.addEventListener("abort", cancel, { once: true })
+      void previous.then(() => {
+        signal?.removeEventListener("abort", cancel)
+        if (signal?.aborted) reject(signal.reason)
+        else resolve()
+      })
+    })
+    return unlock
+  } catch (error) {
+    // An aborted waiter releases its place without letting later callers pass
+    // the earlier preparation that is still in flight.
+    unlock()
+    throw error
+  }
+}
+
+export async function leaseSession(options: SessionOptions): Promise<Lease> {
+  options.signal?.throwIfAborted()
+  const { threadId, isolated, system, prior } = options
+  const setup = JSON.stringify({ system, options: options.options })
+  // Separate namespaces prevent structured finalization from replacing a chat/tool
+  // session. Stateless calls can share an identical base without inventing a thread.
+  const cacheKey = options.retain === false ? undefined : isolated
+    ? JSON.stringify(["structured", threadId ?? null, threadId ? null : setup])
+    : threadId ? JSON.stringify(["chat", threadId]) : undefined
+  const unlock = isolated && cacheKey !== undefined ? await lockPreparation(cacheKey, options.signal) : undefined
+  try {
+    let recreated = false
+    for (;;) {
+      const base = await leasePooledSession({ ...options, cacheKey })
+      // A non-retained session is already isolated: generate directly on it and
+      // destroy it when the call ends, without preparing an extra clone.
+      if (!isolated || options.retain === false) return base
+      const started = performance.now()
+      let copy: LanguageModelSession | undefined
+      try {
+        copy = await base.session.clone({ signal: options.signal })
+        options.signal?.throwIfAborted()
+        let overflowed = false
+        const onOverflow = () => { overflowed = true }
+        copy.addEventListener("contextoverflow", onOverflow)
+        const baseOverflowed = base.overflowed()
+        // Only preparation touches the base. Release it before generation so concurrent
+        // callers can clone it too; generated JSON and draft notes never enter it.
+        base.release(prior)
+        const session = copy
+        let destroyed = false
+        const destroy = () => {
+          if (destroyed) return
+          destroyed = true
+          session.removeEventListener("contextoverflow", onOverflow)
+          session.destroy()
+        }
+        return {
+          ...base,
+          session,
+          createMs: base.createMs + performance.now() - started,
+          overflowed: () => baseOverflowed || overflowed,
+          release: destroy,
+          discard: destroy
+        }
+      } catch (error) {
+        copy?.destroy()
+        // Aborting a clone must not destroy its healthy cached parent.
+        if (options.signal?.aborted) base.release(prior)
+        else base.discard()
+        // A stale browser session can fail at clone() before any generation starts.
+        // Recreate that prefix once, just as the streaming path does.
+        if (!options.signal?.aborted && base.reused && !recreated && error instanceof DOMException && error.name === "InvalidStateError") {
+          recreated = true
+          continue
+        }
+        throw error
+      }
+    }
+  } finally {
+    unlock?.()
+  }
+}
+
+async function leasePooledSession({
+  cacheKey,
+  system,
+  prior,
+  options,
+  signal,
+  media
+}: SessionOptions & { cacheKey: string | undefined }): Promise<Lease> {
   const setup = JSON.stringify({ system, options })
   const keys = prior.map(keyOf)
-  const entry = threadId ? entries.get(threadId) : undefined
+  const entry = cacheKey ? entries.get(cacheKey) : undefined
   let miss: string | undefined
   if (entry) {
     miss = entry.busy
@@ -89,8 +187,8 @@ export async function leaseSession({
   if (entry && !miss) {
     entry.busy = true
     // Most recently used last.
-    entries.delete(threadId as string)
-    entries.set(threadId as string, entry)
+    entries.delete(cacheKey as string)
+    entries.set(cacheKey as string, entry)
     const cachedTokens = entry.session.contextUsage
     const started = performance.now()
     const gap = prior.slice(entry.history.length)
@@ -103,11 +201,11 @@ export async function leaseSession({
       }
       entry.history = keys
       return {
-        ...lease(threadId, entry, cachedTokens, performance.now() - started),
+        ...lease(cacheKey, entry, cachedTokens, performance.now() - started),
         reused: true
       }
     } catch (error) {
-      drop(threadId as string, entry)
+      drop(cacheKey as string, entry)
       if (signal?.aborted) throw error
       // The session couldn't take them (it was destroyed, say): start over.
       miss = `the kept session failed (${error instanceof Error ? error.message : String(error)})`
@@ -117,7 +215,7 @@ export async function leaseSession({
   // Another run of this thread holds its session (it shouldn't happen):
   // this one gets a session of its own, freed when it ends.
   const shared = !entry?.busy
-  if (entry && shared && threadId) drop(threadId, entry)
+  if (entry && shared && cacheKey) drop(cacheKey, entry)
   const started = performance.now()
   const created: Entry = {
     session: await createSession(system, prior, options, signal, media),
@@ -129,8 +227,8 @@ export async function leaseSession({
   created.session.addEventListener("contextoverflow", () => {
     created.overflowed = true
   })
-  if (threadId && shared) {
-    entries.set(threadId, created)
+  if (cacheKey && shared) {
+    entries.set(cacheKey, created)
     for (const [id, old] of entries) {
       if (entries.size <= MAX_SESSIONS) break
       if (!old.busy) drop(id, old)
@@ -138,7 +236,7 @@ export async function leaseSession({
   }
   return {
     ...lease(
-      threadId && shared ? threadId : undefined,
+      cacheKey && shared ? cacheKey : undefined,
       created,
       0,
       performance.now() - started

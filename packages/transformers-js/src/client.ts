@@ -272,6 +272,7 @@ export async function* generate(request: {
   thinking?: boolean
   thinkingBudgetTokens?: number
   outputSchema?: object
+  cachePrompt?: boolean
   sampling: Sampling
   maxTokens?: number
   contextLength?: number
@@ -308,6 +309,7 @@ export async function* generate(request: {
     sampling: request.sampling,
     ...(request.thinkingBudgetTokens !== undefined && { thinkingBudgetTokens: request.thinkingBudgetTokens }),
     ...(request.outputSchema !== undefined && { outputSchema: request.outputSchema }),
+    ...(request.cachePrompt !== undefined && { cachePrompt: request.cachePrompt }),
     ...(request.maxTokens !== undefined && { maxTokens: request.maxTokens }),
     ...(request.contextLength !== undefined && {
       contextLength: request.contextLength

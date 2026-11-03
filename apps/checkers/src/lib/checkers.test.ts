@@ -1,5 +1,6 @@
 import assert from "node:assert/strict"
 import test from "node:test"
+import { boardSteps } from "./board-motion.ts"
 import {
   applyMove,
   legalMoves,
@@ -237,4 +238,49 @@ test("a king can finish a multi-jump on its original square without recapturing 
   assert.deepEqual(moved.board[42], { side: "human", king: true })
   assert.equal(moved.board.filter(Boolean).length, 1)
   assert.equal(moved.status, "human-won")
+  const playback = boardSteps(game.board, moved.board, moved.history[0].path)
+  assert.equal(playback.length, 4, "a return to the origin still animates every capture")
+  assert.deepEqual(playback.map(step => step.captured), [35, 37, 53, 51])
+  assert.deepEqual(playback.at(-1)?.board, moved.board)
+})
+
+
+test("move playback follows each capture and resumes from a human's completed first jump", () => {
+  const game = fixture([[42, "human"], [35, "ai"], [21, "ai"], [1, "ai"]])
+  const path = [42, 28, 14]
+  const target = applyMove(game, "c3xe5xg7").board
+  const steps = boardSteps(game.board, target, path)
+  assert.deepEqual(steps.map(step => [step.from, step.to, step.captured]), [[42, 28, 35], [28, 14, 21]])
+  assert.equal(steps[0].board[35], null)
+  assert.equal(steps[0].board[21]?.side, "ai", "the next captured piece remains until its own jump")
+  assert.deepEqual(steps[1].board, target)
+  const remaining = boardSteps(steps[0].board, target, path)
+  assert.equal(remaining.length, 1)
+  assert.equal(remaining[0].from, 28)
+  assert.deepEqual(game.board[35], { side: "ai", king: false }, "playback never mutates persisted state")
+})
+
+test("AI playback moves through all jumps and crowns only on the final landing", () => {
+  const game = fixture([[21, "ai"], [28, "human"], [42, "human"], [62, "human"]], "ai")
+  const move = legalMoves(game.board, "ai")[0]
+  const steps = boardSteps(game.board, applyMove(game, move.id).board, move.path)
+  assert.equal(steps.length, 2)
+  assert.equal(steps[0].promotes, false)
+  assert.equal(steps[1].promotes, false)
+  const promotion = fixture([[42, "ai"], [51, "human"], [56, "human"]], "ai")
+  const crown = legalMoves(promotion.board, "ai")[0]
+  const promoted = boardSteps(promotion.board, applyMove(promotion, crown.id).board, crown.path)
+  assert.equal(promoted.at(-1)?.promotes, true)
+  assert.equal(promoted.at(-1)?.piece.king, false, "the travelling piece is crowned at landing")
+  assert.equal(promoted.at(-1)?.board[crown.path.at(-1) ?? -1]?.king, true)
+})
+
+test("unrelated or restored snapshots do not invent motion", () => {
+  const game = newGame()
+  const move = legalMoves(game.board, "human")[0]
+  const next = applyMove(game, move.id)
+  assert.equal(boardSteps(game.board, next.board, move.path).length, 1)
+  assert.deepEqual(boardSteps(game.board, next.board, [42, 28]), [])
+  assert.deepEqual(boardSteps(next.board, game.board, move.path), [])
+  assert.deepEqual(boardSteps(game.board, game.board, move.path), [])
 })

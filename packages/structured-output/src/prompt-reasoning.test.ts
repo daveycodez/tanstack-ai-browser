@@ -96,7 +96,8 @@ test("emulated Prompt API budget subtracts message overhead and never aborts the
  assert.equal(final.options?.signal,caller().signal)
  assert.match(text(final.input),/abcd/)
  assert.equal(control.releases,0,"draft notes never enter a retained conversation")
- assert.equal(control.leases[0].threadId,undefined,"reasoning final session is isolated")
+ assert.equal(control.leases[0].threadId,"retained-original","structured calls keep the caller thread identity")
+ assert.equal(control.leases[0].isolated,true,"reasoning final session uses an isolated clone")
  assert.ok(control.sessions.every(s=>s.destroyed),"draft, counter and ephemeral final session are all destroyed")
  const details=response.usage.providerUsageDetails
  assert.equal(details.reasoningEmulated,true)
@@ -216,4 +217,53 @@ test("invalid emulated budgets reject before leasing a native session",async()=>
   await assert.rejects(promptApiText().structuredOutput(options({level:"high",summary:true,budgetTokens})),/nonnegative safe integer/)
   assert.equal(control.leases.length,0)
  }
+})
+
+test("Prompt API required one-tool calls skip the forced routing clone and constrain arguments once", async()=>{
+ reset()
+ const adapter=promptApiText({nativeTools:false})
+ const base=options().chatOptions
+ const inputSchema={type:"object",properties:{city:{enum:["London"]}},required:["city"],additionalProperties:false}
+ const chunks=[]
+ for await(const chunk of adapter.chatStream({...base,tools:[{name:"lookup_weather",description:"Look up weather",inputSchema}],toolChoice:"required"}))chunks.push(chunk)
+ assert.equal(control.events.filter(event=>event.kind==="clone").length,1)
+ const generations=control.events.filter(event=>event.kind==="final")
+ assert.equal(generations.length,1)
+ assert.equal(generations[0].options?.responseConstraint,inputSchema)
+ const call=chunks.find(chunk=>chunk.type==="TOOL_CALL_END")
+ assert.equal(call?.toolCallName,"lookup_weather")
+ assert.deepEqual(call?.input,{city:"London"})
+ assert.equal(control.releases,1)
+ assert.equal(control.sessions[0].destroyed,false,"retained parent remains usable")
+ assert.ok(control.sessions.slice(1).every(session=>session.destroyed),"only the argument clone is destroyed")
+})
+
+test("Prompt API auto and multiple required tools still need constrained routing decisions", async()=>{
+ for(const required of [false,true]){
+  reset()
+  const inputSchema={type:"object",properties:{city:{enum:["London"]}},required:["city"],additionalProperties:false}
+  const tool={name:"lookup_weather",description:"Weather",inputSchema}
+  const tools=required?[tool,{...tool,name:"lookup_alerts"}]:[tool]
+  const chunks=[]
+  for await(const chunk of promptApiText({nativeTools:false}).chatStream({...options().chatOptions,tools,toolChoice:required?"required":"auto"}))chunks.push(chunk)
+  assert.equal(control.events.filter(event=>event.kind==="clone").length,2)
+  const generations=control.events.filter(event=>event.kind==="final")
+  assert.equal(generations.length,2)
+  const decision=generations[0].options?.responseConstraint as {properties:{action:{enum:string[]}}}
+  assert.deepEqual(decision.properties.action.enum,required?["lookup_weather","lookup_alerts"]:["answer","lookup_weather"])
+  assert.equal(generations[1].options?.responseConstraint,inputSchema)
+  assert.deepEqual(chunks.find(chunk=>chunk.type==="TOOL_CALL_END")?.input,{city:"London"})
+ }
+})
+
+test("Prompt API forced one-tool argument cancellation cleans up its clone and lease without publishing a call", async()=>{
+ reset();control.abortFinal=true
+ const tools=[{name:"lookup_weather",description:"Weather",inputSchema:{type:"object",properties:{city:{enum:["London"]}},required:["city"],additionalProperties:false}}]
+ const chunks=[]
+ for await(const chunk of promptApiText({nativeTools:false}).chatStream({...options().chatOptions,tools,toolChoice:"required"}))chunks.push(chunk)
+ assert.equal(control.events.filter(event=>event.kind==="clone").length,1)
+ assert.equal(control.events.filter(event=>event.kind==="final").length,1)
+ assert.equal(chunks.some(chunk=>chunk.type==="TOOL_CALL_END"),false)
+ assert.ok(control.sessions.every(session=>session.destroyed))
+ assert.equal(control.discards,1)
 })
