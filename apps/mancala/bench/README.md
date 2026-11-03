@@ -32,14 +32,14 @@ between trials; cached usage is reported only when the provider supplies it.
 
 ## Frozen suite and independent audit
 
-`mancala-tactics-v2` has **19 frozen 48-seed boards**: 16 calibration positions
+`mancala-tactics-v3` has **19 frozen 48-seed boards**: 16 calibration positions
 (13 scored, 3 neutral diagnostics), plus 3 scored holdouts. They cover bonus
 chains, empty-pit captures, replies to captures, skipping the opponent's store,
 final sweeps, draws, and multiple equivalent winning choices. Two added steal-defense regressions are replayed from legal opening histories
 in tests. The remaining constructed boards are teaching positions; historical
 reachability is not asserted. Opening preference and rules-only observations are deliberately ungraded.
 
-Three narrow objectives are graded:
+Four scoped objectives are graded:
 
 - **Win now:** accept every legal action immediately producing an AI win after
   capture and sweep. A move that might win later does not satisfy this objective.
@@ -51,6 +51,11 @@ Three narrow objectives are graded:
   Human bonus turns. Terminal wins/losses dominate nonterminal store margins;
   terminal draws score zero. The terminal score is `sign(margin)*1000+margin`.
   Every tied best initial action is accepted.
+- **Best final margin:** the disputed capture-versus-bonus fixture is solved
+  through terminal play by a separate full-board/store oracle. Accept every
+  action tied for the best final AI-minus-Human margin. A node-limit exhaustion
+  throws rather than assigning a partial grade. Pit 5 proves 30–18; pit 6 proves
+  25–23, so the accepted action remains unchanged.
 
 `reference.ts` exhaustively enumerates each complete turn for these small boards.
 It is separate from production's up-to-four-turn minimax, while sharing the
@@ -74,8 +79,8 @@ or proof of overall playing strength. Actual LFM3-only results are archived in [
 
 ## Current/baseline and Mac parallel runs
 
-The **Prompt** selector runs the current clarified `shared-v5` context or the
-frozen `shared-v1` through `shared-v4` historical variants through the same model, case set,
+The **Prompt** selector runs the current endgame-aware `shared-v6` context or the
+frozen `shared-v1` through `shared-v5` historical variants through the same model, case set,
 reasoning settings and paired order policy. The chosen version is saved in each
 report. Use identical settings for an A/B comparison, then check holdouts without
 changing the frozen prompt.
@@ -104,8 +109,14 @@ parallel test harness.
 
 Use **LFM3-1.7B-GGUF**, thinking **off**, two repetitions and the calibration
 positions. Run the frozen `shared-v1` baseline, export its JSON, then repeat the
-same settings with current `shared-v5`. Inspect the new bonus-steal cases first,
+same settings with current `shared-v6`. Inspect the new bonus-steal cases first,
 then overall scoped objective passes, errors and order sensitivity. Keep the
 three holdouts frozen for the final check. Do not invoke the all-three batch for
 this evaluation. The archived comparison records v1-v5 default-mode results plus a separate
 4,096-token reasoning diagnostic on the remaining capture-versus-bonus case.
+
+Suite v3 changes only `capture-or-bonus` from a two-turn reply objective to this
+verified full-game margin objective. Accepted pits are unchanged for every case.
+Historical v2 reports retain their original objective names and scores. Final v6
+measured 26/26 calibration objectives and 6/6 holdout trials with thinking off;
+see the archived reports and terminal proof fixture.

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict"
 import test from "node:test"
 import { createGame } from "./mancala.ts"
-import { buildMovePrompt, SHARED_SYSTEM_PROMPT } from "./shared-prompt.ts"
+import { buildMovePrompt, SHARED_SYSTEM_PROMPT } from "./shared-prompt-v5.ts"
 test("thought-informed wording preserves outcomes while removing path and tie ambiguities", () => {
   const game = {
     ...createGame(),

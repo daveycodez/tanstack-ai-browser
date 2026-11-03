@@ -77,3 +77,16 @@ test("bonus-steal regressions are reachable from legal opening histories", () =>
   assert.deepEqual(expectedForCase(getCase("bonus-steal-defense")), [10])
   assert.deepEqual(expectedForCase(getCase("safe-capture-over-exposure")), [7])
 })
+
+test("the formerly short-horizon miss is judged by its proven terminal margin", () => {
+  const fixture = getCase("capture-or-bonus")
+  assert.equal(fixture.objective, "best-final-margin")
+  assert.deepEqual(objectiveValues(fixture), [
+    { pit: 7, value: 4 },
+    { pit: 8, value: 8 },
+    { pit: 10, value: 2 },
+    { pit: 11, value: 12 },
+    { pit: 12, value: 2 }
+  ])
+  assert.deepEqual(expectedForCase(fixture), [11])
+})

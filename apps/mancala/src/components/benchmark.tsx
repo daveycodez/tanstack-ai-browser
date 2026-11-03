@@ -447,7 +447,10 @@ export function BenchmarkView() {
                 setPromptVersion(event.target.value as PromptVersion)
               }
             >
-              <option value="shared-v5">Current · clarified context v5</option>
+              <option value="shared-v6">
+                Current · endgame comparisons v6
+              </option>
+              <option value="shared-v5">Clarified context v5</option>
               <option value="shared-v4">Win-now priority v4</option>
               <option value="shared-v3">Literal actions v3</option>
               <option value="shared-v2">Capture-aware v2</option>

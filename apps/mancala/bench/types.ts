@@ -4,7 +4,11 @@ import type { OpponentSettings } from "../src/lib/opponents.ts"
 import type { PromptInput } from "../src/lib/shared-prompt.ts"
 
 export type Objective =
-  "win-now" | "best-complete-turn" | "best-reply-margin" | "diagnostic"
+  | "win-now"
+  | "best-complete-turn"
+  | "best-reply-margin"
+  | "best-final-margin"
+  | "diagnostic"
 export type BenchmarkCase = {
   id: string
   label: string

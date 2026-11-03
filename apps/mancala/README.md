@@ -30,7 +30,7 @@ availability and development-only Apple opponent match Checkers. Models are
 loaded only for an AI turn or an explicitly started benchmark; there is no cloud
 inference or heuristic replacement of an invalid model answer.
 
-`shared-prompt.ts` now uses `shared-v5` whole-turn context. The worker checks four
+`shared-prompt.ts` now uses `shared-v6` whole-turn context. The worker checks four
 completed turns per alternative (AI, Human, AI response, Human), including every
 bonus sow, captures and final sweeps. If the node limit prevents that horizon,
 all alternatives retry at the same three- or two-turn horizon. An unfinished
@@ -54,11 +54,24 @@ redundant illustrative counter-lines stay in diagnostics instead of the prompt.
 Tie-breakers compare supplied capture exposure and secured seeds before a bonus.
 
 The real local-Chrome LFM3 GGUF runs improved calibration objectives from 18/26
-on v1 to 25/26 on v5 with thinking off. Both steal-defense cases passed both
-choice orders (4/4); v5 also passed 6/6 trials on the three held-out positions.
+on v1 to 26/26 on v6 with thinking off. Both steal-defense cases passed both
+choice orders (4/4); v6 also passed 6/6 trials on the three held-out positions.
 These are scoped tactical objectives, not full-game-strength measurements.
 [Reports and failure notes](bench/results/2026-11-03-lfm3/README.md) preserve all
 runs, exact prompts, answers, and the separate high-budget reasoning diagnostic.
+
+When a bounded priority group ties in an endgame with at most 22 seeds left in
+pits, `endgame-ties.ts` compares those candidates through terminal play. It has a
+global 1,000,000-node limit and a 75,000-entry table/eviction ring. If any candidate
+hits the limit, no partial ranking is used. Only the compared tie candidates
+get final-score claims. Exact own bonus continuations replace the older bounded
+example paths; the subsequent real turn is checked for consistency. This runs
+in the existing cancellable analysis worker. Mac measurements for the disputed
+pair were about 158ms; phone latency/memory have not been measured.
+
+The disputed action kept a forced win, but reduced the perfect-play finish from
+30–18 to 25–23. The benchmark now audits the true terminal margin for that case,
+with the same accepted pit 5. It was not relaxed to award a pass.
 
 The strategy review used [Pekař et al.'s Kalah analysis](https://www.mdpi.com/2227-9709/7/3/34),
 which covers this app's no-empty-opposite capture rule and defensive exposure.

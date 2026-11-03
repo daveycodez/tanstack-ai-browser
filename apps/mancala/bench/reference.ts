@@ -1,3 +1,4 @@
+import { terminalMarginValues } from "./endgame-reference.ts"
 import { legalMoves, sow } from "../src/lib/mancala.ts"
 import type { Board, Side, SowResult } from "../src/lib/mancala.ts"
 import type { BenchmarkCase } from "./types.ts"
@@ -24,6 +25,8 @@ export function completeTurns(board: Board, side: Side): SowResult[] {
 export function objectiveValues(
   testCase: BenchmarkCase
 ): { pit: number; value: number }[] {
+  if (testCase.objective === "best-final-margin")
+    return terminalMarginValues(testCase.board)
   return legalMoves(testCase.board, "ai").map((pit) => {
     const next = sow(testCase.board, "ai", pit)
     if (testCase.objective === "win-now")

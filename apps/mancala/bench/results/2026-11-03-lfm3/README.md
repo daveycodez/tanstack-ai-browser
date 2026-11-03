@@ -2,9 +2,9 @@
 
 Model: `LiquidAI/LFM3-1.7B-GGUF`, local Chrome 156 on this Mac. Only LFM3 was run.
 Production/default comparisons use thinking **off**, model-default sampling,
-two repetitions, and forward/reversed legal-action order. The suite is
-`mancala-tactics-v2`: 16 calibration positions (13 scored, 3 diagnostic), plus
-three scored holdouts. Each constructed objective has its stated horizon;
+two repetitions, and forward/reversed legal-action order. The suite contains
+16 calibration positions (13 scored, 3 diagnostic), plus three scored holdouts.
+Historical v1–v5 runs use `mancala-tactics-v2`; v6 uses the terminal-audited v3. Each constructed objective has its stated horizon;
 these scores do not establish full-game strength.
 
 | Prompt                          | Calibration objectives | Legal moves | Steal-defense regressions | Holdouts |
@@ -14,11 +14,19 @@ these scores do not establish full-game strength.
 | v3, literal action labels       | 23/26                  | 32/32       | 4/4                       | 6/6      |
 | v4, immediate-win priority      | 24/26                  | 32/32       | 4/4                       | Not run  |
 | v5, thought-informed tightening | 25/26                  | 32/32       | 4/4                       | 6/6      |
+| v6, verified endgame comparison | 26/26                  | 32/32       | 4/4                       | 6/6      |
 
 All runs are retained, including misses. v3's holdouts were checked before v4/v5;
 subsequent changes were driven by calibration failures and their thinking trace,
 not by holdout failures. Reusing three small constructed holdouts is limited
 validation, not a fresh large evaluation or proof of solved play.
+
+v6 adds a bounded exact comparison for small-endgame priority ties. It scored
+**26/26 calibration objectives**, **32/32 legal choices**, both steal-defense
+positions in both orders (**4/4**), and **6/6 holdout trials**, with thinking off.
+These v6 runs use suite v3, which changes the disputed fixture to a full-terminal
+margin objective. Its accepted pit and every other accepted set are unchanged;
+historical reports are not retroactively regraded.
 
 ## What changed and why
 
@@ -37,9 +45,14 @@ seeds, then a bonus sow. The computed outcomes and legal move set remain intact.
 
 The remaining default-mode v5 miss is repetition 2 of `capture-or-bonus`:
 AI pit 6 was selected instead of the objective's pit 5. The four-turn analysis ties
-both at checked net 0, while this fixture grades only one complete Human reply
-and prefers pit 5. This is a miss against that narrow objective; it is not proof
-of a worse full-game action. No holdout or expected answer was changed.
+both at checked net 0, while the former suite v2 fixture grades only one complete Human reply
+and prefers pit 5. The follow-up terminal audit now proves this was a worse final-score action:
+pit 5 can force 30–18, while pit 6 can force only 25–23. Both win under perfect play,
+but pit 6 gives up five AI seeds and ten points of winning margin. The exact
+bonus continuation is AI pits 5 then 2, which the next actual bonus decision now
+also prioritizes. The expected action stays pit 5; v6 tightens verified context
+rather than relaxing the accepted answer. The terminal proof is preserved in
+[capture-or-bonus-terminal-proof.json](../../fixtures/lfm3-2026-11-03/capture-or-bonus-terminal-proof.json).
 
 ## Thinking diagnostic
 
@@ -55,9 +68,9 @@ are not added to any default-mode score.
 [bench/latest.json](../../latest.json) contains settings, per-trial answers, accepted pits, chosen order,
 priority groups, hashes and timing. Each `.json.gz` under [the fixture archive](../../fixtures/lfm3-2026-11-03/) is the exact downloaded full
 report, including every supplied prompt, raw answer, provider usage and any
-returned reasoning. There are 174 completed trials across eight archived runs.
+returned reasoning. There are 212 completed trials across ten archived runs.
 Every embedded system and position prompt was rebuilt from its board, order and
-frozen version and compared byte-for-byte: 174/174 matched.
+frozen version and compared byte-for-byte: 212/212 matched.
 
 The long-running Vite preview's revision field remained `3715ca1+working` after
 later source edits. That reported field is preserved, not rewritten as a false

@@ -3,7 +3,7 @@ import type { Game } from "../src/lib/mancala.ts"
 import type { OpponentSettings } from "../src/lib/opponents.ts"
 import type { BenchmarkCase } from "./types.ts"
 
-export const SUITE_VERSION = "mancala-tactics-v2"
+export const SUITE_VERSION = "mancala-tactics-v3"
 
 /** Frozen 48-seed teaching boards; the two bonus-steal regressions are replayed from real legal openings in tests. */
 export const CASES: BenchmarkCase[] = [
@@ -56,9 +56,9 @@ export const CASES: BenchmarkCase[] = [
     label: "Capture or continue?",
     category: "capture",
     partition: "calibration",
-    objective: "best-reply-margin",
+    objective: "best-final-margin",
     description:
-      "Compare a direct capture with a bonus turn by the worst store margin after a complete Human reply.",
+      "All legal moves preserve a win, but full terminal minimax gives pit 5 a 30–18 finish versus pit 6 at 25–23. Prefer the widest guaranteed final margin.",
     board: [1, 0, 1, 2, 2, 2, 13, 4, 1, 0, 2, 2, 5, 13],
     expectedPits: [11]
   },

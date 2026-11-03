@@ -40,7 +40,8 @@ test("the real worker entry produces the identical production prompt", async () 
       "shared-v2",
       "shared-v3",
       "shared-v4",
-      "shared-v5"
+      "shared-v5",
+      "shared-v6"
     ] as const) {
       const reply = once(worker, "message")
       worker.postMessage({ ...request, version })

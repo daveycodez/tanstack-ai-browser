@@ -11,7 +11,8 @@ test("literal AI actions resolve exactly and cannot be confused with Human repli
     "shared-v2",
     "shared-v3",
     "shared-v4",
-    "shared-v5"
+    "shared-v5",
+    "shared-v6"
   ] as const) {
     const input = buildMovePrompt(game, moves, version)
     for (const choice of input.choices)

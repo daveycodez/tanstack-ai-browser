@@ -4697,11 +4697,1068 @@
         }
       ],
       "exactSourcePromptMatches": 6
+    },
+    {
+      "id": "shared-v6-calibration",
+      "promptVersion": "shared-v6",
+      "suiteVersion": "mancala-tactics-v3",
+      "startedAt": "2026-11-03T21:28:45.412Z",
+      "finishedAt": "2026-11-03T21:29:04.542Z",
+      "reportedRevision": "3715ca1+working",
+      "config": {
+        "opponent": {
+          "model": "LiquidAI/LFM3-1.7B-GGUF",
+          "thinking": false
+        },
+        "reasoningMode": "off",
+        "repetitions": 2,
+        "reasoningBudgetTokens": 512,
+        "caseIds": [
+          "bonus-steal-defense",
+          "safe-capture-over-exposure",
+          "opening",
+          "bonus-followthrough",
+          "capture-or-bonus",
+          "large-capture",
+          "chain-into-capture",
+          "avoid-big-recapture",
+          "compare-bonus-chains",
+          "equal-captures",
+          "defend-while-sowing",
+          "long-lap",
+          "winning-sweep",
+          "save-the-draw",
+          "tied-wins",
+          "empty-opposite"
+        ],
+        "orderPolicy": "paired-rotation-v1",
+        "sampling": "model defaults",
+        "promptCache": "long",
+        "maxOutputTokens": 8192,
+        "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Safari/537.36"
+      },
+      "analysisLimitsAtRun": {
+        "maxRemainingSeeds": 22,
+        "maxNodes": 600000,
+        "maxTableEntries": 75000
+      },
+      "summary": {
+        "total": 32,
+        "inferred": 32,
+        "legal": 32,
+        "scored": 26,
+        "passed": 26,
+        "firstOption": 9,
+        "medianSeconds": 0.5111499999761582
+      },
+      "archive": "fixtures/lfm3-2026-11-03/shared-v6-calibration.json.gz",
+      "rawSha256": "711a174de4ba69a34dd434619be4f2256941e5a10b94f560dfcf5e96cdd2012e",
+      "trials": [
+        {
+          "caseId": "bonus-steal-defense",
+          "repetition": 1,
+          "order": [
+            7,
+            8,
+            9,
+            10,
+            11,
+            12
+          ],
+          "pit": 10,
+          "rawAnswer": "{\"pit\":\"Sow 9 seeds from AI pit 4\"}",
+          "expectedPits": [
+            10
+          ],
+          "passed": true,
+          "legal": true,
+          "seconds": 2.774399999976158,
+          "priorityPits": [
+            10
+          ],
+          "thinkingTokens": 0,
+          "thinkingBudgetExhausted": false,
+          "inputSha256": "64a55b696369ae8aecb3826aac69940b322180cda0b2928224a3c7cfe3dcf4b6"
+        },
+        {
+          "caseId": "bonus-steal-defense",
+          "repetition": 2,
+          "order": [
+            12,
+            11,
+            10,
+            9,
+            8,
+            7
+          ],
+          "pit": 10,
+          "rawAnswer": "{\"pit\":\"Sow 9 seeds from AI pit 4\"}",
+          "expectedPits": [
+            10
+          ],
+          "passed": true,
+          "legal": true,
+          "seconds": 0.698,
+          "priorityPits": [
+            10
+          ],
+          "thinkingTokens": 0,
+          "thinkingBudgetExhausted": false,
+          "inputSha256": "6d0f254fb04cc9ea59334922e5963e92ac5fccc1939ad30fd0fda21c94c24c36"
+        },
+        {
+          "caseId": "safe-capture-over-exposure",
+          "repetition": 1,
+          "order": [
+            7,
+            9,
+            10,
+            11,
+            12
+          ],
+          "pit": 7,
+          "rawAnswer": "{\"pit\":\"Sow 1 seed from AI pit 1\"}",
+          "expectedPits": [
+            7
+          ],
+          "passed": true,
+          "legal": true,
+          "seconds": 0.4985,
+          "priorityPits": [
+            7
+          ],
+          "thinkingTokens": 0,
+          "thinkingBudgetExhausted": false,
+          "inputSha256": "14fef3d5e9b08cfc7d918c9931f0b7b9394bd487556c275b425f104ac40b1f50"
+        },
+        {
+          "caseId": "safe-capture-over-exposure",
+          "repetition": 2,
+          "order": [
+            12,
+            11,
+            10,
+            9,
+            7
+          ],
+          "pit": 7,
+          "rawAnswer": "{\"pit\":\"Sow 1 seed from AI pit 1\"}",
+          "expectedPits": [
+            7
+          ],
+          "passed": true,
+          "legal": true,
+          "seconds": 0.5003999999761581,
+          "priorityPits": [
+            7
+          ],
+          "thinkingTokens": 0,
+          "thinkingBudgetExhausted": false,
+          "inputSha256": "f87464f4311e7aa6bc37bd94c795089eaef8ae24b96bbd0f2cc70e0e5771ccfd"
+        },
+        {
+          "caseId": "opening",
+          "repetition": 1,
+          "order": [
+            7,
+            8,
+            9,
+            10,
+            11,
+            12
+          ],
+          "pit": 12,
+          "rawAnswer": "{\"pit\":\"Sow 4 seeds from AI pit 6\"}",
+          "expectedPits": null,
+          "passed": null,
+          "legal": true,
+          "seconds": 0.5105,
+          "priorityPits": [
+            12
+          ],
+          "thinkingTokens": 0,
+          "thinkingBudgetExhausted": false,
+          "inputSha256": "4bc7b35c98f3998246ef6d6a5162d82639466cbaa7a4130474748e840976bec1"
+        },
+        {
+          "caseId": "opening",
+          "repetition": 2,
+          "order": [
+            12,
+            11,
+            10,
+            9,
+            8,
+            7
+          ],
+          "pit": 12,
+          "rawAnswer": "{\"pit\":\"Sow 4 seeds from AI pit 6\"}",
+          "expectedPits": null,
+          "passed": null,
+          "legal": true,
+          "seconds": 0.5097000000476837,
+          "priorityPits": [
+            12
+          ],
+          "thinkingTokens": 0,
+          "thinkingBudgetExhausted": false,
+          "inputSha256": "584e19659f44848026cbdf3250a542107ae7cd883eaa8be1918e7ddedcdef1f0"
+        },
+        {
+          "caseId": "bonus-followthrough",
+          "repetition": 1,
+          "order": [
+            7,
+            8,
+            9,
+            10,
+            11,
+            12
+          ],
+          "pit": 11,
+          "rawAnswer": "{\"pit\":\"Sow 2 seeds from AI pit 5\"}",
+          "expectedPits": [
+            11
+          ],
+          "passed": true,
+          "legal": true,
+          "seconds": 0.5947000000476838,
+          "priorityPits": [
+            11
+          ],
+          "thinkingTokens": 0,
+          "thinkingBudgetExhausted": false,
+          "inputSha256": "965c08858d609fcc49b38413d62fcf33f7d6b6d4a92347ce962b3a41d92a7391"
+        },
+        {
+          "caseId": "bonus-followthrough",
+          "repetition": 2,
+          "order": [
+            12,
+            11,
+            10,
+            9,
+            8,
+            7
+          ],
+          "pit": 11,
+          "rawAnswer": "{\"pit\":\"Sow 2 seeds from AI pit 5\"}",
+          "expectedPits": [
+            11
+          ],
+          "passed": true,
+          "legal": true,
+          "seconds": 0.5852999999523163,
+          "priorityPits": [
+            11
+          ],
+          "thinkingTokens": 0,
+          "thinkingBudgetExhausted": false,
+          "inputSha256": "47b41e868391216061f074ca58b8b31fecaa501ac387825f09eb4ad3d028ae76"
+        },
+        {
+          "caseId": "capture-or-bonus",
+          "repetition": 1,
+          "order": [
+            7,
+            8,
+            10,
+            11,
+            12
+          ],
+          "pit": 11,
+          "rawAnswer": "{\"pit\":\"Sow 2 seeds from AI pit 5\"}",
+          "expectedPits": [
+            11
+          ],
+          "passed": true,
+          "legal": true,
+          "seconds": 0.6481000000238418,
+          "priorityPits": [
+            11
+          ],
+          "thinkingTokens": 0,
+          "thinkingBudgetExhausted": false,
+          "inputSha256": "a67e3f0f7030bdc0a9819c39d820e7f52d4bceb514e1a75948719b1066dabf0b"
+        },
+        {
+          "caseId": "capture-or-bonus",
+          "repetition": 2,
+          "order": [
+            12,
+            11,
+            10,
+            8,
+            7
+          ],
+          "pit": 11,
+          "rawAnswer": "{\"pit\":\"Sow 2 seeds from AI pit 5\"}",
+          "expectedPits": [
+            11
+          ],
+          "passed": true,
+          "legal": true,
+          "seconds": 0.6253999999761581,
+          "priorityPits": [
+            11
+          ],
+          "thinkingTokens": 0,
+          "thinkingBudgetExhausted": false,
+          "inputSha256": "aa13d38aaf941454cd7c568e1dd515ee0d98a660f7f9b80eb91f4620f180ed08"
+        },
+        {
+          "caseId": "large-capture",
+          "repetition": 1,
+          "order": [
+            8,
+            10,
+            11,
+            12
+          ],
+          "pit": 8,
+          "rawAnswer": "{\"pit\":\"Sow 1 seed from AI pit 2\"}",
+          "expectedPits": [
+            8
+          ],
+          "passed": true,
+          "legal": true,
+          "seconds": 0.43129999995231627,
+          "priorityPits": [
+            8
+          ],
+          "thinkingTokens": 0,
+          "thinkingBudgetExhausted": false,
+          "inputSha256": "ca610fceff4389b5c62e9e933eadacc8a181eb26010981ecf9faa94504ae02f6"
+        },
+        {
+          "caseId": "large-capture",
+          "repetition": 2,
+          "order": [
+            12,
+            11,
+            10,
+            8
+          ],
+          "pit": 8,
+          "rawAnswer": "{\"pit\":\"Sow 1 seed from AI pit 2\"}",
+          "expectedPits": [
+            8
+          ],
+          "passed": true,
+          "legal": true,
+          "seconds": 0.4238999999761581,
+          "priorityPits": [
+            8
+          ],
+          "thinkingTokens": 0,
+          "thinkingBudgetExhausted": false,
+          "inputSha256": "a5ca26669d041268106737e70e121e7e4711043971f308c38237253234e5330d"
+        },
+        {
+          "caseId": "chain-into-capture",
+          "repetition": 1,
+          "order": [
+            7,
+            8,
+            9,
+            10,
+            11
+          ],
+          "pit": 11,
+          "rawAnswer": "{\"pit\":\"Sow 2 seeds from AI pit 5\"}",
+          "expectedPits": [
+            11
+          ],
+          "passed": true,
+          "legal": true,
+          "seconds": 0.5627000000476837,
+          "priorityPits": [
+            11
+          ],
+          "thinkingTokens": 0,
+          "thinkingBudgetExhausted": false,
+          "inputSha256": "06d81614d3e135351fbe66a05f94dc13ceb1c34f98a299c1a5cfa4a2b8090d06"
+        },
+        {
+          "caseId": "chain-into-capture",
+          "repetition": 2,
+          "order": [
+            11,
+            10,
+            9,
+            8,
+            7
+          ],
+          "pit": 11,
+          "rawAnswer": "{\"pit\":\"Sow 2 seeds from AI pit 5\"}",
+          "expectedPits": [
+            11
+          ],
+          "passed": true,
+          "legal": true,
+          "seconds": 0.552,
+          "priorityPits": [
+            11
+          ],
+          "thinkingTokens": 0,
+          "thinkingBudgetExhausted": false,
+          "inputSha256": "ea01e1854717e933882bb0a9cbaca12329c66ae68dd76a03d3db2725216d58d4"
+        },
+        {
+          "caseId": "avoid-big-recapture",
+          "repetition": 1,
+          "order": [
+            7,
+            9,
+            10,
+            11,
+            12
+          ],
+          "pit": 10,
+          "rawAnswer": "{\"pit\":\"Sow 6 seeds from AI pit 4\"}",
+          "expectedPits": [
+            10,
+            12
+          ],
+          "passed": true,
+          "legal": true,
+          "seconds": 0.5233000000715256,
+          "priorityPits": [
+            10
+          ],
+          "thinkingTokens": 0,
+          "thinkingBudgetExhausted": false,
+          "inputSha256": "1229eedb9f7c724a1509c40851f1e6aa6b84141dc45f999fc2ab84273310cd6f"
+        },
+        {
+          "caseId": "avoid-big-recapture",
+          "repetition": 2,
+          "order": [
+            12,
+            11,
+            10,
+            9,
+            7
+          ],
+          "pit": 10,
+          "rawAnswer": "{\"pit\":\"Sow 6 seeds from AI pit 4\"}",
+          "expectedPits": [
+            10,
+            12
+          ],
+          "passed": true,
+          "legal": true,
+          "seconds": 0.5172999999523162,
+          "priorityPits": [
+            10
+          ],
+          "thinkingTokens": 0,
+          "thinkingBudgetExhausted": false,
+          "inputSha256": "de9ff5a7ed50339968ecea2ba91a48565ad6d7f2fb1b80e194243c8bbdf14330"
+        },
+        {
+          "caseId": "compare-bonus-chains",
+          "repetition": 1,
+          "order": [
+            7,
+            8,
+            10,
+            11,
+            12
+          ],
+          "pit": 11,
+          "rawAnswer": "{\"pit\":\"Sow 2 seeds from AI pit 5\"}",
+          "expectedPits": [
+            11
+          ],
+          "passed": true,
+          "legal": true,
+          "seconds": 0.4895,
+          "priorityPits": [
+            11
+          ],
+          "thinkingTokens": 0,
+          "thinkingBudgetExhausted": false,
+          "inputSha256": "7b39a5e3350bcee74640098bc08a2abdc327c259c7bca639599684d7af083373"
+        },
+        {
+          "caseId": "compare-bonus-chains",
+          "repetition": 2,
+          "order": [
+            12,
+            11,
+            10,
+            8,
+            7
+          ],
+          "pit": 11,
+          "rawAnswer": "{\"pit\":\"Sow 2 seeds from AI pit 5\"}",
+          "expectedPits": [
+            11
+          ],
+          "passed": true,
+          "legal": true,
+          "seconds": 0.5031999999284744,
+          "priorityPits": [
+            11
+          ],
+          "thinkingTokens": 0,
+          "thinkingBudgetExhausted": false,
+          "inputSha256": "996c98f6faa52a38088681eee9ef94f239ca0769af8c9ebf97802df6b5d7fa93"
+        },
+        {
+          "caseId": "equal-captures",
+          "repetition": 1,
+          "order": [
+            8,
+            9,
+            10,
+            12
+          ],
+          "pit": 9,
+          "rawAnswer": "{\"pit\":\"Sow 2 seeds from AI pit 3\"}",
+          "expectedPits": [
+            9
+          ],
+          "passed": true,
+          "legal": true,
+          "seconds": 0.49410000002384186,
+          "priorityPits": [
+            9
+          ],
+          "thinkingTokens": 0,
+          "thinkingBudgetExhausted": false,
+          "inputSha256": "e3314dab54f201f1c94f476ab67ffc801b33893a2ee56bb93be0e55454ff7508"
+        },
+        {
+          "caseId": "equal-captures",
+          "repetition": 2,
+          "order": [
+            12,
+            10,
+            9,
+            8
+          ],
+          "pit": 9,
+          "rawAnswer": "{\"pit\":\"Sow 2 seeds from AI pit 3\"}",
+          "expectedPits": [
+            9
+          ],
+          "passed": true,
+          "legal": true,
+          "seconds": 0.4965,
+          "priorityPits": [
+            9
+          ],
+          "thinkingTokens": 0,
+          "thinkingBudgetExhausted": false,
+          "inputSha256": "7983f8bf0dd33f99038b051ef2b312cdd8273ce6fae00bfac0747b3d7bc5306d"
+        },
+        {
+          "caseId": "defend-while-sowing",
+          "repetition": 1,
+          "order": [
+            7,
+            8,
+            10,
+            11,
+            12
+          ],
+          "pit": 8,
+          "rawAnswer": "{\"pit\":\"Sow 1 seed from AI pit 2\"}",
+          "expectedPits": [
+            8
+          ],
+          "passed": true,
+          "legal": true,
+          "seconds": 0.5205,
+          "priorityPits": [
+            8
+          ],
+          "thinkingTokens": 0,
+          "thinkingBudgetExhausted": false,
+          "inputSha256": "50fb260f5a42a3f14a369a3141a8538176ff31ade20b80a2a2e3c98c64444f1e"
+        },
+        {
+          "caseId": "defend-while-sowing",
+          "repetition": 2,
+          "order": [
+            12,
+            11,
+            10,
+            8,
+            7
+          ],
+          "pit": 8,
+          "rawAnswer": "{\"pit\":\"Sow 1 seed from AI pit 2\"}",
+          "expectedPits": [
+            8
+          ],
+          "passed": true,
+          "legal": true,
+          "seconds": 0.5165,
+          "priorityPits": [
+            8
+          ],
+          "thinkingTokens": 0,
+          "thinkingBudgetExhausted": false,
+          "inputSha256": "c336daf84e508f708eb872e392c0dd391110d7860907685cc4278dadfaf9a8b3"
+        },
+        {
+          "caseId": "long-lap",
+          "repetition": 1,
+          "order": [
+            7,
+            8,
+            9,
+            10,
+            11,
+            12
+          ],
+          "pit": 12,
+          "rawAnswer": "{\"pit\":\"Sow 14 seeds from AI pit 6\"}",
+          "expectedPits": null,
+          "passed": null,
+          "legal": true,
+          "seconds": 0.5835,
+          "priorityPits": [
+            12
+          ],
+          "thinkingTokens": 0,
+          "thinkingBudgetExhausted": false,
+          "inputSha256": "b16acfb9f9f11fe6540178486db998b6443ea3386efc39bfe61fe08c7d367611"
+        },
+        {
+          "caseId": "long-lap",
+          "repetition": 2,
+          "order": [
+            12,
+            11,
+            10,
+            9,
+            8,
+            7
+          ],
+          "pit": 12,
+          "rawAnswer": "{\"pit\":\"Sow 14 seeds from AI pit 6\"}",
+          "expectedPits": null,
+          "passed": null,
+          "legal": true,
+          "seconds": 0.5771000000238419,
+          "priorityPits": [
+            12
+          ],
+          "thinkingTokens": 0,
+          "thinkingBudgetExhausted": false,
+          "inputSha256": "af68eed9e04d8919256a09c5018bd59ed10135b0cb139b3c45ab557fb34cc3e9"
+        },
+        {
+          "caseId": "winning-sweep",
+          "repetition": 1,
+          "order": [
+            7,
+            8,
+            10,
+            11,
+            12
+          ],
+          "pit": 8,
+          "rawAnswer": "{\"pit\":\"Sow 1 seed from AI pit 2\"}",
+          "expectedPits": [
+            8
+          ],
+          "passed": true,
+          "legal": true,
+          "seconds": 0.5056999999284745,
+          "priorityPits": [
+            8
+          ],
+          "thinkingTokens": 0,
+          "thinkingBudgetExhausted": false,
+          "inputSha256": "b37e3a549b839b0453f5ce455f9e9a4427bef9b9ade3100fd50d1ddb49e1446a"
+        },
+        {
+          "caseId": "winning-sweep",
+          "repetition": 2,
+          "order": [
+            12,
+            11,
+            10,
+            8,
+            7
+          ],
+          "pit": 8,
+          "rawAnswer": "{\"pit\":\"Sow 1 seed from AI pit 2\"}",
+          "expectedPits": [
+            8
+          ],
+          "passed": true,
+          "legal": true,
+          "seconds": 0.5032000000476837,
+          "priorityPits": [
+            8
+          ],
+          "thinkingTokens": 0,
+          "thinkingBudgetExhausted": false,
+          "inputSha256": "19a2f9ea89d40a50dfca28874647b57f587bcb76f6309b1da55459f9ca2a0554"
+        },
+        {
+          "caseId": "save-the-draw",
+          "repetition": 1,
+          "order": [
+            7,
+            9,
+            10,
+            12
+          ],
+          "pit": 7,
+          "rawAnswer": "{\"pit\":\"Sow 1 seed from AI pit 1\"}",
+          "expectedPits": [
+            7,
+            10,
+            12
+          ],
+          "passed": true,
+          "legal": true,
+          "seconds": 0.5117999999523163,
+          "priorityPits": [
+            7,
+            10,
+            12
+          ],
+          "thinkingTokens": 0,
+          "thinkingBudgetExhausted": false,
+          "inputSha256": "0b48a28a48328528dd73317be9eccab35fcd65a31417bc1b0001f2b7169485a4"
+        },
+        {
+          "caseId": "save-the-draw",
+          "repetition": 2,
+          "order": [
+            12,
+            10,
+            9,
+            7
+          ],
+          "pit": 12,
+          "rawAnswer": "{\"pit\":\"Sow 1 seed from AI pit 6\"}",
+          "expectedPits": [
+            7,
+            10,
+            12
+          ],
+          "passed": true,
+          "legal": true,
+          "seconds": 0.5328999999761581,
+          "priorityPits": [
+            12,
+            10,
+            7
+          ],
+          "thinkingTokens": 0,
+          "thinkingBudgetExhausted": false,
+          "inputSha256": "d813b7f7e8027babe4950289a25818732a2c468b20a177668395dfce3b4d54d5"
+        },
+        {
+          "caseId": "tied-wins",
+          "repetition": 1,
+          "order": [
+            7,
+            9,
+            12
+          ],
+          "pit": 7,
+          "rawAnswer": "{\"pit\":\"Sow 3 seeds from AI pit 1\"}",
+          "expectedPits": [
+            7,
+            9
+          ],
+          "passed": true,
+          "legal": true,
+          "seconds": 0.46130000007152555,
+          "priorityPits": [
+            7,
+            9
+          ],
+          "thinkingTokens": 0,
+          "thinkingBudgetExhausted": false,
+          "inputSha256": "2b816fe65df1456372fb92ff616f1f45703d454fa3d9df35d6e9a73f315fc2fa"
+        },
+        {
+          "caseId": "tied-wins",
+          "repetition": 2,
+          "order": [
+            12,
+            9,
+            7
+          ],
+          "pit": 9,
+          "rawAnswer": "{\"pit\":\"Sow 1 seed from AI pit 3\"}",
+          "expectedPits": [
+            7,
+            9
+          ],
+          "passed": true,
+          "legal": true,
+          "seconds": 0.45439999997615815,
+          "priorityPits": [
+            9,
+            7
+          ],
+          "thinkingTokens": 0,
+          "thinkingBudgetExhausted": false,
+          "inputSha256": "b5fd1692e3f878fe9e4d30f86e53980e178e2e768b631c5827fa83262be0dec4"
+        },
+        {
+          "caseId": "empty-opposite",
+          "repetition": 1,
+          "order": [
+            7,
+            8,
+            10,
+            11,
+            12
+          ],
+          "pit": 12,
+          "rawAnswer": "{\"pit\":\"Sow 2 seeds from AI pit 6\"}",
+          "expectedPits": null,
+          "passed": null,
+          "legal": true,
+          "seconds": 0.5077999999523163,
+          "priorityPits": [
+            12
+          ],
+          "thinkingTokens": 0,
+          "thinkingBudgetExhausted": false,
+          "inputSha256": "6e30b969b98ff87102ab534ec25c74eccdc2c4f1631421cb1e3a96ecd35cdcd2"
+        },
+        {
+          "caseId": "empty-opposite",
+          "repetition": 2,
+          "order": [
+            12,
+            11,
+            10,
+            8,
+            7
+          ],
+          "pit": 12,
+          "rawAnswer": "{\"pit\":\"Sow 2 seeds from AI pit 6\"}",
+          "expectedPits": null,
+          "passed": null,
+          "legal": true,
+          "seconds": 0.5103999999761581,
+          "priorityPits": [
+            12
+          ],
+          "thinkingTokens": 0,
+          "thinkingBudgetExhausted": false,
+          "inputSha256": "59d849b64a5d630783ad899cbdbd8c4e2cf382015ec71c44f5805fde28f96dde"
+        }
+      ],
+      "exactSourcePromptMatches": 32
+    },
+    {
+      "id": "shared-v6-holdout",
+      "promptVersion": "shared-v6",
+      "suiteVersion": "mancala-tactics-v3",
+      "startedAt": "2026-11-03T21:34:00.749Z",
+      "finishedAt": "2026-11-03T21:34:07.610Z",
+      "reportedRevision": "3715ca1+working",
+      "config": {
+        "opponent": {
+          "model": "LiquidAI/LFM3-1.7B-GGUF",
+          "thinking": false
+        },
+        "reasoningMode": "off",
+        "repetitions": 2,
+        "reasoningBudgetTokens": 512,
+        "caseIds": [
+          "holdout-bonus",
+          "holdout-defense",
+          "holdout-capture"
+        ],
+        "orderPolicy": "paired-rotation-v1",
+        "sampling": "model defaults",
+        "promptCache": "long",
+        "maxOutputTokens": 8192,
+        "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Safari/537.36"
+      },
+      "analysisLimitsAtRun": {
+        "maxRemainingSeeds": 22,
+        "maxNodes": 1000000,
+        "maxTableEntries": 75000
+      },
+      "summary": {
+        "total": 6,
+        "inferred": 6,
+        "legal": 6,
+        "scored": 6,
+        "passed": 6,
+        "firstOption": 2,
+        "medianSeconds": 0.9192999999523163
+      },
+      "archive": "fixtures/lfm3-2026-11-03/shared-v6-holdout.json.gz",
+      "rawSha256": "54d1ea512a3df3f263429b553d120156bc785a1c1309c8618ed4ac8f4507eee7",
+      "trials": [
+        {
+          "caseId": "holdout-bonus",
+          "repetition": 1,
+          "order": [
+            7,
+            8,
+            9,
+            10,
+            11,
+            12
+          ],
+          "pit": 12,
+          "rawAnswer": "{\"pit\":\"Sow 1 seed from AI pit 6\"}",
+          "expectedPits": [
+            12
+          ],
+          "passed": true,
+          "legal": true,
+          "seconds": 2.7117000000476836,
+          "priorityPits": [
+            12
+          ],
+          "thinkingTokens": 0,
+          "thinkingBudgetExhausted": false,
+          "inputSha256": "ff87a6d0ff5da95b89861f4c3400ad69dfca656c25305c524c982a5bbad06385"
+        },
+        {
+          "caseId": "holdout-bonus",
+          "repetition": 2,
+          "order": [
+            12,
+            11,
+            10,
+            9,
+            8,
+            7
+          ],
+          "pit": 12,
+          "rawAnswer": "{\"pit\":\"Sow 1 seed from AI pit 6\"}",
+          "expectedPits": [
+            12
+          ],
+          "passed": true,
+          "legal": true,
+          "seconds": 0.7057000000476837,
+          "priorityPits": [
+            12
+          ],
+          "thinkingTokens": 0,
+          "thinkingBudgetExhausted": false,
+          "inputSha256": "07cddf5ce96225da5b41bb1ef4885c761d5854f76ce8e653c21663c080e817b5"
+        },
+        {
+          "caseId": "holdout-defense",
+          "repetition": 1,
+          "order": [
+            7,
+            8,
+            9,
+            10,
+            11
+          ],
+          "pit": 11,
+          "rawAnswer": "{\"pit\":\"Sow 1 seed from AI pit 5\"}",
+          "expectedPits": [
+            11
+          ],
+          "passed": true,
+          "legal": true,
+          "seconds": 0.5146000000238419,
+          "priorityPits": [
+            11
+          ],
+          "thinkingTokens": 0,
+          "thinkingBudgetExhausted": false,
+          "inputSha256": "0b2abff04603a75888e92dfff8e7ecc649588928e6017fcb66dd3c0d32a53080"
+        },
+        {
+          "caseId": "holdout-defense",
+          "repetition": 2,
+          "order": [
+            11,
+            10,
+            9,
+            8,
+            7
+          ],
+          "pit": 11,
+          "rawAnswer": "{\"pit\":\"Sow 1 seed from AI pit 5\"}",
+          "expectedPits": [
+            11
+          ],
+          "passed": true,
+          "legal": true,
+          "seconds": 0.9661999999284744,
+          "priorityPits": [
+            11
+          ],
+          "thinkingTokens": 0,
+          "thinkingBudgetExhausted": false,
+          "inputSha256": "5a2a3da160e8a3150953f715e6cb7bff47b2f5338341ff7377295149bc0b8bda"
+        },
+        {
+          "caseId": "holdout-capture",
+          "repetition": 1,
+          "order": [
+            8,
+            9,
+            10,
+            11,
+            12
+          ],
+          "pit": 11,
+          "rawAnswer": "{\"pit\":\"Sow 2 seeds from AI pit 5\"}",
+          "expectedPits": [
+            11
+          ],
+          "passed": true,
+          "legal": true,
+          "seconds": 1.086,
+          "priorityPits": [
+            11
+          ],
+          "thinkingTokens": 0,
+          "thinkingBudgetExhausted": false,
+          "inputSha256": "826c625a298dc7f4712e0b7ffe6ac51ade4fbec65b48112b7eb7c36d5cf8c639"
+        },
+        {
+          "caseId": "holdout-capture",
+          "repetition": 2,
+          "order": [
+            12,
+            11,
+            10,
+            9,
+            8
+          ],
+          "pit": 11,
+          "rawAnswer": "{\"pit\":\"Sow 2 seeds from AI pit 5\"}",
+          "expectedPits": [
+            11
+          ],
+          "passed": true,
+          "legal": true,
+          "seconds": 0.8723999999761581,
+          "priorityPits": [
+            11
+          ],
+          "thinkingTokens": 0,
+          "thinkingBudgetExhausted": false,
+          "inputSha256": "0a05c30acf10201da7ae213c414ef85d31a865b1dbf10a03b8ba3f9dc2f92d2f"
+        }
+      ],
+      "exactSourcePromptMatches": 6
     }
   ],
   "sourceTextVerification": {
-    "matched": 174,
-    "total": 174,
+    "matched": 212,
+    "total": 212,
     "method": "Every embedded system/position prompt rebuilt from its board, choice order and frozen prompt version; exact string comparison."
   }
 }
