@@ -43,7 +43,7 @@ Original raw v1 reports remain intact; the audit explains the corrected grading.
 ## Shared production path
 
 The runner calls `chooseAiMove`, exactly as the game does, with instrumentation callbacks.
-The original baseline (`baseline-v1`) is preserved unchanged. The current `shared-v13`
+The original baseline (`baseline-v1`) is preserved unchanged. The current `shared-v14`
 contract uses descriptive actions such as `Jump king d2 over c3 to b4`. Every legal action
 remains in the enum; neither card order nor a hidden fallback selects a move for the model.
 
@@ -284,3 +284,24 @@ order and accepted sets as role-equivalent recolorings. They test color-invarian
 AI decisions; they do not assert that every recolored historical fixture is a
 reachable white-first standard opening. Actual white-first openings, persistence,
 resume and replay are tested separately through new games.
+
+
+## Cake-audited grading correction (suite v11, prompt v14)
+
+The suite retains 39 positions and 27 scored cases. A fresh Chrome run gives
+**Cake 27/27 and LFM3 GGUF 27/27** with thinking off and model-default sampling.
+
+- `reported-runner-guard-82` accepts `e1-f2` and the audited near-equal `b8-a7`.
+  Immediate captures of an exposed king or piece still fail.
+- `deny-red-promotion` accepts crown prevention `g7-f6` and compensated
+  `a5-b4 h6xf8 b4xd6`. A concession without compensation still fails.
+- `promotion-not-at-any-cost` now requires `e5-f4`, which avoids the double capture
+  before promoting. Immediate `d2-c1` leaves fewer surviving pieces and fails.
+
+Independent rules-based audit predicates derive these sets rather than hardcoding
+Cake's chosen IDs. Production v14 changes only the promotion recommendation in
+these 39 positions: compare surviving piece counts in existing checked exchange
+lines before preferring an immediate crown at equal exchange value. No extra
+search or model-specific instructions; all legal actions stay available. The
+system prompt shrinks from 1,795 to 1,761 characters. Historical v13 and earlier
+prompt behavior remains available unchanged. Older reports retain their versions.

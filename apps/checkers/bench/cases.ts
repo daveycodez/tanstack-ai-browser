@@ -4,7 +4,7 @@ import { EXCHANGE_REGRESSIONS } from "./exchange-regressions.ts"
 import { DEFENSIVE_REGRESSIONS } from "./defensive-regressions.ts"
 export { gameForCase } from "./fixtures.ts"
 
-export const SUITE_VERSION = "checkers-audited-v10"
+export const SUITE_VERSION = "checkers-audited-v11"
 
 /** Frozen constructed teaching positions and legal histories, not expert engine judgments. */
 export const CASES: BenchmarkCase[] = [
@@ -278,9 +278,9 @@ export const CASES: BenchmarkCase[] = [
   },
   {
     "id": "promotion-not-at-any-cost",
-    "label": "Promotion must not expose another checker",
-    "description": "Crowning ends on the protected back edge, but moving that man can expose another checker. Choose a promotion with no immediate Red win or negative checked exchange.",
-    "objective": "safe-promotion",
+    "label": "Preserve pieces before cashing in a promotion",
+    "description": "Postpone promotion when moving another piece prevents a double capture and preserves more pieces at the same checked exchange value. Crowning immediately is not automatically best.",
+    "objective": "preserve-promotion-material",
     "partition": "calibration",
     "setup": {
       "black": [
@@ -295,7 +295,7 @@ export const CASES: BenchmarkCase[] = [
       ]
     },
     "expectedMoveIds": [
-      "d2-c1"
+      "e5-f4"
     ]
   },
   {
@@ -330,9 +330,9 @@ export const CASES: BenchmarkCase[] = [
   },
   {
     "id": "deny-red-promotion",
-    "label": "Deny Red a next-turn crown",
-    "description": "Prevent every legal Red promotion on its next turn while allowing no immediate Red win and no negative checked capture-settled exchange.",
-    "objective": "prevent-promotion",
+    "label": "Deny or compensate an opponent crown",
+    "description": "Accept safe crown prevention or a forced promotion followed by a compensating capture that preserves a checked material advantage. Do not treat every conceded crown as a blunder.",
+    "objective": "prevent-or-compensate-promotion",
     "partition": "calibration",
     "setup": {
       "black": [
@@ -348,7 +348,8 @@ export const CASES: BenchmarkCase[] = [
       ]
     },
     "expectedMoveIds": [
-      "g7-f6"
+      "g7-f6",
+      "a5-b4"
     ]
   },
   {

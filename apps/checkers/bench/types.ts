@@ -3,7 +3,7 @@ import type { Game, PieceColor, Side } from "../src/lib/checkers.ts"
 import type { OpponentModel } from "../src/lib/opponents.ts"
 import type { PromptVersion } from "../src/lib/shared-prompt.ts"
 
-export type Objective = "win-now" | "avoid-immediate-loss" | "best-safe-exchange" | "avoid-losing-exchange" | "best-runner-defense" | "minimize-checked-loss" | "safe-promotion" | "prevent-promotion" | "force-win-next-turn" | "force-next-capture" | "avoid-draw-ahead" | "take-draw-behind" | "diagnostic"
+export type Objective = "win-now" | "avoid-immediate-loss" | "best-safe-exchange" | "avoid-losing-exchange" | "best-runner-defense" | "avoid-immediate-capture" | "preserve-promotion-material" | "prevent-or-compensate-promotion" | "minimize-checked-loss" | "safe-promotion" | "prevent-promotion" | "force-win-next-turn" | "force-next-capture" | "avoid-draw-ahead" | "take-draw-behind" | "diagnostic"
 export type BenchmarkCase = {
   id: string
   label: string

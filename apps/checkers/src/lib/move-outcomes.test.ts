@@ -6,7 +6,7 @@ import { applyMove, legalMoves, squareName } from "./checkers.ts"
 import type { Game } from "./checkers.ts"
 import { annotateMoves, describeMove, material, materialBalance, moveLabel } from "./move-outcomes.ts"
 import type { AnnotatedMove } from "./move-outcomes.ts"
-import { buildBaselinePrompt, buildMovePrompt, buildSharedPrompt, SHARED_PROMPT_VERSION, SHARED_V7_SYSTEM_PROMPT } from "./shared-prompt.ts"
+import { checkedPieceBalance, buildBaselinePrompt, buildMovePrompt, buildSharedPrompt, SHARED_PROMPT_VERSION, SHARED_V7_SYSTEM_PROMPT } from "./shared-prompt.ts"
 
 const sorted = (ids: readonly string[]) => [...ids].sort()
 const find = (id: string) => {
@@ -93,6 +93,13 @@ test("accepted tactical objectives can be recovered from the annotated facts wit
       accepted = candidates.filter(move => move.outcome.worstNetAfterResponse === best).map(move => move.id)
     }
     if (fixture.objective === "avoid-losing-exchange") accepted = moves.filter(move => safe(move) && move.outcome.worstNetAfterResponse >= 0).map(move => move.id)
+    if (fixture.objective === "avoid-immediate-capture") accepted = moves.filter(move => safe(move) && move.outcome.maxRedCaptureValue === 0).map(move => move.id)
+    if (fixture.objective === "preserve-promotion-material") {
+      const candidates = moves.filter(move => safe(move) && move.outcome.worstNetAfterResponse >= 0)
+      const best = Math.max(...candidates.map(move => checkedPieceBalance(game, move)))
+      accepted = candidates.filter(move => checkedPieceBalance(game, move) === best).map(move => move.id)
+    }
+    if (fixture.objective === "prevent-or-compensate-promotion") accepted = moves.filter(move => safe(move) && move.outcome.redReplies.every(reply => reply.netAfterBestResponse >= 0 || (reply.promotes && reply.nextCaptureValue > 0 && materialBalance(game.board) + reply.netAfterBestResponse > 0))).map(move => move.id)
     if (fixture.objective === "best-runner-defense") {
       const candidates = moves.filter(move => safe(move) && move.outcome.worstNetAfterResponse >= 0)
       const best = Math.max(...candidates.map(move => move.outcome.worstNetAfterResponse))

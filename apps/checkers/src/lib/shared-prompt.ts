@@ -1,11 +1,11 @@
-import { colorForSide, legalMoves, squareName } from "./checkers.ts"
+import { applyMove, colorForSide, legalMoves, squareName } from "./checkers.ts"
 import type { Game, Move } from "./checkers.ts"
 import { annotateMoves, describeMove, materialBalance, OUTCOME_VERSION } from "./move-outcomes.ts"
 import type { AnnotatedMove } from "./move-outcomes.ts"
 
-export const SHARED_PROMPT_VERSION = "shared-v13" as const
-export const PREVIOUS_PROMPT_VERSION = "shared-v12" as const
-export const PROMPT_VERSIONS = ["baseline-v1", "shared-v6", "shared-v7", "shared-v8", "shared-v9", "shared-v10", "shared-v11", "shared-v12", "shared-v13"] as const
+export const SHARED_PROMPT_VERSION = "shared-v14" as const
+export const PREVIOUS_PROMPT_VERSION = "shared-v13" as const
+export const PROMPT_VERSIONS = ["baseline-v1", "shared-v6", "shared-v7", "shared-v8", "shared-v9", "shared-v10", "shared-v11", "shared-v12", "shared-v13", "shared-v14"] as const
 export type PromptVersion = typeof PROMPT_VERSIONS[number]
 export const isPromptVersion = (value: string): value is PromptVersion => PROMPT_VERSIONS.some(version => version === value)
 export const SHARED_SYSTEM_PROMPT = "Choose one legal Black action using the verified checkers outcomes. Win now or force a win; otherwise prevent Red's immediate win. Prefer higher nonnegative checked material gains. Take free captures and crown a man now before ordinary quiet development when safe. Prevent free Red promotions when no better exchange exists. Avoid a draw when ahead; prefer an available draw when behind unless a listed win exists. When no tactic decides, favor safe quiet progress: advance men or use kings together to restrict safe escapes. Avoid needless reversals; a retreat can still be necessary. Each card is a separate alternative. Card order is not a recommendation."
@@ -77,7 +77,14 @@ export function buildBaselinePrompt(game: Game, moves: readonly Move[]): PromptI
 /** Summarize the existing bounded outcomes in the same provider-independent policy order.
  * This is advice: every legal card stays in the schema and the model chooses its action.
  */
-export function checkedPriorityChoices(game: Game, moves: readonly AnnotatedMove[]): AnnotatedMove[] {
+/** Piece survival along the already-verified worst exchange lines; no additional search. */
+export function checkedPieceBalance(game: Game, move: AnnotatedMove): number {
+  const count = (position: Game) => position.board.reduce((sum, piece) => sum + (!piece ? 0 : piece.side === "ai" ? 1 : -1), 0)
+  const after = applyMove(game, move.id)
+  const worst = move.outcome.redReplies.filter(reply => reply.netAfterBestResponse === move.outcome.worstNetAfterResponse)
+  return worst.length ? Math.min(...worst.map(reply => count(reply.exchangeLine.reduce((position, id) => applyMove(position, id), after)))) : count(after)
+}
+export function checkedPriorityChoices(game: Game, moves: readonly AnnotatedMove[], preservePromotionMaterial = true): AnnotatedMove[] {
   let choices = [...moves]
   const wins = choices.filter(move => move.outcome.status === "ai-won")
   if (wins.length) return wins
@@ -92,8 +99,13 @@ export function checkedPriorityChoices(game: Game, moves: readonly AnnotatedMove
     choices = choices.filter(move => move.outcome.status !== "draw")
   const net = Math.max(...choices.map(move => move.outcome.worstNetAfterResponse))
   choices = choices.filter(move => move.outcome.worstNetAfterResponse === net)
+  if (preservePromotionMaterial && choices.some(move => move.promotes) && choices.some(move => !move.promotes)) {
+    const survival = choices.map(move => ({ move, balance: checkedPieceBalance(game, move) }))
+    const best = Math.max(...survival.map(choice => choice.balance))
+    if (survival.some(choice => choice.move.promotes && choice.balance < best)) choices = survival.filter(choice => choice.balance === best).map(choice => choice.move)
+  }
   const immediate = choices.filter(move => move.outcome.worstNetAfterResponse >= 0 && (
-    move.promotes || move.captures.length > 0 && move.outcome.maxRedCaptureValue === 0))
+    move.promotes || (move.captures.length > 0 && move.outcome.maxRedCaptureValue === 0)))
   if (immediate.length) choices = immediate
   const capture = Math.max(0, ...choices.map(move => move.outcome.minNextCaptureValue))
   if (capture > 0) choices = choices.filter(move => move.outcome.minNextCaptureValue === capture)
@@ -101,6 +113,18 @@ export function checkedPriorityChoices(game: Game, moves: readonly AnnotatedMove
 }
 
 export function buildSharedPrompt(game: Game, annotated: readonly AnnotatedMove[], version: Exclude<PromptVersion, "baseline-v1"> = SHARED_PROMPT_VERSION): PromptInput {
+  if (version === "shared-v14") {
+    const previous = buildSharedPrompt(game, annotated, "shared-v13")
+    const priority = checkedPriorityChoices(game, annotated)
+    const recommended = new Set(priority.length < annotated.length ? priority.map(move => move.id) : [])
+    const choices = previous.choices.map(choice => ({ ...choice, outcome: choice.outcome.replace(" | RECOMMENDED; ", " | ").replace(" | ", recommended.has(choice.id) ? " | RECOMMENDED; " : " | ") }))
+    const replacements = new Map(previous.choices.map((choice, index) => [choice.outcome, choices[index].outcome]))
+    const summary = `CHECKED PRIORITY CHOICES: ${choices.filter(choice => recommended.has(choice.id)).map(choice => choice.label).join("; ")}.`
+    const suppressCrown = !priority.some(move => move.promotes) && annotated.some(move => move.promotes && move.outcome.worstNetAfterResponse >= 0)
+    const lines = previous.prompt.split("\n").filter(line => !(suppressCrown && line.startsWith("CROWN A PIECE NOW WITHOUT A CHECKED LOSS:"))).map(line => replacements.get(line) ?? (line.startsWith("CHECKED PRIORITY CHOICES:") && recommended.size ? summary : line))
+    if (recommended.size && !lines.some(line => line.startsWith("CHECKED PRIORITY CHOICES:"))) lines.push(summary)
+    return { ...previous, version, choices, systemPrompt: previous.systemPrompt.replace("When safe, prefer free captures and immediate crowning over ordinary quiet development.", "Prefer free captures and crowns that preserve pieces."), prompt: lines.join("\n") }
+  }
   if (version === "shared-v13") {
     const previous = buildSharedPrompt(game, annotated, "shared-v12")
     const roles = (text: string) => text.replace(/\bBlack\b/g, "AI").replace(/\bBLACK\b/g, "AI").replace(/\bRed\b/g, "Human").replace(/\bRED\b/g, "HUMAN")
@@ -116,7 +140,7 @@ export function buildSharedPrompt(game: Game, annotated: readonly AnnotatedMove[
     return { ...previous, version, systemPrompt: pieces(previous.systemPrompt), prompt: pieces(previous.prompt),
       choices: previous.choices.map(choice => ({ ...choice, label: pieces(choice.label), outcome: pieces(choice.outcome) })) }
   }
-  const priority = version === "shared-v11" ? checkedPriorityChoices(game, annotated) : []
+  const priority = version === "shared-v11" ? checkedPriorityChoices(game, annotated, false) : []
   const recommended = priority.length < annotated.length ? new Set(priority.map(move => move.id)) : new Set<string>()
   const choices = annotated.map(move => ({ id: move.id, label: move.label,
     outcome: describeMove(move).replace(" | ", recommended.has(move.id) ? " | RECOMMENDED; " : " | ") }))
@@ -156,7 +180,7 @@ export function buildSharedPrompt(game: Game, annotated: readonly AnnotatedMove[
       facts.push(`SMALLEST CHECKED LOSS: Black net ${best}: ${smallestLoss.map(move => move.label).join("; ")}.`)
   }
   if (version === "shared-v10" || version === "shared-v11") {
-    const priority = checkedPriorityChoices(game, annotated)
+    const priority = checkedPriorityChoices(game, annotated, false)
     if (priority.length && priority.length < annotated.length)
       facts.push(`CHECKED PRIORITY CHOICES: ${priority.map(move => move.label).join("; ")}.`)
   }

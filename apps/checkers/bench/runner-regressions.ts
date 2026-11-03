@@ -4,12 +4,14 @@ import { REPORTED_GAME_HISTORY } from "./reported-game.ts"
 export const RUNNER_REGRESSIONS: BenchmarkCase[] = [
   {
     id: "reported-runner-guard-82",
-    label: "Reported game: preserve the crowning-square guard",
-    description: "Choose every material-safe defense against a nearby runner over the next two Red turns, including compulsory captures; do not abandon the guard when another king can move.",
-    objective: "best-runner-defense",
+    label: "Reported game: guard the runner or preserve a sound king position",
+    description: "Accept the direct runner guard or a quiet king alternative with no immediate capture or opponent win. Allowing a crown is a positional concession, not an automatic decisive blunder.",
+    objective: "avoid-immediate-capture",
     partition: "calibration",
     history: REPORTED_GAME_HISTORY.slice(0, 81),
-    expectedMoveIds: ["e1-f2"]
+    expectedMoveIds: ["e1-f2", "b8-a7"],
+    signalMoveIds: ["e1-f2"],
+    signalDescription: "Retains the direct crowning-square guard; the audited near-equal king alternative also passes."
   },
   {
     id: "reported-runner-too-late-84",

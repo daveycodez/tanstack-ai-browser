@@ -256,5 +256,144 @@
         }
       ]
     }
-  ]
+  ],
+  "standardEngineStudy": {
+    "protocol": "existing-engine-human-style-v1",
+    "runId": "e5a31459-4d38-45f0-871c-97a5439944a1",
+    "startedAt": "2026-11-03T22:27:52.544Z",
+    "finishedAt": "2026-11-03T22:29:13.810Z",
+    "model": "LiquidAI/LFM3-1.7B-GGUF",
+    "suiteVersion": "checkers-audited-v11",
+    "standardEngine": {
+      "name": "Cake",
+      "repository": "https://github.com/martinfierz/cake",
+      "revision": "0221bfb2a625015c067e48825d6be3a6c28fa6d5",
+      "configuration": "Native fixed-depth search; official evaluation/pattern weights; opening book and external tablebases disabled",
+      "history": "Stock search receives its most recent 10 prior positions; application adjudicates final threefold repetition and 80-ply quiet-clock draws"
+    },
+    "promptVersion": "shared-v14",
+    "thinking": false,
+    "sampling": "model defaults",
+    "maxPlies": 120,
+    "blindReviewPlies": 40,
+    "partial": false,
+    "skill": {
+      "model": {
+        "passed": 27,
+        "total": 27
+      },
+      "cake": {
+        "passed": 27,
+        "total": 27
+      },
+      "matches": [
+        {
+          "id": "model:white:style-game-a",
+          "aiColor": "black",
+          "result": "human-won",
+          "plies": 53
+        },
+        {
+          "id": "model:white:style-game-b",
+          "aiColor": "black",
+          "result": "human-won",
+          "plies": 51
+        },
+        {
+          "id": "model:black:style-game-a",
+          "aiColor": "white",
+          "result": "human-won",
+          "plies": 46
+        },
+        {
+          "id": "model:black:style-game-b",
+          "aiColor": "white",
+          "result": "human-won",
+          "plies": 58
+        }
+      ]
+    },
+    "interpretation": "Actual existing non-LLM Cake engine versus the production LLM opponent. Style profiles are descriptive; human-like scores require explicit blinded human ratings. Match results measure this configuration, not Elo. Capped games are unresolved, not draws.",
+    "searchDepthRequested": 7,
+    "suiteDisagreements": [],
+    "correctedCases": [
+      {
+        "id": "reported-runner-guard-82",
+        "modelMove": "e1-f2",
+        "cakeMove": "b8-a7",
+        "modelPass": true,
+        "cakePass": true,
+        "inferred": true
+      },
+      {
+        "id": "promotion-not-at-any-cost",
+        "modelMove": "e5-f4",
+        "cakeMove": "e5-f4",
+        "modelPass": true,
+        "cakePass": true,
+        "inferred": true
+      },
+      {
+        "id": "deny-red-promotion",
+        "modelMove": "g7-f6",
+        "cakeMove": "a5-b4",
+        "modelPass": true,
+        "cakePass": true,
+        "inferred": true
+      }
+    ],
+    "profiles": {
+      "model": {
+        "traces": 4,
+        "nonforcedDecisions": 76,
+        "quality": {
+          "scored": 76,
+          "unscored": 0,
+          "acceptable": 51,
+          "costly": 21,
+          "severe": 4
+        },
+        "quietDecisions": 72,
+        "quietReversals": 0,
+        "promotions": 1,
+        "note": "Unequal game lengths and branching make these descriptive, not paired strength estimates."
+      },
+      "cake": {
+        "traces": 4,
+        "nonforcedDecisions": 218,
+        "quality": {
+          "scored": 218,
+          "unscored": 0,
+          "acceptable": 218,
+          "costly": 0,
+          "severe": 0
+        },
+        "quietDecisions": 208,
+        "quietReversals": 24,
+        "promotions": 12,
+        "note": "Unequal game lengths and branching make these descriptive, not paired strength estimates."
+      }
+    },
+    "automatedAssessment": null,
+    "humanRatings": {
+      "count": 0,
+      "score": null
+    },
+    "notes": [
+      "Fresh Chrome evaluation with suite v11 and prompt v14; no regrading of an older run.",
+      "Earlier automated style ratings were for v13 and are not carried forward to these changed games.",
+      "Root runs describe the separately versioned broader multi-model quality evaluation."
+    ],
+    "suiteCorrection": {
+      "grading": "Rule-based acceptance of sound guard alternatives and compensated crowns; promotion case now requires preserving the pieces.",
+      "productionGuidance": "At equal checked exchange value, avoid a promotion that concedes more pieces than a quiet alternative. Replays existing verified lines; no deeper search.",
+      "changedPriorityCasesIn39Fixtures": [
+        "promotion-not-at-any-cost"
+      ],
+      "systemPromptCharacters": {
+        "before": 1795,
+        "after": 1761
+      }
+    }
+  }
 }

@@ -15,7 +15,7 @@ function reported(ply: number) {
   return { fixture, game }
 }
 
-test("move 82 preserves the king-row guard and uses the other king", () => {
+test("move 82 preserves the guard preference while accepting an audited quiet alternative", () => {
   const { fixture, game } = reported(82)
   const moves = annotateMoves(game)
   assert.ok(moves.every(move => move.outcome.redTurnsChecked === 2))
@@ -24,7 +24,7 @@ test("move 82 preserves the king-row guard and uses the other king", () => {
   assert.ok(abandon && defend)
   assert.equal(abandon.outcome.worstNetAfterResponse, -1)
   assert.equal(defend.outcome.worstNetAfterResponse, 0)
-  assert.deepEqual(auditCase(fixture).expectedMoveIds, ["e1-f2"])
+  assert.deepEqual(new Set(auditCase(fixture).expectedMoveIds), new Set(["e1-f2", "b8-a7"]))
   const threat = abandon.outcome.redReplies.find(reply => reply.id === "b6-c7")
   assert.ok(threat)
   assert.equal(threat.netAfterBestResponse, -1)

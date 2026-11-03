@@ -10,6 +10,7 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as BehaviorRuntimeRouteImport } from './routes/behavior-runtime'
 import { Route as BenchRouteImport } from './routes/bench'
 import { Route as BenchRuntimeRouteImport } from './routes/bench-runtime'
 import { Route as GameRouteImport } from './routes/game'
@@ -17,6 +18,11 @@ import { Route as GameRouteImport } from './routes/game'
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const BehaviorRuntimeRoute = BehaviorRuntimeRouteImport.update({
+  id: '/behavior-runtime',
+  path: '/behavior-runtime',
   getParentRoute: () => rootRouteImport,
 } as any)
 const BenchRoute = BenchRouteImport.update({
@@ -37,12 +43,14 @@ const GameRoute = GameRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/behavior-runtime': typeof BehaviorRuntimeRoute
   '/bench': typeof BenchRoute
   '/bench-runtime': typeof BenchRuntimeRoute
   '/game': typeof GameRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/behavior-runtime': typeof BehaviorRuntimeRoute
   '/bench': typeof BenchRoute
   '/bench-runtime': typeof BenchRuntimeRoute
   '/game': typeof GameRoute
@@ -50,20 +58,28 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/behavior-runtime': typeof BehaviorRuntimeRoute
   '/bench': typeof BenchRoute
   '/bench-runtime': typeof BenchRuntimeRoute
   '/game': typeof GameRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/bench' | '/bench-runtime' | '/game'
+  fullPaths: '/' | '/behavior-runtime' | '/bench' | '/bench-runtime' | '/game'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/bench' | '/bench-runtime' | '/game'
-  id: '__root__' | '/' | '/bench' | '/bench-runtime' | '/game'
+  to: '/' | '/behavior-runtime' | '/bench' | '/bench-runtime' | '/game'
+  id:
+    | '__root__'
+    | '/'
+    | '/behavior-runtime'
+    | '/bench'
+    | '/bench-runtime'
+    | '/game'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  BehaviorRuntimeRoute: typeof BehaviorRuntimeRoute
   BenchRoute: typeof BenchRoute
   BenchRuntimeRoute: typeof BenchRuntimeRoute
   GameRoute: typeof GameRoute
@@ -76,6 +92,13 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/behavior-runtime': {
+      id: '/behavior-runtime'
+      path: '/behavior-runtime'
+      fullPath: '/behavior-runtime'
+      preLoaderRoute: typeof BehaviorRuntimeRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/bench': {
@@ -104,6 +127,7 @@ declare module '@tanstack/react-router' {
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  BehaviorRuntimeRoute: BehaviorRuntimeRoute,
   BenchRoute: BenchRoute,
   BenchRuntimeRoute: BenchRuntimeRoute,
   GameRoute: GameRoute,

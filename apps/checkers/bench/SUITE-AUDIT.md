@@ -1,8 +1,8 @@
-# Checkers fixture audit: checkers-audited-v6
+# Checkers fixture audit: checkers-audited-v11
 
-The frozen suite has **37 positions: 31 calibration and six historical holdouts**. There are
-27 scored tactical/policy objectives (22 calibration, five holdout), nine ungraded
-observations (eight calibration, one historical holdout), and one ungraded forced-move check. The forced move has
+The frozen suite has **39 positions: 33 calibration and six historical holdouts**. There are
+27 scored tactical/policy objectives (22 calibration, five holdout), 11 ungraded
+observations (ten calibration, one historical holdout), and one ungraded forced-move check. The forced move has
 only one legal turn and requires no model inference; it is not evidence of playing
 strength. Freeze the shared prompt before evaluating holdouts. If held-out results
 inform a later prompt change, treat those positions as calibration thereafter.
@@ -218,3 +218,28 @@ No pass condition requires fewer enemy replies, moving a king closer, never retr
 or stopping promotion regardless of cost. Those coarse geometric rules can contradict
 actual captures. The reported examples instead exercise exact legal consequences,
 including a guard capture of both a runner and its supporting king.
+
+
+## v11: external-engine counterexamples
+
+Cake's three v10 disagreements were checked at native depths 7, 9, 11, 13 and 15,
+with concrete continuations under the actual application rules. V11 corrects the
+objectives rather than forcing Cake to imitate a shorter teaching heuristic.
+
+- **Avoid immediate capture:** runner-guard case accepts every quiet alternative
+  with no immediate opponent win or capture: `e1-f2`, `b8-a7`. Keeping the guard
+  remains a useful signal, but releasing it is not automatically a decisive loss.
+- **Prevent or compensate promotion:** accept replies with nonnegative checked
+  exchange, or a promotion followed by a legal capture that retains a positive
+  checked material balance. This accepts `g7-f6` and `a5-b4`; the latter forces
+  `h6xf8 b4xd6`. Other unrecouped or exposed-king moves remain rejected.
+- **Preserve promotion material:** among nonlosing checked exchanges, maximize
+  surviving piece balance using a separately enumerated capture-settled tree.
+  `e5-f4` preserves all three pieces initially and can promote on the following
+  turn. `d2-c1 d6xf4xh6 c1xa3` leaves one king against a king and a pawn; it no
+  longer passes merely for crowning immediately.
+
+The count stays 27 scored cases. Fresh Cake and LFM3 GGUF runs both scored 27/27.
+The earlier version-specific grading notes below/above are historical; their
+narrow promotion predicates do not define v11. No engine-specific exceptions or
+Cake dependency are used by the audit or production prompt.
