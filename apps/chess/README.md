@@ -1,9 +1,5 @@
 # Chess
 
-Current prompt audit: [Compact prompt repair](bench/COMPACT-PROMPT-REPAIR.md). The20%+ reduction is
-retained:554 fewer input tokens/turn on LFM3 (20.8%) and580 on Nano (22.3%). Main
-scores are42/42 and41/42; all four models have78/78 legal outputs. No package changes.
-
 A responsive blue-and-silver chess game built with TanStack Start, React, TanStack DB,
 and this workspace’s local Prompt API and WebGL adapters. Human plays White; the
 selected language model plays Black. No hosted inference or API key is required.
@@ -35,9 +31,10 @@ capture, check, checkmate, promotion, castling, and draw cues are synthesized lo
 there are no sound-asset downloads. Audio starts only after a user gesture. Enabling
 sound explicitly plays a test tap and requests playback audio when supported.
 
-TanStack DB’s IndexedDB collection stores the board, starting/current FEN, complete
+Native atomic IndexedDB transactions store the board, starting/current FEN, complete
 move history, result, and opponent in the separate `chess` database. Replaying the
-history preserves repetition rights. Storage opens after hydration. Starting over
+history preserves repetition rights. TanStack DB provides the reactive view; cross-tab
+notifications refresh it after durable writes. Storage opens after hydration. Starting over
 asks before replacing an active game. Theme and sound preferences use local storage.
 
 ## Local AI
@@ -57,7 +54,8 @@ positions retain concrete dangers and opportunities without generic opening or
 endgame coaching. Quiet positions receive early-development advice, actual
 pawn-cover context, or simplified king-coordination facts when relevant.
 
-Annotations cover captures, check/mate/draw, legal recapturers, immediate mating
+A reusable, cancellable app worker builds the annotations and prompt without blocking
+the UI thread. Annotations cover captures, check/mate/draw, legal recapturers, immediate mating
 replies, protection, castling rights, actual promotion replies and legal opponent
 king destinations. Promotion facts distinguish unanswered losses from legal
 recaptures or compensation. Zero king destinations alone is not mate. Conditional
@@ -116,13 +114,5 @@ The suite accepts intelligent alternatives, including a forcing pawn check befor
 winning a knight and valid defenses against promotion.
 
 See [benchmark instructions](bench/README.md), [suite audit](bench/SUITE-AUDIT.md),
-[findings and historical grading corrections](bench/FINDINGS.md),
-[reasoning audit](bench/REASONING-AUDIT.md), and
-[strategy research and implementation status](bench/STRATEGY-RESEARCH.md).
-
-Desktop/mobile theme and layout checks passed. The user confirmed hearing the
-in-game sounds on an iPhone after the gesture/playback fix. Current evaluation
-results and their limits are documented in the findings; this is a casual local
-opponent, not a claimed professional-strength chess engine.
-
-The current [LFM cache/ordering findings](bench/CACHE-FINDINGS.md) distinguish fixed-prefix reuse, exact retries, opening variety and the isolated temporary WebGL checkpoint.
+and [strategy research](bench/STRATEGY-RESEARCH.md). Historical run artifacts are
+excluded from version control; the fixtures and manual tester remain reproducible.

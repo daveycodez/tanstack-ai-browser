@@ -61,4 +61,4 @@ preference: both models chose it four times in the user's thin-cover case, while
 the ordinary fianchetto signal differed by model.
 
 The current facts are available to the models; reliable mating coordination remains
-unproven. [Findings](FINDINGS.md) reports tactical/diagnostic outcomes separately.
+unproven. The benchmark reports tactical grades and neutral diagnostic signals separately.

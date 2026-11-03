@@ -13,10 +13,8 @@ import {
   webglText
 } from "@tanstack-ai-browser/webgl"
 import { moveOutputSchema } from "./move-output"
-import { annotatedLegalMoves, currentThreats } from "./chess"
-import { buildSharedPrompt, SHARED_SYSTEM_PROMPT } from "./shared-prompt"
-import { stableMoveOrder } from "./move-order"
-import { moveChoiceLabel, resolveActionLabel } from "./move-choice"
+import { analyzeMovePrompt } from "./analysis-worker"
+import { SHARED_SYSTEM_PROMPT } from "./shared-prompt"
 import type { Game } from "./chess"
 import { opponentOption, resolveOpponent } from "./opponents"
 import type { OpponentSettings } from "./opponents"
@@ -101,48 +99,16 @@ export async function chooseAiMove(
     throw new Error("There is no AI turn to play.")
   }
   const opponent = resolveOpponent(game.opponent)
-  let moves = annotatedLegalMoves(game, {
-    relationships: true,
-    mobility: true,
-    support: game.board.some(
-      (piece) =>
-        piece?.side === game.turn && (piece.type === "q" || piece.type === "r")
-    ),
-    castling: /[kq]/.test(game.fen.split(" ")[2]),
-    kingCover: true,
-    promotionReplies: true,
-    kingMobility: true,
-    safety: true
-  })
-  if (!moves.length) throw new Error("The AI has no legal moves.")
-
-  if (options?.moveOrder) {
-    const order = options.moveOrder
-    const rank = new Map(order.map((id, index) => [id, index]))
-    if (
-      order.length !== moves.length ||
-      rank.size !== moves.length ||
-      moves.some((move) => !rank.has(move.id))
-    ) {
-      throw new Error(
-        "Benchmark move order does not match the position's legal choices."
-      )
-    }
-    moves.sort(
-      (left, right) => (rank.get(left.id) ?? 0) - (rank.get(right.id) ?? 0)
-    )
-  } else {
-    moves = stableMoveOrder(moves, options?.moveOrderSeed ?? game.sessionId)
-  }
-  const { prompt, choices } = buildSharedPrompt({
+  const { prompt, choices } = await analyzeMovePrompt({
     game,
-    moves,
-    currentThreats: currentThreats(game)
-  })
+    moveOrder: options?.moveOrder,
+    moveOrderSeed: options?.moveOrderSeed
+  }, signal)
+  signal.throwIfAborted()
   options?.onInput?.({ choices, prompt, systemPrompt: SHARED_SYSTEM_PROMPT })
-  if (moves.length === 1) {
-    options?.onAnswer?.(moveChoiceLabel(moves[0]))
-    return moves[0].id
+  if (choices.length === 1) {
+    options?.onAnswer?.(choices[0].label)
+    return choices[0].id
   }
 
   const thinkingSupport = opponentOption(opponent.model).thinking
@@ -153,7 +119,7 @@ export async function chooseAiMove(
   }
 
   // The decoder enforces every legal option; rules validation still runs after generation.
-  const outputSchema = moveOutputSchema(moves.map(moveChoiceLabel))
+  const outputSchema = moveOutputSchema(choices.map(choice => choice.label))
   // Tokenized prompt, template, schema, and generation must fit the adapter context.
   // A character count cannot determine that budget; the runtime enforces it.
 
@@ -259,7 +225,9 @@ export async function chooseAiMove(
     generationSignal.throwIfAborted()
     const { move } = outputSchema.parse(answer)
     options?.onAnswer?.(move)
-    return resolveActionLabel(moves, move)
+    const chosen = choices.find(choice => choice.label === move)
+    if (!chosen) throw new Error("The AI chose a noncanonical or illegal action label.")
+    return chosen.id
   } finally {
     clearTimeout(deadline)
     signal.removeEventListener("abort", cancelGeneration)

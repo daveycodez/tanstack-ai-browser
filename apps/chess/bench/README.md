@@ -1,24 +1,13 @@
 # Manual chess AI benchmark
 
-Current prompt audit: [Compact prompt repair](COMPACT-PROMPT-REPAIR.md). The20%+ reduction is
-retained:554 fewer input tokens/turn on LFM3 (20.8%) and580 on Nano (22.3%). Main
-scores are42/42 and41/42; all four models have78/78 legal outputs. No package changes.
-
-Current follow-up: Checkers through `62752c6` is merged, including the session-pool
-fix. See [the latest cache verification](CACHE-VERIFICATION.md) for normal/disabled
-cache controls, full-suite results and the GPU-contention timing limitation. Older
-measurements and reproducer assertions below are historical evidence.
-
 `/bench` is a TanStack Start route for explicitly requested browser model checks.
 It uses the production `chooseAiMove()` path and never reads or writes the saved
 game. Only pressing **Run benchmark** invokes a model. Tests, builds, prerendering
 and CI do not run inference. Results and full JSON print in-page; nothing is
 automatically downloaded.
 
-See [the Checkers integration review](CHECKERS-INTEGRATION.md) for current adapter
-behavior, cache limitations and both-model verification. Within one benchmark run,
-turns/retries share a game thread; New game mode separates threads per repetition.
-Reports retain the thread identity and actual provider-reported cache counts.
+Within one benchmark run, turns/retries share a game thread; New game mode separates
+threads per repetition. Reports retain thread identity and provider-reported cache counts.
 
 ## Run
 
@@ -46,7 +35,7 @@ Uncapped records `reasoningBudgetTokens: null` and omits `budgetTokens` from the
 request; it does not remove runtime context, generation, or deadline limits.
 WebGL's total generation
 ceiling is 8,192 tokens; Prompt API's browser-managed final-output limit is recorded
-as `null`. These are different capabilities. See [the reasoning audit](REASONING-AUDIT.md).
+as `null`. These are different capabilities.
 
 Every model receives the same **shared-v25** system and user assembly, standard
 piece values and model-default sampling. There are no active profile, context,
@@ -117,16 +106,15 @@ partial runs and operational failures as such.
 
 Optional `usage` comes through TanStack AI's public `onUsage` middleware. It keeps
 provider token counts and available reasoning-budget flags; missing values are
-unknown. Character count cannot prove budget exhaustion. See [REASONING-AUDIT.md](REASONING-AUDIT.md).
+unknown. Character count cannot prove budget exhaustion.
 
 **`revision` is a dev-server-start snapshot.** Vite captures it when the server
 starts, so HMR can load later dirty source while the field still says
 `05a0afb...-dirty`. Do not rewrite that raw field to a later commit. Identify the
 actual experiment with `promptVersion`, output contract, complete recorded inputs,
-and the corresponding source manifest. The [V19 cache comparison](results/2026-11-02-v19-cache-comparison.json)
-records the current frozen source; the [V18 manifest](results/2026-11-02-shared-v18-source-manifest.json)
-preserves the earlier checkpoint separately. Restarting the server refreshes
-the startup snapshot. Never edit runtime or test files during a model run.
+and a locally saved source manifest. Restarting the server refreshes the startup
+snapshot. Never edit runtime or test files during a model run. Historical reports
+are not tracked; save any needed experiment data outside the repository.
 
 ## Static checks
 
@@ -138,12 +126,8 @@ These checks do not invoke models. Model tests stay manual and outside CI. Do no
 change grading to make a specific chosen move pass without an independent rules
 proof. Preserve raw report schemas and values when deriving a corrected grade.
 
-[Findings](FINDINGS.md) records completed evaluations and pending work.
 [Strategy research](STRATEGY-RESEARCH.md) distinguishes implemented facts from
-proposals. The numbered [raw reports](results/) remain historical evidence; old
-profiles and prompt/schema descriptions are not current controls. The
-[retrospective audit](results/2026-11-02-audited-v6-retrospective.json) regrades only
-matching case IDs and exact FENs, retaining original grades and legality failures.
+proposals. The automated fixture audit independently validates the recorded positions.
 
 ## LFM cache replay
 
@@ -154,15 +138,7 @@ run with **Permuted stress test**. The fixed order seed makes inputs reproducibl
 The page prints cached/input token totals and cache-hit calls; full usage retains
 prefill and decoding timings. Cache inference is never automatic.
 
-See [cache and ordering findings](CACHE-FINDINGS.md) for the final per-game policy,
-opening variety, raw reports 84–91 and the temporary WebGL patch awaiting Checkers
-integration. The original 39-case tactical inventory is unchanged; the independent
-audit additionally validates the seven neutral replay fixtures.
-
-For a separate model-free check of move facts and serialization preservation:
-
-```sh
-pnpm nx run chess:bench-concision-audit
-```
-
-It never calls an LLM and is independent of the regular test target.
+Ordinary play uses stable per-game presentation order and the adapter's default
+cache policy. Exact retries preserve inputs; new positions change the user input.
+Do not infer latency improvements from token reuse alone. Compare paired runs with
+identical positions, model, thinking setting, order seeds and device load.

@@ -11,3 +11,6 @@ dist
 !.env.template
 .dev.vars
 .dev.vars.*
+
+# Manual model reports stay local; the runnable benchmark and fixtures are tracked.
+bench/results/

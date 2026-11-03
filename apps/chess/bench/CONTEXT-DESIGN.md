@@ -79,5 +79,5 @@ casual play as goals; do not turn metadata into a hidden move selector.
 Verbose annotation groups did not reliably improve LFM3. The selected LFM3 GGUF
 profile instead uses compact factual action cards, a current-threat summary, conditional
 castling emphasis, and immediate win/safe-queen-capture highlights. It keeps all legal
-choices and model-default sampling, with thinking off. See FINDINGS.md for the actual
+choices and model-default sampling, with thinking off. See the manual benchmark for the actual
 paired results, failed variants, fixture corrections, and limits.

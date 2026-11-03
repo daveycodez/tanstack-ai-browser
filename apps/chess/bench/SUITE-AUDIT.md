@@ -1,9 +1,7 @@
 # Chess fixture audit: audited-v10
 
-Current correction: non-capturing Qd5+ forces a safe rook capture after all six
-White evasions. The old capture-check-only predicate was too narrow. See
-[the compact repair and independent proof](COMPACT-PROMPT-REPAIR.md). Historical
-raw grades are preserved; regrading views identify the corrected false negative.
+Non-capturing Qd5+ forces a safe rook capture after all six White evasions. The
+independent audit checks this branch; the checking move need not itself capture.
 
 This audit precedes further prompt tuning. The suite has 39 cases: 36 calibration cases and three holdouts, with 21 scored cases and 18 ungraded diagnostics. Recent
 calibration cases cover exposure of a different piece, defender withdrawal, a losing

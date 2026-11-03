@@ -176,6 +176,8 @@ export type MoveRecord = {
 export type Game = {
   id: "current"
   sessionId: string
+  /** Changes after each durable write, including settings edits within one ply. */
+  storageVersion?: string
   opponent?: OpponentSettings
   board: Board
   /** The starting position plus UCI history retain repetition and special moves. */
