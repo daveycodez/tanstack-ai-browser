@@ -1,5 +1,6 @@
 import { useEffect, useId, useRef, useState } from "react"
 import {
+  DEV_OPPONENTS,
   opponentOption,
   resolveOpponent,
   WEBGL_OPPONENTS
@@ -24,10 +25,11 @@ export function OpponentPicker({
   const trigger = useRef<HTMLElement>(null)
   const id = useId()
   const selected = opponentOption(value.model)
-  const options =
+  const options = [...DEV_OPPONENTS, ...(
     promptApiAvailable || value.model === "prompt-api"
       ? [opponentOption("prompt-api"), ...WEBGL_OPPONENTS]
       : WEBGL_OPPONENTS
+  )]
 
   useEffect(() => {
     if (!open) return

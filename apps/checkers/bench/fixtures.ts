@@ -14,7 +14,7 @@ function key(board: Board, turn: Game["turn"]): string {
 
 /** Constructed teaching positions or a fully replayable legal history, never saved-game data. */
 export function gameForCase(testCase: BenchmarkCase): Game {
-  let game = newGame()
+  let game = newGame("white")
   if (testCase.setup) {
     const board: Board = Array(64).fill(null)
     for (const [side, pieces] of [["ai", testCase.setup.black], ["human", testCase.setup.red]] as const) {

@@ -11,7 +11,7 @@ export function cacheMetrics(usage: UsageInfo | undefined, totalMs: number, mode
 }
 /** Replay the real game, selecting its first seven decisions which actually call a model. */
 export function cacheReplayPositions() {
-  let game = newGame()
+  let game = newGame("white")
   game.sessionId = CACHE_REPLAY_SESSION
   const positions = []
   const skippedForcedPlies: number[] = []

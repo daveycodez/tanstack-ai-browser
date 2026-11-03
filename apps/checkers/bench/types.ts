@@ -1,5 +1,5 @@
 import type { UsageInfo } from "@tanstack/ai"
-import type { Game, Side } from "../src/lib/checkers.ts"
+import type { Game, PieceColor, Side } from "../src/lib/checkers.ts"
 import type { OpponentModel } from "../src/lib/opponents.ts"
 import type { PromptVersion } from "../src/lib/shared-prompt.ts"
 
@@ -52,6 +52,7 @@ export type BenchmarkReport = {
     model: OpponentModel
     runtimeModel?: { id: string; name: string; browser: string | null }
     thinking: boolean
+    humanColor?: PieceColor | "both"
     reasoningMode: "off" | "native" | "emulated-working-notes"
     reasoningBudgetTokens: number
     maxOutputTokens: 8192 | null

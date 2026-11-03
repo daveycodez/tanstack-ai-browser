@@ -5,7 +5,7 @@ import test from "node:test"
 import { legalMoves } from "../src/lib/checkers.ts"
 import { annotateMoves } from "../src/lib/move-outcomes.ts"
 import { orderMovesForGame, stableMoveOrder } from "../src/lib/move-order.ts"
-import { buildMovePrompt, buildSharedPrompt, isPromptVersion, PREVIOUS_PROMPT_VERSION, SHARED_PROMPT_VERSION, SHARED_SYSTEM_PROMPT, SHARED_V7_SYSTEM_PROMPT, SHARED_V8_SYSTEM_PROMPT, SHARED_V9_SYSTEM_PROMPT, SMALLEST_LOSS_INSTRUCTION } from "../src/lib/shared-prompt.ts"
+import { buildMovePrompt, buildSharedPrompt, isPromptVersion, PREVIOUS_PROMPT_VERSION, SHARED_PROMPT_VERSION, SHARED_SYSTEM_PROMPT, SHARED_V7_SYSTEM_PROMPT, SHARED_V8_SYSTEM_PROMPT, SHARED_V9_SYSTEM_PROMPT, SHARED_V10_SYSTEM_PROMPT, checkedPriorityChoices, SMALLEST_LOSS_INSTRUCTION } from "../src/lib/shared-prompt.ts"
 import { CASES, gameForCase } from "./cases.ts"
 import type { BenchmarkReport } from "./types.ts"
 
@@ -194,14 +194,14 @@ test("compact v8 retains every board, history, horizon, legal card and position 
 
 
 test("benchmark validation accepts every historical and candidate prompt version", () => {
-  for (const version of ["baseline-v1", "shared-v6", "shared-v7", "shared-v8", "shared-v9"]) assert.equal(isPromptVersion(version), true)
-  for (const version of ["", "shared-v10", "unknown"]) assert.equal(isPromptVersion(version), false)
+  for (const version of ["baseline-v1", "shared-v6", "shared-v7", "shared-v8", "shared-v9", "shared-v10", "shared-v11", "shared-v12", "shared-v13"]) assert.equal(isPromptVersion(version), true)
+  for (const version of ["", "shared-v14", "unknown"]) assert.equal(isPromptVersion(version), false)
 })
 
 
 test("v9 keeps the smallest-loss fallback conditional and preserves every existing dynamic input", () => {
-  assert.equal(PREVIOUS_PROMPT_VERSION, "shared-v8")
-  assert.equal(SHARED_PROMPT_VERSION, "shared-v9")
+  assert.equal(PREVIOUS_PROMPT_VERSION, "shared-v12")
+  assert.equal(SHARED_PROMPT_VERSION, "shared-v13")
   assert.equal(SHARED_V9_SYSTEM_PROMPT.replace(` ${SMALLEST_LOSS_INSTRUCTION}`, ""), SHARED_V8_SYSTEM_PROMPT)
   for (const fixture of CASES) {
     const game = gameForCase(fixture), moves = legalMoves(game.board, "ai")
@@ -233,5 +233,89 @@ test("v8 remains byte-identical to the saved 37-case production report", () => {
     const moves = result.choices.map(choice => { const move = legal.get(choice.id); assert.ok(move); return move })
     const input = buildMovePrompt(result.position, moves, "shared-v8")
     assert.deepEqual({systemPrompt:input.systemPrompt,prompt:input.prompt,choices:input.choices}, {systemPrompt:result.systemPrompt,prompt:result.prompt,choices:result.choices}, result.caseId)
+  }
+})
+
+
+test("v10 summarizes checked tactical priorities without changing existing facts or legal cards", () => {
+  for (const fixture of CASES) {
+    const game = gameForCase(fixture), moves = legalMoves(game.board, "ai")
+    const before = buildMovePrompt(game, moves, "shared-v9"), after = buildMovePrompt(game, moves, "shared-v10")
+    assert.equal(after.systemPrompt, SHARED_V10_SYSTEM_PROMPT)
+    assert.equal(after.prompt.split("\n").filter(line => !line.startsWith("CHECKED PRIORITY CHOICES:")).join("\n"), before.prompt, fixture.id)
+    assert.deepEqual(after.choices, before.choices, fixture.id)
+    assert.equal(after.outcomeVersion, before.outcomeVersion)
+    assert.equal(after.systemPrompt.slice(after.systemPrompt.indexOf("American rules:")), before.systemPrompt.slice(before.systemPrompt.indexOf("American rules:")))
+  }
+})
+
+
+test("checked priorities preserve caller order and agree with independent scored objectives", async () => {
+  const { acceptedChoices } = await import("./audit.ts")
+  for (const fixture of CASES) {
+    const game = gameForCase(fixture), legal = legalMoves(game.board, "ai").reverse(), annotated = annotateMoves(game, legal)
+    const original = structuredClone(annotated), priority = checkedPriorityChoices(game, annotated)
+    assert.ok(priority.length > 0)
+    const ids = new Set(priority.map(move => move.id))
+    assert.deepEqual(priority.map(move => move.id), legal.filter(move => ids.has(move.id)).map(move => move.id))
+    const accepted = acceptedChoices(game, fixture.objective)
+    if (accepted) assert.ok(priority.every(move => accepted.includes(move.id)), fixture.id)
+    assert.deepEqual(annotated, original)
+    assert.equal(buildMovePrompt(game, legal).choices.length, legal.length)
+  }
+})
+
+
+test("v11 repeats only verified priority membership beside complete legal cards", () => {
+  for (const fixture of CASES) {
+    const game = gameForCase(fixture), moves = legalMoves(game.board, "ai"), annotated = annotateMoves(game, moves)
+    const before = buildMovePrompt(game, moves, "shared-v10"), after = buildMovePrompt(game, moves, "shared-v11")
+    const priority = checkedPriorityChoices(game, annotated)
+    const recommended = priority.length < annotated.length ? new Set(priority.map(move => move.id)) : new Set<string>()
+    assert.equal(after.systemPrompt, before.systemPrompt)
+    assert.equal(after.prompt.replaceAll(" | RECOMMENDED; ", " | "), before.prompt, fixture.id)
+    assert.deepEqual(after.choices.map(choice => ({...choice,outcome:choice.outcome.replace(" | RECOMMENDED; ", " | ")})), before.choices, fixture.id)
+    for (const choice of after.choices) {
+      const move = annotated.find(move => move.id === choice.id)
+      assert.ok(move)
+      assert.equal(choice.outcome.includes(" | RECOMMENDED; "),recommended.has(choice.id),`${fixture.id}: ${choice.id}`)
+    }
+    assert.equal(after.outcomeVersion, before.outcomeVersion)
+  }
+})
+
+
+test("v12 uses pieces and kings without changing the complete legal choices or outcome facts", () => {
+  const pieces = (text: string) => text.replace(/\bmen\b/g, "pieces").replace(/\bman\b/g, "piece").replace(/\bMen\b/g, "Pieces").replace(/\bMan\b/g, "Piece").replace(/\bMEN\b/g, "PIECES").replace(/\bMAN\b/g, "PIECE")
+  for (const fixture of CASES) {
+    const game = gameForCase(fixture), before = buildMovePrompt(game, undefined, "shared-v11"), after = buildMovePrompt(game, undefined, "shared-v12")
+    assert.equal(after.systemPrompt, pieces(before.systemPrompt))
+    assert.equal(after.prompt, pieces(before.prompt), fixture.id)
+    assert.deepEqual(after.choices, before.choices.map(choice => ({ ...choice, label: pieces(choice.label), outcome: pieces(choice.outcome) })), fixture.id)
+    assert.doesNotMatch(JSON.stringify(after), /\b(?:men|man)\b/i)
+    assert.deepEqual(after.choices.map(choice => choice.id), before.choices.map(choice => choice.id))
+    assert.equal(new Set(after.choices.map(choice => choice.label)).size, after.choices.length)
+    assert.equal(after.outcomeVersion, before.outcomeVersion)
+  }
+})
+
+
+test("v13 uses stable AI and Human roles and correct colors for either assignment", () => {
+  for (const fixture of CASES) {
+    const game = gameForCase(fixture)
+    const white = buildMovePrompt({ ...game, humanColor: "white" }, undefined, "shared-v13")
+    const black = buildMovePrompt({ ...game, humanColor: "black" }, undefined, "shared-v13")
+    assert.equal(white.systemPrompt, black.systemPrompt)
+    assert.match(white.systemPrompt, /^Play checkers as AI against Human\./)
+    assert.match(white.systemPrompt, /White moves first\./)
+    assert.doesNotMatch(white.systemPrompt, /\b(?:Black|Red)\b/)
+    assert.match(white.prompt, /AI \(you, black\):/)
+    assert.match(white.prompt, /Human \(white\):/)
+    assert.match(black.prompt, /AI \(you, white\):/)
+    assert.match(black.prompt, /Human \(black\):/)
+    assert.equal(white.prompt.replace("AI (you, black):", "AI (you, white):").replace("Human (white):", "Human (black):"), black.prompt)
+    assert.deepEqual(white.choices, black.choices)
+    assert.deepEqual(white.choices.map(choice => choice.id), buildMovePrompt(game, undefined, "shared-v12").choices.map(choice => choice.id))
+    assert.equal(white.outcomeVersion, black.outcomeVersion)
   }
 })

@@ -7,11 +7,11 @@ import { acceptedChoices, auditCase, inspectChoices } from "./audit.ts"
 import { DEFENSIVE_GAME_HISTORY, DEFENSIVE_REGRESSIONS } from "./defensive-regressions.ts"
 import { gameForCase } from "./fixtures.ts"
 
-const at = (ply: number) => DEFENSIVE_GAME_HISTORY.slice(0, ply - 1).reduce((game, id) => applyMove(game, id), newGame())
+const at = (ply: number) => DEFENSIVE_GAME_HISTORY.slice(0, ply - 1).reduce((game, id) => applyMove(game, id), newGame("white"))
 
 test("reported defensive positions replay legal history and retain all tied smallest-loss choices", () => {
   assert.equal(DEFENSIVE_GAME_HISTORY.length, 49)
-  assert.equal(DEFENSIVE_GAME_HISTORY.reduce((game, id) => applyMove(game, id), newGame()).status, "human-won")
+  assert.equal(DEFENSIVE_GAME_HISTORY.reduce((game, id) => applyMove(game, id), newGame("white")).status, "human-won")
   for (const [index, fixture] of DEFENSIVE_REGRESSIONS.entries()) {
     const game = gameForCase(fixture), choices = inspectChoices(game)
     const bad = choices.find(choice => choice.id === (index === 0 ? "f6-g5" : "f4-e5"))
@@ -32,7 +32,7 @@ test("reported defensive positions replay legal history and retain all tied smal
     assert.ok(prompt.choices.some(choice => choice.id === bad.id), "the model still sees every legal alternative")
     const summary = prompt.prompt.split("\n").find(line => line.startsWith("SMALLEST CHECKED LOSS:"))
     assert.ok(summary)
-    assert.match(summary, /Black net -1:/)
+    assert.match(summary, /AI net -1:/)
     for (const choice of prompt.choices) assert.equal(summary.includes(choice.label), fixture.expectedMoveIds?.includes(choice.id))
   }
 })

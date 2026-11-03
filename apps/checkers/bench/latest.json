@@ -1,240 +1,260 @@
 {
-  "schemaVersion": 1,
-  "suiteVersion": "checkers-audited-v7",
-  "promptVersion": "shared-v9",
-  "comparisons": {
-    "lfm": [
-      {
-        "phase": "before-paired",
-        "summary": {
-          "total": 39,
-          "inferred": 38,
-          "legal": 39,
-          "scored": 29,
-          "passed": 27,
-          "firstOption": 16,
-          "medianSeconds": 0.7068500000238418
-        },
-        "failures": [
-          {
-            "caseId": "recapture-compensation",
-            "moveId": "e3xg1"
-          },
-          {
-            "caseId": "reported-smallest-loss-44",
-            "moveId": "f4-g5"
-          }
-        ],
-        "newCases": [
-          {
-            "caseId": "reported-smallest-loss-44",
-            "moveId": "f4-g5",
-            "passed": false
-          },
-          {
-            "caseId": "reported-smallest-loss-46",
-            "moveId": "h6-g5",
-            "passed": true
-          }
-        ]
-      },
-      {
-        "phase": "after-paired",
-        "summary": {
-          "total": 39,
-          "inferred": 38,
-          "legal": 39,
-          "scored": 29,
-          "passed": 28,
-          "firstOption": 14,
-          "medianSeconds": 0.5223500000238419
-        },
-        "failures": [
-          {
-            "caseId": "recapture-compensation",
-            "moveId": "e3xg1"
-          }
-        ],
-        "newCases": [
-          {
-            "caseId": "reported-smallest-loss-44",
-            "moveId": "f6-e5",
-            "passed": true
-          },
-          {
-            "caseId": "reported-smallest-loss-46",
-            "moveId": "h6-g5",
-            "passed": true
-          }
-        ]
-      },
-      {
-        "phase": "before-production",
-        "summary": {
-          "total": 39,
-          "inferred": 38,
-          "legal": 39,
-          "scored": 29,
-          "passed": 28,
-          "firstOption": 16,
-          "medianSeconds": 0.5297499999999999
-        },
-        "failures": [
-          {
-            "caseId": "reported-smallest-loss-44",
-            "moveId": "f6-g5"
-          }
-        ],
-        "newCases": [
-          {
-            "caseId": "reported-smallest-loss-44",
-            "moveId": "f6-g5",
-            "passed": false
-          },
-          {
-            "caseId": "reported-smallest-loss-46",
-            "moveId": "f4-g5",
-            "passed": true
-          }
-        ]
-      },
-      {
-        "phase": "after-production",
-        "summary": {
-          "total": 39,
-          "inferred": 38,
-          "legal": 39,
-          "scored": 29,
-          "passed": 29,
-          "firstOption": 16,
-          "medianSeconds": 0.5297499999999999
-        },
-        "failures": [],
-        "newCases": [
-          {
-            "caseId": "reported-smallest-loss-44",
-            "moveId": "h6-g5",
-            "passed": true
-          },
-          {
-            "caseId": "reported-smallest-loss-46",
-            "moveId": "f4-g5",
-            "passed": true
-          }
-        ]
-      }
+  "schemaVersion": 2,
+  "suiteVersion": "checkers-audited-v10",
+  "promptVersion": "shared-v13",
+  "outcomeVersion": "runner-replies-v4",
+  "execution": "Mac same-tab model parallelism, one persistent runtime per model",
+  "config": {
+    "thinking": false,
+    "sampling": "model defaults",
+    "repetitions": 1,
+    "humanColors": [
+      "white",
+      "black"
     ],
-    "nano": [
-      {
-        "phase": "before-paired",
-        "summary": {
-          "total": 39,
-          "inferred": 38,
-          "legal": 39,
-          "scored": 29,
-          "passed": 28,
-          "firstOption": 10,
-          "medianSeconds": 0.8369000000357628
-        },
-        "failures": [
-          {
-            "caseId": "count-full-capture-chain",
-            "moveId": "f4xh2"
-          }
-        ],
-        "newCases": [
-          {
-            "caseId": "reported-smallest-loss-44",
-            "moveId": "h6-g5",
-            "passed": true
-          },
-          {
-            "caseId": "reported-smallest-loss-46",
-            "moveId": "h6-g5",
-            "passed": true
-          }
-        ]
+    "orderPolicy": "production per-game stable action priorities",
+    "promptCache": "long"
+  },
+  "systemPromptTokens": {
+    "tokenizer": "production LFM3",
+    "previous": 358,
+    "current": 367
+  },
+  "systemPromptSha256": "f0fe01b7838099cb288610f3f4ae617338c37412d1993e64e54c58dd0aea180a",
+  "notes": [
+    "One fresh complete multi-model evaluation: 39 positions per human color, 27 scored and one forced per color.",
+    "Color fixtures are role-equivalent tactical recolorings; actual white-first openings and persistence are separately verified.",
+    "Timings include concurrent GPU work and are not comparable with earlier serial runs."
+  ],
+  "runs": [
+    {
+      "model": "apple-foundationmodel",
+      "label": "Apple-FoundationModel",
+      "runId": "37b757c4-0993-4387-b61e-94884270aa9a",
+      "startedAt": "2026-11-03T14:12:44.159Z",
+      "finishedAt": "2026-11-03T14:14:28.477Z",
+      "maxOutputTokens": 8192,
+      "summary": {
+        "total": 78,
+        "inferred": 76,
+        "legal": 78,
+        "scored": 54,
+        "passed": 54,
+        "firstOption": 27,
+        "medianSeconds": 1.234
       },
-      {
-        "phase": "after-paired",
-        "summary": {
+      "byHumanColor": {
+        "white": {
           "total": 39,
-          "inferred": 38,
           "legal": 39,
-          "scored": 29,
-          "passed": 28,
-          "firstOption": 7,
-          "medianSeconds": 0.8374000000357629
+          "scored": 27,
+          "passed": 27
         },
-        "failures": [
-          {
-            "caseId": "count-full-capture-chain",
-            "moveId": "f4xh2"
-          }
-        ],
-        "newCases": [
-          {
-            "caseId": "reported-smallest-loss-44",
-            "moveId": "h6-g5",
-            "passed": true
-          },
-          {
-            "caseId": "reported-smallest-loss-46",
-            "moveId": "f4-g3",
-            "passed": true
-          }
-        ]
+        "black": {
+          "total": 39,
+          "legal": 39,
+          "scored": 27,
+          "passed": 27
+        }
       },
-      {
-        "phase": "before-production",
-        "summary": {
-          "total": 39,
-          "inferred": 38,
-          "legal": 39,
-          "scored": 29,
-          "passed": 29,
-          "firstOption": 11,
-          "medianSeconds": 0.8355500000119209
-        },
-        "failures": [],
-        "newCases": [
-          {
-            "caseId": "reported-smallest-loss-44",
-            "moveId": "h6-g5",
-            "passed": true
-          },
-          {
-            "caseId": "reported-smallest-loss-46",
-            "moveId": "h6-g5",
-            "passed": true
-          }
-        ]
+      "failures": []
+    },
+    {
+      "model": "LiquidAI/LFM2.5-1.2B-Instruct-GGUF",
+      "runId": "f57ba432-bd4e-4753-bef0-8cc923643b7a",
+      "startedAt": "2026-11-03T14:12:44.484Z",
+      "finishedAt": "2026-11-03T14:14:38.581Z",
+      "maxOutputTokens": 8192,
+      "summary": {
+        "total": 78,
+        "inferred": 76,
+        "legal": 78,
+        "scored": 54,
+        "passed": 54,
+        "firstOption": 21,
+        "medianSeconds": 1.488
       },
-      {
-        "phase": "after-production",
-        "summary": {
+      "byHumanColor": {
+        "white": {
           "total": 39,
-          "inferred": 38,
           "legal": 39,
-          "scored": 29,
-          "passed": 29,
-          "firstOption": 14,
-          "medianSeconds": 0.8423500000238419
+          "scored": 27,
+          "passed": 27
         },
-        "failures": [],
-        "newCases": [
-          {
-            "caseId": "reported-smallest-loss-44",
-            "moveId": "h6-g5",
-            "passed": true
-          },
-          {
-            "caseId": "reported-smallest-loss-46",
-            "moveId": "f4-g5",
-            "passed": true
-          }
-        ]
-      }
-    ]
-  }
+        "black": {
+          "total": 39,
+          "legal": 39,
+          "scored": 27,
+          "passed": 27
+        }
+      },
+      "failures": []
+    },
+    {
+      "model": "LiquidAI/LFM2.5-350M-GGUF",
+      "runId": "9bb7ba9b-6c94-4f9a-99d8-430ce919d009",
+      "startedAt": "2026-11-03T14:12:44.487Z",
+      "finishedAt": "2026-11-03T14:14:24.315Z",
+      "maxOutputTokens": 8192,
+      "summary": {
+        "total": 78,
+        "inferred": 76,
+        "legal": 78,
+        "scored": 54,
+        "passed": 50,
+        "firstOption": 30,
+        "medianSeconds": 1.355
+      },
+      "byHumanColor": {
+        "white": {
+          "total": 39,
+          "legal": 39,
+          "scored": 27,
+          "passed": 25
+        },
+        "black": {
+          "total": 39,
+          "legal": 39,
+          "scored": 27,
+          "passed": 25
+        }
+      },
+      "failures": [
+        {
+          "caseId": "capture-king-value",
+          "humanColor": "white",
+          "moveId": "a3xc5",
+          "checkedNet": 1,
+          "bestAcceptedNet": 3
+        },
+        {
+          "caseId": "deny-red-promotion",
+          "humanColor": "white",
+          "moveId": "a5-b6",
+          "checkedNet": -3,
+          "bestAcceptedNet": 0
+        },
+        {
+          "caseId": "capture-king-value",
+          "humanColor": "black",
+          "moveId": "a3xc5",
+          "checkedNet": 1,
+          "bestAcceptedNet": 3
+        },
+        {
+          "caseId": "deny-red-promotion",
+          "humanColor": "black",
+          "moveId": "a5-b6",
+          "checkedNet": -3,
+          "bestAcceptedNet": 0
+        }
+      ]
+    },
+    {
+      "model": "LiquidAI/LFM3-1.7B-GGUF",
+      "runId": "da628e90-6f1b-42a7-b2bf-64c75282d68c",
+      "startedAt": "2026-11-03T14:12:44.505Z",
+      "finishedAt": "2026-11-03T14:15:00.106Z",
+      "maxOutputTokens": 8192,
+      "summary": {
+        "total": 78,
+        "inferred": 76,
+        "legal": 78,
+        "scored": 54,
+        "passed": 54,
+        "firstOption": 28,
+        "medianSeconds": 1.625
+      },
+      "byHumanColor": {
+        "white": {
+          "total": 39,
+          "legal": 39,
+          "scored": 27,
+          "passed": 27
+        },
+        "black": {
+          "total": 39,
+          "legal": 39,
+          "scored": 27,
+          "passed": 27
+        }
+      },
+      "failures": []
+    },
+    {
+      "model": "prompt-api",
+      "runtimeModel": {
+        "id": "gemini-nano",
+        "name": "Gemini Nano",
+        "browser": "Chrome"
+      },
+      "runId": "fafda54f-aff7-409f-bac7-35d9731dc926",
+      "startedAt": "2026-11-03T14:12:44.160Z",
+      "finishedAt": "2026-11-03T14:15:05.134Z",
+      "maxOutputTokens": null,
+      "summary": {
+        "total": 78,
+        "inferred": 76,
+        "legal": 78,
+        "scored": 54,
+        "passed": 54,
+        "firstOption": 24,
+        "medianSeconds": 1.751
+      },
+      "byHumanColor": {
+        "white": {
+          "total": 39,
+          "legal": 39,
+          "scored": 27,
+          "passed": 27
+        },
+        "black": {
+          "total": 39,
+          "legal": 39,
+          "scored": 27,
+          "passed": 27
+        }
+      },
+      "failures": []
+    },
+    {
+      "model": "unsloth/Qwen3.5-2B-GGUF",
+      "runId": "40d0f60d-cb7d-4969-919c-ce689a1e8e4d",
+      "startedAt": "2026-11-03T14:12:44.512Z",
+      "finishedAt": "2026-11-03T14:15:12.607Z",
+      "maxOutputTokens": 8192,
+      "summary": {
+        "total": 78,
+        "inferred": 76,
+        "legal": 78,
+        "scored": 54,
+        "passed": 53,
+        "firstOption": 25,
+        "medianSeconds": 1.998
+      },
+      "byHumanColor": {
+        "white": {
+          "total": 39,
+          "legal": 39,
+          "scored": 27,
+          "passed": 27
+        },
+        "black": {
+          "total": 39,
+          "legal": 39,
+          "scored": 27,
+          "passed": 26
+        }
+      },
+      "failures": [
+        {
+          "caseId": "reported-smallest-loss-44",
+          "humanColor": "black",
+          "moveId": "f6-g5",
+          "checkedNet": -4,
+          "bestAcceptedNet": -1
+        }
+      ]
+    }
+  ]
 }

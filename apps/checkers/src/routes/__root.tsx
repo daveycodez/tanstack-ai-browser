@@ -1,5 +1,5 @@
 import { ThemeProvider } from "next-themes"
-import { Outlet } from "@tanstack/react-router"
+import { Outlet, useLocation } from "@tanstack/react-router"
 import {
   HeadContent,
   Link,
@@ -25,11 +25,7 @@ export const Route = createRootRoute({
     links: [{ rel: "stylesheet", href: appCss }]
   }),
   shellComponent: RootDocument,
-  component: () => (
-    <GameStorageProvider>
-      <Outlet />
-    </GameStorageProvider>
-  ),
+  component: RootContent,
   notFoundComponent: () => (
     <main>
       <h1>Page not found</h1>
@@ -37,6 +33,12 @@ export const Route = createRootRoute({
     </main>
   )
 })
+
+function RootContent() {
+  const pathname = useLocation({ select: location => location.pathname })
+  if (["/bench", "/bench/", "/bench-runtime", "/bench-runtime/"].includes(pathname)) return <Outlet />
+  return <GameStorageProvider><Outlet /></GameStorageProvider>
+}
 
 function RootDocument({ children }: { children: ReactNode }) {
   return (

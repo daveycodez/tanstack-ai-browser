@@ -1,6 +1,7 @@
 import { ThemeSelect } from "./theme-select"
 import { SoundToggle } from "./sound-toggle"
-import type { Game } from "../lib/checkers"
+import { colorForSide } from "../lib/checkers"
+import type { Game, PieceColor } from "../lib/checkers"
 
 type MenuProps = {
   game: Game | undefined
@@ -13,14 +14,16 @@ type MenuProps = {
 
 export function PieceArt({
   side,
+  color = side === "human" ? "white" : "black",
   king = false
 }: {
   side: "human" | "ai"
+  color?: PieceColor
   king?: boolean
 }) {
   return (
     <span
-      className={`piece piece-${side}${king ? " piece-king" : ""}`}
+      className={`piece piece-${color}${king ? " piece-king" : ""}`}
       aria-hidden="true"
     >
       <span className="piece-face"><span>{king ? "♛" : ""}</span></span>
@@ -28,7 +31,7 @@ export function PieceArt({
   )
 }
 
-function MenuBoard() {
+function MenuBoard({ humanColor = "white" }: { humanColor?: PieceColor }) {
   return (
     <div className="menu-board-wrap" aria-hidden="true">
       <div className="menu-board">
@@ -41,7 +44,7 @@ function MenuBoard() {
               key={i}
               className={`art-square ${dark ? "square-dark" : "square-light"}`}
             >
-              {human || ai ? <PieceArt side={human ? "human" : "ai"} /> : null}
+              {human || ai ? <PieceArt side={human ? "human" : "ai"} color={colorForSide({ humanColor }, human ? "human" : "ai")} /> : null}
             </div>
           )
         })}
@@ -116,13 +119,13 @@ export function MenuView({
           )}
           <div className="menu-details">
             <span>
-              <span className="mini-piece" /> You play red
+              <span className={`mini-piece${current && game ? ` mini-piece-${colorForSide(game, "human")}` : ""}`} /> {current && game ? `You play ${colorForSide(game, "human")}` : "Random colors"}
             </span>
-            <span>AI plays navy</span>
+            <span>White moves first</span>
             <span>American checkers</span>
           </div>
         </div>
-        <MenuBoard />
+        <MenuBoard humanColor={game ? colorForSide(game, "human") : "white"} />
       </main>
       <footer className="menu-footer">
         <span>Made for a good pause.</span>

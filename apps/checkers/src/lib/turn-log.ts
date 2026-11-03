@@ -1,6 +1,7 @@
-import { applyMove, legalMoves, newGame, positionKey } from "./checkers.ts"
+import { applyMove, colorForSide, legalMoves, newGame, positionKey } from "./checkers.ts"
 import type { AiDecisionTrace, Board, Game, MoveRecord, PositionSnapshot } from "./checkers.ts"
 import type { OpponentSettings } from "./opponents"
+import { usesEmulatedReasoning } from "./opponents.ts"
 
 const cloneBoard = (board: Board): Board => board.map(piece => piece ? { ...piece } : null)
 const boardIdentity = (board: Board) => positionKey(board, "human")
@@ -21,7 +22,7 @@ export function createAiTrace(
     id: crypto.randomUUID(), sessionId: game.sessionId, ply: game.history.length + 1,
     mode, status: "success", positionBefore: snapshotPosition(game), model: opponent.model,
     requestedThinking: opponent.thinking, thinking,
-    reasoningMode: !thinking ? "off" : opponent.model === "prompt-api" ? "emulated-working-notes" : "native",
+    reasoningMode: !thinking ? "off" : usesEmulatedReasoning(opponent.model) ? "emulated-working-notes" : "native",
     reasoningBudgetTokens: thinking ? limits.reasoningBudgetTokens ?? 512 : null,
     maxOutputTokens: mode === "forced" || opponent.model === "prompt-api" ? null : limits.maxOutputTokens ?? 8192,
     sampling: "model defaults", legalMoveIds: legalMoves(game.board, game.turn).map(move => move.id),
@@ -67,9 +68,9 @@ type LoggedTurn = {
 
 /** Reconstruct historical boards independently from the saved prompt/analysis data. */
 export function buildTurnLog(game: Game) {
-  const standard = newGame()
+  const standard = newGame(colorForSide(game, "human"))
   const initialBoard = cloneBoard(game.initialBoard ?? standard.board)
-  const initialTurn = game.initialTurn ?? "human"
+  const initialTurn = game.initialTurn ?? standard.turn
   let replay: Game = {
     ...standard, sessionId: game.sessionId, board: initialBoard, initialBoard: cloneBoard(initialBoard),
     initialTurn, turn: initialTurn, history: [], positions: [positionKey(initialBoard, initialTurn)], updatedAt: 0
@@ -109,6 +110,8 @@ export function buildTurnLog(game: Game) {
     schemaVersion: 1,
     game: "American checkers",
     sessionId: game.sessionId,
+    humanColor: colorForSide(game, "human"),
+    opponentColor: colorForSide(game, "ai"),
     savedAt: new Date(game.updatedAt).toISOString(),
     opponent: game.opponent ? { ...game.opponent } : undefined,
     replay: { source: game.initialBoard ? "recorded initial board" : "legacy standard-start fallback", verified, error: replayError },

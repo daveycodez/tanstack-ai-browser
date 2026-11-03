@@ -14,8 +14,8 @@ it never automatically downloads files. Builds, prerendering and tests do not ca
 
 ## Cases and grading
 
-The audited v6 suite contains 37 positions: 31 calibration cases (22 scored, 9 diagnostics)
-and 6 historical holdouts (5 scored, 1 diagnostic). At two repetitions that is 62 calibration trials or 12 held-out
+The current audited v10 suite contains 39 positions: 33 calibration cases (22 scored, 11 diagnostics)
+and 6 historical holdouts (5 scored, 1 diagnostic). At two repetitions that is 66 calibration trials or 12 held-out
 trials per model. One diagnostic has only a single legal move; those forced turns bypass
 the model and are excluded from model-strength pass counts and decision-time medians.
 
@@ -43,7 +43,7 @@ Original raw v1 reports remain intact; the audit explains the corrected grading.
 ## Shared production path
 
 The runner calls `chooseAiMove`, exactly as the game does, with instrumentation callbacks.
-The original baseline (`baseline-v1`) is preserved unchanged. The current `shared-v9`
+The original baseline (`baseline-v1`) is preserved unchanged. The current `shared-v13`
 contract uses descriptive actions such as `Jump king d2 over c3 to b4`. Every legal action
 remains in the enum; neither card order nor a hidden fallback selects a move for the model.
 
@@ -133,10 +133,154 @@ comparison only** to omit cache replays; v8 remains a frozen comparison control.
 
 ## Smallest-loss defense (v9)
 
-The current v9 prompt adds a short smallest-loss fallback and, only when every
+The historical v9 prompt adds a short smallest-loss fallback and, only when every
 checked exchange is negative and safe defenses have different losses, a factual
 summary containing every tied smallest-loss action. All legal cards stay available;
 lookahead, material values, capture settlement, sampling and output budgets are unchanged.
-The suite now has 39 positions (29 scored), including the reported double-jump
+That suite had 39 positions (29 scored), including the reported double-jump
 crown and last-king giveaway. See [DEFENSE-FINDINGS.md](DEFENSE-FINDINGS.md) for
 independent grading, the failed sentence-only experiment, and LFM3/Nano results.
+
+## Checked priorities and fair grading (v10)
+
+The v10 prompt adds one provider-independent instruction and, when useful, a
+CHECKED PRIORITY CHOICES summary derived from the existing bounded outcomes.
+It follows the same tactical policy: wins, immediate safety, checked material,
+safe crowns/free captures, and guaranteed follow-up captures. Tied alternatives
+keep the caller's order. Every legal action remains in the prompt and output
+schema; the model still chooses the move. No search, adapter, sampling, output
+budget, or cache API changes are involved. Historical prompts v6-v9 stay frozen.
+
+Suite `checkers-audited-v9` retains all 39 positions, with 28 scored and 11
+diagnostics (including one forced move). Two grading corrections are deliberate:
+
+- `promotion-unseen` accepts all six non-losing choices. Its old promotion-only
+  grade rejected four quiet moves with checked net +1 while requiring a crown
+  with checked net 0. The revised objective still rejects the -2 development
+  move and -3 promotion.
+- `take-third-repeat-behind` records taking a draw as a diagnostic preference.
+  Being down a man does not prove the alternative king continuation loses;
+  that continuation has no immediate Red win or checked material loss.
+
+Immediate defeat, losing exchanges, smallest-loss defenses and guaranteed
+follow-up captures retain their strict, independently audited objectives.
+Regression tests compare priority summaries with the rule-only audit, preserve
+all legal cards and verify the two grading corrections. The historically named
+holdouts remain separate cases, but have now been inspected during development;
+they should not be described as untouched validation data.
+
+For manual validation use all positions, production per-game ordering, model
+default sampling and thinking off. Raw model results stay outside Git; the
+tracked latest summary is overwritten with the most recent validation per model,
+including suite/prompt versions, run IDs, scores and descriptive median timings.
+
+
+## Small-model failure audit
+
+Suite `checkers-audited-v10` keeps the same 39 positions and production v10 prompt,
+with 27 scored and 12 diagnostics. `safe-crowning` is now diagnostic: all legal
+moves have no immediate Red win and checked net 0. Crowning is a useful preference,
+but safe king development is not a proven blunder. Both crowns remain recorded
+as positive diagnostic signals. The existing promotion-with-exposure test stays
+scored, so unsafe promotion is still rejected.
+
+The other three observed small-model misses retain their strict objectives:
+a +1 exchange instead of +3, allowing a crown with a checked loss instead of a
+non-losing defense, and a checked loss instead of a forced win. Independent
+rule-only regression tests cover each distinction. No accepted set is loosened
+for these errors, and no model-specific prompt branches are used.
+
+Neither a shorter replacement instruction with a bullet-list recommendation
+format nor a 24-token material-priority clarification fixed those three choices.
+Both experiments were discarded. The production
+system stays at 358 LFM3 tokens (the prior Qwen change added 19, from 339).
+Current summaries can regrade saved moves against the corrected suite without
+rerunning inference; such entries explicitly record that provenance.
+
+
+## Inline recommendations (v11)
+
+The production prompt repeats `RECOMMENDED` beside actions already identified by
+CHECKED PRIORITY CHOICES. This marks existing bounded-policy advice where the
+model reads each card; no action is removed, reordered, automatically selected,
+or given a different output label. The policy, outcome search, generation
+settings and static system prompt are unchanged. Historical v6-v10 prompts stay
+frozen. The independent priority audit and byte-comparison tests verify that
+removing these markers restores every v10 card and position fact exactly.
+
+With the production LFM3 tokenizer, the system remains 358 tokens. Additional
+user-message tokens across the 39 positions range from 0 to 35, median 5. The
+latest compact summary contains fresh, thinking-off, production-order Chrome
+runs for all five tested models using this same prompt and model-default
+sampling. It is one run per model, not an Elo estimate or a counterbalanced
+latency comparison. The remaining 1.2B promotion-defense failure stays scored;
+no objective was relaxed for this prompt change.
+
+
+## Piece terminology and local Apple model (v12)
+
+The current prompt uses piece/pieces and king throughout, including action labels
+and uppercase headings. Move IDs, all legal choices, verified outcomes, policy,
+sampling and output budgets are unchanged; historical v6-v11 prompts stay frozen.
+The production LFM3 tokenizer still measures 358 static system tokens.
+
+Apfel v1.16.0 consistently rejected the original `back-row-development` input
+with HTTP 400 `content_policy_violation`. Controlled browser probes held the JSON
+schema and settings fixed: changing only the rules phrase “Black men” to “Black
+pieces” succeeded three times, while original, newline-only, lowercase and
+explicit-game-context controls failed. This isolates a wording-sensitive false
+positive in that position, rather than an illegal move or JSON parsing problem.
+The adapter continues to surface native errors. The current latest summary
+contains fresh six-model runs with piece terminology; raw probes remain local.
+
+`Apple-FoundationModel` is first in the game and benchmark opponent pickers only
+in Vite development. It uses the Apfel adapter's local default endpoint and the
+same game AI path, native cancellation, model-default sampling, maxTokens 8192,
+and optional adapter-emulated working notes. Production builds omit the option;
+a stored development-only selection resolves to a normal supported opponent.
+No adapter or engine package code was changed.
+
+
+## Random player colors and white-first games (v13)
+
+Each new saved game draws one cryptographic random bit: human white or black,
+with white always opening. The assignment is persisted once per game; reloads,
+resume, model changes and later moves do not reroll it. Existing saves without a
+color field keep the original human-first assignment as white. The human's
+pieces stay at the bottom; role-relative movement, captures and crowning remain
+unchanged. Restart creates an independent assignment and preserves the opponent.
+
+The v13 prompt names AI and Human roles explicitly, provides their actual colors
+with the board, and keeps the white-first rule in the shared system prefix.
+This avoids equating Black with AI. Its opening sentence explicitly identifies
+the task as checkers and assigns the AI role. A paired control test on Apple’s
+draw-preference fixture rejected the previous generic sentence twice and
+accepted the explicit role sentence twice. It preserves every legal action, verified
+outcome and model setting; only role wording and color metadata differ from v12.
+The analysis worker forwards color metadata and full replay logs include colors.
+Historical prompt versions stay frozen. Recorded benchmark fixtures explicitly
+use human white, preserving their existing histories, positions and grades.
+
+
+## Mac same-tab parallel suite
+
+On non-touch Macs, `/bench` has a parallel dashboard. The default selection is
+the six models in the latest comparison, thinking off, both human colors, all
+39 positions and one worker per model. Models run concurrently, with their
+white and black phases in sequence; the worker count is configurable up to the
+position count.
+Native models run in the main window; WebGL uses the same storage-free runtime
+route pattern as Chess. Each context retains its model state across both color phases and its cases. The
+WebGL engine's existing per-worker serialization is preserved. No inference
+engine or adapter changes, token limits, sampling overrides or retries are added.
+
+The pool is explicitly started, validates message origin/source/run IDs, retains
+completed trials on cancellation and releases contexts when done. Mobile keeps
+the original sequential runner and game lock. Concurrent timings include resource
+contention and are not comparable with earlier sequential speed measurements.
+
+Color comparisons reuse the identical tactical positions, histories, legal-choice
+order and accepted sets as role-equivalent recolorings. They test color-invariant
+AI decisions; they do not assert that every recolored historical fixture is a
+reachable white-first standard opening. Actual white-first openings, persistence,
+resume and replay are tested separately through new games.
