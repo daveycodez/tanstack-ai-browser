@@ -1,240 +1,75 @@
 {
-  "schemaVersion": 1,
-  "suiteVersion": "checkers-audited-v7",
-  "promptVersion": "shared-v9",
-  "comparisons": {
-    "lfm": [
-      {
-        "phase": "before-paired",
-        "summary": {
-          "total": 39,
-          "inferred": 38,
-          "legal": 39,
-          "scored": 29,
-          "passed": 27,
-          "firstOption": 16,
-          "medianSeconds": 0.7068500000238418
-        },
-        "failures": [
-          {
-            "caseId": "recapture-compensation",
-            "moveId": "e3xg1"
-          },
-          {
-            "caseId": "reported-smallest-loss-44",
-            "moveId": "f4-g5"
-          }
-        ],
-        "newCases": [
-          {
-            "caseId": "reported-smallest-loss-44",
-            "moveId": "f4-g5",
-            "passed": false
-          },
-          {
-            "caseId": "reported-smallest-loss-46",
-            "moveId": "h6-g5",
-            "passed": true
-          }
-        ]
+  "schemaVersion": 2,
+  "suiteVersion": "checkers-audited-v9",
+  "promptVersion": "shared-v10",
+  "outcomeVersion": "runner-replies-v4",
+  "config": {
+    "thinking": false,
+    "sampling": "model defaults",
+    "repetitions": 1,
+    "orderPolicy": "production per-game stable action priorities",
+    "promptCache": "long"
+  },
+  "notes": [
+    "One full Chrome run per model: 39 positions, including 28 scored and one forced move.",
+    "Timings are descriptive, not a counterbalanced performance comparison."
+  ],
+  "runs": [
+    {
+      "model": "LiquidAI/LFM3-1.7B-GGUF",
+      "runId": "d4f19445-078c-41b7-98b4-178563d4a44e",
+      "startedAt": "2026-11-03T12:03:57.415Z",
+      "finishedAt": "2026-11-03T12:04:22.255Z",
+      "maxOutputTokens": 8192,
+      "summary": {
+        "total": 39,
+        "inferred": 38,
+        "legal": 39,
+        "scored": 28,
+        "passed": 28,
+        "firstOption": 14,
+        "medianSeconds": 0.546
       },
-      {
-        "phase": "after-paired",
-        "summary": {
-          "total": 39,
-          "inferred": 38,
-          "legal": 39,
-          "scored": 29,
-          "passed": 28,
-          "firstOption": 14,
-          "medianSeconds": 0.5223500000238419
-        },
-        "failures": [
-          {
-            "caseId": "recapture-compensation",
-            "moveId": "e3xg1"
-          }
-        ],
-        "newCases": [
-          {
-            "caseId": "reported-smallest-loss-44",
-            "moveId": "f6-e5",
-            "passed": true
-          },
-          {
-            "caseId": "reported-smallest-loss-46",
-            "moveId": "h6-g5",
-            "passed": true
-          }
-        ]
+      "failures": []
+    },
+    {
+      "model": "prompt-api",
+      "runtimeModel": {
+        "id": "gemini-nano",
+        "name": "Gemini Nano",
+        "browser": "Chrome"
       },
-      {
-        "phase": "before-production",
-        "summary": {
-          "total": 39,
-          "inferred": 38,
-          "legal": 39,
-          "scored": 29,
-          "passed": 28,
-          "firstOption": 16,
-          "medianSeconds": 0.5297499999999999
-        },
-        "failures": [
-          {
-            "caseId": "reported-smallest-loss-44",
-            "moveId": "f6-g5"
-          }
-        ],
-        "newCases": [
-          {
-            "caseId": "reported-smallest-loss-44",
-            "moveId": "f6-g5",
-            "passed": false
-          },
-          {
-            "caseId": "reported-smallest-loss-46",
-            "moveId": "f4-g5",
-            "passed": true
-          }
-        ]
+      "runId": "134e2696-bb27-477c-9ad2-1d7a5dd0936c",
+      "startedAt": "2026-11-03T12:04:45.665Z",
+      "finishedAt": "2026-11-03T12:05:36.897Z",
+      "maxOutputTokens": null,
+      "summary": {
+        "total": 39,
+        "inferred": 38,
+        "legal": 39,
+        "scored": 28,
+        "passed": 28,
+        "firstOption": 13,
+        "medianSeconds": 1.1
       },
-      {
-        "phase": "after-production",
-        "summary": {
-          "total": 39,
-          "inferred": 38,
-          "legal": 39,
-          "scored": 29,
-          "passed": 29,
-          "firstOption": 16,
-          "medianSeconds": 0.5297499999999999
-        },
-        "failures": [],
-        "newCases": [
-          {
-            "caseId": "reported-smallest-loss-44",
-            "moveId": "h6-g5",
-            "passed": true
-          },
-          {
-            "caseId": "reported-smallest-loss-46",
-            "moveId": "f4-g5",
-            "passed": true
-          }
-        ]
-      }
-    ],
-    "nano": [
-      {
-        "phase": "before-paired",
-        "summary": {
-          "total": 39,
-          "inferred": 38,
-          "legal": 39,
-          "scored": 29,
-          "passed": 28,
-          "firstOption": 10,
-          "medianSeconds": 0.8369000000357628
-        },
-        "failures": [
-          {
-            "caseId": "count-full-capture-chain",
-            "moveId": "f4xh2"
-          }
-        ],
-        "newCases": [
-          {
-            "caseId": "reported-smallest-loss-44",
-            "moveId": "h6-g5",
-            "passed": true
-          },
-          {
-            "caseId": "reported-smallest-loss-46",
-            "moveId": "h6-g5",
-            "passed": true
-          }
-        ]
+      "failures": []
+    },
+    {
+      "model": "unsloth/Qwen3.5-2B-GGUF",
+      "runId": "d71ce842-4c6b-4257-80cc-f5df5c50214c",
+      "startedAt": "2026-11-03T12:02:53.952Z",
+      "finishedAt": "2026-11-03T12:03:36.914Z",
+      "maxOutputTokens": 8192,
+      "summary": {
+        "total": 39,
+        "inferred": 38,
+        "legal": 39,
+        "scored": 28,
+        "passed": 28,
+        "firstOption": 13,
+        "medianSeconds": 0.849
       },
-      {
-        "phase": "after-paired",
-        "summary": {
-          "total": 39,
-          "inferred": 38,
-          "legal": 39,
-          "scored": 29,
-          "passed": 28,
-          "firstOption": 7,
-          "medianSeconds": 0.8374000000357629
-        },
-        "failures": [
-          {
-            "caseId": "count-full-capture-chain",
-            "moveId": "f4xh2"
-          }
-        ],
-        "newCases": [
-          {
-            "caseId": "reported-smallest-loss-44",
-            "moveId": "h6-g5",
-            "passed": true
-          },
-          {
-            "caseId": "reported-smallest-loss-46",
-            "moveId": "f4-g3",
-            "passed": true
-          }
-        ]
-      },
-      {
-        "phase": "before-production",
-        "summary": {
-          "total": 39,
-          "inferred": 38,
-          "legal": 39,
-          "scored": 29,
-          "passed": 29,
-          "firstOption": 11,
-          "medianSeconds": 0.8355500000119209
-        },
-        "failures": [],
-        "newCases": [
-          {
-            "caseId": "reported-smallest-loss-44",
-            "moveId": "h6-g5",
-            "passed": true
-          },
-          {
-            "caseId": "reported-smallest-loss-46",
-            "moveId": "h6-g5",
-            "passed": true
-          }
-        ]
-      },
-      {
-        "phase": "after-production",
-        "summary": {
-          "total": 39,
-          "inferred": 38,
-          "legal": 39,
-          "scored": 29,
-          "passed": 29,
-          "firstOption": 14,
-          "medianSeconds": 0.8423500000238419
-        },
-        "failures": [],
-        "newCases": [
-          {
-            "caseId": "reported-smallest-loss-44",
-            "moveId": "h6-g5",
-            "passed": true
-          },
-          {
-            "caseId": "reported-smallest-loss-46",
-            "moveId": "f4-g5",
-            "passed": true
-          }
-        ]
-      }
-    ]
-  }
+      "failures": []
+    }
+  ]
 }

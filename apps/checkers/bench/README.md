@@ -14,8 +14,8 @@ it never automatically downloads files. Builds, prerendering and tests do not ca
 
 ## Cases and grading
 
-The audited v6 suite contains 37 positions: 31 calibration cases (22 scored, 9 diagnostics)
-and 6 historical holdouts (5 scored, 1 diagnostic). At two repetitions that is 62 calibration trials or 12 held-out
+The current audited v9 suite contains 39 positions: 33 calibration cases (23 scored, 10 diagnostics)
+and 6 historical holdouts (5 scored, 1 diagnostic). At two repetitions that is 66 calibration trials or 12 held-out
 trials per model. One diagnostic has only a single legal move; those forced turns bypass
 the model and are excluded from model-strength pass counts and decision-time medians.
 
@@ -43,7 +43,7 @@ Original raw v1 reports remain intact; the audit explains the corrected grading.
 ## Shared production path
 
 The runner calls `chooseAiMove`, exactly as the game does, with instrumentation callbacks.
-The original baseline (`baseline-v1`) is preserved unchanged. The current `shared-v9`
+The original baseline (`baseline-v1`) is preserved unchanged. The current `shared-v10`
 contract uses descriptive actions such as `Jump king d2 over c3 to b4`. Every legal action
 remains in the enum; neither card order nor a hidden fallback selects a move for the model.
 
@@ -171,4 +171,5 @@ they should not be described as untouched validation data.
 
 For manual validation use all positions, production per-game ordering, model
 default sampling and thinking off. Raw model results stay outside Git; the
-tracked latest summary remains labeled with its original suite and prompt.
+tracked latest summary is overwritten with the most recent three-model validation,
+including suite/prompt versions, run IDs, scores and descriptive median timings.
