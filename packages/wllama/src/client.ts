@@ -383,6 +383,7 @@ async function saveState(
   wllama: Wllama,
   request: ChatRequest
 ) {
+  if (request.cache_prompt === false) return
   const current = state
   const prefix = prefixKey(request)
   if (current?.model !== model || current.prefix === prefix || saving) return

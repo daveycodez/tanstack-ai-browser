@@ -320,13 +320,14 @@ export class WllamaTextAdapter<
   }
 
   /** Sampling and length for a call: `modelOptions` over the model card's. */
-  private settings(modelOptions: WllamaTextProviderOptions | undefined) {
+  private settings(modelOptions: WllamaTextProviderOptions | undefined, promptCache?: TextOptions["promptCache"]) {
     const { maxTokens, max_new_tokens, ...sampling } = modelOptions ?? {}
     const limit = maxTokens ?? max_new_tokens
     if (limit !== undefined && (!Number.isSafeInteger(limit) || limit < 0)) throw new RangeError("maxTokens must be a nonnegative safe integer.")
     return {
       ...modelMeta(this.model).sampling,
       ...sampling,
+      ...(promptCache?.retention === "none" && { cache_prompt: false }),
       ...(limit !== undefined && { max_tokens: limit })
     } as Partial<ChatRequest>
   }
@@ -436,7 +437,7 @@ export class WllamaTextAdapter<
         {
           messages: toMessages(options.systemPrompts, options.messages),
           ...(options.tools?.length && { tools: toTools(options.tools) }),
-          ...this.settings(options.modelOptions),
+          ...this.settings(options.modelOptions, options.promptCache),
           ...thinking
         },
         signal
@@ -602,7 +603,7 @@ export class WllamaTextAdapter<
       this.model,
       {
         messages: toMessages(chatOptions.systemPrompts, chatOptions.messages),
-        ...this.settings(chatOptions.modelOptions),
+        ...this.settings(chatOptions.modelOptions, chatOptions.promptCache),
         ...thinkingKwargs(chatOptions.reasoning, this.model),
         response_format: {
           type: "json_schema",

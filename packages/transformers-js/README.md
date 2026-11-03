@@ -50,6 +50,29 @@ Any other Hugging Face ONNX model works too, given how it writes tool calls and 
 
 `chat()` runs tools and the agent loop; each model call runs in the worker. Weights download once to the Origin Private File System, prompts are read in time-sized steps (under Safari's GPU watchdog), and the model's cache is reused across calls by token prefix, with the system prompt and tools saved to disk.
 
+Prompt reuse compares actual rendered token IDs, with checkpoints at the matching
+system/tool prefix and the existing native conversation boundaries. System-only
+templates can have different closing suffixes without invalidating exactly matching
+instruction tokens. Templates requiring a user query use tokenizer-only A/B probes;
+their shared prefix is intersected with the actual full prompt. Probe text never
+reaches model inference. One latest prefix per tokenizer is memoized by exact
+system/tools/thinking, within the existing cache budgets.
+Structured request serialization is unchanged: exact schema guidance stays in the
+system prompt, and the original schema separately constrains decoding. Current tool
+results/thinking retain the original chat-template turn semantics. Native common/end
+checkpoint scheduling is unchanged.
+`promptTokensDetails.cachedTokens` and `usage.providerUsageDetails.promptMs` report
+actual reuse and processing; stable formatting alone is not a guaranteed cache hit.
+
+The standard SDK `promptCache: "none"` disables automatic prompt-state reuse and
+retention for that call: no prior in-memory or disk prompt cache is read, no prompt
+state is kept or written afterward, and run-owned state is disposed on completion,
+error or cancellation. The model still uses autoregressive KV within the call, and
+other retained conversations are preserved. Downloaded model files are unaffected.
+Omitted/`"short"`/`"long"` retention keeps the existing cache budgets and lifetimes;
+these hints do not create new TTLs. `promptCache.key` does not select KV ownership or route a worker cache: exact token
+matching controls reuse.
+
 **GPU memory** stays close to the weights. ONNX Runtime destroys each step's working buffers and the worker keeps them for the next step, rounded up to a quarter of a power of two so that a buffer growing a token at a time keeps fitting; what a step leaves is destroyed. Prompt steps make buffers in proportion to their tokens, so a step of another size, and the reply after the prompt, start with no spares: on a Mac, Qwen3.5's GPU buffers peak at 1,282 MB on a 2,048-token prompt (1,614 when the spares stayed) and hold 1,169 MB after it (1,372), LFM3-1.7B-Web's 1,116 and 996 (1,193 and 1,057), at the same speed. Steps are sized by time, the same way for every model and device, to take 1.5 s each. A step's memory grows with its tokens, and 0.75 s steps gave Qwen3.5 on a Mac a lower prompt peak (1,290 against 1,443 MB at 2,048 tokens) at the same speed, but read prompts 25-30% slower on an iPhone, which pays a large fixed cost a step and reads ~100-token steps either way. LFM3 reads 1,024 tokens in ~0.3 s, so its steps still reach the 1,024-token maximum. At 8,000 tokens Qwen3.5's peak varies from run to run (one step's peak can sit 70-110 MB above where it ends): 1,528-1,623 MB, against 1,529-1,545 for the slow version. On a Mac after a 2,048-token prompt and a 128-token reply, LFM3 holds 1,013 MB of GPU buffers (it held 1,340 with ONNX Runtime's own cache) and Qwen3.5 1,184 MB (1,335), and both write faster (LFM3 128 tokens/s against 120, Qwen3.5 58 against 33). Weights go to the GPU in 8 MB pieces rather than through a staging buffer as large as each (254 MB for Qwen3.5's output layer).
 
 The model runs in a module Web Worker that the package starts with `new Worker(new URL("./worker.js", import.meta.url))`. Bundlers that understand that pattern (Vite, webpack 5, Rollup with a worker plugin) emit the worker file for you. With Vite, leave the package out of dependency pre-bundling, so the worker's URL still points at a real file:

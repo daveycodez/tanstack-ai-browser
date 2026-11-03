@@ -292,3 +292,136 @@ test("a browser-destroyed cached base is recreated before generation without ret
   assert.equal(control.prompts.length,count+1,"only one response generation")
   assert.equal(bases()[1].destroyed,false)
 })
+
+test("public TanStack promptCache none creates fresh structured requests with no managed cached prefix", async () => {
+  reset()
+  const cachedCounts: number[] = [], policies: unknown[] = []
+  const adapter = promptApiText()
+  const original = adapter.structuredOutput.bind(adapter)
+  adapter.structuredOutput = async (options: {chatOptions: Record<string, unknown>; outputSchema: unknown}) => {
+    policies.push(options.chatOptions.promptCache)
+    const result = await original(options)
+    cachedCounts.push(cached(result))
+    return result
+  }
+  for (let index=0;index<2;index++) {
+    assert.deepEqual(await chat({adapter,threadId:"public-none",systemPrompts:["Stable system instructions"],messages:[{role:"user",content:"Choose a legal move"}],outputSchema:schema,promptCache:"none",stream:false}),{moveId:"b6-a5"})
+  }
+  assert.deepEqual(policies,[{retention:"none",key:"public-none"},{retention:"none",key:"public-none"}])
+  assert.deepEqual(cachedCounts,[0,0])
+  assert.equal(control.creates.length,2)
+  assert.equal(copies().length,0,"fresh ephemeral sessions need no additional working clone")
+  assert.ok(control.sessions.every(session=>session.destroyed))
+})
+
+test("none bypasses anonymous structured bases and does not evict a previous reusable session", async () => {
+  reset();const adapter=promptApiText()
+  await adapter.structuredOutput(request())
+  const retained=bases()[0]
+  for(let index=0;index<2;index++) {
+    const options=request();options.chatOptions.threadId=undefined
+    const result=await adapter.structuredOutput({...options,chatOptions:{...options.chatOptions,promptCache:{retention:"none"}}})
+    assert.equal(cached(result),0)
+    assert.equal(bases().at(-1)?.destroyed,true)
+  }
+  assert.equal(retained.destroyed,false)
+  assert.ok(cached(await adapter.structuredOutput(request()))>0)
+  assert.equal(control.creates.length,3)
+})
+
+test("custom standard cache keys share compatible structured prefixes and still reset changed history or options", async () => {
+  reset();const adapter=promptApiText()
+  const withPolicy=(threadId:string,key:string,system="Stable system instructions")=>{
+    const options=request(threadId)
+    return {...options,chatOptions:{...options.chatOptions,systemPrompts:[system],promptCache:{retention:"short",key}}}
+  }
+  assert.equal(cached(await adapter.structuredOutput(withPolicy("thread-a","shared-key"))),0)
+  assert.ok(cached(await adapter.structuredOutput(withPolicy("thread-b","shared-key")))>0)
+  assert.equal(control.creates.length,1)
+  assert.equal(cached(await adapter.structuredOutput(withPolicy("thread-a","different-key"))),0)
+  assert.equal(control.creates.length,2)
+  assert.equal(cached(await adapter.structuredOutput(withPolicy("thread-c","shared-key","Changed instructions"))),0)
+  assert.equal(control.creates.length,3)
+  assert.equal(bases()[0].destroyed,true)
+  assert.ok(cached(await adapter.structuredOutput(withPolicy("thread-d","shared-key","Changed instructions")))>0)
+})
+
+test("short and long preserve the existing opportunistic cache without imposing different retention caps", async () => {
+  reset();const adapter=promptApiText()
+  const options=request("short-long")
+  const first=await adapter.structuredOutput({...options,chatOptions:{...options.chatOptions,promptCache:{retention:"short",key:"shared"}}})
+  const second=await adapter.structuredOutput({...options,chatOptions:{...options.chatOptions,promptCache:{retention:"long",key:"shared"}}})
+  assert.equal(cached(first),0);assert.ok(cached(second)>0)
+  assert.equal(control.creates.length,1)
+  assert.ok(control.creates.every(options=>!("promptCache" in options)&&!("retention" in options)),"no unsupported provider flags")
+})
+
+test("streaming cache-key reuse keeps AG-UI correlation on each caller thread", async () => {
+  reset();const adapter=promptApiText()
+  const initial=request("thread-a").chatOptions
+  const first=[]
+  for await(const chunk of adapter.chatStream({...initial,promptCache:{retention:"short",key:"shared-chat"}}))first.push(chunk)
+  const followup=request("thread-b","",[{role:"user",content:"Choose first"},{role:"assistant",content:"plain answer"},{role:"user",content:"Follow up"}]).chatOptions
+  const second=[]
+  for await(const chunk of adapter.chatStream({...followup,promptCache:{retention:"short",key:"shared-chat"}}))second.push(chunk)
+  assert.equal(control.creates.length,1)
+  assert.equal(first.find(chunk=>chunk.type==="RUN_STARTED")?.threadId,"thread-a")
+  assert.equal(second.find(chunk=>chunk.type==="RUN_STARTED")?.threadId,"thread-b")
+  assert.equal(second.find(chunk=>chunk.type==="RUN_FINISHED")?.threadId,"thread-b")
+  assert.ok(cached(second.find(chunk=>chunk.type==="RUN_FINISHED"))>0)
+})
+
+test("standard none streaming releases each session instead of retaining conversational state", async () => {
+  reset();const adapter=promptApiText()
+  for(let index=0;index<2;index++) {
+    const options=request("same-thread").chatOptions
+    const chunks=[]
+    for await(const chunk of adapter.chatStream({...options,promptCache:{retention:"none",key:"unused-key"}}))chunks.push(chunk)
+    assert.equal(cached(chunks.find(chunk=>chunk.type==="RUN_FINISHED")),0)
+    assert.ok(control.sessions.every(session=>session.destroyed))
+  }
+  assert.equal(control.creates.length,2)
+})
+
+test("emulated reasoning streams remain ephemeral even with an explicit long-lived cache key", async () => {
+  reset();const adapter=promptApiText()
+  for(let index=0;index<2;index++) {
+    const options=request("reasoning-thread").chatOptions
+    const chunks=[]
+    for await(const chunk of adapter.chatStream({...options,reasoning:{level:"high",budgetTokens:4},promptCache:{retention:"long",key:"must-not-retain-notes"}}))chunks.push(chunk)
+    assert.equal(cached(chunks.find(chunk=>chunk.type==="RUN_FINISHED")),0)
+    assert.ok(control.sessions.every(session=>session.destroyed))
+  }
+  assert.equal(control.creates.length,2)
+})
+
+test("concurrent uncached requests and cancellation clean up every per-request native session", {timeout:2000}, async () => {
+  reset();const adapter=promptApiText()
+  let release=()=>undefined as void,began=()=>undefined as void
+  control.promptGate=new Promise<void>(resolve=>{release=resolve})
+  const started=new Promise<void>(resolve=>{began=resolve});control.onPrompt=()=>{if(control.prompts.length===2)began()}
+  const controller=new AbortController(),options=request("uncached-concurrent")
+  const chatOptions={...options.chatOptions,promptCache:{retention:"none",key:"uncached-concurrent"}}
+  const cancelled=adapter.structuredOutput({...options,chatOptions:{...chatOptions,request:{signal:controller.signal}}})
+  const successful=adapter.structuredOutput({...options,chatOptions})
+  await started
+  assert.notEqual(control.prompts[0].session,control.prompts[1].session)
+  controller.abort(new Error("uncached cancelled"));release()
+  await assert.rejects(cancelled,/uncached cancelled/)
+  assert.deepEqual((await successful).data,{moveId:"b6-a5"})
+  assert.equal(control.creates.length,2)
+  assert.equal(copies().length,0)
+  assert.ok(control.sessions.every(session=>session.destroyed))
+})
+
+test("an explicit shared cache key never substitutes for compatible caller history", async () => {
+  reset();const adapter=promptApiText()
+  for(const [index,question] of ["Original question","Edited independent question"].entries()) {
+    const options=request(`thread-${index}`,"",[{role:"user",content:question},{role:"assistant",content:"Earlier answer"},{role:"user",content:"Extract the requested value"}])
+    const result=await adapter.structuredOutput({...options,chatOptions:{...options.chatOptions,promptCache:{retention:"short",key:"shared-history-key"}}})
+    assert.equal(cached(result),0)
+    assert.deepEqual(bases().at(-1)?.history.slice(1),[{role:"user",content:question},{role:"assistant",content:"Earlier answer"}])
+  }
+  assert.equal(control.creates.length,2)
+  assert.equal(bases()[0].destroyed,true)
+})

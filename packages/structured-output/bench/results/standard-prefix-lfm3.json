@@ -1,0 +1,26 @@
+{
+  "model": "LiquidAI/LFM3-1.7B-GGUF",
+  "mode": "prefix",
+  "commonTokens": 1822,
+  "prefixTokens": 1819,
+  "expectedRestore": 1536,
+  "restoredTokens": 1536,
+  "inputTokens": 3636,
+  "planMode": "cost-neutral-prefix-legacy-conversation",
+  "coldMs": 1210.0999999046326,
+  "warmMs": 794.8999999761581,
+  "top1Equal": true,
+  "maximumAbsoluteDifference": 0,
+  "klDivergence": 0,
+  "matchedBoundaryControl": {
+    "boundaryTokens": 1536,
+    "productionFirstAnchorInsideBatch": false,
+    "top1Equal": true,
+    "maximumAbsoluteDifference": 0,
+    "klDivergence": 0
+  },
+  "beforeRestoreBytes": 1395012992,
+  "afterWarmBytes": 1395012992,
+  "snapshotLimit": 8,
+  "peakBytes": 1397831040
+}

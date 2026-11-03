@@ -57,6 +57,23 @@ Schema keywords the on-device model can't enforce (`minLength`, `pattern`, `form
 
 ## Usage
 
+Structured-output schemas are sent separately as `response_format.json_schema`,
+without adding their text to caller/system messages. apfel's API is stateless: the
+adapter sends the supplied conversation for each request and does not keep a native
+Foundation Models session. Reusing an HTTP connection or sending identical text is
+not by itself evidence of a model-prefix cache hit. When apfel reports
+`usage.prompt_tokens_details.cached_tokens`, the adapter forwards that count as
+`promptTokensDetails.cachedTokens` (including reported draft usage for opt-in working
+notes); absent metadata is not synthesized. Available cache reuse depends on the
+server/OS runtime. The same consumer call is valid here:
+`chat({ adapter, messages, threadId, promptCache: "none" })`, or a standard
+`{ retention: "short", key: "conversation-key" }` policy. No adapter-specific
+consumer option is needed. The adapter adds no undocumented cache or session
+controls. The standard SDK `promptCache` hint has no advertised native equivalent in apfel's stateless API, so
+its key/retention are not sent as invented fields. In particular, `"none"` cannot
+promise that the server/Foundation Models runtime evicts or stops reusing internal
+state; `"short"`/`"long"` do not create client-managed TTLs.
+
 Each call's token counts are in `RUN_FINISHED`'s `usage`, as with any TanStack AI adapter, with timings the adapter measured in `usage.providerUsageDetails` (`ApfelProviderUsageDetails`: `firstTokenMs`, `decodeMs`, `decodeTokens`, `toolRepairMs`).
 
 ```ts

@@ -67,6 +67,8 @@ type SessionOptions = {
   media?: Map<string, Promise<Blob>>
   /** Generate on a disposable clone of a cached, unmodified input-prefix session. */
   isolated?: boolean
+  /** Disable managed cross-request reuse and retention for this lease only. */
+  retain?: boolean
 }
 
 /** Serialize base preparation only; independent clones generate concurrently. */
@@ -102,15 +104,17 @@ export async function leaseSession(options: SessionOptions): Promise<Lease> {
   const setup = JSON.stringify({ system, options: options.options })
   // Separate namespaces prevent structured finalization from replacing a chat/tool
   // session. Stateless calls can share an identical base without inventing a thread.
-  const cacheKey = isolated
+  const cacheKey = options.retain === false ? undefined : isolated
     ? JSON.stringify(["structured", threadId ?? null, threadId ? null : setup])
     : threadId ? JSON.stringify(["chat", threadId]) : undefined
-  const unlock = isolated ? await lockPreparation(cacheKey as string, options.signal) : undefined
+  const unlock = isolated && cacheKey !== undefined ? await lockPreparation(cacheKey, options.signal) : undefined
   try {
     let recreated = false
     for (;;) {
       const base = await leasePooledSession({ ...options, cacheKey })
-      if (!isolated) return base
+      // A non-retained session is already isolated: generate directly on it and
+      // destroy it when the call ends, without preparing an extra clone.
+      if (!isolated || options.retain === false) return base
       const started = performance.now()
       let copy: LanguageModelSession | undefined
       try {

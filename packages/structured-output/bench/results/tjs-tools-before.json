@@ -1,0 +1,1216 @@
+{
+  "runtime": "tjs",
+  "profile": "baseline",
+  "startedAt": "2026-11-03T00:55:00.652Z",
+  "settings": {
+    "sampling": "model defaults",
+    "reasoning": "off",
+    "outputLimit": "model default",
+    "context": "model default"
+  },
+  "results": [
+    {
+      "choice": "auto",
+      "city": "Paris",
+      "input": {
+        "system": "Use get_weather when the user asks for current weather. Use the exact city requested.",
+        "messages": [
+          {
+            "role": "user",
+            "content": "What's the current weather in Paris?"
+          }
+        ],
+        "tool": {
+          "name": "get_weather",
+          "description": "Get current weather for the requested city.",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "city": {
+                "type": "string",
+                "enum": [
+                  "Paris",
+                  "Tokyo",
+                  "London",
+                  "Berlin"
+                ]
+              }
+            },
+            "required": [
+              "city"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "toolChoice": "auto"
+      },
+      "correct": true,
+      "totalMs": 138.70000004768372,
+      "usage": {
+        "promptTokens": 126,
+        "completionTokens": 13,
+        "totalTokens": 139,
+        "promptTokensDetails": {
+          "cachedTokens": 110
+        },
+        "providerUsageDetails": {
+          "firstTokenMs": 72.09999990463257,
+          "promptMs": 65.69999992847443,
+          "decodeMs": 60.40000009536743,
+          "decodeTokens": 12
+        }
+      },
+      "events": [
+        {
+          "type": "RUN_STARTED",
+          "runId": "run_mvzz773q_0",
+          "threadId": "simple-tools-auto",
+          "model": "LiquidAI/LFM2.5-350M-ONNX",
+          "timestamp": 1793667301047
+        },
+        {
+          "type": "TOOL_CALL_START",
+          "toolCallId": "tool_mvzz777l_4",
+          "toolCallName": "get_weather",
+          "parentMessageId": "msg_mvzz773q_2",
+          "index": 0,
+          "model": "LiquidAI/LFM2.5-350M-ONNX",
+          "timestamp": 1793667301185
+        },
+        {
+          "type": "TOOL_CALL_ARGS",
+          "toolCallId": "tool_mvzz777l_4",
+          "delta": "{\"city\":\"Paris\"}",
+          "args": "{\"city\":\"Paris\"}",
+          "model": "LiquidAI/LFM2.5-350M-ONNX",
+          "timestamp": 1793667301185
+        },
+        {
+          "type": "TOOL_CALL_END",
+          "toolCallId": "tool_mvzz777l_4",
+          "toolCallName": "get_weather",
+          "args": "{\"city\":\"Paris\"}",
+          "input": {
+            "city": "Paris"
+          },
+          "model": "LiquidAI/LFM2.5-350M-ONNX",
+          "timestamp": 1793667301185
+        },
+        {
+          "type": "RUN_FINISHED",
+          "runId": "run_mvzz773q_0",
+          "threadId": "simple-tools-auto",
+          "model": "LiquidAI/LFM2.5-350M-ONNX",
+          "timestamp": 1793667301185,
+          "finishReason": "tool_calls",
+          "usage": {
+            "promptTokens": 126,
+            "completionTokens": 13,
+            "totalTokens": 139,
+            "promptTokensDetails": {
+              "cachedTokens": 110
+            },
+            "providerUsageDetails": {
+              "firstTokenMs": 72.09999990463257,
+              "promptMs": 65.69999992847443,
+              "decodeMs": 60.40000009536743,
+              "decodeTokens": 12
+            }
+          }
+        }
+      ]
+    },
+    {
+      "choice": "auto",
+      "city": "Tokyo",
+      "input": {
+        "system": "Use get_weather when the user asks for current weather. Use the exact city requested.",
+        "messages": [
+          {
+            "role": "user",
+            "content": "What's the current weather in Tokyo?"
+          }
+        ],
+        "tool": {
+          "name": "get_weather",
+          "description": "Get current weather for the requested city.",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "city": {
+                "type": "string",
+                "enum": [
+                  "Paris",
+                  "Tokyo",
+                  "London",
+                  "Berlin"
+                ]
+              }
+            },
+            "required": [
+              "city"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "toolChoice": "auto"
+      },
+      "correct": true,
+      "totalMs": 85.19999992847443,
+      "usage": {
+        "promptTokens": 126,
+        "completionTokens": 14,
+        "totalTokens": 140,
+        "promptTokensDetails": {
+          "cachedTokens": 110
+        },
+        "providerUsageDetails": {
+          "firstTokenMs": 26.200000047683716,
+          "promptMs": 25,
+          "decodeMs": 54.799999952316284,
+          "decodeTokens": 13
+        }
+      },
+      "events": [
+        {
+          "type": "RUN_STARTED",
+          "runId": "run_mvzz777l_5",
+          "threadId": "simple-tools-auto",
+          "model": "LiquidAI/LFM2.5-350M-ONNX",
+          "timestamp": 1793667301185
+        },
+        {
+          "type": "TOOL_CALL_START",
+          "toolCallId": "tool_mvzz779y_9",
+          "toolCallName": "get_weather",
+          "parentMessageId": "msg_mvzz777l_7",
+          "index": 0,
+          "model": "LiquidAI/LFM2.5-350M-ONNX",
+          "timestamp": 1793667301270
+        },
+        {
+          "type": "TOOL_CALL_ARGS",
+          "toolCallId": "tool_mvzz779y_9",
+          "delta": "{\"city\":\"Tokyo\"}",
+          "args": "{\"city\":\"Tokyo\"}",
+          "model": "LiquidAI/LFM2.5-350M-ONNX",
+          "timestamp": 1793667301270
+        },
+        {
+          "type": "TOOL_CALL_END",
+          "toolCallId": "tool_mvzz779y_9",
+          "toolCallName": "get_weather",
+          "args": "{\"city\":\"Tokyo\"}",
+          "input": {
+            "city": "Tokyo"
+          },
+          "model": "LiquidAI/LFM2.5-350M-ONNX",
+          "timestamp": 1793667301270
+        },
+        {
+          "type": "RUN_FINISHED",
+          "runId": "run_mvzz777l_5",
+          "threadId": "simple-tools-auto",
+          "model": "LiquidAI/LFM2.5-350M-ONNX",
+          "timestamp": 1793667301270,
+          "finishReason": "tool_calls",
+          "usage": {
+            "promptTokens": 126,
+            "completionTokens": 14,
+            "totalTokens": 140,
+            "promptTokensDetails": {
+              "cachedTokens": 110
+            },
+            "providerUsageDetails": {
+              "firstTokenMs": 26.200000047683716,
+              "promptMs": 25,
+              "decodeMs": 54.799999952316284,
+              "decodeTokens": 13
+            }
+          }
+        }
+      ]
+    },
+    {
+      "choice": "auto",
+      "city": "London",
+      "input": {
+        "system": "Use get_weather when the user asks for current weather. Use the exact city requested.",
+        "messages": [
+          {
+            "role": "user",
+            "content": "What's the current weather in London?"
+          }
+        ],
+        "tool": {
+          "name": "get_weather",
+          "description": "Get current weather for the requested city.",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "city": {
+                "type": "string",
+                "enum": [
+                  "Paris",
+                  "Tokyo",
+                  "London",
+                  "Berlin"
+                ]
+              }
+            },
+            "required": [
+              "city"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "toolChoice": "auto"
+      },
+      "correct": true,
+      "totalMs": 79.5,
+      "usage": {
+        "promptTokens": 126,
+        "completionTokens": 13,
+        "totalTokens": 139,
+        "promptTokensDetails": {
+          "cachedTokens": 110
+        },
+        "providerUsageDetails": {
+          "firstTokenMs": 26,
+          "promptMs": 24.799999952316284,
+          "decodeMs": 49.60000002384186,
+          "decodeTokens": 12
+        }
+      },
+      "events": [
+        {
+          "type": "RUN_STARTED",
+          "runId": "run_mvzz779y_a",
+          "threadId": "simple-tools-auto",
+          "model": "LiquidAI/LFM2.5-350M-ONNX",
+          "timestamp": 1793667301270
+        },
+        {
+          "type": "TOOL_CALL_START",
+          "toolCallId": "tool_mvzz77c6_e",
+          "toolCallName": "get_weather",
+          "parentMessageId": "msg_mvzz779y_c",
+          "index": 0,
+          "model": "LiquidAI/LFM2.5-350M-ONNX",
+          "timestamp": 1793667301350
+        },
+        {
+          "type": "TOOL_CALL_ARGS",
+          "toolCallId": "tool_mvzz77c6_e",
+          "delta": "{\"city\":\"London\"}",
+          "args": "{\"city\":\"London\"}",
+          "model": "LiquidAI/LFM2.5-350M-ONNX",
+          "timestamp": 1793667301350
+        },
+        {
+          "type": "TOOL_CALL_END",
+          "toolCallId": "tool_mvzz77c6_e",
+          "toolCallName": "get_weather",
+          "args": "{\"city\":\"London\"}",
+          "input": {
+            "city": "London"
+          },
+          "model": "LiquidAI/LFM2.5-350M-ONNX",
+          "timestamp": 1793667301350
+        },
+        {
+          "type": "RUN_FINISHED",
+          "runId": "run_mvzz779y_a",
+          "threadId": "simple-tools-auto",
+          "model": "LiquidAI/LFM2.5-350M-ONNX",
+          "timestamp": 1793667301350,
+          "finishReason": "tool_calls",
+          "usage": {
+            "promptTokens": 126,
+            "completionTokens": 13,
+            "totalTokens": 139,
+            "promptTokensDetails": {
+              "cachedTokens": 110
+            },
+            "providerUsageDetails": {
+              "firstTokenMs": 26,
+              "promptMs": 24.799999952316284,
+              "decodeMs": 49.60000002384186,
+              "decodeTokens": 12
+            }
+          }
+        }
+      ]
+    },
+    {
+      "choice": "auto",
+      "city": "Berlin",
+      "input": {
+        "system": "Use get_weather when the user asks for current weather. Use the exact city requested.",
+        "messages": [
+          {
+            "role": "user",
+            "content": "What's the current weather in Berlin?"
+          }
+        ],
+        "tool": {
+          "name": "get_weather",
+          "description": "Get current weather for the requested city.",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "city": {
+                "type": "string",
+                "enum": [
+                  "Paris",
+                  "Tokyo",
+                  "London",
+                  "Berlin"
+                ]
+              }
+            },
+            "required": [
+              "city"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "toolChoice": "auto"
+      },
+      "correct": true,
+      "totalMs": 85.20000004768372,
+      "usage": {
+        "promptTokens": 126,
+        "completionTokens": 13,
+        "totalTokens": 139,
+        "promptTokensDetails": {
+          "cachedTokens": 110
+        },
+        "providerUsageDetails": {
+          "firstTokenMs": 33.39999997615814,
+          "promptMs": 32.5,
+          "decodeMs": 48.200000047683716,
+          "decodeTokens": 12
+        }
+      },
+      "events": [
+        {
+          "type": "RUN_STARTED",
+          "runId": "run_mvzz77c6_f",
+          "threadId": "simple-tools-auto",
+          "model": "LiquidAI/LFM2.5-350M-ONNX",
+          "timestamp": 1793667301350
+        },
+        {
+          "type": "TOOL_CALL_START",
+          "toolCallId": "tool_mvzz77ej_j",
+          "toolCallName": "get_weather",
+          "parentMessageId": "msg_mvzz77c6_h",
+          "index": 0,
+          "model": "LiquidAI/LFM2.5-350M-ONNX",
+          "timestamp": 1793667301435
+        },
+        {
+          "type": "TOOL_CALL_ARGS",
+          "toolCallId": "tool_mvzz77ej_j",
+          "delta": "{\"city\":\"Berlin\"}",
+          "args": "{\"city\":\"Berlin\"}",
+          "model": "LiquidAI/LFM2.5-350M-ONNX",
+          "timestamp": 1793667301435
+        },
+        {
+          "type": "TOOL_CALL_END",
+          "toolCallId": "tool_mvzz77ej_j",
+          "toolCallName": "get_weather",
+          "args": "{\"city\":\"Berlin\"}",
+          "input": {
+            "city": "Berlin"
+          },
+          "model": "LiquidAI/LFM2.5-350M-ONNX",
+          "timestamp": 1793667301435
+        },
+        {
+          "type": "RUN_FINISHED",
+          "runId": "run_mvzz77c6_f",
+          "threadId": "simple-tools-auto",
+          "model": "LiquidAI/LFM2.5-350M-ONNX",
+          "timestamp": 1793667301435,
+          "finishReason": "tool_calls",
+          "usage": {
+            "promptTokens": 126,
+            "completionTokens": 13,
+            "totalTokens": 139,
+            "promptTokensDetails": {
+              "cachedTokens": 110
+            },
+            "providerUsageDetails": {
+              "firstTokenMs": 33.39999997615814,
+              "promptMs": 32.5,
+              "decodeMs": 48.200000047683716,
+              "decodeTokens": 12
+            }
+          }
+        }
+      ]
+    },
+    {
+      "choice": "required",
+      "city": "Paris",
+      "input": {
+        "system": "Use get_weather when the user asks for current weather. Use the exact city requested.",
+        "messages": [
+          {
+            "role": "user",
+            "content": "What's the current weather in Paris?"
+          }
+        ],
+        "tool": {
+          "name": "get_weather",
+          "description": "Get current weather for the requested city.",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "city": {
+                "type": "string",
+                "enum": [
+                  "Paris",
+                  "Tokyo",
+                  "London",
+                  "Berlin"
+                ]
+              }
+            },
+            "required": [
+              "city"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "toolChoice": "required"
+      },
+      "correct": true,
+      "totalMs": 273.40000009536743,
+      "usage": {
+        "promptTokens": 246,
+        "completionTokens": 18,
+        "totalTokens": 264
+      },
+      "events": [
+        {
+          "type": "RUN_STARTED",
+          "runId": "run_mvzz77ej_k",
+          "threadId": "simple-tools-required",
+          "model": "LiquidAI/LFM2.5-350M-ONNX",
+          "timestamp": 1793667301435
+        },
+        {
+          "type": "TOOL_CALL_START",
+          "toolCallId": "tool_mvzz77m5_q",
+          "toolCallName": "get_weather",
+          "parentMessageId": "msg_mvzz77ej_m",
+          "index": 0,
+          "model": "LiquidAI/LFM2.5-350M-ONNX",
+          "timestamp": 1793667301709
+        },
+        {
+          "type": "TOOL_CALL_ARGS",
+          "toolCallId": "tool_mvzz77m5_q",
+          "delta": "{\"city\":\"Paris\"}",
+          "args": "{\"city\":\"Paris\"}",
+          "model": "LiquidAI/LFM2.5-350M-ONNX",
+          "timestamp": 1793667301709
+        },
+        {
+          "type": "TOOL_CALL_END",
+          "toolCallId": "tool_mvzz77m5_q",
+          "toolCallName": "get_weather",
+          "args": "{\"city\":\"Paris\"}",
+          "input": {
+            "city": "Paris"
+          },
+          "model": "LiquidAI/LFM2.5-350M-ONNX",
+          "timestamp": 1793667301709
+        },
+        {
+          "type": "RUN_FINISHED",
+          "runId": "run_mvzz77ej_k",
+          "threadId": "simple-tools-required",
+          "model": "LiquidAI/LFM2.5-350M-ONNX",
+          "timestamp": 1793667301709,
+          "finishReason": "tool_calls",
+          "usage": {
+            "promptTokens": 246,
+            "completionTokens": 18,
+            "totalTokens": 264
+          }
+        }
+      ]
+    },
+    {
+      "choice": "required",
+      "city": "Tokyo",
+      "input": {
+        "system": "Use get_weather when the user asks for current weather. Use the exact city requested.",
+        "messages": [
+          {
+            "role": "user",
+            "content": "What's the current weather in Tokyo?"
+          }
+        ],
+        "tool": {
+          "name": "get_weather",
+          "description": "Get current weather for the requested city.",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "city": {
+                "type": "string",
+                "enum": [
+                  "Paris",
+                  "Tokyo",
+                  "London",
+                  "Berlin"
+                ]
+              }
+            },
+            "required": [
+              "city"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "toolChoice": "required"
+      },
+      "correct": true,
+      "totalMs": 155.20000004768372,
+      "usage": {
+        "promptTokens": 246,
+        "completionTokens": 19,
+        "totalTokens": 265
+      },
+      "events": [
+        {
+          "type": "RUN_STARTED",
+          "runId": "run_mvzz77m5_r",
+          "threadId": "simple-tools-required",
+          "model": "LiquidAI/LFM2.5-350M-ONNX",
+          "timestamp": 1793667301709
+        },
+        {
+          "type": "TOOL_CALL_START",
+          "toolCallId": "tool_mvzz77qg_x",
+          "toolCallName": "get_weather",
+          "parentMessageId": "msg_mvzz77m5_t",
+          "index": 0,
+          "model": "LiquidAI/LFM2.5-350M-ONNX",
+          "timestamp": 1793667301864
+        },
+        {
+          "type": "TOOL_CALL_ARGS",
+          "toolCallId": "tool_mvzz77qg_x",
+          "delta": "{\"city\":\"Tokyo\"}",
+          "args": "{\"city\":\"Tokyo\"}",
+          "model": "LiquidAI/LFM2.5-350M-ONNX",
+          "timestamp": 1793667301864
+        },
+        {
+          "type": "TOOL_CALL_END",
+          "toolCallId": "tool_mvzz77qg_x",
+          "toolCallName": "get_weather",
+          "args": "{\"city\":\"Tokyo\"}",
+          "input": {
+            "city": "Tokyo"
+          },
+          "model": "LiquidAI/LFM2.5-350M-ONNX",
+          "timestamp": 1793667301864
+        },
+        {
+          "type": "RUN_FINISHED",
+          "runId": "run_mvzz77m5_r",
+          "threadId": "simple-tools-required",
+          "model": "LiquidAI/LFM2.5-350M-ONNX",
+          "timestamp": 1793667301864,
+          "finishReason": "tool_calls",
+          "usage": {
+            "promptTokens": 246,
+            "completionTokens": 19,
+            "totalTokens": 265
+          }
+        }
+      ]
+    },
+    {
+      "choice": "required",
+      "city": "London",
+      "input": {
+        "system": "Use get_weather when the user asks for current weather. Use the exact city requested.",
+        "messages": [
+          {
+            "role": "user",
+            "content": "What's the current weather in London?"
+          }
+        ],
+        "tool": {
+          "name": "get_weather",
+          "description": "Get current weather for the requested city.",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "city": {
+                "type": "string",
+                "enum": [
+                  "Paris",
+                  "Tokyo",
+                  "London",
+                  "Berlin"
+                ]
+              }
+            },
+            "required": [
+              "city"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "toolChoice": "required"
+      },
+      "correct": true,
+      "totalMs": 143.39999997615814,
+      "usage": {
+        "promptTokens": 246,
+        "completionTokens": 18,
+        "totalTokens": 264
+      },
+      "events": [
+        {
+          "type": "RUN_STARTED",
+          "runId": "run_mvzz77qg_y",
+          "threadId": "simple-tools-required",
+          "model": "LiquidAI/LFM2.5-350M-ONNX",
+          "timestamp": 1793667301864
+        },
+        {
+          "type": "TOOL_CALL_START",
+          "toolCallId": "tool_mvzz77uf_14",
+          "toolCallName": "get_weather",
+          "parentMessageId": "msg_mvzz77qg_10",
+          "index": 0,
+          "model": "LiquidAI/LFM2.5-350M-ONNX",
+          "timestamp": 1793667302007
+        },
+        {
+          "type": "TOOL_CALL_ARGS",
+          "toolCallId": "tool_mvzz77uf_14",
+          "delta": "{\"city\":\"London\"}",
+          "args": "{\"city\":\"London\"}",
+          "model": "LiquidAI/LFM2.5-350M-ONNX",
+          "timestamp": 1793667302007
+        },
+        {
+          "type": "TOOL_CALL_END",
+          "toolCallId": "tool_mvzz77uf_14",
+          "toolCallName": "get_weather",
+          "args": "{\"city\":\"London\"}",
+          "input": {
+            "city": "London"
+          },
+          "model": "LiquidAI/LFM2.5-350M-ONNX",
+          "timestamp": 1793667302007
+        },
+        {
+          "type": "RUN_FINISHED",
+          "runId": "run_mvzz77qg_y",
+          "threadId": "simple-tools-required",
+          "model": "LiquidAI/LFM2.5-350M-ONNX",
+          "timestamp": 1793667302007,
+          "finishReason": "tool_calls",
+          "usage": {
+            "promptTokens": 246,
+            "completionTokens": 18,
+            "totalTokens": 264
+          }
+        }
+      ]
+    },
+    {
+      "choice": "required",
+      "city": "Berlin",
+      "input": {
+        "system": "Use get_weather when the user asks for current weather. Use the exact city requested.",
+        "messages": [
+          {
+            "role": "user",
+            "content": "What's the current weather in Berlin?"
+          }
+        ],
+        "tool": {
+          "name": "get_weather",
+          "description": "Get current weather for the requested city.",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "city": {
+                "type": "string",
+                "enum": [
+                  "Paris",
+                  "Tokyo",
+                  "London",
+                  "Berlin"
+                ]
+              }
+            },
+            "required": [
+              "city"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "toolChoice": "required"
+      },
+      "correct": true,
+      "totalMs": 142.39999997615814,
+      "usage": {
+        "promptTokens": 246,
+        "completionTokens": 18,
+        "totalTokens": 264
+      },
+      "events": [
+        {
+          "type": "RUN_STARTED",
+          "runId": "run_mvzz77ug_15",
+          "threadId": "simple-tools-required",
+          "model": "LiquidAI/LFM2.5-350M-ONNX",
+          "timestamp": 1793667302008
+        },
+        {
+          "type": "TOOL_CALL_START",
+          "toolCallId": "tool_mvzz77ye_1b",
+          "toolCallName": "get_weather",
+          "parentMessageId": "msg_mvzz77ug_17",
+          "index": 0,
+          "model": "LiquidAI/LFM2.5-350M-ONNX",
+          "timestamp": 1793667302150
+        },
+        {
+          "type": "TOOL_CALL_ARGS",
+          "toolCallId": "tool_mvzz77ye_1b",
+          "delta": "{\"city\":\"Berlin\"}",
+          "args": "{\"city\":\"Berlin\"}",
+          "model": "LiquidAI/LFM2.5-350M-ONNX",
+          "timestamp": 1793667302150
+        },
+        {
+          "type": "TOOL_CALL_END",
+          "toolCallId": "tool_mvzz77ye_1b",
+          "toolCallName": "get_weather",
+          "args": "{\"city\":\"Berlin\"}",
+          "input": {
+            "city": "Berlin"
+          },
+          "model": "LiquidAI/LFM2.5-350M-ONNX",
+          "timestamp": 1793667302150
+        },
+        {
+          "type": "RUN_FINISHED",
+          "runId": "run_mvzz77ug_15",
+          "threadId": "simple-tools-required",
+          "model": "LiquidAI/LFM2.5-350M-ONNX",
+          "timestamp": 1793667302150,
+          "finishReason": "tool_calls",
+          "usage": {
+            "promptTokens": 246,
+            "completionTokens": 18,
+            "totalTokens": 264
+          }
+        }
+      ]
+    },
+    {
+      "choice": "named",
+      "city": "Paris",
+      "input": {
+        "system": "Use get_weather when the user asks for current weather. Use the exact city requested.",
+        "messages": [
+          {
+            "role": "user",
+            "content": "What's the current weather in Paris?"
+          }
+        ],
+        "tool": {
+          "name": "get_weather",
+          "description": "Get current weather for the requested city.",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "city": {
+                "type": "string",
+                "enum": [
+                  "Paris",
+                  "Tokyo",
+                  "London",
+                  "Berlin"
+                ]
+              }
+            },
+            "required": [
+              "city"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "toolChoice": {
+          "type": "tool",
+          "name": "get_weather"
+        }
+      },
+      "correct": true,
+      "totalMs": 64.5,
+      "usage": {
+        "promptTokens": 110,
+        "completionTokens": 8,
+        "totalTokens": 118
+      },
+      "events": [
+        {
+          "type": "RUN_STARTED",
+          "runId": "run_mvzz77ye_1c",
+          "threadId": "simple-tools-named",
+          "model": "LiquidAI/LFM2.5-350M-ONNX",
+          "timestamp": 1793667302150
+        },
+        {
+          "type": "TOOL_CALL_START",
+          "toolCallId": "tool_mvzz7807_1h",
+          "toolCallName": "get_weather",
+          "parentMessageId": "msg_mvzz77ye_1e",
+          "index": 0,
+          "model": "LiquidAI/LFM2.5-350M-ONNX",
+          "timestamp": 1793667302215
+        },
+        {
+          "type": "TOOL_CALL_ARGS",
+          "toolCallId": "tool_mvzz7807_1h",
+          "delta": "{\"city\":\"Paris\"}",
+          "args": "{\"city\":\"Paris\"}",
+          "model": "LiquidAI/LFM2.5-350M-ONNX",
+          "timestamp": 1793667302215
+        },
+        {
+          "type": "TOOL_CALL_END",
+          "toolCallId": "tool_mvzz7807_1h",
+          "toolCallName": "get_weather",
+          "args": "{\"city\":\"Paris\"}",
+          "input": {
+            "city": "Paris"
+          },
+          "model": "LiquidAI/LFM2.5-350M-ONNX",
+          "timestamp": 1793667302215
+        },
+        {
+          "type": "RUN_FINISHED",
+          "runId": "run_mvzz77ye_1c",
+          "threadId": "simple-tools-named",
+          "model": "LiquidAI/LFM2.5-350M-ONNX",
+          "timestamp": 1793667302215,
+          "finishReason": "tool_calls",
+          "usage": {
+            "promptTokens": 110,
+            "completionTokens": 8,
+            "totalTokens": 118
+          }
+        }
+      ]
+    },
+    {
+      "choice": "named",
+      "city": "Tokyo",
+      "input": {
+        "system": "Use get_weather when the user asks for current weather. Use the exact city requested.",
+        "messages": [
+          {
+            "role": "user",
+            "content": "What's the current weather in Tokyo?"
+          }
+        ],
+        "tool": {
+          "name": "get_weather",
+          "description": "Get current weather for the requested city.",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "city": {
+                "type": "string",
+                "enum": [
+                  "Paris",
+                  "Tokyo",
+                  "London",
+                  "Berlin"
+                ]
+              }
+            },
+            "required": [
+              "city"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "toolChoice": {
+          "type": "tool",
+          "name": "get_weather"
+        }
+      },
+      "correct": true,
+      "totalMs": 55.39999997615814,
+      "usage": {
+        "promptTokens": 110,
+        "completionTokens": 9,
+        "totalTokens": 119
+      },
+      "events": [
+        {
+          "type": "RUN_STARTED",
+          "runId": "run_mvzz7807_1i",
+          "threadId": "simple-tools-named",
+          "model": "LiquidAI/LFM2.5-350M-ONNX",
+          "timestamp": 1793667302215
+        },
+        {
+          "type": "TOOL_CALL_START",
+          "toolCallId": "tool_mvzz781q_1n",
+          "toolCallName": "get_weather",
+          "parentMessageId": "msg_mvzz7807_1k",
+          "index": 0,
+          "model": "LiquidAI/LFM2.5-350M-ONNX",
+          "timestamp": 1793667302270
+        },
+        {
+          "type": "TOOL_CALL_ARGS",
+          "toolCallId": "tool_mvzz781q_1n",
+          "delta": "{\"city\":\"Tokyo\"}",
+          "args": "{\"city\":\"Tokyo\"}",
+          "model": "LiquidAI/LFM2.5-350M-ONNX",
+          "timestamp": 1793667302270
+        },
+        {
+          "type": "TOOL_CALL_END",
+          "toolCallId": "tool_mvzz781q_1n",
+          "toolCallName": "get_weather",
+          "args": "{\"city\":\"Tokyo\"}",
+          "input": {
+            "city": "Tokyo"
+          },
+          "model": "LiquidAI/LFM2.5-350M-ONNX",
+          "timestamp": 1793667302270
+        },
+        {
+          "type": "RUN_FINISHED",
+          "runId": "run_mvzz7807_1i",
+          "threadId": "simple-tools-named",
+          "model": "LiquidAI/LFM2.5-350M-ONNX",
+          "timestamp": 1793667302270,
+          "finishReason": "tool_calls",
+          "usage": {
+            "promptTokens": 110,
+            "completionTokens": 9,
+            "totalTokens": 119
+          }
+        }
+      ]
+    },
+    {
+      "choice": "named",
+      "city": "London",
+      "input": {
+        "system": "Use get_weather when the user asks for current weather. Use the exact city requested.",
+        "messages": [
+          {
+            "role": "user",
+            "content": "What's the current weather in London?"
+          }
+        ],
+        "tool": {
+          "name": "get_weather",
+          "description": "Get current weather for the requested city.",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "city": {
+                "type": "string",
+                "enum": [
+                  "Paris",
+                  "Tokyo",
+                  "London",
+                  "Berlin"
+                ]
+              }
+            },
+            "required": [
+              "city"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "toolChoice": {
+          "type": "tool",
+          "name": "get_weather"
+        }
+      },
+      "correct": true,
+      "totalMs": 46.300000071525574,
+      "usage": {
+        "promptTokens": 110,
+        "completionTokens": 8,
+        "totalTokens": 118
+      },
+      "events": [
+        {
+          "type": "RUN_STARTED",
+          "runId": "run_mvzz781q_1o",
+          "threadId": "simple-tools-named",
+          "model": "LiquidAI/LFM2.5-350M-ONNX",
+          "timestamp": 1793667302270
+        },
+        {
+          "type": "TOOL_CALL_START",
+          "toolCallId": "tool_mvzz7831_1t",
+          "toolCallName": "get_weather",
+          "parentMessageId": "msg_mvzz781q_1q",
+          "index": 0,
+          "model": "LiquidAI/LFM2.5-350M-ONNX",
+          "timestamp": 1793667302317
+        },
+        {
+          "type": "TOOL_CALL_ARGS",
+          "toolCallId": "tool_mvzz7831_1t",
+          "delta": "{\"city\":\"London\"}",
+          "args": "{\"city\":\"London\"}",
+          "model": "LiquidAI/LFM2.5-350M-ONNX",
+          "timestamp": 1793667302317
+        },
+        {
+          "type": "TOOL_CALL_END",
+          "toolCallId": "tool_mvzz7831_1t",
+          "toolCallName": "get_weather",
+          "args": "{\"city\":\"London\"}",
+          "input": {
+            "city": "London"
+          },
+          "model": "LiquidAI/LFM2.5-350M-ONNX",
+          "timestamp": 1793667302317
+        },
+        {
+          "type": "RUN_FINISHED",
+          "runId": "run_mvzz781q_1o",
+          "threadId": "simple-tools-named",
+          "model": "LiquidAI/LFM2.5-350M-ONNX",
+          "timestamp": 1793667302317,
+          "finishReason": "tool_calls",
+          "usage": {
+            "promptTokens": 110,
+            "completionTokens": 8,
+            "totalTokens": 118
+          }
+        }
+      ]
+    },
+    {
+      "choice": "named",
+      "city": "Berlin",
+      "input": {
+        "system": "Use get_weather when the user asks for current weather. Use the exact city requested.",
+        "messages": [
+          {
+            "role": "user",
+            "content": "What's the current weather in Berlin?"
+          }
+        ],
+        "tool": {
+          "name": "get_weather",
+          "description": "Get current weather for the requested city.",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "city": {
+                "type": "string",
+                "enum": [
+                  "Paris",
+                  "Tokyo",
+                  "London",
+                  "Berlin"
+                ]
+              }
+            },
+            "required": [
+              "city"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "toolChoice": {
+          "type": "tool",
+          "name": "get_weather"
+        }
+      },
+      "correct": true,
+      "totalMs": 46.200000047683716,
+      "usage": {
+        "promptTokens": 110,
+        "completionTokens": 8,
+        "totalTokens": 118
+      },
+      "events": [
+        {
+          "type": "RUN_STARTED",
+          "runId": "run_mvzz7831_1u",
+          "threadId": "simple-tools-named",
+          "model": "LiquidAI/LFM2.5-350M-ONNX",
+          "timestamp": 1793667302317
+        },
+        {
+          "type": "TOOL_CALL_START",
+          "toolCallId": "tool_mvzz784b_1z",
+          "toolCallName": "get_weather",
+          "parentMessageId": "msg_mvzz7831_1w",
+          "index": 0,
+          "model": "LiquidAI/LFM2.5-350M-ONNX",
+          "timestamp": 1793667302363
+        },
+        {
+          "type": "TOOL_CALL_ARGS",
+          "toolCallId": "tool_mvzz784b_1z",
+          "delta": "{\"city\":\"Berlin\"}",
+          "args": "{\"city\":\"Berlin\"}",
+          "model": "LiquidAI/LFM2.5-350M-ONNX",
+          "timestamp": 1793667302363
+        },
+        {
+          "type": "TOOL_CALL_END",
+          "toolCallId": "tool_mvzz784b_1z",
+          "toolCallName": "get_weather",
+          "args": "{\"city\":\"Berlin\"}",
+          "input": {
+            "city": "Berlin"
+          },
+          "model": "LiquidAI/LFM2.5-350M-ONNX",
+          "timestamp": 1793667302363
+        },
+        {
+          "type": "RUN_FINISHED",
+          "runId": "run_mvzz7831_1u",
+          "threadId": "simple-tools-named",
+          "model": "LiquidAI/LFM2.5-350M-ONNX",
+          "timestamp": 1793667302363,
+          "finishReason": "tool_calls",
+          "usage": {
+            "promptTokens": 110,
+            "completionTokens": 8,
+            "totalTokens": 118
+          }
+        }
+      ]
+    }
+  ],
+  "error": null,
+  "model": "LiquidAI/LFM2.5-350M-ONNX",
+  "finishedAt": "2026-11-03T00:55:02.363Z"
+}

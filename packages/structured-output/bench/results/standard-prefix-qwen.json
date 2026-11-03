@@ -1,0 +1,26 @@
+{
+  "model": "unsloth/Qwen3.5-2B-GGUF",
+  "mode": "prefix",
+  "commonTokens": 1815,
+  "prefixTokens": 1815,
+  "expectedRestore": 1536,
+  "restoredTokens": 1536,
+  "inputTokens": 3626,
+  "planMode": "cost-neutral-prefix-legacy-conversation",
+  "coldMs": 1676.6999999284744,
+  "warmMs": 1063.2999999523163,
+  "top1Equal": true,
+  "maximumAbsoluteDifference": 0,
+  "klDivergence": 0,
+  "matchedBoundaryControl": {
+    "boundaryTokens": 1536,
+    "productionFirstAnchorInsideBatch": true,
+    "top1Equal": true,
+    "maximumAbsoluteDifference": 0,
+    "klDivergence": 0
+  },
+  "beforeRestoreBytes": 1715073200,
+  "afterWarmBytes": 1715073200,
+  "snapshotLimit": 2,
+  "peakBytes": 1715086512
+}

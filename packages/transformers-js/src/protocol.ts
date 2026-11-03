@@ -83,6 +83,8 @@ export type WorkerRequest =
       thinking?: boolean
       thinkingBudgetTokens?: number
       outputSchema?: object
+      /** False disables automatic reuse/retention between calls, not autoregressive KV within this run. */
+      cachePrompt?: boolean
       sampling: Sampling
       /** Most tokens to generate; the worker's default when left out. */
       maxTokens?: number

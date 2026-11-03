@@ -68,6 +68,20 @@ structured-output usage reports the prefix reused in `promptTokensDetails.cached
 This count excludes new input and newly appended history; it is not a guarantee that
 all prompt tokens or the generated output were cached.
 
+The standard `chat({ promptCache })` option controls managed reuse in both streaming
+and structured-output paths. `promptCache: 'none'` uses a fresh per-request session,
+reports no managed cached tokens, and destroys that session when the call completes,
+fails, or is cancelled; it also disables anonymous structured bases. This does not
+unload browser model weights or prevent the inference cache needed inside a single
+generation. `promptCache.key` selects the cache identity instead of `threadId`, while
+AG-UI run correlation still uses the caller's original thread. Reuse additionally
+requires matching instructions/options and compatible supplied history. `short` and
+`long` use the existing bounded, opportunistic session cache; this adapter does not
+promise provider retention durations or add a TTL. Direct adapter calls that omit
+`promptCache` retain their existing behavior. Emulated-reasoning streaming calls
+remain ephemeral regardless of a supplied cache key, so working notes cannot leak
+into retained conversational state.
+
 An aborted or failed call frees its session, and the next request starts again from the messages. Aborting a request never destroys the session a thread keeps, and a kept session the browser destroyed is replaced on the next request. `destroyPromptApiSessions()` frees every kept session.
 
 ## Usage

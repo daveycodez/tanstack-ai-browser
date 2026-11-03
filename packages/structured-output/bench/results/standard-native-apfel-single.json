@@ -1,0 +1,701 @@
+{
+  "runtime": "apfel",
+  "profile": "current",
+  "startedAt": "2026-11-03T01:04:59.510Z",
+  "settings": {
+    "sampling": "model defaults",
+    "reasoning": "off",
+    "outputLimit": "model default",
+    "context": "model default",
+    "promptCache": "automatic"
+  },
+  "results": [
+    {
+      "caseId": "text-France",
+      "group": "text",
+      "input": {
+        "system": "Answer the user concisely.",
+        "messages": [
+          {
+            "role": "user",
+            "content": "What is the capital of France? Answer with the city name only."
+          }
+        ]
+      },
+      "expected": "Paris",
+      "correct": true,
+      "data": {
+        "text": "Paris",
+        "chunks": [
+          {
+            "type": "RUN_STARTED",
+            "runId": "run_mvzzk0w8_0",
+            "threadId": "single-prompt-text",
+            "timestamp": 1793667899528,
+            "metadata": {
+              "tanstack": {
+                "source": {
+                  "provider": "apfel",
+                  "api": "openai-completions",
+                  "model": "apple-foundationmodel"
+                },
+                "model": "apple-foundationmodel"
+              }
+            }
+          },
+          {
+            "type": "TEXT_MESSAGE_START",
+            "messageId": "msg_mvzzk0w8_1",
+            "role": "assistant",
+            "timestamp": 1793667900477,
+            "metadata": {
+              "tanstack": {
+                "source": {
+                  "provider": "apfel",
+                  "api": "openai-completions",
+                  "model": "apple-foundationmodel"
+                },
+                "model": "apple-foundationmodel"
+              }
+            }
+          },
+          {
+            "type": "TEXT_MESSAGE_CONTENT",
+            "messageId": "msg_mvzzk0w8_1",
+            "delta": "Paris",
+            "timestamp": 1793667900477,
+            "metadata": {
+              "tanstack": {
+                "source": {
+                  "provider": "apfel",
+                  "api": "openai-completions",
+                  "model": "apple-foundationmodel"
+                }
+              }
+            }
+          },
+          {
+            "type": "TEXT_MESSAGE_END",
+            "messageId": "msg_mvzzk0w8_1",
+            "timestamp": 1793667900478,
+            "metadata": {
+              "tanstack": {
+                "source": {
+                  "provider": "apfel",
+                  "api": "openai-completions",
+                  "model": "apple-foundationmodel"
+                },
+                "model": "apple-foundationmodel"
+              }
+            }
+          },
+          {
+            "type": "RUN_FINISHED",
+            "runId": "run_mvzzk0w8_0",
+            "threadId": "single-prompt-text",
+            "timestamp": 1793667900478,
+            "usage": {
+              "promptTokens": 75,
+              "completionTokens": 3,
+              "totalTokens": 78,
+              "providerUsageDetails": {
+                "firstTokenMs": 949.1999999284744,
+                "decodeMs": 0,
+                "decodeTokens": 0
+              }
+            },
+            "metadata": {
+              "tanstack": {
+                "source": {
+                  "provider": "apfel",
+                  "api": "openai-completions",
+                  "model": "apple-foundationmodel"
+                },
+                "model": "apple-foundationmodel",
+                "finishReason": "stop",
+                "usage": {
+                  "providerUsageDetails": {
+                    "firstTokenMs": 949.1999999284744,
+                    "decodeMs": 0,
+                    "decodeTokens": 0
+                  }
+                }
+              }
+            }
+          }
+        ]
+      },
+      "raw": "Paris",
+      "usage": {
+        "promptTokens": 75,
+        "completionTokens": 3,
+        "totalTokens": 78,
+        "providerUsageDetails": {
+          "firstTokenMs": 949.1999999284744,
+          "decodeMs": 0,
+          "decodeTokens": 0
+        }
+      },
+      "totalMs": 951.5
+    },
+    {
+      "caseId": "text-Japan",
+      "group": "text",
+      "input": {
+        "system": "Answer the user concisely.",
+        "messages": [
+          {
+            "role": "user",
+            "content": "What is the capital of Japan? Answer with the city name only."
+          }
+        ]
+      },
+      "expected": "Tokyo",
+      "correct": true,
+      "data": {
+        "text": "Tokyo",
+        "chunks": [
+          {
+            "type": "RUN_STARTED",
+            "runId": "run_mvzzk1mn_3",
+            "threadId": "single-prompt-text",
+            "timestamp": 1793667900479,
+            "metadata": {
+              "tanstack": {
+                "source": {
+                  "provider": "apfel",
+                  "api": "openai-completions",
+                  "model": "apple-foundationmodel"
+                },
+                "model": "apple-foundationmodel"
+              }
+            }
+          },
+          {
+            "type": "TEXT_MESSAGE_START",
+            "messageId": "msg_mvzzk1mn_4",
+            "role": "assistant",
+            "timestamp": 1793667900765,
+            "metadata": {
+              "tanstack": {
+                "source": {
+                  "provider": "apfel",
+                  "api": "openai-completions",
+                  "model": "apple-foundationmodel"
+                },
+                "model": "apple-foundationmodel"
+              }
+            }
+          },
+          {
+            "type": "TEXT_MESSAGE_CONTENT",
+            "messageId": "msg_mvzzk1mn_4",
+            "delta": "Tokyo",
+            "timestamp": 1793667900765,
+            "metadata": {
+              "tanstack": {
+                "source": {
+                  "provider": "apfel",
+                  "api": "openai-completions",
+                  "model": "apple-foundationmodel"
+                }
+              }
+            }
+          },
+          {
+            "type": "TEXT_MESSAGE_END",
+            "messageId": "msg_mvzzk1mn_4",
+            "timestamp": 1793667900765,
+            "metadata": {
+              "tanstack": {
+                "source": {
+                  "provider": "apfel",
+                  "api": "openai-completions",
+                  "model": "apple-foundationmodel"
+                },
+                "model": "apple-foundationmodel"
+              }
+            }
+          },
+          {
+            "type": "RUN_FINISHED",
+            "runId": "run_mvzzk1mn_3",
+            "threadId": "single-prompt-text",
+            "timestamp": 1793667900765,
+            "usage": {
+              "promptTokens": 75,
+              "completionTokens": 3,
+              "totalTokens": 78,
+              "providerUsageDetails": {
+                "firstTokenMs": 285.89999997615814,
+                "decodeMs": 0,
+                "decodeTokens": 0
+              }
+            },
+            "metadata": {
+              "tanstack": {
+                "source": {
+                  "provider": "apfel",
+                  "api": "openai-completions",
+                  "model": "apple-foundationmodel"
+                },
+                "model": "apple-foundationmodel",
+                "finishReason": "stop",
+                "usage": {
+                  "providerUsageDetails": {
+                    "firstTokenMs": 285.89999997615814,
+                    "decodeMs": 0,
+                    "decodeTokens": 0
+                  }
+                }
+              }
+            }
+          }
+        ]
+      },
+      "raw": "Tokyo",
+      "usage": {
+        "promptTokens": 75,
+        "completionTokens": 3,
+        "totalTokens": 78,
+        "providerUsageDetails": {
+          "firstTokenMs": 285.89999997615814,
+          "decodeMs": 0,
+          "decodeTokens": 0
+        }
+      },
+      "totalMs": 286.89999997615814
+    },
+    {
+      "caseId": "text-Italy",
+      "group": "text",
+      "input": {
+        "system": "Answer the user concisely.",
+        "messages": [
+          {
+            "role": "user",
+            "content": "What is the capital of Italy? Answer with the city name only."
+          }
+        ]
+      },
+      "expected": "Rome",
+      "correct": true,
+      "data": {
+        "text": "Rome",
+        "chunks": [
+          {
+            "type": "RUN_STARTED",
+            "runId": "run_mvzzk1um_6",
+            "threadId": "single-prompt-text",
+            "timestamp": 1793667900766,
+            "metadata": {
+              "tanstack": {
+                "source": {
+                  "provider": "apfel",
+                  "api": "openai-completions",
+                  "model": "apple-foundationmodel"
+                },
+                "model": "apple-foundationmodel"
+              }
+            }
+          },
+          {
+            "type": "TEXT_MESSAGE_START",
+            "messageId": "msg_mvzzk1um_7",
+            "role": "assistant",
+            "timestamp": 1793667901054,
+            "metadata": {
+              "tanstack": {
+                "source": {
+                  "provider": "apfel",
+                  "api": "openai-completions",
+                  "model": "apple-foundationmodel"
+                },
+                "model": "apple-foundationmodel"
+              }
+            }
+          },
+          {
+            "type": "TEXT_MESSAGE_CONTENT",
+            "messageId": "msg_mvzzk1um_7",
+            "delta": "Rome",
+            "timestamp": 1793667901054,
+            "metadata": {
+              "tanstack": {
+                "source": {
+                  "provider": "apfel",
+                  "api": "openai-completions",
+                  "model": "apple-foundationmodel"
+                }
+              }
+            }
+          },
+          {
+            "type": "TEXT_MESSAGE_END",
+            "messageId": "msg_mvzzk1um_7",
+            "timestamp": 1793667901054,
+            "metadata": {
+              "tanstack": {
+                "source": {
+                  "provider": "apfel",
+                  "api": "openai-completions",
+                  "model": "apple-foundationmodel"
+                },
+                "model": "apple-foundationmodel"
+              }
+            }
+          },
+          {
+            "type": "RUN_FINISHED",
+            "runId": "run_mvzzk1um_6",
+            "threadId": "single-prompt-text",
+            "timestamp": 1793667901054,
+            "usage": {
+              "promptTokens": 75,
+              "completionTokens": 3,
+              "totalTokens": 78,
+              "providerUsageDetails": {
+                "firstTokenMs": 287.8000000715256,
+                "decodeMs": 0,
+                "decodeTokens": 0
+              }
+            },
+            "metadata": {
+              "tanstack": {
+                "source": {
+                  "provider": "apfel",
+                  "api": "openai-completions",
+                  "model": "apple-foundationmodel"
+                },
+                "model": "apple-foundationmodel",
+                "finishReason": "stop",
+                "usage": {
+                  "providerUsageDetails": {
+                    "firstTokenMs": 287.8000000715256,
+                    "decodeMs": 0,
+                    "decodeTokens": 0
+                  }
+                }
+              }
+            }
+          }
+        ]
+      },
+      "raw": "Rome",
+      "usage": {
+        "promptTokens": 75,
+        "completionTokens": 3,
+        "totalTokens": 78,
+        "providerUsageDetails": {
+          "firstTokenMs": 287.8000000715256,
+          "decodeMs": 0,
+          "decodeTokens": 0
+        }
+      },
+      "totalMs": 288.5
+    },
+    {
+      "caseId": "text-Spain",
+      "group": "text",
+      "input": {
+        "system": "Answer the user concisely.",
+        "messages": [
+          {
+            "role": "user",
+            "content": "What is the capital of Spain? Answer with the city name only."
+          }
+        ]
+      },
+      "expected": "Madrid",
+      "correct": true,
+      "data": {
+        "text": "Madrid",
+        "chunks": [
+          {
+            "type": "RUN_STARTED",
+            "runId": "run_mvzzk22m_9",
+            "threadId": "single-prompt-text",
+            "timestamp": 1793667901054,
+            "metadata": {
+              "tanstack": {
+                "source": {
+                  "provider": "apfel",
+                  "api": "openai-completions",
+                  "model": "apple-foundationmodel"
+                },
+                "model": "apple-foundationmodel"
+              }
+            }
+          },
+          {
+            "type": "TEXT_MESSAGE_START",
+            "messageId": "msg_mvzzk22m_a",
+            "role": "assistant",
+            "timestamp": 1793667901341,
+            "metadata": {
+              "tanstack": {
+                "source": {
+                  "provider": "apfel",
+                  "api": "openai-completions",
+                  "model": "apple-foundationmodel"
+                },
+                "model": "apple-foundationmodel"
+              }
+            }
+          },
+          {
+            "type": "TEXT_MESSAGE_CONTENT",
+            "messageId": "msg_mvzzk22m_a",
+            "delta": "Madrid",
+            "timestamp": 1793667901341,
+            "metadata": {
+              "tanstack": {
+                "source": {
+                  "provider": "apfel",
+                  "api": "openai-completions",
+                  "model": "apple-foundationmodel"
+                }
+              }
+            }
+          },
+          {
+            "type": "TEXT_MESSAGE_END",
+            "messageId": "msg_mvzzk22m_a",
+            "timestamp": 1793667901341,
+            "metadata": {
+              "tanstack": {
+                "source": {
+                  "provider": "apfel",
+                  "api": "openai-completions",
+                  "model": "apple-foundationmodel"
+                },
+                "model": "apple-foundationmodel"
+              }
+            }
+          },
+          {
+            "type": "RUN_FINISHED",
+            "runId": "run_mvzzk22m_9",
+            "threadId": "single-prompt-text",
+            "timestamp": 1793667901341,
+            "usage": {
+              "promptTokens": 75,
+              "completionTokens": 3,
+              "totalTokens": 78,
+              "providerUsageDetails": {
+                "firstTokenMs": 286.1999999284744,
+                "decodeMs": 0,
+                "decodeTokens": 0
+              }
+            },
+            "metadata": {
+              "tanstack": {
+                "source": {
+                  "provider": "apfel",
+                  "api": "openai-completions",
+                  "model": "apple-foundationmodel"
+                },
+                "model": "apple-foundationmodel",
+                "finishReason": "stop",
+                "usage": {
+                  "providerUsageDetails": {
+                    "firstTokenMs": 286.1999999284744,
+                    "decodeMs": 0,
+                    "decodeTokens": 0
+                  }
+                }
+              }
+            }
+          }
+        ]
+      },
+      "raw": "Madrid",
+      "usage": {
+        "promptTokens": 75,
+        "completionTokens": 3,
+        "totalTokens": 78,
+        "providerUsageDetails": {
+          "firstTokenMs": 286.1999999284744,
+          "decodeMs": 0,
+          "decodeTokens": 0
+        }
+      },
+      "totalMs": 287
+    },
+    {
+      "caseId": "structured-France",
+      "group": "structured",
+      "input": {
+        "system": "Answer the user concisely.",
+        "messages": [
+          {
+            "role": "user",
+            "content": "What is the capital of France? Return the city in the requested JSON object."
+          }
+        ],
+        "schema": {
+          "type": "object",
+          "properties": {
+            "city": {
+              "type": "string",
+              "enum": [
+                "Paris",
+                "Tokyo",
+                "Rome",
+                "Madrid"
+              ]
+            }
+          },
+          "required": [
+            "city"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "expected": "Paris",
+      "correct": true,
+      "data": {
+        "city": "Paris"
+      },
+      "raw": "{\"city\": \"Paris\"}",
+      "usage": {
+        "promptTokens": 131,
+        "completionTokens": 13,
+        "totalTokens": 144
+      },
+      "totalMs": 376.2000000476837
+    },
+    {
+      "caseId": "structured-Japan",
+      "group": "structured",
+      "input": {
+        "system": "Answer the user concisely.",
+        "messages": [
+          {
+            "role": "user",
+            "content": "What is the capital of Japan? Return the city in the requested JSON object."
+          }
+        ],
+        "schema": {
+          "type": "object",
+          "properties": {
+            "city": {
+              "type": "string",
+              "enum": [
+                "Paris",
+                "Tokyo",
+                "Rome",
+                "Madrid"
+              ]
+            }
+          },
+          "required": [
+            "city"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "expected": "Tokyo",
+      "correct": true,
+      "data": {
+        "city": "Tokyo"
+      },
+      "raw": "{\"city\": \"Tokyo\"}",
+      "usage": {
+        "promptTokens": 131,
+        "completionTokens": 13,
+        "totalTokens": 144
+      },
+      "totalMs": 374.10000002384186
+    },
+    {
+      "caseId": "structured-Italy",
+      "group": "structured",
+      "input": {
+        "system": "Answer the user concisely.",
+        "messages": [
+          {
+            "role": "user",
+            "content": "What is the capital of Italy? Return the city in the requested JSON object."
+          }
+        ],
+        "schema": {
+          "type": "object",
+          "properties": {
+            "city": {
+              "type": "string",
+              "enum": [
+                "Paris",
+                "Tokyo",
+                "Rome",
+                "Madrid"
+              ]
+            }
+          },
+          "required": [
+            "city"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "expected": "Rome",
+      "correct": true,
+      "data": {
+        "city": "Rome"
+      },
+      "raw": "{\"city\": \"Rome\"}",
+      "usage": {
+        "promptTokens": 131,
+        "completionTokens": 13,
+        "totalTokens": 144
+      },
+      "totalMs": 367.2999999523163
+    },
+    {
+      "caseId": "structured-Spain",
+      "group": "structured",
+      "input": {
+        "system": "Answer the user concisely.",
+        "messages": [
+          {
+            "role": "user",
+            "content": "What is the capital of Spain? Return the city in the requested JSON object."
+          }
+        ],
+        "schema": {
+          "type": "object",
+          "properties": {
+            "city": {
+              "type": "string",
+              "enum": [
+                "Paris",
+                "Tokyo",
+                "Rome",
+                "Madrid"
+              ]
+            }
+          },
+          "required": [
+            "city"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "expected": "Madrid",
+      "correct": true,
+      "data": {
+        "city": "Madrid"
+      },
+      "raw": "{\"city\": \"Madrid\"}",
+      "usage": {
+        "promptTokens": 131,
+        "completionTokens": 13,
+        "totalTokens": 144
+      },
+      "totalMs": 369
+    }
+  ],
+  "error": null,
+  "model": "apple-foundationmodel",
+  "finishedAt": "2026-11-03T01:05:02.829Z"
+}

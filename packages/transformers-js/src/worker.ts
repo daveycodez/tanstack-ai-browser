@@ -28,6 +28,7 @@ import {
   promptStepEnd
 } from "./prompt-steps.js"
 import { checkpointsToDrop } from "./checkpoints.js"
+import { reusablePrefixLength, systemPrefixTokens } from "./prompt-prefix.js"
 import { embedRows } from "./disk-embedding.js"
 import {
   chunkLargeMatMulNBits,
@@ -1978,9 +1979,7 @@ function reuseSaved(
   const seen: Array<string> = []
   for (const [index, entry] of savedCaches.entries()) {
     if (entry.modelId !== modelId) continue
-    const limit = Math.min(entry.ids.length, ids.length - 1)
-    let common = 0
-    while (common < limit && entry.ids[common] === ids[common]) common++
+    const common = reusablePrefixLength(entry.ids, ids)
     if (DEBUG) {
       seen.push(
         `${entry.ids.length} tokens, matches ${common}, checkpoints ${entry.checkpoints.map((c) => c.length).join("/") || "none"}`
@@ -2058,6 +2057,9 @@ function reuseSaved(
   }
 }
 
+/** One latest prefix per tokenizer, not an unbounded pool of system/tool prompts. */
+const systemPrefixes = new WeakMap<Tokenizer, { key: string; tokens: Array<number> }>()
+
 /**
  * How many tokens the system prompt and tools take at the start of a
  * prompt, or 0 if there are none or they can't be told apart.
@@ -2072,22 +2074,29 @@ function systemLength(
   const system = chat[0]?.role === "system" ? [chat[0]] : []
   if (system.length === 0 && tools.length === 0) return 0
   try {
-    const text = tokenizer.apply_chat_template(system, {
-      ...(tools.length > 0 && { tools }),
-      add_generation_prompt: false,
-      tokenize: false,
-      ...(thinking !== undefined && { enable_thinking: thinking })
-    })
-    const prefix = Array.from(
-      tokenizer(text, { add_special_tokens: false }).input_ids.data,
-      Number
-    )
-    let common = 0
-    const limit = Math.min(prefix.length, ids.length - 1)
-    while (common < limit && prefix[common] === ids[common]) common++
-    // The last few tokens can differ where the system message ends and the
-    // next turn begins (a token merged across the join).
-    return common >= prefix.length - 3 ? common : 0
+    const key = JSON.stringify({ system, tools, thinking })
+    let known = systemPrefixes.get(tokenizer)
+    if (known?.key !== key) {
+      const tokens = systemPrefixTokens(system, messages => {
+        const text = tokenizer.apply_chat_template(messages, {
+          ...(tools.length > 0 && { tools }),
+          add_generation_prompt: false,
+          tokenize: false,
+          ...(thinking !== undefined && { enable_thinking: thinking })
+        })
+        return Array.from(tokenizer(text, { add_special_tokens: false }).input_ids.data, Number)
+      })
+      known = { key, tokens }
+      systemPrefixes.set(tokenizer, known)
+    }
+    const prefix = known.tokens
+    // Only matching token IDs are reusable. A separately rendered system-only
+    // template may end differently for more than a few tokens; that does not
+    // invalidate the instruction prefix which actually matches this prompt.
+    const common = reusablePrefixLength(prefix, ids)
+    // Prefixes below the existing cache-match floor cannot be selected by
+    // reuseSaved, so do not allocate recurrent-state checkpoints just for framing.
+    return common >= SAME_CHAT_TOKENS ? common : 0
   } catch {
     return 0
   }
@@ -2490,7 +2499,8 @@ async function generate(
   thinkingOpen: string,
   thinkingClose: string,
   thinkingBudgetTokens?: number,
-  outputSchema?: object
+  outputSchema?: object,
+  cachePrompt?: boolean
 ): Promise<RunTimings> {
   // Time to first token counts from here: it includes reading the prompt.
   const requested = performance.now()
@@ -2555,8 +2565,16 @@ async function generate(
   let lastToken = 0
   let readStarted = performance.now()
   // What the last run left in the cache that this prompt starts with.
-  const systemEnd = systemLength(tokenizer, chat, tools, thinking, ids)
-  let reused = reuseSaved(tf, cacheId, ids, systemEnd)
+  const retain = cachePrompt !== false
+  const systemEnd = retain ? systemLength(tokenizer, chat, tools, thinking, ids) : 0
+  // A no-retention call owns a fresh cache. Existing conversation caches are not
+  // borrowed, mutated or evicted, and disk state is neither read nor written.
+  let reused = retain ? reuseSaved(tf, cacheId, ids, systemEnd) : {
+    cache: null,
+    cached: 0,
+    checkpoints: [] as Array<Checkpoint>,
+    common: 0
+  }
   const timings = (): RunTimings => ({
     inputTokens: ids.length,
     cachedTokens: reused.cached,
@@ -2589,7 +2607,7 @@ async function generate(
   // Prompt reading starts here, for its speed (the model is loaded).
   readStarted = performance.now()
   // Nothing in memory covers the system prompt and tools: try the disk.
-  const wantsSystem = reused.cached < systemEnd && systemEnd >= MIN_DISK_TOKENS
+  const wantsSystem = retain && reused.cached < systemEnd && systemEnd >= MIN_DISK_TOKENS
   const fromDisk = wantsSystem
     ? await loadFromDisk(tf, cacheId, ids.slice(0, systemEnd), device).catch(
         () => null
@@ -2625,6 +2643,7 @@ async function generate(
   }
   try {
     const addCheckpoint = (at: Cache, length: number) => {
+      if (!retain) return
       checkpoints.push(checkpoint(tf, at, length))
       // Keep the oldest (often the end of the system prompt and tools, which
       // new chats share) and the latest.
@@ -2687,7 +2706,7 @@ async function generate(
     constraint?.dispose()
     // Keep the cache for the next run. It holds every token it has read
     // (the last token generated isn't read until the next step).
-    if (cache && current === loaded) {
+    if (cache && current === loaded && retain) {
       const length = cache.get_seq_length()
       const atSystem = checkpoints.find((c) => c.length === systemEnd)
       if (savesSystem && atSystem && length >= systemEnd) {
@@ -2746,7 +2765,8 @@ ctx.onmessage = ({ data }) => {
       data.thinkingOpen,
       data.thinkingClose,
       data.thinkingBudgetTokens,
-      data.outputSchema
+      data.outputSchema,
+      data.cachePrompt
     )
       .then((stats) => ctx.postMessage({ type: "done", id: data.id, stats }))
       .catch((error: unknown) => {
