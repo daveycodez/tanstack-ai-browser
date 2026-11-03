@@ -14,7 +14,7 @@ it never automatically downloads files. Builds, prerendering and tests do not ca
 
 ## Cases and grading
 
-The current audited v9 suite contains 39 positions: 33 calibration cases (23 scored, 10 diagnostics)
+The current audited v10 suite contains 39 positions: 33 calibration cases (22 scored, 11 diagnostics)
 and 6 historical holdouts (5 scored, 1 diagnostic). At two repetitions that is 66 calibration trials or 12 held-out
 trials per model. One diagnostic has only a single legal move; those forced turns bypass
 the model and are excluded from model-strength pass counts and decision-time medians.
@@ -43,7 +43,7 @@ Original raw v1 reports remain intact; the audit explains the corrected grading.
 ## Shared production path
 
 The runner calls `chooseAiMove`, exactly as the game does, with instrumentation callbacks.
-The original baseline (`baseline-v1`) is preserved unchanged. The current `shared-v10`
+The original baseline (`baseline-v1`) is preserved unchanged. The current `shared-v11`
 contract uses descriptive actions such as `Jump king d2 over c3 to b4`. Every legal action
 remains in the enum; neither card order nor a hidden fallback selects a move for the model.
 
@@ -171,5 +171,47 @@ they should not be described as untouched validation data.
 
 For manual validation use all positions, production per-game ordering, model
 default sampling and thinking off. Raw model results stay outside Git; the
-tracked latest summary is overwritten with the most recent three-model validation,
+tracked latest summary is overwritten with the most recent validation per model,
 including suite/prompt versions, run IDs, scores and descriptive median timings.
+
+
+## Small-model failure audit
+
+Suite `checkers-audited-v10` keeps the same 39 positions and production v10 prompt,
+with 27 scored and 12 diagnostics. `safe-crowning` is now diagnostic: all legal
+moves have no immediate Red win and checked net 0. Crowning is a useful preference,
+but safe king development is not a proven blunder. Both crowns remain recorded
+as positive diagnostic signals. The existing promotion-with-exposure test stays
+scored, so unsafe promotion is still rejected.
+
+The other three observed small-model misses retain their strict objectives:
+a +1 exchange instead of +3, allowing a crown with a checked loss instead of a
+non-losing defense, and a checked loss instead of a forced win. Independent
+rule-only regression tests cover each distinction. No accepted set is loosened
+for these errors, and no model-specific prompt branches are used.
+
+Neither a shorter replacement instruction with a bullet-list recommendation
+format nor a 24-token material-priority clarification fixed those three choices.
+Both experiments were discarded. The production
+system stays at 358 LFM3 tokens (the prior Qwen change added 19, from 339).
+Current summaries can regrade saved moves against the corrected suite without
+rerunning inference; such entries explicitly record that provenance.
+
+
+## Inline recommendations (v11)
+
+The production prompt repeats `RECOMMENDED` beside actions already identified by
+CHECKED PRIORITY CHOICES. This marks existing bounded-policy advice where the
+model reads each card; no action is removed, reordered, automatically selected,
+or given a different output label. The policy, outcome search, generation
+settings and static system prompt are unchanged. Historical v6-v10 prompts stay
+frozen. The independent priority audit and byte-comparison tests verify that
+removing these markers restores every v10 card and position fact exactly.
+
+With the production LFM3 tokenizer, the system remains 358 tokens. Additional
+user-message tokens across the 39 positions range from 0 to 35, median 5. The
+latest compact summary contains fresh, thinking-off, production-order Chrome
+runs for all five tested models using this same prompt and model-default
+sampling. It is one run per model, not an Elo estimate or a counterbalanced
+latency comparison. The remaining 1.2B promotion-defense failure stays scored;
+no objective was relaxed for this prompt change.

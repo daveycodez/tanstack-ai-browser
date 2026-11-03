@@ -194,14 +194,14 @@ test("compact v8 retains every board, history, horizon, legal card and position 
 
 
 test("benchmark validation accepts every historical and candidate prompt version", () => {
-  for (const version of ["baseline-v1", "shared-v6", "shared-v7", "shared-v8", "shared-v9", "shared-v10"]) assert.equal(isPromptVersion(version), true)
-  for (const version of ["", "shared-v11", "unknown"]) assert.equal(isPromptVersion(version), false)
+  for (const version of ["baseline-v1", "shared-v6", "shared-v7", "shared-v8", "shared-v9", "shared-v10", "shared-v11"]) assert.equal(isPromptVersion(version), true)
+  for (const version of ["", "shared-v12", "unknown"]) assert.equal(isPromptVersion(version), false)
 })
 
 
 test("v9 keeps the smallest-loss fallback conditional and preserves every existing dynamic input", () => {
-  assert.equal(PREVIOUS_PROMPT_VERSION, "shared-v9")
-  assert.equal(SHARED_PROMPT_VERSION, "shared-v10")
+  assert.equal(PREVIOUS_PROMPT_VERSION, "shared-v10")
+  assert.equal(SHARED_PROMPT_VERSION, "shared-v11")
   assert.equal(SHARED_V9_SYSTEM_PROMPT.replace(` ${SMALLEST_LOSS_INSTRUCTION}`, ""), SHARED_V8_SYSTEM_PROMPT)
   for (const fixture of CASES) {
     const game = gameForCase(fixture), moves = legalMoves(game.board, "ai")
@@ -262,5 +262,24 @@ test("checked priorities preserve caller order and agree with independent scored
     if (accepted) assert.ok(priority.every(move => accepted.includes(move.id)), fixture.id)
     assert.deepEqual(annotated, original)
     assert.equal(buildMovePrompt(game, legal).choices.length, legal.length)
+  }
+})
+
+
+test("v11 repeats only verified priority membership beside complete legal cards", () => {
+  for (const fixture of CASES) {
+    const game = gameForCase(fixture), moves = legalMoves(game.board, "ai"), annotated = annotateMoves(game, moves)
+    const before = buildMovePrompt(game, moves, "shared-v10"), after = buildMovePrompt(game, moves, "shared-v11")
+    const priority = checkedPriorityChoices(game, annotated)
+    const recommended = priority.length < annotated.length ? new Set(priority.map(move => move.id)) : new Set<string>()
+    assert.equal(after.systemPrompt, before.systemPrompt)
+    assert.equal(after.prompt.replaceAll(" | RECOMMENDED; ", " | "), before.prompt, fixture.id)
+    assert.deepEqual(after.choices.map(choice => ({...choice,outcome:choice.outcome.replace(" | RECOMMENDED; ", " | ")})), before.choices, fixture.id)
+    for (const choice of after.choices) {
+      const move = annotated.find(move => move.id === choice.id)
+      assert.ok(move)
+      assert.equal(choice.outcome.includes(" | RECOMMENDED; "),recommended.has(choice.id),`${fixture.id}: ${choice.id}`)
+    }
+    assert.equal(after.outcomeVersion, before.outcomeVersion)
   }
 })

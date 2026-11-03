@@ -12,12 +12,12 @@ const find = (id: string) => {
 
 test("the frozen checkers suite independently audits every accepted set and separates holdouts", () => {
   const observations = auditSuite(CASES)
-  assert.equal(SUITE_VERSION, "checkers-audited-v9")
+  assert.equal(SUITE_VERSION, "checkers-audited-v10")
   assert.equal(observations.length, 39)
   assert.equal(observations.filter(item => item.partition === "calibration").length, 33)
   assert.equal(observations.filter(item => item.partition === "holdout").length, 6)
-  assert.equal(observations.filter(item => item.expectedMoveIds !== null).length, 28)
-  assert.equal(observations.filter(item => item.expectedMoveIds === null).length, 11)
+  assert.equal(observations.filter(item => item.expectedMoveIds !== null).length, 27)
+  assert.equal(observations.filter(item => item.expectedMoveIds === null).length, 12)
   assert.equal(observations.filter(item => item.legalMoveIds.length === 1).length, 1)
 })
 
@@ -142,4 +142,29 @@ test("a draw while behind is a diagnostic preference when continuing is not a ch
   assert.equal(continuation.worstNet, 0)
   assert.equal(applyMove(game, "a3-b4").status, "draw")
   assert.deepEqual(fixture.signalMoveIds, ["a3-b4"])
+})
+
+
+test("safe crowning remains a preference when every alternative is non-losing", () => {
+  const fixture = find("safe-crowning"), game = gameForCase(fixture), choices = inspectChoices(game)
+  assert.equal(fixture.objective, "diagnostic")
+  assert.equal(auditCase(fixture).expectedMoveIds, null)
+  assert.ok(choices.every(choice => !choice.humanWins && choice.worstNet === 0))
+  assert.deepEqual(choices.filter(choice => choice.promotes).map(choice => choice.id), fixture.signalMoveIds)
+  assert.equal(choices.find(choice => choice.id === "a5-b4")?.promotes, false)
+})
+
+test("the smaller-model capture, promotion-defense and forced-win misses remain genuine failures", () => {
+  const capture = inspectChoices(gameForCase(find("capture-king-value")))
+  assert.equal(capture.find(choice => choice.id === "a3xc5")?.worstNet, 1)
+  assert.equal(capture.find(choice => choice.id === "e7xg5")?.worstNet, 3)
+  const defense = inspectChoices(gameForCase(find("deny-red-promotion")))
+  assert.equal(defense.find(choice => choice.id === "a5-b4")?.worstNet, -1)
+  assert.equal(defense.find(choice => choice.id === "g7-f6")?.worstNet, 0)
+  assert.equal(defense.find(choice => choice.id === "a5-b4")?.permitsPromotion, true)
+  assert.equal(defense.find(choice => choice.id === "g7-f6")?.permitsPromotion, false)
+  const win = inspectChoices(gameForCase(find("force-next-turn-win-alternative")))
+  assert.equal(win.find(choice => choice.id === "d8-c7")?.worstNet, -1)
+  assert.equal(win.find(choice => choice.id === "d8-c7")?.forcesWin, false)
+  assert.equal(win.find(choice => choice.id === "b8-a7")?.forcesWin, true)
 })

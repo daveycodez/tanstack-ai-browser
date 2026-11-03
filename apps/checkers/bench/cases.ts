@@ -4,7 +4,7 @@ import { EXCHANGE_REGRESSIONS } from "./exchange-regressions.ts"
 import { DEFENSIVE_REGRESSIONS } from "./defensive-regressions.ts"
 export { gameForCase } from "./fixtures.ts"
 
-export const SUITE_VERSION = "checkers-audited-v9"
+export const SUITE_VERSION = "checkers-audited-v10"
 
 /** Frozen constructed teaching positions and legal histories, not expert engine judgments. */
 export const CASES: BenchmarkCase[] = [
@@ -257,9 +257,9 @@ export const CASES: BenchmarkCase[] = [
   },
   {
     "id": "safe-crowning",
-    "label": "Take a safe promotion",
-    "description": "Crown a man without allowing an immediate Red win, capture of the new king, or negative checked capture-settled exchange. Every qualifying promotion passes.",
-    "objective": "safe-promotion",
+    "label": "Safe promotion versus quiet development",
+    "description": "Ungraded promotion preference: crowning is useful, but all legal alternatives have no immediate Red win or checked material loss. Developing a king is not a demonstrated blunder.",
+    "objective": "diagnostic",
     "partition": "calibration",
     "setup": {
       "black": [
@@ -272,10 +272,9 @@ export const CASES: BenchmarkCase[] = [
         "e1K"
       ]
     },
-    "expectedMoveIds": [
-      "b2-a1",
-      "b2-c1"
-    ]
+    "expectedMoveIds": null,
+    "signalMoveIds": ["b2-a1", "b2-c1"],
+    "signalDescription": "Crowning now is a useful preference, while safe quiet alternatives remain ungraded."
   },
   {
     "id": "promotion-not-at-any-cost",
