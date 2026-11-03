@@ -1,4 +1,4 @@
-import { squareName } from "./chess.ts"
+import { colorName, squareName } from "./chess.ts"
 import type {
   AnnotatedMove,
   Game,
@@ -11,7 +11,7 @@ import { describePosition } from "./ai-position.ts"
 import { buildCompactChoices } from "./prompt-options.ts"
 import { moveChoiceLabel } from "./move-choice.ts"
 
-export const SHARED_PROMPT_VERSION = "shared-v46"
+export const SHARED_PROMPT_VERSION = "shared-v47"
 
 export const SHARED_SYSTEM_PROMPT = [
   "Play Black. Trust the supplied outcomes to choose one legal move; card order is not a ranking.",
@@ -19,6 +19,14 @@ export const SHARED_SYSTEM_PROMPT = [
   "BOARD NOW is current. AFTER describes only that Black move; never combine cards. CHECK checks White; Black-in-check describes now.",
   "Negative net means Black loses material. Weigh recaptures and forcing follow-ups. Forcing gains can outweigh immediate captures; check alone cannot justify material loss. Protection is not immunity. Values: pawn 1, knight/bishop 3, rook 5, queen 9."
 ].join("\n\n")
+
+/** Color roles vary by game; the policy and model-independent instructions stay fixed. */
+function roleText(text: string, game: Pick<Game, "humanColor">): string {
+  if (game.humanColor !== "black") return text
+  const colors: Record<string, string> = { Black: "White", White: "Black", BLACK: "WHITE", WHITE: "BLACK" }
+  return text.replace(/\b(?:Black|White|BLACK|WHITE)\b/g, word => colors[word])
+}
+export const systemPromptFor = (game: Pick<Game, "humanColor">): string => roleText(SHARED_SYSTEM_PROMPT, game)
 
 export type SharedPromptInput = {
   game: Game
@@ -58,7 +66,7 @@ function hasUnansweredPromotionLoss(move: AnnotatedMove): boolean {
   )
 }
 
-function promotionContext(move: AnnotatedMove, side: Side): string[] {
+function promotionContext(move: AnnotatedMove, side: Side, game: Game): string[] {
   const replies = move.outcome.promotionReplies
   if (!replies?.length) return []
   const groups = new Map<string, PromotionReply[]>()
@@ -68,8 +76,8 @@ function promotionContext(move: AnnotatedMove, side: Side): string[] {
     group.push(reply)
     groups.set(key, group)
   }
-  const own = side === "ai" ? "Black" : "White"
-  const enemy = side === "ai" ? "White" : "Black"
+  const own = colorName(game, side)
+  const enemy = colorName(game, side === "ai" ? "human" : "ai")
   const facts = [...groups.values()].map((group) => {
     const roles = (["q", "r", "b", "n"] as const).flatMap((role) =>
       group.filter((reply) => reply.promotion === role)
@@ -116,7 +124,7 @@ function promotionContext(move: AnnotatedMove, side: Side): string[] {
     .map((fact) => fact.text)
 }
 
-function kingMobilityContext(move: AnnotatedMove, side: Side): string[] {
+function kingMobilityContext(move: AnnotatedMove, side: Side, game: Game): string[] {
   const mobility = move.outcome.kingMobility
   if (
     !mobility ||
@@ -134,8 +142,8 @@ function kingMobilityContext(move: AnnotatedMove, side: Side): string[] {
     mobility.ownKingDistance &&
     mobility.ownKingDistance.after < mobility.ownKingDistance.before
   if (!restricts && !approaches) return []
-  const own = side === "ai" ? "Black" : "White"
-  const enemy = side === "ai" ? "White" : "Black"
+  const own = colorName(game, side)
+  const enemy = colorName(game, side === "ai" ? "human" : "ai")
   const destinations = mobility.after.map(squareName).join(",") || "none"
   const denied = mobility.deniedSquares.map(squareName).join(",") || "none"
   const facts = [
@@ -180,6 +188,7 @@ export function positiveSafetySummaries({
   moves,
   currentThreats
 }: SharedPromptInput): string[] {
+  const own = colorName(game, "ai"), enemy = colorName(game, "human")
   const tacticalFocus = hasTacticalFocus({ game, moves, currentThreats })
   const hasPromotionReplies = moves.some(
     (move) => (move.outcome.promotionReplies?.length ?? 0) > 0
@@ -199,7 +208,7 @@ export function positiveSafetySummaries({
     if (safe.length) {
       hasKingSafeChoices = true
       facts.push(
-        `KING-SAFE CHOICES FOR THE NEXT TURN: ${safe.map(moveChoiceLabel).join(", ")}. Each prevents an immediate White checkmate without an uncompensated queen or rook loss.`
+        `KING-SAFE CHOICES FOR THE NEXT TURN: ${safe.map(moveChoiceLabel).join(", ")}. Each prevents an immediate ${enemy} checkmate without an uncompensated queen or rook loss.`
       )
     }
   }
@@ -215,7 +224,7 @@ export function positiveSafetySummaries({
     if (rescues.length) {
       hasQueenRescueChoices = true
       facts.push(
-        `Black can RESCUE AN ATTACKED QUEEN from immediate legal capture with: ${rescues.map(moveChoiceLabel).join(", ")}.`
+        `${own} can RESCUE AN ATTACKED QUEEN from immediate legal capture with: ${rescues.map(moveChoiceLabel).join(", ")}.`
       )
     }
   }
@@ -235,7 +244,7 @@ export function positiveSafetySummaries({
     if (safe.length) {
       hasMaterialSafeChoices = true
       facts.push(
-        `MATERIAL-SAFE CHOICES FOR THE NEXT TURN: ${safe.map(moveChoiceLabel).join(", ")}. ${hasPromotionReplies ? "No checked immediate capture or promotion reply leaves Black with uncompensated material loss; White has no mate in one." : "No checked immediate capture exchange loses Black material; White has no mate in one."}`
+        `MATERIAL-SAFE CHOICES FOR THE NEXT TURN: ${safe.map(moveChoiceLabel).join(", ")}. ${hasPromotionReplies ? `No checked immediate capture or promotion reply leaves ${own} with uncompensated material loss; ${enemy} has no mate in one.` : `No checked immediate capture exchange loses ${own} material; ${enemy} has no mate in one.`}`
       )
     }
   }
@@ -246,11 +255,11 @@ export function positiveSafetySummaries({
     facts.push("URGENT RESPONSE PRIORITY:")
     if (hasKingSafeChoices)
       facts.push(
-        "Choose one of the listed KING-SAFE moves: stop White's mate without sacrificing a queen or rook, ahead of checks, captures or development."
+        `Choose one of the listed KING-SAFE moves: stop ${enemy}'s mate without sacrificing a queen or rook, ahead of checks, captures or development.`
       )
     if (hasQueenRescueChoices)
       facts.push(
-        "Address the attacked queen with one of the queen-rescue choices above that prevents an immediate White win, before ordinary development or castling."
+        `Address the attacked queen with one of the queen-rescue choices above that prevents an immediate ${enemy} win, before ordinary development or castling.`
       )
     if (hasMaterialSafeChoices)
       facts.push(
@@ -266,7 +275,8 @@ export function positiveSafetySummaries({
 function positionalContext(
   move: AnnotatedMove,
   side: Side,
-  tacticalFocus: boolean
+  tacticalFocus: boolean,
+  game: Game
 ): string | undefined {
   if (
     move.outcome.checkmate ||
@@ -274,8 +284,8 @@ function positionalContext(
     move.outcome.drawReason
   )
     return undefined
-  const facts = promotionContext(move, side)
-  if (!tacticalFocus) facts.push(...kingMobilityContext(move, side))
+  const facts = promotionContext(move, side, game)
+  if (!tacticalFocus) facts.push(...kingMobilityContext(move, side, game))
   const mobility = move.outcome.mobility
   if (!tacticalFocus && move.piece === "p" && mobility) {
     const opened = mobility.changedOtherPieces.filter(
@@ -380,8 +390,10 @@ export function buildSharedPrompt({
   currentThreats
 }: SharedPromptInput): {
   prompt: string
+  systemPrompt: string
   choices: { id: string; notation: string; label: string; outcome: string }[]
 } {
+  const own = colorName(game, "ai"), enemy = colorName(game, "human")
   const tacticalFocus = hasTacticalFocus({ game, moves, currentThreats })
   const movesById = new Map(moves.map((move) => [move.id, move]))
   const choices = buildCompactChoices({
@@ -390,10 +402,10 @@ export function buildSharedPrompt({
     choices: moves.map((move) => ({ id: move.id, outcome: "" })),
     queenValue: 9
   }).map((choice) => {
-    let outcome = choice.outcome.replace(
+    let outcome = roleText(choice.outcome.replace(
       "WHITE CAN CHECKMATE NEXT TURN",
       "LOSS NEXT TURN: White mates Black"
-    )
+    ), game)
     const move = movesById.get(choice.id)
     if (!move) throw new Error("A legal card has no matching move.")
     if (
@@ -419,13 +431,13 @@ export function buildSharedPrompt({
         ?.filter((loss) => loss.netMaterial < 0)
         .sort((left, right) => left.netMaterial - right.netMaterial)[0]
       if (exposed) {
-        outcome += `${outcome.endsWith(" | ") ? "" : "; "}DANGER TO BLACK: after this move White ${pieceLabel(exposed.capturedBy)} can take Black ${pieceLabel({ piece: exposed.piece, square: exposed.square })}; possible immediate exchange net ${exposed.netMaterial}`
+        outcome += `${outcome.endsWith(" | ") ? "" : "; "}DANGER TO ${own.toUpperCase()}: after this move ${enemy} ${pieceLabel(exposed.capturedBy)} can take ${own} ${pieceLabel({ piece: exposed.piece, square: exposed.square })}; possible immediate exchange net ${exposed.netMaterial}`
         const newThreat = move.outcome.relationships?.newThreats[0]
         if (newThreat)
-          outcome += `; Black also threatens White ${pieceLabel(newThreat.target)} on the unchanged board; White moves next`
+          outcome += `; ${own} also threatens ${enemy} ${pieceLabel(newThreat.target)} on the unchanged board; ${enemy} moves next`
       }
     }
-    const context = positionalContext(move, game.turn, tacticalFocus)
+    const context = positionalContext(move, game.turn, tacticalFocus, game)
     if (context) outcome += `; CONTEXT: ${context}`
     return {
       id: choice.id,
@@ -441,11 +453,11 @@ export function buildSharedPrompt({
         line
       )
     )
-    .map((line) => line.replace("Black pieces (you):", "Black pieces:").replace("White pieces (opponent):", "White pieces:"))
+    .map((line) => line.replace(" (you)", "").replace(" (opponent)", ""))
   const currentPieceLabel = (piece: PieceRef) => `${pieceNames[piece.piece]} ${squareName(piece.square)}`
   const threats = currentThreats.map(
     (threat) =>
-      `Black ${currentPieceLabel(threat.target)} can be captured by White ${threat.attackers.map(currentPieceLabel).join(", ")}.`
+      `${own} ${currentPieceLabel(threat.target)} can be captured by ${enemy} ${threat.attackers.map(currentPieceLabel).join(", ")}.`
   )
   const castles = moves.flatMap((move) =>
     move.notation.startsWith("O-O")
@@ -510,7 +522,7 @@ export function buildSharedPrompt({
     .slice(-8)
     .map(
       (move) =>
-        `${move.side === "human" ? "White" : "Black"}: ${move.notation} (${move.id})`
+        `${colorName(game, move.side)}: ${move.notation} (${move.id})`
     )
   const fullMove = Number(game.fen.split(" ")[5])
   const showOpening = !tacticalFocus && fullMove <= 10
@@ -552,9 +564,9 @@ export function buildSharedPrompt({
         ]
       : []),
     ...board,
-    `Black in check: ${game.inCheck ? "yes" : "no"}.`,
-    "White capture possibilities on the unchanged board:",
-    ...(threats.length ? threats : ["No threatened Black non-king pieces."]),
+    `${own} in check: ${game.inCheck ? "yes" : "no"}.`,
+    `${enemy} capture possibilities on the unchanged board:`,
+    ...(threats.length ? threats : [`No threatened ${own} non-king pieces.`]),
     `Legal castles now: ${castleIds}.`,
     "Recent 8 moves (oldest first):",
     ...(recent.length ? recent : ["none"]),
@@ -571,14 +583,14 @@ export function buildSharedPrompt({
     ...(wins.length
       ? [
           "AVAILABLE IMMEDIATE OPPORTUNITIES:",
-          `Black can WIN THIS TURN with: ${wins.join(", ")}.${moves.some((move) => move.outcome.stalemate) ? " Choose a win; avoid STALEMATE (draw)." : ""}`
+          `${own} can WIN THIS TURN with: ${wins.join(", ")}.${moves.some((move) => move.outcome.stalemate) ? " Choose a win; avoid STALEMATE (draw)." : ""}`
         ]
       : safeCaptures.length
         ? [
             "AVAILABLE IMMEDIATE OPPORTUNITIES:",
-            `Prefer captures with no immediate legal recapture of the moved piece: ${safeCaptures.map((move) => move.label).join("; ")}. Checked replies show no net material loss or White mate in one.`
+            `Prefer captures with no immediate legal recapture of the moved piece: ${safeCaptures.map((move) => move.label).join("; ")}. Checked replies show no net material loss or ${enemy} mate in one.`
           ]
         : []),
   ].join("\n")
-  return { prompt, choices }
+  return { prompt, choices, systemPrompt: systemPromptFor(game) }
 }

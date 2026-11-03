@@ -1,5 +1,6 @@
 import { ThemeSelect } from "./theme-select"
 import { SoundToggle } from "./sound-toggle"
+import { colorForSide } from "../lib/chess"
 import type { Game, PieceType } from "../lib/chess"
 import { BrandMark, PieceArt } from "./piece"
 
@@ -134,7 +135,7 @@ export function MenuView({
           )}
           <div className="menu-details">
             <span className="white-piece-dot" />
-            You play white
+            {current && game ? `You play ${colorForSide(game, "human")}` : "Sides alternate"}
             <span className="detail-separator" />
             <span>No clock. No rush.</span>
           </div>

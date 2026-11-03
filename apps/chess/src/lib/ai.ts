@@ -1,4 +1,5 @@
 import { chat } from "@tanstack/ai"
+import { apfelText } from "@tanstack-ai-browser/apfel"
 import type { AnyTextAdapter, ChatMiddleware, UsageInfo } from "@tanstack/ai"
 import {
   loadPromptApiModel,
@@ -14,9 +15,8 @@ import {
 } from "@tanstack-ai-browser/webgl"
 import { moveOutputSchema } from "./move-output"
 import { analyzeMovePrompt } from "./analysis-worker"
-import { SHARED_SYSTEM_PROMPT } from "./shared-prompt"
 import type { Game } from "./chess"
-import { opponentOption, resolveOpponent } from "./opponents"
+import { APFEL_MODEL, isWebGlOpponent, opponentOption, resolveOpponent } from "./opponents"
 import type { OpponentSettings } from "./opponents"
 import type {
   GenerationPhase,
@@ -54,6 +54,7 @@ let activeWebGlModel: WebGlTextModel | undefined
 /** The selected adapter's real download, cache, GPU upload, and failure status. */
 export function loadingStoreFor(settings?: OpponentSettings): LoadingStore {
   const { model } = resolveOpponent(settings)
+  if (model === APFEL_MODEL) return { get: () => ({ state: "ready" }), subscribe: () => () => undefined }
   return model === "prompt-api" ? promptApiStatus() : modelStatus(model)
 }
 
@@ -101,20 +102,20 @@ export async function chooseAiMove(
     throw new Error("There is no AI turn to play.")
   }
   const opponent = resolveOpponent(game.opponent)
-  const { prompt, choices } = await analyzeMovePrompt({
+  const { prompt, choices, systemPrompt } = await analyzeMovePrompt({
     game,
     moveOrder: options?.moveOrder,
     moveOrderSeed: options?.moveOrderSeed
   }, signal)
   signal.throwIfAborted()
-  options?.onInput?.({ choices, prompt, systemPrompt: SHARED_SYSTEM_PROMPT })
+  options?.onInput?.({ choices, prompt, systemPrompt })
   if (choices.length === 1) {
     options?.onAnswer?.(choices[0].label)
     return choices[0].id
   }
 
   const thinkingSupport = opponentOption(opponent.model).thinking
-  if (opponent.model !== "prompt-api" && !hasWebGl2()) {
+  if (isWebGlOpponent(opponent.model) && !hasWebGl2()) {
     throw new Error(
       "This browser cannot run the local AI. Enable hardware acceleration and use a browser with WebGL 2 and OffscreenCanvas support."
     )
@@ -131,8 +132,11 @@ export async function chooseAiMove(
       activeWebGlModel = undefined
     }
     await loadPromptApiModel({ signal })
-  } else {
+  } else if (isWebGlOpponent(opponent.model)) {
     await waitForModel(opponent.model, signal)
+  } else if (activeWebGlModel) {
+    unloadModel()
+    activeWebGlModel = undefined
   }
   signal.throwIfAborted()
   const generationController = new AbortController()
@@ -151,7 +155,7 @@ export async function chooseAiMove(
     const chatOptions = {
       threadId: `chess-${game.sessionId}`,
       ...(options?.disablePromptCache && { promptCache: "none" as const }),
-      systemPrompts: [SHARED_SYSTEM_PROMPT],
+      systemPrompts: [systemPrompt],
       messages: [
         {
           role: "user" as const,
@@ -173,7 +177,19 @@ export async function chooseAiMove(
       abortController: generationController
     }
     const answer =
-      opponent.model === "prompt-api"
+      import.meta.env?.DEV === true && opponent.model === APFEL_MODEL
+        ? await chat({
+            ...chatOptions,
+            adapter: apfelText(APFEL_MODEL, {
+              onGenerationPhase: phase => { if (!generationSignal.aborted) onPhase?.(phase) },
+              onThinking: delta => { if (!generationSignal.aborted) onThinking?.(delta) }
+            }),
+            reasoning: opponent.thinking
+              ? { level: "high" as const, ...(options?.reasoningBudgetTokens === null ? {} : { budgetTokens: options?.reasoningBudgetTokens ?? 512 }) }
+              : ("off" as const),
+            modelOptions: { maxTokens: 8192 }
+          })
+        : opponent.model === "prompt-api"
         ? await chat({
             ...chatOptions,
             adapter: promptApiText({
@@ -200,7 +216,7 @@ export async function chooseAiMove(
         : await chat({
             ...chatOptions,
             // Runtime catalog metadata determines the selected model's reasoning support.
-            adapter: webglText(opponent.model, {
+            adapter: webglText(opponent.model as WebGlTextModel, {
               ...(onPhase && {
                 onGenerationPhase: (phase: GenerationPhase) => {
                   if (!generationSignal.aborted) onPhase(phase)

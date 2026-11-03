@@ -12,11 +12,11 @@ function cues(before: Game, id: string) {
   return soundCuesForMove(motion, after)
 }
 function replay(ids: string[]) {
-  return ids.reduce(applyMove, newGame())
+  return ids.reduce(applyMove, newGame("white"))
 }
 
 test("a quiet move and a capture have different audible feedback", () => {
-  assert.deepEqual(cues(newGame(), "e2e4"), ["move"])
+  assert.deepEqual(cues(newGame("white"), "e2e4"), ["move"])
   assert.deepEqual(cues(replay(["e2e4", "d7d5"]), "e4d5"), ["capture"])
 })
 test("castling has its own double-placement cue", () => {

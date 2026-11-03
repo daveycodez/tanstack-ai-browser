@@ -3,6 +3,7 @@ import type { Move as ChessMove, Square } from "chess.js"
 import type { OpponentSettings } from "./opponents.ts"
 
 export type Side = "human" | "ai"
+export type PieceColor = "white" | "black"
 export type PieceType = "p" | "n" | "b" | "r" | "q" | "k"
 export type Piece = { side: Side; type: PieceType }
 export type Board = (Piece | null)[]
@@ -179,6 +180,8 @@ export type Game = {
   /** Changes after each durable write, including settings edits within one ply. */
   storageVersion?: string
   opponent?: OpponentSettings
+  /** Missing in legacy saves, where the human always played White. */
+  humanColor?: PieceColor
   board: Board
   /** The starting position plus UCI history retain repetition and special moves. */
   initialFen: string
@@ -192,7 +195,18 @@ export type Game = {
   inCheck: boolean
 }
 
-const sideOf = (color: string): Side => (color === "w" ? "human" : "ai")
+export function colorForSide(game: Pick<Game, "humanColor">, side: Side): PieceColor {
+  const human = game.humanColor === "black" ? "black" : "white"
+  return side === "human" ? human : human === "white" ? "black" : "white"
+}
+export function colorName(game: Pick<Game, "humanColor">, side: Side): "White" | "Black" {
+  return colorForSide(game, side) === "white" ? "White" : "Black"
+}
+export function randomHumanColor(): PieceColor {
+  return crypto.getRandomValues(new Uint8Array(1))[0] % 2 === 0 ? "white" : "black"
+}
+const sideOf = (color: string, humanColor: PieceColor = "white"): Side =>
+  (color === "w") === (humanColor === "white") ? "human" : "ai"
 const indexOf = (square: string) =>
   (8 - Number(square[1])) * 8 + square.charCodeAt(0) - 97
 
@@ -247,11 +261,11 @@ function positionKey(engine: Chess): string {
   return engine.fen().split(" ").slice(0, 4).join(" ")
 }
 
-function positionStatus(engine: Chess): Pick<Game, "status" | "drawReason"> {
+function positionStatus(engine: Chess, humanColor: PieceColor = "white"): Pick<Game, "status" | "drawReason"> {
   let status: Game["status"] = "playing"
   let drawReason: string | undefined
   if (engine.isCheckmate()) {
-    status = engine.turn() === "w" ? "ai-won" : "human-won"
+    status = sideOf(engine.turn(), humanColor) === "human" ? "ai-won" : "human-won"
   } else if (engine.isStalemate()) {
     drawReason = "Stalemate"
   } else if (engine.isThreefoldRepetition()) {
@@ -266,40 +280,42 @@ function positionStatus(engine: Chess): Pick<Game, "status" | "drawReason"> {
 }
 
 function snapshot(
-  engine: Chess
+  engine: Chess,
+  humanColor: PieceColor = "white"
 ): Pick<Game, "board" | "fen" | "turn" | "status" | "drawReason" | "inCheck"> {
   return {
-    ...positionStatus(engine),
+    ...positionStatus(engine, humanColor),
     board: engine
       .board()
       .flat()
       .map((piece) =>
-        piece ? { side: sideOf(piece.color), type: piece.type } : null
+        piece ? { side: sideOf(piece.color, humanColor), type: piece.type } : null
       ),
     fen: engine.fen(),
-    turn: sideOf(engine.turn()),
+    turn: sideOf(engine.turn(), humanColor),
     inCheck: engine.isCheck()
   }
 }
 
-export function fromFen(fen: string): Game {
+export function fromFen(fen: string, humanColor: PieceColor = "white"): Game {
   const engine = new Chess(fen)
   return {
     id: "current",
     sessionId: crypto.randomUUID(),
+    humanColor,
     initialFen: engine.fen(),
     history: [],
     updatedAt: Date.now(),
     positions: [positionKey(engine)],
-    ...snapshot(engine)
+    ...snapshot(engine, humanColor)
   }
 }
 
-export function newGame(): Game {
-  return fromFen(DEFAULT_POSITION)
+export function newGame(humanColor: PieceColor = randomHumanColor()): Game {
+  return fromFen(DEFAULT_POSITION, humanColor)
 }
 
-/** White is always the human. Only moves that leave the king safe are exposed. */
+/** Only moves that leave the current mover’s king safe are exposed. */
 export function legalMoves(game: Game): Move[] {
   if (game.status !== "playing") return []
   return restore(game).moves({ verbose: true }).map(describe)
@@ -664,7 +680,8 @@ type CastleSnapshot = {
 function castlingSnapshot(
   engine: Chess,
   ownMoves: ChessMove[],
-  otherMoves: ChessMove[]
+  otherMoves: ChessMove[],
+  humanColor: PieceColor = "white"
 ): CastleSnapshot[] {
   const rights = engine.fen().split(" ")[2]
   const board = engine.board().flat()
@@ -675,7 +692,7 @@ function castlingSnapshot(
       const key = wing === "kingside" ? "k" : "q"
       const moves = color === engine.turn() ? ownMoves : otherMoves
       return {
-        side: sideOf(color),
+        side: sideOf(color, humanColor),
         wing,
         right: rights.includes(color === "w" ? key.toUpperCase() : key),
         blockers: path
@@ -695,7 +712,8 @@ function castlingSnapshot(
 function castlingAfterMove(
   candidate: ChessMove,
   before: CastleSnapshot[],
-  after: CastleSnapshot[]
+  after: CastleSnapshot[],
+  humanColor: PieceColor = "white"
 ): MoveCastling {
   const performed = candidate.isKingsideCastle()
     ? "kingside"
@@ -709,7 +727,7 @@ function castlingAfterMove(
         (path, index) =>
           path.right &&
           !after[index].right &&
-          !(performed && path.side === sideOf(candidate.color))
+          !(performed && path.side === sideOf(candidate.color, humanColor))
       )
       .map(({ side, wing }) => ({ side, wing })),
     paths: before.flatMap((path, index) => {
@@ -738,7 +756,8 @@ function castlingAfterMove(
 
 function kingCoverProfiles(
   engine: Chess,
-  color: "w" | "b"
+  color: "w" | "b",
+  humanColor: PieceColor = "white"
 ): KingCoverProfile[] {
   const board = engine.board().flat()
   const kingSquare = board.findIndex(
@@ -773,7 +792,7 @@ function kingCoverProfiles(
     )
     return [
       {
-        side: sideOf(color),
+        side: sideOf(color, humanColor),
         wing,
         kind: current ? ("current" as const) : ("future" as const),
         kingSquare,
@@ -793,9 +812,10 @@ function kingCoverProfiles(
 function kingCoverAfterMove(
   engine: Chess,
   candidate: ChessMove,
-  before: KingCoverProfile[]
+  before: KingCoverProfile[],
+  humanColor: PieceColor = "white"
 ): MoveKingCover {
-  const after = kingCoverProfiles(engine, candidate.color)
+  const after = kingCoverProfiles(engine, candidate.color, humanColor)
   const performed = candidate.isKingsideCastle()
     ? "kingside"
     : candidate.isQueensideCastle()
@@ -958,16 +978,16 @@ export function annotatedLegalMoves(
     : undefined
   const beforeBoard = options.mobility || options.kingMobility ? engine.board() : undefined
   const beforeCastling = options.castling
-    ? castlingSnapshot(engine, candidates, beforeOtherMoves)
+    ? castlingSnapshot(engine, candidates, beforeOtherMoves, game.humanColor)
     : undefined
   const beforeKingCover = options.kingCover
-    ? kingCoverProfiles(engine, engine.turn())
+    ? kingCoverProfiles(engine, engine.turn(), game.humanColor)
     : undefined
   return candidates.map((candidate): AnnotatedMove => {
     const move = describe(candidate)
     engine.move(candidate)
     try {
-      const state = positionStatus(engine)
+      const state = positionStatus(engine, game.humanColor)
       const analyzeReply = replyAnalyzer(engine)
       let allowsMateInOne = false
       let replies: ChessMove[] = []
@@ -1069,7 +1089,8 @@ export function annotatedLegalMoves(
                 kingCover: kingCoverAfterMove(
                   engine,
                   candidate,
-                  beforeKingCover
+                  beforeKingCover,
+                  game.humanColor
                 )
               }
             : {}),
@@ -1078,7 +1099,8 @@ export function annotatedLegalMoves(
                 castling: castlingAfterMove(
                   candidate,
                   beforeCastling,
-                  castlingSnapshot(engine, replies, ownAfterMoves)
+                  castlingSnapshot(engine, replies, ownAfterMoves, game.humanColor),
+                  game.humanColor
                 )
               }
             : {}),
@@ -1099,7 +1121,7 @@ export function applyMove(game: Game, id: string): Game {
   const move = describe(played)
   const record: MoveRecord = {
     id: move.id,
-    side: sideOf(played.color),
+    side: sideOf(played.color, game.humanColor),
     piece: played.piece,
     notation: move.notation,
     path: move.path,
@@ -1110,7 +1132,7 @@ export function applyMove(game: Game, id: string): Game {
   }
   return {
     ...game,
-    ...snapshot(engine),
+    ...snapshot(engine, game.humanColor),
     history: [...game.history, record],
     positions: [...game.positions, positionKey(engine)],
     updatedAt: Date.now()
@@ -1119,14 +1141,14 @@ export function applyMove(game: Game, id: string): Game {
 
 export function toPgn(game: Game): string {
   const engine = restore(game)
-  engine.setHeader("White", "You")
-  engine.setHeader("Black", "Browser AI")
+  engine.setHeader(colorName(game, "human"), "You")
+  engine.setHeader(colorName(game, "ai"), "Browser AI")
   engine.setHeader(
     "Result",
     game.status === "human-won"
-      ? "1-0"
+      ? colorForSide(game, "human") === "white" ? "1-0" : "0-1"
       : game.status === "ai-won"
-        ? "0-1"
+        ? colorForSide(game, "ai") === "white" ? "1-0" : "0-1"
         : game.status === "draw"
           ? "1/2-1/2"
           : "*"

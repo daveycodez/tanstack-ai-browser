@@ -3,7 +3,9 @@ import type { FormEvent, ReactNode } from "react"
 import { promptApiAvailability } from "@tanstack-ai-browser/prompt-api"
 import {
   DEFAULT_OPPONENT,
-  WEBGL_OPPONENTS,
+  LOCAL_OPPONENTS,
+  isWebGlOpponent,
+  usesEmulatedReasoning,
   opponentOption
 } from "../lib/opponents"
 import type { OpponentModel } from "../lib/opponents"
@@ -382,7 +384,7 @@ export function BenchmarkView() {
       reasoningSupported,
       reasoningMode: !effectiveThinking
         ? "off"
-        : model === "prompt-api"
+        : usesEmulatedReasoning(model)
           ? "emulated-working-notes"
           : "native",
       repetitions,
@@ -395,8 +397,8 @@ export function BenchmarkView() {
       caseIds: selectedCases.map((testCase) => testCase.id),
       reasoningBudgetTokens,
       maxOutputTokens: model === "prompt-api" ? null : 8192,
-      sampling: model !== "prompt-api" && webglTemperature !== undefined ? "temperature override" : "model defaults",
-      ...(model !== "prompt-api" && webglTemperature !== undefined && { webglTemperature })
+      sampling: isWebGlOpponent(model) && webglTemperature !== undefined ? "temperature override" : "model defaults",
+      ...(isWebGlOpponent(model) && webglTemperature !== undefined && { webglTemperature })
     }
     const completedResults: BenchmarkResult[] = []
     setRunning(true)
@@ -573,7 +575,7 @@ export function BenchmarkView() {
                     {opponentOption("prompt-api").label} (Prompt API)
                   </option>
                 )}
-                {WEBGL_OPPONENTS.map((option) => (
+                {LOCAL_OPPONENTS.map((option) => (
                   <option key={option.id} value={option.id}>
                     {option.label} ({option.detail})
                   </option>
@@ -601,14 +603,14 @@ export function BenchmarkView() {
                   onChange={(event) => setThinking(event.target.checked)}
                 />
                 <span>
-                  {model === "prompt-api"
-                    ? "Working notes (Prompt API)"
+                  {usesEmulatedReasoning(model)
+                    ? "Working notes"
                     : "Reasoning"}
                   {support === "required" ? " (always on)" : ""}
                 </span>
               </label>
               <p>
-                {model === "prompt-api"
+                {usesEmulatedReasoning(model)
                   ? "Uses a separate working-notes pass before choosing a move. These are generated notes, not native hidden reasoning."
                   : !reasoningSupported
                     ? "This model does not support reasoning mode."

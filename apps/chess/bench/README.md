@@ -49,7 +49,7 @@ WebGL's total generation
 ceiling is 8,192 tokens; Prompt API's browser-managed final-output limit is recorded
 as `null`. These are different capabilities.
 
-Every model receives the same **shared-v46** system and user assembly, standard
+Every model receives the same **shared-v47** system and user assembly, standard
 piece values and model-default sampling. The optional **WebGL temperature** control
 is a manual sampling diagnostic; it leaves the shared prompt and ordinary gameplay
 defaults unchanged. Native Prompt API retains browser sampling. There are no active profile, context,
@@ -157,3 +157,8 @@ Ordinary play uses stable per-game presentation order and the adapter's default
 cache policy. Exact retries preserve inputs; new positions change the user input.
 Do not infer latency improvements from token reuse alone. Compare paired runs with
 identical positions, model, thinking setting, order seeds and device load.
+
+Development builds also list **Apple-FoundationModel** (Apfel on this Mac). Its
+optional working notes are adapter-emulated, as labeled in reports. WebGL sampling
+overrides do not apply to Apfel. Recorded fixtures explicitly assign the human
+White so ordinary game-color assignment cannot change benchmark ownership.

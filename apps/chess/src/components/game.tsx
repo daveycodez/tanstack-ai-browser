@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react"
 import type { KeyboardEvent } from "react"
-import { legalMoves, squareName, unsafeKingDestinations } from "../lib/chess"
-import type { Game, Move, PieceType, Side } from "../lib/chess"
+import { colorForSide, colorName, legalMoves, squareName, unsafeKingDestinations } from "../lib/chess"
+import type { Game, Move, PieceColor, PieceType, Side } from "../lib/chess"
 import { resolveOpponent } from "../lib/opponents"
 import type { OpponentSettings } from "../lib/opponents"
 import type { AiTurnState } from "../lib/use-ai-turn"
@@ -27,8 +27,10 @@ type GameProps = {
 function PromotionDialog({
   moves,
   onChoose,
-  onCancel
+  onCancel,
+  color
 }: {
+  color: PieceColor
   moves: Move[]
   onChoose: (id: string) => void
   onCancel: () => void
@@ -59,7 +61,7 @@ function PromotionDialog({
               disabled={!move}
               autoFocus={type === "q"}
             >
-              <PieceArt side="human" type={type} />
+              <PieceArt side="human" type={type} color={color} />
               <span>{pieceNames[type]}</span>
             </button>
           )
@@ -101,6 +103,7 @@ function CapturedPieces({ game, by }: { game: Game; by: Side }) {
         <PieceArt
           key={`${type}-${index}`}
           side={by === "human" ? "ai" : "human"}
+          color={colorForSide(game, by === "human" ? "ai" : "human")}
           type={type}
         />
       ))}
@@ -124,10 +127,11 @@ export function GameView({
   onRestart,
   onMenu
 }: GameProps) {
+  const humanColor = colorForSide(game, "human"), aiColor = colorForSide(game, "ai")
   const [selection, setSelection] = useState<{ fen: string; square: number }>()
   const [promotion, setPromotion] = useState<{ fen: string; moves: Move[] }>()
-  const [focusedSquare, setFocusedSquare] = useState(52)
-  const [flipped, setFlipped] = useState(false)
+  const [focusedSquare, setFocusedSquare] = useState(humanColor === "white" ? 52 : 12)
+  const [flipped, setFlipped] = useState(humanColor === "black")
   const ledger = useRef<HTMLDivElement>(null)
   const board = useRef<HTMLDivElement>(null)
   const motionLayer = useRef<HTMLDivElement>(null)
@@ -169,8 +173,8 @@ export function GameView({
         ? "Your king is in check."
         : "Your move."
       : game.inCheck
-        ? "Black is in check."
-        : "Black to move."
+        ? `${colorName(game, "ai")} is in check.`
+        : `${colorName(game, "ai")} to move.`
   const subtitle = !active
     ? game.status === "draw"
       ? game.drawReason || "The game ends in a draw."
@@ -243,7 +247,7 @@ export function GameView({
   }
 
   return (
-    <div className="app-shell game-shell">
+    <div className="app-shell game-shell" data-human-color={humanColor}>
       <header className="game-header">
         <button
           className="brand brand-button"
@@ -275,20 +279,18 @@ export function GameView({
               {subtitle && <p>{subtitle}</p>}
             </div>
             <span
-              className={`turn-badge${game.turn === "human" ? " turn-badge-white" : ""}`}
+              className={`turn-badge${colorForSide(game, game.turn) === "white" ? " turn-badge-white" : ""}`}
             >
               {!active
                 ? "Game over"
-                : game.turn === "human"
-                  ? "White to play"
-                  : "Black to play"}
+                : `${colorName(game, game.turn)} to play`}
             </span>
           </div>
           <div
             className={`player-strip opponent-strip${active && game.turn === "ai" ? " is-turn" : ""}`}
           >
             <span className="player-avatar">
-              <PieceArt side="ai" type="k" />
+              <PieceArt side="ai" type="k" color={aiColor} />
             </span>
             <div className="player-copy opponent-player-copy">
               <OpponentPicker
@@ -297,7 +299,7 @@ export function GameView({
                 disabled={busy}
                 onChange={onOpponentChange}
               />
-              <span>Black pieces</span>
+              <span>{colorName(game, "ai")} pieces</span>
             </div>
             <CapturedPieces game={game} by="ai" />
             {active && game.turn === "ai" && (
@@ -333,7 +335,7 @@ export function GameView({
                     data-square={square}
                     tabIndex={focusedSquare === square ? 0 : -1}
                     className={`square ${dark ? "square-dark" : "square-light"}${isSelected ? " square-selected" : ""}${last ? " square-last" : ""}${target ? " square-target" : ""}${movable ? " square-movable" : ""}${checked ? " square-check" : ""}${unsafeForKing ? " square-unsafe" : ""}`}
-                    aria-label={`${squareName(square)}, ${piece ? `${piece.side === "human" ? "white" : "black"} ${pieceNames[piece.type]}` : "empty"}${isSelected ? ", selected" : ""}${target ? ", legal destination" : ""}${checked ? ", in check" : ""}${unsafeForKing ? `, unsafe for ${game.turn === "human" ? "white" : "black"} king` : ""}`}
+                    aria-label={`${squareName(square)}, ${piece ? `${colorForSide(game, piece.side)} ${pieceNames[piece.type]}` : "empty"}${isSelected ? ", selected" : ""}${target ? ", legal destination" : ""}${checked ? ", in check" : ""}${unsafeForKing ? `, unsafe for ${colorForSide(game, game.turn)} king` : ""}`}
                     aria-pressed={isSelected}
                     onClick={() => {
                       setFocusedSquare(square)
@@ -357,7 +359,7 @@ export function GameView({
                         {"abcdefgh"[square % 8]}
                       </span>
                     )}
-                    {piece && <PieceArt side={piece.side} type={piece.type} />}
+                    {piece && <PieceArt side={piece.side} type={piece.type} color={colorForSide(game, piece.side)} />}
                     {target && (
                       <span
                         className={piece ? "target-capture" : "target-dot"}
@@ -378,11 +380,11 @@ export function GameView({
             className={`player-strip human-strip${active && game.turn === "human" ? " is-turn" : ""}`}
           >
             <span className="player-avatar">
-              <PieceArt side="human" type="k" />
+              <PieceArt side="human" type="k" color={humanColor} />
             </span>
             <div className="player-copy">
               <strong>You</strong>
-              <span>White pieces</span>
+              <span>{colorName(game, "human")} pieces</span>
             </div>
             <CapturedPieces game={game} by="human" />
             {active && game.turn === "human" && (
@@ -540,7 +542,7 @@ export function GameView({
               ) : (
                 <div className="empty-moves">
                   <PieceArt side="ai" type="p" />
-                  <p>The first move is yours.</p>
+                  <p>White moves first.</p>
                   <span>A pawn or a knight is a good place to start.</span>
                 </div>
               )}
@@ -584,6 +586,7 @@ export function GameView({
       </main>
       {promotionMoves && (
         <PromotionDialog
+          color={humanColor}
           moves={promotionMoves}
           onChoose={(id) => {
             setPromotion(undefined)

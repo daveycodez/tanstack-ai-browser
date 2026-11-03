@@ -1,8 +1,8 @@
 # Chess
 
 A responsive blue-and-silver chess game built with TanStack Start, React, TanStack DB,
-and this workspace’s local Prompt API and WebGL adapters. Human plays White; the
-selected language model plays Black. No hosted inference or API key is required.
+and this workspace’s local Prompt API and WebGL adapters. Your first game randomly assigns White or Black; each new game swaps your side. White moves first; the
+board starts with your pieces at the bottom. The AI opens when you play Black. No hosted inference or API key is required.
 
 ## Run
 
@@ -16,7 +16,7 @@ project at port 3002. Reuse an existing Chess server when one is already running
 
 ## Playing, appearance, and feedback
 
-Select a white piece and a highlighted destination. Arrow keys move focus, Enter or
+Select one of your pieces and a highlighted destination. Arrow keys move focus, Enter or
 Space selects, and Escape clears selection. Promotion offers all four pieces. The
 board can be flipped. Chess.js validates check, mate, stalemate, castling, en passant,
 underpromotion, repetition, fifty-move draws, and insufficient material.
@@ -116,3 +116,8 @@ winning a knight and valid defenses against promotion.
 See [benchmark instructions](bench/README.md), [suite audit](bench/SUITE-AUDIT.md),
 and [strategy research](bench/STRATEGY-RESEARCH.md). Historical run artifacts are
 excluded from version control; the fixtures and manual tester remain reproducible.
+
+In Vite development, **Apple-FoundationModel** is also available through the local
+Apfel server, matching Checkers. Production builds omit this opponent and safely
+fall back from a saved development-only selection. It uses the same shared prompt
+and exact legal-action schema as the browser models.

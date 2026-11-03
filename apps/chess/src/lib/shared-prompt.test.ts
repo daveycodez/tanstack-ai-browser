@@ -369,7 +369,7 @@ test("shared prompt has no model or reasoning options and ignores opponent model
   >
   const forbidden: Record<ForbiddenKeys, never> = {}
   assert.deepEqual(forbidden, {})
-  assert.equal(SHARED_PROMPT_VERSION, "shared-v46")
+  assert.equal(SHARED_PROMPT_VERSION, "shared-v47")
   const input = fixtureInput(recorded[0])
   const before = buildSharedPrompt(input)
   for (const model of ["prompt-api", "LiquidAI/LFM3-1.7B-GGUF", "unsloth/Qwen3.5-2B-GGUF"] as const) {
@@ -394,7 +394,7 @@ test("shared prompt includes exactly the last eight individual moves, oldest fir
     "d2d3",
     "f8c5",
     "b1c3"
-  ].reduce(applyMove, newGame())
+  ].reduce(applyMove, newGame("white"))
   const result = buildSharedPrompt({
     game,
     moves: annotatedLegalMoves(game, { relationships: true, mobility: true }),
@@ -582,7 +582,7 @@ test("dangerous cards use an explicit losing label without the winning CHECKMATE
 })
 
 test("a genuine winning mate card retains its original positive CHECKMATE marker", () => {
-  const game = ["f2f3", "e7e5", "g2g4"].reduce(applyMove, newGame())
+  const game = ["f2f3", "e7e5", "g2g4"].reduce(applyMove, newGame("white"))
   const result = buildSharedPrompt({
     game,
     moves: annotatedLegalMoves(game, {
@@ -1304,7 +1304,7 @@ const contextOf = (input: SharedPromptInput, id: string) =>
     ?.outcome.split("; CONTEXT: ")[1] ?? ""
 
 test("pawn context opens minor pieces and preserves central two-square space without rewarding rook mobility", () => {
-  const game = applyMove(newGame(), "e2e4")
+  const game = applyMove(newGame("white"), "e2e4")
   const input = positionalInput(game)
   for (const id of ["e7e5", "d7d5"]) {
     const context = contextOf(input, id)
@@ -1441,7 +1441,7 @@ test("new protection of an unattacked queen or rook is support, never a rescue o
 })
 
 test("positional context never changes exact schema labels and is suppressed for terminal candidates", () => {
-  const game = applyMove(newGame(), "e2e4")
+  const game = applyMove(newGame("white"), "e2e4")
   const full = positionalInput(game)
   const baseline = annotatedLegalMoves(game, {
     relationships: true,
@@ -1456,7 +1456,7 @@ test("positional context never changes exact schema labels and is suppressed for
     buildSharedPrompt(full).choices.map((choice) => choice.label),
     baseline.map(moveChoiceLabel)
   )
-  const mate = ["f2f3", "e7e5", "g2g4"].reduce(applyMove, newGame())
+  const mate = ["f2f3", "e7e5", "g2g4"].reduce(applyMove, newGame("white"))
   const win = buildSharedPrompt(positionalInput(mate)).choices.find(
     (choice) => choice.id === "d8h4"
   )
@@ -1701,7 +1701,7 @@ test("bare-king approach reports geometry and terminal or losing checks never ga
     stale.outcome,
     /CONTEXT|king legal destinations|king square distance/
   )
-  const opening = applyMove(newGame(), "e2e4")
+  const opening = applyMove(newGame("white"), "e2e4")
   const full = {
     game: opening,
     moves: annotatedLegalMoves(opening, {
@@ -1822,7 +1822,7 @@ test("tactical focus covers check, current queen threats and mating replies whil
   const queen = winningInput("3b3k/8/3q4/8/8/8/8/3R3K b - - 0 40")
   const defended = contextOf(queen, "d8e7")
   assert.match(defended, /adds protection to attacked queen/)
-  const source = positionalInput(applyMove(newGame(), "e2e4"))
+  const source = positionalInput(applyMove(newGame("white"), "e2e4"))
   const checked = { ...source, game: { ...source.game, inCheck: true } }
   assert.doesNotMatch(
     contextOf(checked, "e7e5"),
@@ -1933,7 +1933,7 @@ const v15TacticalControls = [
   {
     name: "a6 bishop opening",
     game: () =>
-      ["e2e4", "g7g6", "f2f3", "b8c6", "f1a6"].reduce(applyMove, newGame()),
+      ["e2e4", "g7g6", "f2f3", "b8c6", "f1a6"].reduce(applyMove, newGame("white")),
     hash: "e1a6888aba6085c7e52818f273ef876e7384d177a7288ecbab88ba477634f124"
   },
   {
@@ -1993,7 +1993,7 @@ for (const control of v15TacticalControls) {
 test("quiet early pawn-cover positions retain opening and cover advice only while relevant", () => {
   const game = ["e2e4", "h7h6", "g1f3", "g7g5", "f1c4"].reduce(
     applyMove,
-    newGame()
+    newGame("white")
   )
   const result = buildSharedPrompt(fullInput(game))
   assert.ok(result.prompt.includes(openingAdvice))
@@ -2079,6 +2079,6 @@ test("mate-versus-stalemate reminder is present only when both terminal outcomes
   assert.ok(terminal.moves.some(move => move.outcome.checkmate))
   assert.ok(terminal.moves.some(move => move.outcome.stalemate))
   assert.match(buildSharedPrompt(terminal).prompt, /Choose a win; avoid STALEMATE \(draw\)\./)
-  const quiet = fullInput(newGame())
+  const quiet = fullInput(newGame("white"))
   assert.doesNotMatch(buildSharedPrompt(quiet).prompt, /Choose a win; avoid STALEMATE/)
 })

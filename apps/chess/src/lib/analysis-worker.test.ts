@@ -10,7 +10,7 @@ import { buildSharedPrompt } from "./shared-prompt.ts"
 import { stableMoveOrder } from "./move-order.ts"
 import { CASES } from "../../bench/cases.ts"
 
-const request: AnalysisRequest = { game: applyMove(newGame(), "e2e4"), moveOrderSeed: "worker-parity" }
+const request: AnalysisRequest = { game: applyMove(newGame("white"), "e2e4"), moveOrderSeed: "worker-parity" }
 class RecordingWorker extends EventTarget {
   posted: AnalysisRequest[] = []
   terminated = 0
@@ -24,7 +24,7 @@ test("the real analysis worker preserves the previous production prompt, facts a
   const worker = new NodeWorker(`import {parentPort} from 'node:worker_threads';globalThis.postMessage=data=>parentPort.postMessage(data);await import(${JSON.stringify(url)});parentPort.on('message',data=>globalThis.onmessage({data}));`, { eval: true, execArgv: ["--experimental-strip-types"] })
   try {
     for (const fixture of CASES) {
-      const game = fixture.history ? fixture.history.reduce(applyMove, newGame()) : fromFen(fixture.fen)
+      const game = fixture.history ? fixture.history.reduce(applyMove, newGame("white")) : fromFen(fixture.fen)
       // The pre-worker production assembly is kept independent of buildMoveAnalysis.
       const moves = stableMoveOrder(annotatedLegalMoves(game, {
         relationships: true, mobility: true,

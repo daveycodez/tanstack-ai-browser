@@ -1,7 +1,7 @@
 import { promptApiModel } from "@tanstack-ai-browser/prompt-api"
 import { chooseAiMove } from "../src/lib/ai.ts"
 import { applyMove, fromFen, newGame } from "../src/lib/chess.ts"
-import { opponentOption, resolveOpponent } from "../src/lib/opponents.ts"
+import { isWebGlOpponent, opponentOption, resolveOpponent, usesEmulatedReasoning } from "../src/lib/opponents.ts"
 import type { OpponentModel } from "../src/lib/opponents.ts"
 import { SHARED_PROMPT_VERSION } from "../src/lib/shared-prompt.ts"
 import { benchmarkOrder } from "./order.ts"
@@ -71,13 +71,13 @@ export async function runBenchmark(
       reasoningSupported,
       reasoningMode: !opponent.thinking
         ? "off"
-        : opponent.model === "prompt-api"
+        : usesEmulatedReasoning(opponent.model)
           ? "emulated-working-notes"
           : "native",
       reasoningBudgetTokens,
       maxOutputTokens: opponent.model === "prompt-api" ? null : 8192,
-      sampling: opponent.model !== "prompt-api" && options.webglTemperature !== undefined ? "temperature override" : "model defaults",
-      ...(opponent.model !== "prompt-api" && options.webglTemperature !== undefined && { webglTemperature: options.webglTemperature }),
+      sampling: isWebGlOpponent(opponent.model) && options.webglTemperature !== undefined ? "temperature override" : "model defaults",
+      ...(isWebGlOpponent(opponent.model) && options.webglTemperature !== undefined && { webglTemperature: options.webglTemperature }),
       promptCache: options.disablePromptCache ? "none" : "default",
       timingComparable: !options.otherGpuWorkload,
       timingConditions: options.otherGpuWorkload ? "Other GPU workload active; timings are diagnostic only" : "No competing GPU workload declared",
@@ -112,7 +112,7 @@ export async function runBenchmark(
     for (let repetition = 0; repetition < options.repetitions; repetition++) {
       if (options.signal.aborted) break outer
       const game = testCase.history
-        ? testCase.history.reduce(applyMove, newGame())
+        ? testCase.history.reduce(applyMove, newGame("white"))
         : fromFen(testCase.fen)
       if (game.fen !== testCase.fen)
         throw new Error(`Fixture history mismatch: ${testCase.id}`)

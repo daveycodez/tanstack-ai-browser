@@ -1,4 +1,4 @@
-import { squareName } from "./chess.ts"
+import { colorName, squareName } from "./chess.ts"
 import type { Game, PieceType, Side } from "./chess.ts"
 
 const groups: [PieceType, string][] = [
@@ -13,7 +13,8 @@ const groups: [PieceType, string][] = [
 /** Decode the complete position before inference so the model can focus on moves. */
 export function describePosition(game: Game): string {
   const [, , rights, enPassant, halfmove, fullmove] = game.fen.split(" ")
-  const color = game.turn === "ai" ? "Black" : "White"
+  const color = colorName(game, game.turn)
+  const own = colorName(game, "ai"), enemy = colorName(game, "human")
   function pieces(side: Side) {
     return groups.map(([type, label]) => {
       const squares = game.board.flatMap((piece, square) =>
@@ -31,9 +32,9 @@ export function describePosition(game: Game): string {
   }
   return [
     "Current board, already decoded into named pieces and exact squares:",
-    "Black pieces (you):",
+    `${own} pieces (you):`,
     ...pieces("ai"),
-    "White pieces (opponent):",
+    `${enemy} pieces (opponent):`,
     ...pieces("human"),
     `Side to move: ${color}.`,
     `${color} king is ${game.inCheck ? "in check" : "not in check"}.`,

@@ -16,7 +16,7 @@ export function buildMoveAnalysis({ game, moveOrder, moveOrderSeed }: AnalysisRe
     relationships: true,
     mobility: true,
     support: game.board.some(piece => piece?.side === game.turn && (piece.type === "q" || piece.type === "r")),
-    castling: /[kq]/.test(game.fen.split(" ")[2]),
+    castling: /[kq]/i.test(game.fen.split(" ")[2]),
     kingCover: true,
     promotionReplies: true,
     kingMobility: true,

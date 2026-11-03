@@ -4,7 +4,7 @@ import { applyMove, fromFen, newGame } from "./chess.ts"
 import { describePosition } from "./ai-position.ts"
 
 test("describes every starting piece in plain English without raw FEN", () => {
-  const game = applyMove(newGame(), "e2e4")
+  const game = applyMove(newGame("white"), "e2e4")
   const text = describePosition(game)
   assert.match(
     text,
@@ -20,7 +20,7 @@ test("describes every starting piece in plain English without raw FEN", () => {
 })
 
 test("decodes en passant and move counters into explicit fields", () => {
-  const game = ["e2e4", "a7a6", "e4e5", "d7d5"].reduce(applyMove, newGame())
+  const game = ["e2e4", "a7a6", "e4e5", "d7d5"].reduce(applyMove, newGame("white"))
   const text = describePosition(game)
   assert.match(text, /En passant target square: d6/)
   assert.match(

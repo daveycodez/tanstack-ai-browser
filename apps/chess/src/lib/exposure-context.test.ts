@@ -448,7 +448,7 @@ const observedHistory = [
 ]
 
 test("the observed quiet Ne2 rook threat does not compensate White's legal king capture", () => {
-  const game = observedHistory.reduce(applyMove, newGame())
+  const game = observedHistory.reduce(applyMove, newGame("white"))
   assert.equal(
     game.fen,
     "r3b2B/ppk2p1B/8/1P1P2p1/2P2n2/8/5PPP/2R1K2R b K - 0 29"
@@ -529,7 +529,7 @@ test("the normal game that exceeded the former character guard preserves its boa
   ]
   const independent = new Chess()
   const uciHistory = sanHistory.map((san) => idOf(independent.move(san)))
-  const game = uciHistory.reduce(applyMove, newGame())
+  const game = uciHistory.reduce(applyMove, newGame("white"))
   assert.equal(
     game.fen,
     "rnb1kbnr/2p1pppp/1p6/p3q3/3PN3/5Q2/PPP1NPPP/R1B1K2R b KQkq - 0 9"
@@ -634,7 +634,7 @@ const observedBishopOpportunitySan = [
 test("the first observed missed bishop is a clean capture before the quiet pawn push", () => {
   const replay = new Chess()
   const ids = observedBishopOpportunitySan.map((san) => idOf(replay.move(san)))
-  const game = ids.reduce(applyMove, newGame())
+  const game = ids.reduce(applyMove, newGame("white"))
   assert.equal(
     game.fen,
     "rBb1kbnN/4p1pp/1pp5/pq6/8/1PP2QP1/P3NP1P/R3K2R b KQq - 0 17"
@@ -670,7 +670,7 @@ test("two plies later capturing the bishop would leave the queen lost, so Qxa4 i
   const ids = [...observedBishopOpportunitySan, "a4", "bxa4"].map((san) =>
     idOf(replay.move(san))
   )
-  const game = ids.reduce(applyMove, newGame())
+  const game = ids.reduce(applyMove, newGame("white"))
   assert.equal(
     game.fen,
     "rBb1kbnN/4p1pp/1pp5/1q6/P7/2P2QP1/P3NP1P/R3K2R b KQq - 0 18"
@@ -730,7 +730,7 @@ test("the latest observed Nxf5 permits both a direct recapture and a safe forcin
   ]
   const replay = new Chess()
   const history = san.map((notation) => idOf(replay.move(notation)))
-  const game = history.reduce(applyMove, newGame())
+  const game = history.reduce(applyMove, newGame("white"))
   assert.equal(game.history.length, 49)
   assert.equal(
     game.fen,
@@ -947,7 +947,7 @@ test("the observed h7 pawn is a safe queen capture without pretending it is the 
   const history = observedH7OpportunitySan.map((notation) =>
     idOf(replay.move(notation))
   )
-  const game = history.reduce(applyMove, newGame())
+  const game = history.reduce(applyMove, newGame("white"))
   assert.equal(game.history.length, 143)
   assert.equal(game.fen, "8/7P/8/1R6/7q/1N1KP3/k7/8 b - - 0 72")
   assert.equal(game.fen, replay.fen())
@@ -1045,7 +1045,7 @@ const observedPhoneQueenSan = [
 test("the phone-game checking queen can legally be captured by the king or queen for net minus four", () => {
   const replay = new Chess()
   const history = observedPhoneQueenSan.map((san) => idOf(replay.move(san)))
-  const game = history.reduce(applyMove, newGame())
+  const game = history.reduce(applyMove, newGame("white"))
   assert.equal(history.length, 35)
   assert.equal(
     game.fen,
@@ -1137,7 +1137,7 @@ test("the five-ply thinking-on game has a free bishop capture rather than a quie
   const history = ["e4", "g6", "f3", "Nc6", "Ba6"].map((san) =>
     idOf(replay.move(san))
   )
-  const game = history.reduce(applyMove, newGame())
+  const game = history.reduce(applyMove, newGame("white"))
   assert.equal(
     game.fen,
     "r1bqkbnr/pppppp1p/B1n3p1/8/4P3/5P2/PPPP2PP/RNBQK1NR b KQkq - 2 3"
@@ -1174,7 +1174,7 @@ test("the h6 thinking-on incident permits three equally safe bishop captures", (
   const history = ["e4", "e6", "d3", "h6", "Bxh6"].map((san) =>
     idOf(replay.move(san))
   )
-  const game = history.reduce(applyMove, newGame())
+  const game = history.reduce(applyMove, newGame("white"))
   assert.equal(
     game.fen,
     "rnbqkbnr/pppp1pp1/4p2B/8/4P3/3P4/PPP2PPP/RN1QKBNR b KQkq - 0 3"

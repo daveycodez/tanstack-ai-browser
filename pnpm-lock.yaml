@@ -293,6 +293,9 @@ importers:
 
   apps/chess:
     dependencies:
+      '@tanstack-ai-browser/apfel':
+        specifier: workspace:*
+        version: link:../../packages/apfel
       '@tanstack-ai-browser/prompt-api':
         specifier: workspace:*
         version: link:../../packages/prompt-api

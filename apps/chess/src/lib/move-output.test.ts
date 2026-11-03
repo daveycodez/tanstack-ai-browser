@@ -5,7 +5,7 @@ import { moveOutputSchema } from "./move-output.ts"
 import { moveChoiceLabel, resolveActionLabel } from "./move-choice.ts"
 
 test("structured output permits every exact action label in caller order and rejects unrelated forms", () => {
-  const moves = annotatedLegalMoves(newGame())
+  const moves = annotatedLegalMoves(newGame("white"))
   const labels = moves.map(moveChoiceLabel)
   const schema = moveOutputSchema(labels)
   assert.deepEqual(schema.shape.move.options, labels)
@@ -40,7 +40,7 @@ test("action labels preserve castling, all promotions, en passant and origin dis
     fromFen("1r5k/P7/8/8/8/8/8/7K w - - 0 1"),
     fromFen("1n3n1k/8/8/8/8/8/P7/K7 b - - 0 1"),
     fromFen("3r3k/8/8/3pP3/8/8/8/7K w - d6 0 1"),
-    ["f2f3", "e7e5", "g2g4"].reduce(applyMove, newGame())
+    ["f2f3", "e7e5", "g2g4"].reduce(applyMove, newGame("white"))
   ]
   const labels: string[] = []
   for (const game of fixtures) {
@@ -78,7 +78,7 @@ test("action labels preserve castling, all promotions, en passant and origin dis
 test("the simple opening bishop capture is an explicit Capture choice alongside every ordinary opening move", () => {
   const game = ["e2e4", "d7d5", "e4d5", "d8d7", "f1a6"].reduce(
     applyMove,
-    newGame()
+    newGame("white")
   )
   const moves = annotatedLegalMoves(game)
   const capture = moves.find((move) => move.id === "b7a6")

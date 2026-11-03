@@ -2,7 +2,7 @@ import { useEffect, useId, useRef, useState } from "react"
 import {
   opponentOption,
   resolveOpponent,
-  WEBGL_OPPONENTS
+  LOCAL_OPPONENTS
 } from "../lib/opponents"
 import type { OpponentSettings } from "../lib/opponents"
 
@@ -26,8 +26,8 @@ export function OpponentPicker({
   const selected = opponentOption(value.model)
   const options =
     promptApiAvailable || value.model === "prompt-api"
-      ? [opponentOption("prompt-api"), ...WEBGL_OPPONENTS]
-      : WEBGL_OPPONENTS
+      ? [opponentOption("prompt-api"), ...LOCAL_OPPONENTS]
+      : LOCAL_OPPONENTS
 
   useEffect(() => {
     if (!open) return

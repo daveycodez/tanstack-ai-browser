@@ -6,7 +6,7 @@ import type { AnnotatedMove } from "./chess.ts"
 import { BASE_CONTEXT_FEATURES, CONTEXT_VARIANTS } from "./context-options.ts"
 
 test("spells out immediate checkmate instead of relying on SAN symbols", () => {
-  const game = ["f2f3", "e7e5", "g2g4"].reduce(applyMove, newGame())
+  const game = ["f2f3", "e7e5", "g2g4"].reduce(applyMove, newGame("white"))
   const move = annotatedLegalMoves(game).find((move) => move.id === "d8h4")
   assert.ok(move)
   assert.match(
@@ -34,7 +34,7 @@ test("formats a real defender count and cheapest legal recapturer", () => {
 })
 
 test("keeps opening outcome lines concise enough for the existing prompt guard", () => {
-  const game = applyMove(newGame(), "e2e4")
+  const game = applyMove(newGame("white"), "e2e4")
   const moves = annotatedLegalMoves(game)
   assert.equal(moves.length, 20)
   const text = moves.map((move) => formatMoveOutcome(move, "ai")).join("\n")
@@ -45,7 +45,7 @@ test("keeps opening outcome lines concise enough for the existing prompt guard",
 })
 
 test("spells out checks, stalemates and an opponent mating reply", () => {
-  const checkGame = ["e2e4", "f7f6"].reduce(applyMove, newGame())
+  const checkGame = ["e2e4", "f7f6"].reduce(applyMove, newGame("white"))
   const check = annotatedLegalMoves(checkGame).find(
     (move) => move.id === "d1h5"
   )
@@ -124,7 +124,7 @@ const square = (name: string) =>
   (8 - Number(name[1])) * 8 + name.charCodeAt(0) - 97
 
 function contextFixture(): AnnotatedMove {
-  const game = applyMove(newGame(), "e2e4")
+  const game = applyMove(newGame("white"), "e2e4")
   const move = annotatedLegalMoves(game).find((entry) => entry.id === "d7d5")
   assert.ok(move)
   return {
@@ -360,7 +360,7 @@ test("an actual mating move keeps capture facts and drops post-game castling con
     /captures white rook \(5\); CHECKMATE, wins immediately/
   )
   assert.equal(formatMoveOutcome(move, "ai", 9, all.features), baseline)
-  const foolsMate = ["f2f3", "e7e5", "g2g4"].reduce(applyMove, newGame())
+  const foolsMate = ["f2f3", "e7e5", "g2g4"].reduce(applyMove, newGame("white"))
   const queen = annotatedLegalMoves(foolsMate, all.features).find(
     (entry) => entry.id === "d8h4"
   )

@@ -27,7 +27,7 @@ const annotated = (
 }
 
 test("identifies Fool's Mate explicitly while retaining all legal choices", () => {
-  const game = sequence(newGame(), ["f2f3", "e7e5", "g2g4"])
+  const game = sequence(newGame("white"), ["f2f3", "e7e5", "g2g4"])
   const moves = annotatedLegalMoves(game)
   assert.deepEqual(
     moves.map((move) => move.id),
@@ -48,7 +48,7 @@ test("identifies Fool's Mate explicitly while retaining all legal choices", () =
 })
 
 test("distinguishes check without mate and an actual stalemating candidate", () => {
-  const check = annotated(sequence(newGame(), ["e2e4", "f7f6"]), "d1h5")
+  const check = annotated(sequence(newGame("white"), ["e2e4", "f7f6"]), "d1h5")
   assert.equal(check.piece, "q")
   assert.equal(check.outcome.check, true)
   assert.equal(check.outcome.checkmate, false)
@@ -151,7 +151,7 @@ test("preserves each candidate promotion choice and assesses the promoted piece'
 })
 
 test("retains repetition history while independently inspecting every candidate", () => {
-  const game = sequence(newGame(), [
+  const game = sequence(newGame("white"), [
     "g1f3",
     "g8f6",
     "f3g1",
@@ -176,7 +176,7 @@ test("reports the fifty-move draw but resets the clock for a pawn candidate", ()
 })
 
 test("does not mutate game state or leak speculative moves into later evaluations", () => {
-  const game = sequence(newGame(), ["e2e4", "d7d5"])
+  const game = sequence(newGame("white"), ["e2e4", "d7d5"])
   const before = JSON.stringify(game)
   const first = annotatedLegalMoves(game)
   assert.ok(first.every((move) => move.outcome.relationships === undefined))
@@ -355,7 +355,7 @@ test("treats check separately and excludes synthetic king captures without throw
   const escaped = relationships(checked, "e1d1")
   assert.equal(escaped.movedPieceWasThreatened, false)
   assert.ok(escaped.newThreats.every((threat) => threat.target.piece !== "k"))
-  const check = annotated(sequence(newGame(), ["e2e4", "f7f6"]), "d1h5", {
+  const check = annotated(sequence(newGame("white"), ["e2e4", "f7f6"]), "d1h5", {
     relationships: true
   })
   assert.equal(check.outcome.check, true)
@@ -365,7 +365,7 @@ test("treats check separately and excludes synthetic king captures without throw
     )
   )
   const mate = annotated(
-    sequence(newGame(), ["f2f3", "e7e5", "g2g4"]),
+    sequence(newGame("white"), ["f2f3", "e7e5", "g2g4"]),
     "d8h4",
     { relationships: true }
   )
@@ -373,7 +373,7 @@ test("treats check separately and excludes synthetic king captures without throw
 })
 
 test("keeps every context group independently opt-in with default core facts unchanged", () => {
-  const game = applyMove(newGame(), "e2e4")
+  const game = applyMove(newGame("white"), "e2e4")
   const baseline = annotated(game, "e7e5")
   const names = ["relationships", "support", "mobility", "castling"] as const
   for (const name of names) {
@@ -450,7 +450,7 @@ test("adds support to an attacked friendly queen without claiming its threat dis
 })
 
 test("describes a two-square opening pawn move and newly mobile bishop and queen neutrally", () => {
-  const move = annotated(applyMove(newGame(), "e2e4"), "e7e5", {
+  const move = annotated(applyMove(newGame("white"), "e2e4"), "e7e5", {
     mobility: true
   })
   assert.deepEqual(move.outcome.mobility?.pawnAdvance, {
@@ -472,14 +472,14 @@ test("describes a two-square opening pawn move and newly mobile bishop and queen
       (piece) => piece.fromSquare === index("e7")
     )
   )
-  const single = annotated(applyMove(newGame(), "e2e4"), "e7e6", {
+  const single = annotated(applyMove(newGame("white"), "e2e4"), "e7e6", {
     mobility: true
   })
   assert.equal(single.outcome.mobility?.pawnAdvance?.squares, 1)
 })
 
 test("tracks minor-piece home moves without calling a defended but blocked queen mobile", () => {
-  const move = annotated(applyMove(newGame(), "e2e4"), "g8f6", {
+  const move = annotated(applyMove(newGame("white"), "e2e4"), "g8f6", {
     mobility: true,
     support: true
   })
@@ -581,7 +581,7 @@ test("never labels an empty castling path legal through an attacked square or wh
 })
 
 test("all context groups preserve game/history and repeated annotations", () => {
-  const game = sequence(newGame(), ["e2e4", "d7d5"])
+  const game = sequence(newGame("white"), ["e2e4", "d7d5"])
   const before = JSON.stringify(game)
   const options = {
     relationships: true,
@@ -649,7 +649,7 @@ test("clears en passant on the hypothetical opposite turn and preserves game sta
 })
 
 test("reply major-loss facts are opt-in, include terminal empty arrays, and do not filter moves", () => {
-  const game = sequence(newGame(), ["f2f3", "e7e5", "g2g4"])
+  const game = sequence(newGame("white"), ["f2f3", "e7e5", "g2g4"])
   assert.equal(annotated(game, "d8h4").outcome.replyMajorLosses, undefined)
   const moves = annotatedLegalMoves(game, { safety: true })
   assert.deepEqual(
@@ -834,7 +834,7 @@ test("speculative reply-capture analysis preserves history and every other conte
 })
 
 test("king-cover facts are opt-in and preserve all moves and the saved game", () => {
-  const game = sequence(newGame(), ["e2e4"])
+  const game = sequence(newGame("white"), ["e2e4"])
   const saved = JSON.stringify(game)
   const baseline = annotatedLegalMoves(game)
   assert.ok(baseline.every((move) => move.outcome.kingCover === undefined))
@@ -970,7 +970,7 @@ test("opposite-wing storms and central pushes do not alter current queenside cov
   assert.equal(move.outcome.kingCover?.after[0].wing, "queenside")
   assert.deepEqual(move.outcome.kingCover?.relevantWings, [])
   for (const id of ["d2d4", "e2e4"]) {
-    const central = annotated(newGame(), id, { kingCover: true })
+    const central = annotated(newGame("white"), id, { kingCover: true })
     assert.deepEqual(
       central.outcome.kingCover?.before,
       central.outcome.kingCover?.after
@@ -1009,7 +1009,7 @@ test("ordinary purposeful pawn advances report bishop/queen openings without a p
     [["e2e4"], "g7g6", "f8"],
     [[], "b2b3", "c1"]
   ] as [string[], string, string][]) {
-    const move = annotated(sequence(newGame(), history), id, { mobility: true })
+    const move = annotated(sequence(newGame("white"), history), id, { mobility: true })
     const opens = move.outcome.mobility?.changedOtherPieces.find(
       (piece) => piece.fromSquare === index(bishop)
     )
@@ -1192,7 +1192,7 @@ test("zero king destinations remain distinct from checks with nonking replies an
 })
 
 test("opening blockage is not a mating claim and castling remains a king destination", () => {
-  const opening = annotated(newGame(), "d2d4", { kingMobility: true }).outcome.kingMobility
+  const opening = annotated(newGame("white"), "d2d4", { kingMobility: true }).outcome.kingMobility
   assert.ok(opening)
   assert.deepEqual(opening.before, [])
   assert.deepEqual(opening.after, [])

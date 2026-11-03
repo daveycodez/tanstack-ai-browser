@@ -2,7 +2,7 @@ import { promptApiModel } from "@tanstack-ai-browser/prompt-api"
 import { WEBGL_MODEL_META, WEBGL_TEXT_MODELS } from "@tanstack-ai-browser/webgl"
 import type { WebGlTextModel } from "@tanstack-ai-browser/webgl"
 
-export type OpponentModel = WebGlTextModel | "prompt-api"
+export type OpponentModel = WebGlTextModel | "prompt-api" | "apple-foundationmodel"
 export type OpponentSettings = { model: OpponentModel; thinking: boolean }
 export type ThinkingSupport = "none" | "optional" | "required"
 export type OpponentOption = {
@@ -22,6 +22,13 @@ export const PROMPT_API_OPTION: OpponentOption = {
   detail: "Built-in browser model",
   thinking: "optional"
 }
+export const APFEL_MODEL = "apple-foundationmodel" as const
+export const DEV_OPPONENTS: OpponentOption[] = import.meta.env?.DEV === true
+  ? [{ id: APFEL_MODEL, label: "Apple-FoundationModel", detail: "Apfel on this Mac", thinking: "optional" }]
+  : []
+export const usesEmulatedReasoning = (model: OpponentModel) => model === "prompt-api" || model === APFEL_MODEL
+export const isWebGlOpponent = (model: OpponentModel): model is WebGlTextModel => !usesEmulatedReasoning(model)
+
 export const WEBGL_OPPONENTS: OpponentOption[] = WEBGL_TEXT_MODELS.filter(
   (id) => !id.includes("-Web-")
 ).map<OpponentOption>((id) => {
@@ -38,7 +45,12 @@ export const WEBGL_OPPONENTS: OpponentOption[] = WEBGL_TEXT_MODELS.filter(
   }
 }).sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: "base" }))
 
+export const LOCAL_OPPONENTS = [...DEV_OPPONENTS, ...WEBGL_OPPONENTS]
+  .sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: "base" }))
+
 export function opponentOption(model: OpponentModel): OpponentOption {
+  const development = DEV_OPPONENTS.find(option => option.id === model)
+  if (development) return development
   return model === "prompt-api"
     ? {
         ...PROMPT_API_OPTION,
@@ -57,6 +69,7 @@ export function opponentOption(model: OpponentModel): OpponentOption {
 export function resolveOpponent(saved?: OpponentSettings): OpponentSettings {
   const model =
     saved?.model === "prompt-api" ||
+    DEV_OPPONENTS.some(option => option.id === saved?.model) ||
     WEBGL_OPPONENTS.some((option) => option.id === saved?.model)
       ? (saved?.model ?? DEFAULT_OPPONENT.model)
       : DEFAULT_OPPONENT.model

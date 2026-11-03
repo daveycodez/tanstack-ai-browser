@@ -3,10 +3,11 @@ import test from "node:test"
 import { IDBFactory } from "fake-indexeddb"
 import { createIndexedDB } from "@tanstack/react-db"
 import { createGameStorage } from "./game-storage.ts"
-import { legalMoves } from "./chess.ts"
+import { legalMoves, newGame } from "./chess.ts"
+import type { PieceColor } from "./chess.ts"
 import { resolveOpponent } from "./opponents.ts"
 
-async function tabs() {
+async function tabs(makeGame: (color?: PieceColor) => ReturnType<typeof newGame> = (color = "white") => newGame(color)) {
   const factory = new IDBFactory()
   const open = () => new Promise<IDBDatabase>((resolve, reject) => {
     const request = factory.open("chess", 1)
@@ -15,7 +16,7 @@ async function tabs() {
     request.onerror = () => reject(request.error)
   })
   const a = await open(), b = await open()
-  return { a: createGameStorage(a), b: createGameStorage(b), close() { a.close(); b.close() } }
+  return { a: createGameStorage(a, undefined, makeGame), b: createGameStorage(b, undefined, makeGame), close() { a.close(); b.close() } }
 }
 
 test("two connections accept only one conflicting move from the same saved position", async () => {
@@ -102,4 +103,33 @@ test("version upgrade preserves a legacy game and closes its unconditional-write
     assert.equal(await modern.commitMove(start.sessionId, 1, "e7e5"), true)
     assert.deepEqual((await modern.currentGame())?.history.map(move => move.id), ["e2e4", "e7e5"])
   } finally { upgraded.close() }
+})
+
+
+test("color assignment is durable across connections and alternates only for a new session", async () => {
+  let creations = 0
+  const { a, b, close } = await tabs(color => { creations++; return newGame(color ?? "black") })
+  try {
+    const [first, same] = await Promise.all([a.ensureGame(), b.ensureGame()])
+    assert.equal(creations, 1)
+    assert.equal(first.humanColor, "black")
+    assert.equal(first.turn, "ai")
+    assert.equal(same.sessionId, first.sessionId)
+    assert.equal(await b.commitMove(first.sessionId, 0, "e2e4"), true)
+    const saved = await a.currentGame()
+    assert.equal(saved?.humanColor, "black")
+    assert.equal(saved?.history[0].side, "ai")
+    assert.equal(saved?.turn, "human")
+    const next = await b.startNewGame()
+    assert.equal(creations, 2)
+    assert.equal(next.humanColor, "white")
+    assert.equal(next.turn, "human")
+    assert.equal(await a.commitMove(first.sessionId, 1, "e7e5"), false)
+    assert.equal((await a.ensureGame()).sessionId, next.sessionId)
+    assert.equal(creations, 2)
+    const third = await a.startNewGame()
+    assert.equal(third.humanColor, "black")
+    assert.equal(third.turn, "ai")
+    assert.equal(creations, 3)
+  } finally { close() }
 })

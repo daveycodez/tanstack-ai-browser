@@ -140,7 +140,7 @@ function compactInput(game: Game): PromptStyleInput {
 }
 
 test("compact cards keep every legal choice exactly once and in supplied order, including terminal alternatives", () => {
-  const game = ["f2f3", "e7e5", "g2g4"].reduce(applyMove, newGame())
+  const game = ["f2f3", "e7e5", "g2g4"].reduce(applyMove, newGame("white"))
   const data = compactInput(game)
   const cards = buildCompactChoices(data)
   assert.deepEqual(
@@ -209,7 +209,7 @@ test("compact cards distinguish legal castling, simple development and stalemate
     /Legal CASTLE IDs now: .*e8g8/
   )
   const opening = buildCompactChoices(
-    compactInput(applyMove(newGame(), "e2e4"))
+    compactInput(applyMove(newGame("white"), "e2e4"))
   )
   assert.match(
     opening.find((card) => card.id === "b8c6")?.outcome ?? "",
@@ -267,7 +267,7 @@ test("compact castling focus retains identical cards and adds a factual reminder
 
 test("compact castling focus cannot invent a castle or override terminal and queen priorities", () => {
   const data = compactInput(
-    ["f2f3", "e7e5", "g2g4"].reduce(applyMove, newGame())
+    ["f2f3", "e7e5", "g2g4"].reduce(applyMove, newGame("white"))
   )
   const cards = buildCompactChoices(data)
   const focused = buildStyledPrompt("compact-castle", {
@@ -525,7 +525,7 @@ test("copy-decoding profile alone changes repetition penalty and preserves the s
 test("copy-decoding prompt is byte-identical to highlights for ordinary, mating, queen-capture, and threatened-queen inputs", () => {
   const cases = [
     safeCastleInput(),
-    compactInput(["f2f3", "e7e5", "g2g4"].reduce(applyMove, newGame())),
+    compactInput(["f2f3", "e7e5", "g2g4"].reduce(applyMove, newGame("white"))),
     compactInput(fromFen("r5k1/5ppp/8/4p3/3Q4/8/5PPP/6K1 b - - 0 1")),
     compactInput(fromFen("r5k1/5ppp/8/3q4/4P3/8/5PPP/6K1 b - - 0 1"))
   ]

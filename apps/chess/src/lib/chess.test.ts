@@ -17,7 +17,7 @@ const moveIds = (game: Game) => legalMoves(game).map((move) => move.id)
 const sequence = (game: Game, moves: string[]) => moves.reduce(applyMove, game)
 
 test("starts with all 32 chess pieces and exactly 20 legal white moves", () => {
-  const game = newGame()
+  const game = newGame("white")
   assert.equal(game.board.filter(Boolean).length, 32)
   assert.deepEqual(game.board[index("a8")], { side: "ai", type: "r" })
   assert.deepEqual(game.board[index("e1")], { side: "human", type: "k" })
@@ -25,7 +25,7 @@ test("starts with all 32 chess pieces and exactly 20 legal white moves", () => {
   assert.equal(game.turn, "human")
   assert.equal(game.status, "playing")
   assert.equal(game.inCheck, false)
-  assert.notEqual(newGame().sessionId, game.sessionId)
+  assert.notEqual(newGame("white").sessionId, game.sessionId)
   assert.equal(squareName(0), "a8")
   assert.equal(squareName(63), "h1")
   for (const invalid of [-1, 64, 0.1, NaN])
@@ -33,7 +33,7 @@ test("starts with all 32 chess pieces and exactly 20 legal white moves", () => {
 })
 
 test("applies moves immutably, preserving session and opponent settings", () => {
-  const game = newGame()
+  const game = newGame("white")
   game.opponent = { model: "prompt-api", thinking: false }
   const before = JSON.stringify(game)
   const next = applyMove(game, "e2e4")
@@ -49,7 +49,7 @@ test("applies moves immutably, preserving session and opponent settings", () => 
 })
 
 test("rejects illegal, malformed, and out-of-turn moves", () => {
-  const game = newGame()
+  const game = newGame("white")
   for (const id of ["e2e5", "a7a6", "e4", "e2e4q", "", "e2-e4"]) {
     assert.throws(() => applyMove(game, id))
   }
@@ -81,11 +81,11 @@ test("does not castle through check or regain castling rights after a rook moves
     "h7h8"
   ])
   assert.ok(!moveIds(moved).includes("e1g1"))
-  assert.ok(!moveIds(newGame()).includes("e1g1"))
+  assert.ok(!moveIds(newGame("white")).includes("e1g1"))
 })
 
 test("en passant captures the pawn on its actual square and expires after one turn", () => {
-  const game = sequence(newGame(), ["e2e4", "a7a6", "e4e5", "d7d5"])
+  const game = sequence(newGame("white"), ["e2e4", "a7a6", "e4e5", "d7d5"])
   const move = legalMoves(game).find((item) => item.id === "e5d6")
   assert.deepEqual(move?.captures, [index("d5")])
   const next = applyMove(game, "e5d6")
@@ -128,14 +128,14 @@ test("check permits only evasions and checkmate ends the game", () => {
   const checked = fromFen("k3r3/8/8/8/8/8/8/R3K3 w Q - 0 1")
   assert.equal(checked.inCheck, true)
   assert.ok(!moveIds(checked).includes("a1a2"))
-  const mate = sequence(newGame(), ["f2f3", "e7e5", "g2g4", "d8h4"])
+  const mate = sequence(newGame("white"), ["f2f3", "e7e5", "g2g4", "d8h4"])
   assert.equal(mate.status, "ai-won")
   assert.equal(mate.inCheck, true)
   assert.equal(mate.history.at(-1)?.notation, "Qh4#")
   assert.deepEqual(legalMoves(mate), [])
   assert.throws(() => applyMove(mate, "e2e4"), /already over/)
   assert.match(toPgn(mate), /0-1/)
-  const whiteMate = sequence(newGame(), [
+  const whiteMate = sequence(newGame("white"), [
     "e2e4",
     "e7e5",
     "d1h5",
@@ -156,7 +156,7 @@ test("identifies stalemate separately from checkmate", () => {
 })
 
 test("detects threefold repetition after a JSON persistence roundtrip", () => {
-  let game = newGame()
+  let game = newGame("white")
   for (const id of [
     "g1f3",
     "g8f6",
@@ -201,11 +201,11 @@ test("detects insufficient material without treating a rook as insufficient", ()
 })
 
 test("PGN preserves legal SAN and custom starting positions", () => {
-  const game = sequence(newGame(), ["e2e4", "e7e5", "g1f3"])
+  const game = sequence(newGame("white"), ["e2e4", "e7e5", "g1f3"])
   assert.match(toPgn(game), /1\. e4 e5 2\. Nf3/)
   const custom = fromFen("r3k2r/8/8/8/8/8/8/R3K2R w KQkq - 0 1")
   assert.match(toPgn(applyMove(custom, "e1c1")), /\[FEN /)
-  const corrupted = { ...game, fen: newGame().fen }
+  const corrupted = { ...game, fen: newGame("white").fen }
   assert.throws(() => legalMoves(corrupted), /does not match/)
 })
 

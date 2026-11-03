@@ -1,4 +1,4 @@
-import type { PieceType, Side } from "../lib/chess"
+import type { PieceColor, PieceType, Side } from "../lib/chess"
 
 export const pieceNames: Record<PieceType, string> = {
   p: "pawn",
@@ -11,14 +11,16 @@ export const pieceNames: Record<PieceType, string> = {
 
 export function PieceArt({
   side,
-  type = "k"
+  type = "k",
+  color = side === "human" ? "white" : "black"
 }: {
   side: Side
+  color?: PieceColor
   type?: PieceType
 }) {
   return (
     <svg
-      className={`chess-piece piece-${side}`}
+      className={`chess-piece piece-${color === "white" ? "human" : "ai"}`}
       viewBox="0 0 64 64"
       aria-hidden="true"
       fill="currentColor"
