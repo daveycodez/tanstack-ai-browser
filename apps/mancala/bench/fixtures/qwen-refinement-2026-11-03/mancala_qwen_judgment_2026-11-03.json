@@ -1,0 +1,140 @@
+{
+  "scope": "Independent read-only judgment of three archived Qwen shared-v7 calibration misses; no benchmark/grader edits.",
+  "canonicalRulesValidation": "C++ transition matched canonical TypeScript sow on18851 legal transitions from100 complete deterministic games. Alpha-beta terminal-margin solver matched separate unpruned memoized solver on100 small reachable endgames.",
+  "sources": {
+    "/private/tmp/mancala_exact_independent.cpp": "41ecd1b641a84b267e0f30713cdce4d78609dfe08aeb4f0f966b86fe3307247a",
+    "/private/tmp/mancala_wdl39.cpp": "4db1de4f6b73489a82d243f49a1d0aadf92127d7e9ae5398aabd14d5eb4795d5"
+  },
+  "cases": [
+    {
+      "caseId": "safe-capture-over-exposure",
+      "board": [
+        0,
+        0,
+        4,
+        1,
+        10,
+        1,
+        6,
+        1,
+        0,
+        3,
+        10,
+        1,
+        8,
+        3
+      ],
+      "remainingSeeds": 39,
+      "expected": {
+        "index": 7,
+        "displayPit": 1,
+        "complete": true,
+        "perfectPlayOutcome": "ai-win",
+        "nodes": 98980,
+        "states": 65567,
+        "seconds": 0.009053
+      },
+      "selected": {
+        "index": 11,
+        "displayPit": 5,
+        "complete": true,
+        "perfectPlayOutcome": "human-win",
+        "nodes": 100854722,
+        "states": 2000000,
+        "seconds": 15.6861,
+        "maxSowDepth": 81
+      },
+      "method": "Full-board128-bit transposition keys, exact win/draw/loss alpha-beta to terminal or monotonic store-majority proof.20-second wall-clock budget per root; table capped2million entries; no heuristic leaf score.",
+      "judgment": "Genuine win-to-loss blunder. Exact final margins not computed for this39-seed case."
+    },
+    {
+      "caseId": "large-capture",
+      "board": [
+        0,
+        0,
+        1,
+        4,
+        1,
+        3,
+        13,
+        0,
+        1,
+        0,
+        4,
+        4,
+        4,
+        13
+      ],
+      "remainingSeeds": 22,
+      "terminalMarginsByIndex": {
+        "8": -2,
+        "10": -8,
+        "11": -4,
+        "12": -6
+      },
+      "expected": {
+        "index": 8,
+        "displayPit": 2,
+        "finalMargin": -2,
+        "aiStore": 23,
+        "humanStore": 25,
+        "nodes": 34273,
+        "states": 23091
+      },
+      "selected": {
+        "index": 12,
+        "displayPit": 6,
+        "finalMargin": -6,
+        "aiStore": 21,
+        "humanStore": 27,
+        "nodes": 230003,
+        "states": 124834
+      },
+      "method": "Exact terminal-margin minimax, no majority cutoff. Store-neutral future secured deltas and12pit+side transposition key. Each root completed in<0.2s.",
+      "judgment": "Genuine inferior margin choice: all legal actions lose under perfect play, but selected action gives up2additional AI seeds and worsens margin by4."
+    },
+    {
+      "caseId": "save-the-draw",
+      "board": [
+        0,
+        0,
+        0,
+        0,
+        2,
+        0,
+        24,
+        1,
+        0,
+        1,
+        3,
+        0,
+        1,
+        16
+      ],
+      "expected": {
+        "indices": [
+          7,
+          10,
+          12
+        ],
+        "perfectPlayMargin": 0
+      },
+      "selected": {
+        "index": 9,
+        "displayPit": 3,
+        "perfectPlayMargin": -4,
+        "aiStore": 22,
+        "humanStore": 26
+      },
+      "judgment": "Genuine draw-to-loss blunder. Human can secure a majority on the next sow and finish with the bonus follow-up."
+    }
+  ],
+  "wdlCrosschecks": [
+    "large-capture8=human-win",
+    "large-capture12=human-win",
+    "save-the-draw9=human-win",
+    "save-the-draw7=draw",
+    "capture-or-bonus11=ai-win",
+    "capture-or-bonus12=ai-win"
+  ]
+}

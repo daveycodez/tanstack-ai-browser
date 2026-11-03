@@ -79,8 +79,8 @@ or proof of overall playing strength. Actual LFM3-only results are archived in [
 
 ## Current/baseline and Mac parallel runs
 
-The **Prompt** selector runs the current explicit-comparison `shared-v7` context or the
-frozen `shared-v1` through `shared-v6` historical variants through the same model, case set,
+The **Prompt** selector runs the current resolved-recommendation `shared-v12` context or the
+frozen `shared-v1` through `shared-v11` historical variants through the same model, case set,
 reasoning settings and paired order policy. The chosen version is saved in each
 report. Use identical settings for an A/B comparison, then check holdouts without
 changing the frozen prompt.
@@ -105,7 +105,7 @@ comparisons. Cache state remains warm within each run, and provider token counts
 can differ even for identical text. No measured model scores are implied by the
 parallel test harness.
 
-## Current evaluation scope: default LFM3 only
+## Historical evaluation: default LFM3 only
 
 Use **LFM3-1.7B-GGUF**, thinking **off**, two repetitions and the calibration
 positions. Run the frozen `shared-v1` baseline, export its JSON, then repeat the
@@ -131,3 +131,14 @@ The subsequent [Qwen3.5-2B GGUF run](fixtures/qwen-gguf-2026-11-03/README.md)
 used the identical v7 suite with thinking off: **23/26 calibration objectives**,
 **6/6 holdouts**, and **38/38 legal choices**. All three calibration misses and
 the complete report transcripts are preserved without a prompt change or retry.
+
+## Current shared-prompt regression: Qwen, LFM3 and Nano
+
+[The v12 refinement report](fixtures/qwen-refinement-2026-11-03/README.md)
+records **26/26 calibration objectives and 6/6 holdouts for each model**, all
+thinking off, with unchanged suite/grading and vendor sampling defaults. Qwen
+also passed 12/12 rotated-order repeats of its original three genuine mistakes.
+The recommendation resolves only the existing preferred group; every legal
+choice remains in the schema and the actual generated answer is graded.
+Use single-model serial runs for this comparison. Reasoning-enabled diagnostics
+were used to guide wording and are excluded from the thinking-off totals.

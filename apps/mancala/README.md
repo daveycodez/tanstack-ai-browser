@@ -30,17 +30,19 @@ availability and development-only Apple opponent match Checkers. Models are
 loaded only for an AI turn or an explicitly started benchmark; there is no cloud
 inference or heuristic replacement of an invalid model answer.
 
-`shared-prompt.ts` now uses `shared-v7` whole-turn context. The worker checks four
+`shared-prompt.ts` now uses `shared-v12` whole-turn context. The worker checks four
 completed turns per alternative (AI, Human, AI response, Human), including every
 bonus sow, captures and final sweeps. If the node limit prevents that horizon,
 all alternatives retry at the same three- or two-turn horizon. An unfinished
 analysis has null scores and cannot create priority or steal-safe claims.
 
-Each card names a possible Human steal path, landing pit, exposed AI stash and
-exact seed loss after the selected AI bonus continuation. It separately pairs
-the worst-net Human reply with the matching AI counterplay. Explicit checked
-priority groups follow Chess/Checkers' context pattern while retaining every
-legal pit in the model's output schema. A possible steal is distinguished from
+The analysis records possible Human steal paths, landing pits, exposed AI
+stashes and exact seed loss after the selected AI bonus continuation. The
+current prompt condenses these facts into one row per legal action: immediate
+capture, secured gain, bonus sow, capture exposure, checked margin and proved
+result. The full paths remain in report diagnostics. Its recommendation follows
+Chess/Checkers' checked context pattern while retaining every legal pit in the
+model's output schema. A possible steal is distinguished from
 a forced net loss, and a bounded store margin from a proved win.
 
 The original six-sow `shared-v1` prompt remains frozen in
@@ -88,6 +90,17 @@ trials; Nano also passed 6/6 rotated-order repeats of its former miss.
 [The v7 comparison](bench/fixtures/prompt-v7-2026-11-03/README.md) preserves the
 results, capture methods and timing limitations. Evidence was saved directly in
 the project without a browser download.
+
+V12 uses Qwen failure reasoning to separate legal choices from recommendations,
+label proved draws and defeats from the AI perspective, and resolve the existing
+preferred group to one explicit action. If every preferred choice is a proved
+draw, an immediately finished draw is preferred. This adds no search and never
+replaces a generated answer. Qwen, LFM3 and Nano each measured **26/26 calibration
+objectives and 6/6 holdouts**, thinking off; Qwen also passed **12/12** rotated
+repeats of its three original genuine failures. The suite, accepted answers,
+solvers and sampling defaults are unchanged. [The v12 refinement archive](bench/fixtures/qwen-refinement-2026-11-03/README.md)
+includes all unsuccessful prompt experiments, diagnostic reasoning and independent
+full-game judgments. These remain small tactical measurements, not Elo claims.
 
 The Prompt API requires a supporting browser; WebGL models require the existing
 WebGL runtime's browser/GPU capabilities. Model downloads can be substantial.

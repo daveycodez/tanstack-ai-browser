@@ -1,7 +1,7 @@
 import assert from "node:assert/strict"
 import test from "node:test"
 import { createGame, legalMoves } from "./mancala.ts"
-import { buildMovePrompt, SHARED_SYSTEM_PROMPT } from "./shared-prompt.ts"
+import { buildMovePrompt, SHARED_SYSTEM_PROMPT } from "./shared-prompt-v7.ts"
 const position = () => ({
   ...createGame(),
   turn: "ai" as const,

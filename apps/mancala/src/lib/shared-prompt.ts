@@ -1,13 +1,14 @@
 import { legalMoves } from "./mancala.ts"
 import type { Game } from "./mancala.ts"
-import {
-  buildMovePrompt as buildV6,
-  SHARED_SYSTEM_PROMPT as V6_SYSTEM
-} from "./shared-prompt-v6.ts"
-import type { PromptInput as V6Input } from "./shared-prompt-v6.ts"
-export { analyzeMoves, checkedPriorityChoices } from "./shared-prompt-v6.ts"
-export type { MoveAnalysis } from "./shared-prompt-v6.ts"
-export const SHARED_PROMPT_VERSION = "shared-v7" as const
+import { buildMovePrompt as buildHistorical } from "./shared-prompt-v11.ts"
+import type { PromptInput as HistoricalInput } from "./shared-prompt-v11.ts"
+export { analyzeMoves, checkedPriorityChoices } from "./shared-prompt-v11.ts"
+export type {
+  MoveAnalysis,
+  EngineReport,
+  EngineAction
+} from "./shared-prompt-v11.ts"
+export const SHARED_PROMPT_VERSION = "shared-v12" as const
 export const PROMPT_VERSIONS = [
   "shared-v1",
   "shared-v2",
@@ -15,15 +16,25 @@ export const PROMPT_VERSIONS = [
   "shared-v4",
   "shared-v5",
   "shared-v6",
+  "shared-v7",
+  "shared-v8",
+  "shared-v9",
+  "shared-v10",
+  "shared-v11",
   SHARED_PROMPT_VERSION
 ] as const
 export type PromptVersion = (typeof PROMPT_VERSIONS)[number]
-export type PromptInput = Omit<V6Input, "version"> & { version: PromptVersion }
-export const SHARED_SYSTEM_PROMPT =
-  V6_SYSTEM +
-  "\n\nFor an EXACT ENDGAME COMPARISON, maximize the final AI store and final AI-minus-Human margin. Winning is not enough when another compared action wins by more. A positive final margin can still be INFERIOR. Final-score loss measures what that action gives up versus the best compared finish; choose a BEST COMPARED FINISH with zero loss. A card's best continuation is conditional on choosing that card, not a recommendation to choose it. These terminal figures outrank bonuses, sowed-seed counts, and short-horizon ties."
-
-/** Clarify terminal comparisons without changing the solver, grading or legal choices. */
+export type PromptInput = Omit<HistoricalInput, "version"> & {
+  version: PromptVersion
+  recommendedAction?: string
+}
+export const SHARED_SYSTEM_PROMPT = [
+  "You control the AI in Kalah. Human is the opponent. AI WIN is good; DRAW beats AI DEFEAT. All listed actions are legal, but legality does not mean they are equally good.",
+  "The engine report ends with RECOMMENDED AI ACTION. It is a legal representative from the best evaluated group; equally preferred ties have already been resolved, preferring an immediate terminal draw when every preferred action is proved to draw. Select that recommended action and copy its complete label into the pit value of your JSON answer. The other legal actions remain in the schema for validation and comparison, not as recommendations.",
+  "The table explains the decision using captures, bonus sows, checked margins and proved results. A proved AI defeat cannot be rescued by zero capture exposure. Bounded scores are previews rather than eventual results. Do not confuse an opponent reply with your action, or choose a larger starting pit instead of the recommendation.",
+  "If the report says no recommendation was verified, choose a legal action using the supplied incomplete facts without inventing certainty. Return only the JSON object."
+].join("\n\n")
+/** Make v10's first-preferred tie policy explicit data, without narrowing legal outputs. */
 export function buildMovePrompt(
   game: Game,
   moves: readonly number[] = legalMoves(game.board, "ai"),
@@ -36,63 +47,43 @@ export function buildMovePrompt(
       version === "shared-v3" ||
       version === "shared-v4" ||
       version === "shared-v5" ||
-      version === "shared-v6"
+      version === "shared-v6" ||
+      version === "shared-v7" ||
+      version === "shared-v8" ||
+      version === "shared-v9" ||
+      version === "shared-v10" ||
+      version === "shared-v11"
     )
-      return buildV6(game, moves, version)
+      return buildHistorical(game, moves, version)
     throw new Error("Unsupported prompt version.")
   }
-  const base = buildV6(game, moves, "shared-v6")
-  const endgame = base.endgame
-  if (!endgame?.complete)
-    return { ...base, version, systemPrompt: SHARED_SYSTEM_PROMPT }
-  const bestMargin = Math.max(...endgame.moves.map((move) => move.finalMargin))
-  const bestStore = Math.max(...endgame.moves.map((move) => move.aiStore))
-  const solved = new Map(endgame.moves.map((move) => [move.pit, move]))
-  const comparison: string[] = []
-  const choices = base.choices.map((choice) => {
-    const exact = solved.get(choice.id)
-    if (!exact) return choice
-    const lostMargin = bestMargin - exact.finalMargin,
-      lostSeeds = bestStore - exact.aiStore
-    const assessment =
-      lostMargin === 0
-        ? "BEST COMPARED FINISH; zero final-score loss"
-        : `INFERIOR COMPARED FINISH; gives up ${lostSeeds} final AI seeds and ${lostMargin} points of final margin`
-    const final = `AI ${exact.aiStore}, Human ${exact.humanStore}; final margin ${exact.finalMargin > 0 ? "+" : ""}${exact.finalMargin}`
-    comparison.push(
-      `${JSON.stringify(choice.label)} => ${final}. ${assessment}.`
-    )
-    const own = exact.bestAiTurn.map((pit) => pit - 6).join(", then pit ")
-    return {
-      ...choice,
-      outcome: `${choice.label} | ${lostMargin === 0 ? "CHECKED PRIORITY; " : ""}${assessment}. EXACT FINAL MARGIN ${exact.finalMargin > 0 ? "+" : ""}${exact.finalMargin}; final stores AI ${exact.aiStore}, Human ${exact.humanStore} under best play by both sides. Conditional on choosing THIS action, its best AI continuation sows pit ${own}. This does not make an inferior action equally good.`
-    }
-  })
-  const names = choices
-    .filter((choice) => (base.priorityPits ?? []).includes(choice.id))
-    .map((choice) => JSON.stringify(choice.label))
-  const priority = `CHECKED PRIORITY ACTIONS: ${names.join("; ")}. Select a BEST COMPARED FINISH with zero final-score loss. Reject an INFERIOR COMPARED FINISH even if it still wins.`
-  const cards = new Map(
-    base.choices.map((old, index) => [old.outcome, choices[index].outcome])
-  )
+  const base = buildHistorical(game, moves, "shared-v10")
+  const preferredLabels = base.report?.preferredActions ?? []
+  const preferredActions =
+    base.report?.actions.filter((action) =>
+      preferredLabels.includes(action.label)
+    ) ?? []
+  const terminalDraw =
+    preferredActions.length > 0 &&
+    preferredActions.every((action) => action.resultForAI === "DRAW")
+      ? preferredActions.find((action) => action.now.endsGame)?.label
+      : undefined
+  const recommendedAction = terminalDraw ?? preferredLabels[0]
   const prompt = base.prompt
     .split("\n")
-    .flatMap((line) => {
-      if (line.startsWith("CHECKED PRIORITY ACTIONS:")) return [priority]
-      if (line.startsWith("INDEPENDENT AI ACTIONS"))
-        return [
-          "EXACT ENDGAME COMPARISON (same starting board, best play by BOTH sides):",
-          ...comparison,
-          line
-        ]
-      return [cards.get(line) ?? line]
-    })
+    .map((line) =>
+      line.startsWith("PREFERRED AI ACTION LABELS:")
+        ? recommendedAction
+          ? `RECOMMENDED AI ACTION: ${JSON.stringify(recommendedAction)}`
+          : "No recommendation was verified; evaluation is incomplete."
+        : line
+    )
     .join("\n")
   return {
     ...base,
     version,
     systemPrompt: SHARED_SYSTEM_PROMPT,
-    choices,
-    prompt
+    prompt,
+    recommendedAction
   }
 }

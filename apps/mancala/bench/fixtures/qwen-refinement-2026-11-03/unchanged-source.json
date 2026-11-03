@@ -1,0 +1,15 @@
+{
+  "baselineCommit": "4bddb3e",
+  "sha256": {
+    "apps/mancala/src/lib/mancala.ts": "9b2c780d2c784dbbe156572e59cfd2ff4ea82803426861e22a9daec6e6099e42",
+    "apps/mancala/src/lib/move-outcomes.ts": "ca9fe5db997f00411dd7353328f0e45de7cb27e351c5dcc3262a1acfcd1c5557",
+    "apps/mancala/src/lib/endgame-ties.ts": "53ccd7f943a6e7528be1b74c5fef5ed6900727d4b7f46bea6a7cc448c049bd96",
+    "apps/mancala/src/lib/ai.ts": "efaf9857b5384a13b31767b9bea24dc00ca66d409e479a91c5ef13bc1ca1e32e",
+    "apps/mancala/src/lib/move-choice.ts": "9ab9c9a264afca471cd4f8d6647bc4e5860a9a6722a53663b8eaf29f17cb27fb",
+    "apps/mancala/bench/cases.ts": "7c8151107d3a04e3dcd97d6efa2b106df89f25921f92d827ba7acd6544873c89",
+    "apps/mancala/bench/reference.ts": "fe3300b29e4cf2080ead1447f41dc03564c06dbe3fbb72efb62967926ce08d31",
+    "apps/mancala/bench/endgame-reference.ts": "043bb1b0ec6ed051dff6b3a2508b235bafbe0c72e8d3076f24157f06b2c12407",
+    "apps/mancala/bench/audit.ts": "e74dcc9e53ae3dd9a5529c3c1885334ef1ffbdc1c7dd95ea6075036c63285969",
+    "apps/mancala/bench/runner.ts": "69529100308bfe48c837159bd4ad6f23fc6d407ac361248bfa951f3a20a64f7b"
+  }
+}
