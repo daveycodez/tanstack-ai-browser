@@ -20,3 +20,7 @@ was used; these files were written directly into the project.
 The Gemini-Nano name is this adapter's Chrome label. No exact native model
 version was inspected. These are small tactical tests, not full-game-strength
 measurements.
+
+A later [v7 prompt comparison](../prompt-v7-2026-11-03/README.md) fixes this miss
+on the same accepted actions. This v6 summary remains the original baseline;
+later code reloads may reset its old browser tab.

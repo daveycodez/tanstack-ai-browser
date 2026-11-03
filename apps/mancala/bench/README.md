@@ -79,8 +79,8 @@ or proof of overall playing strength. Actual LFM3-only results are archived in [
 
 ## Current/baseline and Mac parallel runs
 
-The **Prompt** selector runs the current endgame-aware `shared-v6` context or the
-frozen `shared-v1` through `shared-v5` historical variants through the same model, case set,
+The **Prompt** selector runs the current explicit-comparison `shared-v7` context or the
+frozen `shared-v1` through `shared-v6` historical variants through the same model, case set,
 reasoning settings and paired order policy. The chosen version is saved in each
 report. Use identical settings for an A/B comparison, then check holdouts without
 changing the frozen prompt.
@@ -109,7 +109,7 @@ parallel test harness.
 
 Use **LFM3-1.7B-GGUF**, thinking **off**, two repetitions and the calibration
 positions. Run the frozen `shared-v1` baseline, export its JSON, then repeat the
-same settings with current `shared-v6`. Inspect the new bonus-steal cases first,
+same settings with current `shared-v7`. Inspect the new bonus-steal cases first,
 then overall scoped objective passes, errors and order sensitivity. Keep the
 three holdouts frozen for the final check. Do not invoke the all-three batch for
 this evaluation. The archived comparison records v1-v5 default-mode results plus a separate
@@ -120,3 +120,9 @@ verified full-game margin objective. Accepted pits are unchanged for every case.
 Historical v2 reports retain their original objective names and scores. Final v6
 measured 26/26 calibration objectives and 6/6 holdout trials with thinking off;
 see the archived reports and terminal proof fixture.
+
+The follow-up [v7 Nano/LFM3 comparison](fixtures/prompt-v7-2026-11-03/README.md)
+keeps the suite and every accepted action unchanged. Both models passed 26/26
+calibration objectives and 6/6 holdouts with thinking off. Nano's original miss
+also passed 6/6 rotated-choice repeats. Raw DOM-read reports and observed ledgers
+are distinguished, and all artifacts were saved directly to task/project paths.

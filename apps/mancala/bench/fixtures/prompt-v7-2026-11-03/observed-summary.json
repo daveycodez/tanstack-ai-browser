@@ -1,0 +1,1228 @@
+{
+  "schemaVersion": 1,
+  "recordedAt": "2026-11-03T22:16:56.232Z",
+  "sourceParentCommit": "fa6234576fc4f78a197f5acf0947eed8200d169e",
+  "promptVersion": "shared-v7",
+  "suiteVersion": "mancala-tactics-v3",
+  "scope": "Nano and LFM3, thinking off, unchanged tactical objectives/accepted moves; no full-game-strength claim.",
+  "captureNote": "Three DOM-read full reports plus two native-UI observed ledgers. Written directly to temporary/project files; no browser downloads used.",
+  "identityNote": "Gemini-Nano is the Chrome adapter UI label; no exact native model version inspected.",
+  "latencyNote": "Serial uncontrolled runs. Nano calibration median4.11s, holdout0.88s, rotated case1.05s; LFM3 calibration0.53s, holdout0.55s. Cache/readiness and timing conditions differ; no causal speed claim.",
+  "fullTranscriptSourceVerification": {
+    "matched": 44,
+    "total": 44,
+    "method": "Every full report system/position prompt rebuilt from its board, choice order and frozen version; exact string comparison."
+  },
+  "unchangedSolverAndGradingFiles": {
+    "apps/mancala/bench/cases.ts": "7c8151107d3a04e3dcd97d6efa2b106df89f25921f92d827ba7acd6544873c89",
+    "apps/mancala/bench/reference.ts": "fe3300b29e4cf2080ead1447f41dc03564c06dbe3fbb72efb62967926ce08d31",
+    "apps/mancala/bench/endgame-reference.ts": "043bb1b0ec6ed051dff6b3a2508b235bafbe0c72e8d3076f24157f06b2c12407",
+    "apps/mancala/src/lib/endgame-ties.ts": "53ccd7f943a6e7528be1b74c5fef5ed6900727d4b7f46bea6a7cc448c049bd96",
+    "apps/mancala/src/lib/mancala.ts": "9b2c780d2c784dbbe156572e59cfd2ff4ea82803426861e22a9daec6e6099e42"
+  },
+  "baselineMiss": {
+    "version": "shared-v6",
+    "caseId": "capture-or-bonus",
+    "repetition": 2,
+    "displayPit": 6,
+    "rawAnswerObserved": "{\"pit\": \"Sow 5 seeds from AI pit 6\"}",
+    "reasoningReturned": false,
+    "perfectPlayScores": {
+      "chosen": [
+        25,
+        23
+      ],
+      "preferred": [
+        30,
+        18
+      ]
+    },
+    "wordingHypothesis": "Both v6 cards called their conditional best continuation optimal. This may be mistaken for a global recommendation; no model reasoning was returned to prove that causal explanation."
+  },
+  "changes": [
+    "Clarify conditional continuation versus best compared action.",
+    "Derive explicit final AI seed loss and margin loss from unchanged solver facts.",
+    "Add order-preserving endgame comparison table; all legal schema labels remain available."
+  ],
+  "runs": [
+    {
+      "id": "gemini-nano-v7-calibration",
+      "model": "prompt-api",
+      "uiLabel": "Gemini-Nano",
+      "selection": "calibration",
+      "repetitions": 2,
+      "summary": {
+        "passed": 26,
+        "scored": 26,
+        "legal": 32,
+        "total": 32,
+        "firstOptionChosen": 9,
+        "medianSecondsRoundedFromUI": 4.11
+      },
+      "rawArchive": "gemini-nano-v7-calibration.json.gz",
+      "rawSha256": "c88492e2dd609ee6f79c7cfdfde5541af6231fd7521ab1ca1a60b18dc14439fa",
+      "startedAt": "2026-11-03T21:59:50.604Z",
+      "finishedAt": "2026-11-03T22:01:51.751Z",
+      "reportedRevision": "3715ca1+working",
+      "captureMethod": "Full visible report DOM read through the Chrome tab connection and written directly to task files. No download control used.",
+      "promptVersion": "shared-v7",
+      "suiteVersion": "mancala-tactics-v3",
+      "thinking": false,
+      "trials": [
+        {
+          "caseId": "bonus-steal-defense",
+          "repetition": 1,
+          "displayPit": 4,
+          "boardPit": 10,
+          "expectedBoardPits": [
+            10
+          ],
+          "legal": true,
+          "passed": true,
+          "seconds": 6.09,
+          "secondsPrecision": "Raw report retains exact time; this ledger may be rounded"
+        },
+        {
+          "caseId": "bonus-steal-defense",
+          "repetition": 2,
+          "displayPit": 4,
+          "boardPit": 10,
+          "expectedBoardPits": [
+            10
+          ],
+          "legal": true,
+          "passed": true,
+          "seconds": 1.07,
+          "secondsPrecision": "Raw report retains exact time; this ledger may be rounded"
+        },
+        {
+          "caseId": "safe-capture-over-exposure",
+          "repetition": 1,
+          "displayPit": 1,
+          "boardPit": 7,
+          "expectedBoardPits": [
+            7
+          ],
+          "legal": true,
+          "passed": true,
+          "seconds": 3.06,
+          "secondsPrecision": "Raw report retains exact time; this ledger may be rounded"
+        },
+        {
+          "caseId": "safe-capture-over-exposure",
+          "repetition": 2,
+          "displayPit": 1,
+          "boardPit": 7,
+          "expectedBoardPits": [
+            7
+          ],
+          "legal": true,
+          "passed": true,
+          "seconds": 4.66,
+          "secondsPrecision": "Raw report retains exact time; this ledger may be rounded"
+        },
+        {
+          "caseId": "opening",
+          "repetition": 1,
+          "displayPit": 6,
+          "boardPit": 12,
+          "expectedBoardPits": null,
+          "legal": true,
+          "passed": null,
+          "seconds": 5.83,
+          "secondsPrecision": "Raw report retains exact time; this ledger may be rounded"
+        },
+        {
+          "caseId": "opening",
+          "repetition": 2,
+          "displayPit": 6,
+          "boardPit": 12,
+          "expectedBoardPits": null,
+          "legal": true,
+          "passed": null,
+          "seconds": 4.23,
+          "secondsPrecision": "Raw report retains exact time; this ledger may be rounded"
+        },
+        {
+          "caseId": "bonus-followthrough",
+          "repetition": 1,
+          "displayPit": 5,
+          "boardPit": 11,
+          "expectedBoardPits": [
+            11
+          ],
+          "legal": true,
+          "passed": true,
+          "seconds": 4,
+          "secondsPrecision": "Raw report retains exact time; this ledger may be rounded"
+        },
+        {
+          "caseId": "bonus-followthrough",
+          "repetition": 2,
+          "displayPit": 5,
+          "boardPit": 11,
+          "expectedBoardPits": [
+            11
+          ],
+          "legal": true,
+          "passed": true,
+          "seconds": 4.99,
+          "secondsPrecision": "Raw report retains exact time; this ledger may be rounded"
+        },
+        {
+          "caseId": "capture-or-bonus",
+          "repetition": 1,
+          "displayPit": 5,
+          "boardPit": 11,
+          "expectedBoardPits": [
+            11
+          ],
+          "legal": true,
+          "passed": true,
+          "seconds": 5.22,
+          "secondsPrecision": "Raw report retains exact time; this ledger may be rounded"
+        },
+        {
+          "caseId": "capture-or-bonus",
+          "repetition": 2,
+          "displayPit": 5,
+          "boardPit": 11,
+          "expectedBoardPits": [
+            11
+          ],
+          "legal": true,
+          "passed": true,
+          "seconds": 4.82,
+          "secondsPrecision": "Raw report retains exact time; this ledger may be rounded"
+        },
+        {
+          "caseId": "large-capture",
+          "repetition": 1,
+          "displayPit": 2,
+          "boardPit": 8,
+          "expectedBoardPits": [
+            8
+          ],
+          "legal": true,
+          "passed": true,
+          "seconds": 4.35,
+          "secondsPrecision": "Raw report retains exact time; this ledger may be rounded"
+        },
+        {
+          "caseId": "large-capture",
+          "repetition": 2,
+          "displayPit": 2,
+          "boardPit": 8,
+          "expectedBoardPits": [
+            8
+          ],
+          "legal": true,
+          "passed": true,
+          "seconds": 3.83,
+          "secondsPrecision": "Raw report retains exact time; this ledger may be rounded"
+        },
+        {
+          "caseId": "chain-into-capture",
+          "repetition": 1,
+          "displayPit": 5,
+          "boardPit": 11,
+          "expectedBoardPits": [
+            11
+          ],
+          "legal": true,
+          "passed": true,
+          "seconds": 4.6,
+          "secondsPrecision": "Raw report retains exact time; this ledger may be rounded"
+        },
+        {
+          "caseId": "chain-into-capture",
+          "repetition": 2,
+          "displayPit": 5,
+          "boardPit": 11,
+          "expectedBoardPits": [
+            11
+          ],
+          "legal": true,
+          "passed": true,
+          "seconds": 4.29,
+          "secondsPrecision": "Raw report retains exact time; this ledger may be rounded"
+        },
+        {
+          "caseId": "avoid-big-recapture",
+          "repetition": 1,
+          "displayPit": 4,
+          "boardPit": 10,
+          "expectedBoardPits": [
+            10,
+            12
+          ],
+          "legal": true,
+          "passed": true,
+          "seconds": 4.53,
+          "secondsPrecision": "Raw report retains exact time; this ledger may be rounded"
+        },
+        {
+          "caseId": "avoid-big-recapture",
+          "repetition": 2,
+          "displayPit": 4,
+          "boardPit": 10,
+          "expectedBoardPits": [
+            10,
+            12
+          ],
+          "legal": true,
+          "passed": true,
+          "seconds": 4.43,
+          "secondsPrecision": "Raw report retains exact time; this ledger may be rounded"
+        },
+        {
+          "caseId": "compare-bonus-chains",
+          "repetition": 1,
+          "displayPit": 5,
+          "boardPit": 11,
+          "expectedBoardPits": [
+            11
+          ],
+          "legal": true,
+          "passed": true,
+          "seconds": 3.62,
+          "secondsPrecision": "Raw report retains exact time; this ledger may be rounded"
+        },
+        {
+          "caseId": "compare-bonus-chains",
+          "repetition": 2,
+          "displayPit": 5,
+          "boardPit": 11,
+          "expectedBoardPits": [
+            11
+          ],
+          "legal": true,
+          "passed": true,
+          "seconds": 4.56,
+          "secondsPrecision": "Raw report retains exact time; this ledger may be rounded"
+        },
+        {
+          "caseId": "equal-captures",
+          "repetition": 1,
+          "displayPit": 3,
+          "boardPit": 9,
+          "expectedBoardPits": [
+            9
+          ],
+          "legal": true,
+          "passed": true,
+          "seconds": 4.99,
+          "secondsPrecision": "Raw report retains exact time; this ledger may be rounded"
+        },
+        {
+          "caseId": "equal-captures",
+          "repetition": 2,
+          "displayPit": 3,
+          "boardPit": 9,
+          "expectedBoardPits": [
+            9
+          ],
+          "legal": true,
+          "passed": true,
+          "seconds": 4.36,
+          "secondsPrecision": "Raw report retains exact time; this ledger may be rounded"
+        },
+        {
+          "caseId": "defend-while-sowing",
+          "repetition": 1,
+          "displayPit": 2,
+          "boardPit": 8,
+          "expectedBoardPits": [
+            8
+          ],
+          "legal": true,
+          "passed": true,
+          "seconds": 2.41,
+          "secondsPrecision": "Raw report retains exact time; this ledger may be rounded"
+        },
+        {
+          "caseId": "defend-while-sowing",
+          "repetition": 2,
+          "displayPit": 2,
+          "boardPit": 8,
+          "expectedBoardPits": [
+            8
+          ],
+          "legal": true,
+          "passed": true,
+          "seconds": 2.78,
+          "secondsPrecision": "Raw report retains exact time; this ledger may be rounded"
+        },
+        {
+          "caseId": "long-lap",
+          "repetition": 1,
+          "displayPit": 6,
+          "boardPit": 12,
+          "expectedBoardPits": null,
+          "legal": true,
+          "passed": null,
+          "seconds": 2.22,
+          "secondsPrecision": "Raw report retains exact time; this ledger may be rounded"
+        },
+        {
+          "caseId": "long-lap",
+          "repetition": 2,
+          "displayPit": 6,
+          "boardPit": 12,
+          "expectedBoardPits": null,
+          "legal": true,
+          "passed": null,
+          "seconds": 3.76,
+          "secondsPrecision": "Raw report retains exact time; this ledger may be rounded"
+        },
+        {
+          "caseId": "winning-sweep",
+          "repetition": 1,
+          "displayPit": 2,
+          "boardPit": 8,
+          "expectedBoardPits": [
+            8
+          ],
+          "legal": true,
+          "passed": true,
+          "seconds": 1.9,
+          "secondsPrecision": "Raw report retains exact time; this ledger may be rounded"
+        },
+        {
+          "caseId": "winning-sweep",
+          "repetition": 2,
+          "displayPit": 2,
+          "boardPit": 8,
+          "expectedBoardPits": [
+            8
+          ],
+          "legal": true,
+          "passed": true,
+          "seconds": 5.34,
+          "secondsPrecision": "Raw report retains exact time; this ledger may be rounded"
+        },
+        {
+          "caseId": "save-the-draw",
+          "repetition": 1,
+          "displayPit": 1,
+          "boardPit": 7,
+          "expectedBoardPits": [
+            7,
+            10,
+            12
+          ],
+          "legal": true,
+          "passed": true,
+          "seconds": 3.79,
+          "secondsPrecision": "Raw report retains exact time; this ledger may be rounded"
+        },
+        {
+          "caseId": "save-the-draw",
+          "repetition": 2,
+          "displayPit": 6,
+          "boardPit": 12,
+          "expectedBoardPits": [
+            7,
+            10,
+            12
+          ],
+          "legal": true,
+          "passed": true,
+          "seconds": 1.88,
+          "secondsPrecision": "Raw report retains exact time; this ledger may be rounded"
+        },
+        {
+          "caseId": "tied-wins",
+          "repetition": 1,
+          "displayPit": 1,
+          "boardPit": 7,
+          "expectedBoardPits": [
+            7,
+            9
+          ],
+          "legal": true,
+          "passed": true,
+          "seconds": 2.36,
+          "secondsPrecision": "Raw report retains exact time; this ledger may be rounded"
+        },
+        {
+          "caseId": "tied-wins",
+          "repetition": 2,
+          "displayPit": 1,
+          "boardPit": 7,
+          "expectedBoardPits": [
+            7,
+            9
+          ],
+          "legal": true,
+          "passed": true,
+          "seconds": 2.41,
+          "secondsPrecision": "Raw report retains exact time; this ledger may be rounded"
+        },
+        {
+          "caseId": "empty-opposite",
+          "repetition": 1,
+          "displayPit": 6,
+          "boardPit": 12,
+          "expectedBoardPits": null,
+          "legal": true,
+          "passed": null,
+          "seconds": 1.7,
+          "secondsPrecision": "Raw report retains exact time; this ledger may be rounded"
+        },
+        {
+          "caseId": "empty-opposite",
+          "repetition": 2,
+          "displayPit": 6,
+          "boardPit": 12,
+          "expectedBoardPits": null,
+          "legal": true,
+          "passed": null,
+          "seconds": 3.05,
+          "secondsPrecision": "Raw report retains exact time; this ledger may be rounded"
+        }
+      ]
+    },
+    {
+      "id": "lfm3-v7-calibration",
+      "model": "LiquidAI/LFM3-1.7B-GGUF",
+      "uiLabel": "LFM3-1.7B-GGUF",
+      "selection": "calibration",
+      "repetitions": 2,
+      "summary": {
+        "passed": 26,
+        "scored": 26,
+        "legal": 32,
+        "total": 32,
+        "firstOptionChosen": 9,
+        "medianSecondsRoundedFromUI": 0.53
+      },
+      "captureMethod": "Native Chrome accessibility summary and trial ledger; no full raw transcript claimed.",
+      "promptVersion": "shared-v7",
+      "suiteVersion": "mancala-tactics-v3",
+      "thinking": false,
+      "trials": [
+        {
+          "caseId": "bonus-steal-defense",
+          "repetition": 1,
+          "displayPit": 4,
+          "boardPit": 10,
+          "expectedBoardPits": [
+            10
+          ],
+          "legal": true,
+          "passed": true,
+          "seconds": 4.74,
+          "secondsPrecision": "UI-rounded"
+        },
+        {
+          "caseId": "bonus-steal-defense",
+          "repetition": 2,
+          "displayPit": 4,
+          "boardPit": 10,
+          "expectedBoardPits": [
+            10
+          ],
+          "legal": true,
+          "passed": true,
+          "seconds": 0.62,
+          "secondsPrecision": "UI-rounded"
+        },
+        {
+          "caseId": "safe-capture-over-exposure",
+          "repetition": 1,
+          "displayPit": 1,
+          "boardPit": 7,
+          "expectedBoardPits": [
+            7
+          ],
+          "legal": true,
+          "passed": true,
+          "seconds": 0.76,
+          "secondsPrecision": "UI-rounded"
+        },
+        {
+          "caseId": "safe-capture-over-exposure",
+          "repetition": 2,
+          "displayPit": 1,
+          "boardPit": 7,
+          "expectedBoardPits": [
+            7
+          ],
+          "legal": true,
+          "passed": true,
+          "seconds": 0.53,
+          "secondsPrecision": "UI-rounded"
+        },
+        {
+          "caseId": "opening",
+          "repetition": 1,
+          "displayPit": 6,
+          "boardPit": 12,
+          "expectedBoardPits": null,
+          "legal": true,
+          "passed": null,
+          "seconds": 0.71,
+          "secondsPrecision": "UI-rounded"
+        },
+        {
+          "caseId": "opening",
+          "repetition": 2,
+          "displayPit": 6,
+          "boardPit": 12,
+          "expectedBoardPits": null,
+          "legal": true,
+          "passed": null,
+          "seconds": 0.67,
+          "secondsPrecision": "UI-rounded"
+        },
+        {
+          "caseId": "bonus-followthrough",
+          "repetition": 1,
+          "displayPit": 5,
+          "boardPit": 11,
+          "expectedBoardPits": [
+            11
+          ],
+          "legal": true,
+          "passed": true,
+          "seconds": 0.63,
+          "secondsPrecision": "UI-rounded"
+        },
+        {
+          "caseId": "bonus-followthrough",
+          "repetition": 2,
+          "displayPit": 5,
+          "boardPit": 11,
+          "expectedBoardPits": [
+            11
+          ],
+          "legal": true,
+          "passed": true,
+          "seconds": 0.81,
+          "secondsPrecision": "UI-rounded"
+        },
+        {
+          "caseId": "capture-or-bonus",
+          "repetition": 1,
+          "displayPit": 5,
+          "boardPit": 11,
+          "expectedBoardPits": [
+            11
+          ],
+          "legal": true,
+          "passed": true,
+          "seconds": 0.89,
+          "secondsPrecision": "UI-rounded"
+        },
+        {
+          "caseId": "capture-or-bonus",
+          "repetition": 2,
+          "displayPit": 5,
+          "boardPit": 11,
+          "expectedBoardPits": [
+            11
+          ],
+          "legal": true,
+          "passed": true,
+          "seconds": 0.74,
+          "secondsPrecision": "UI-rounded"
+        },
+        {
+          "caseId": "large-capture",
+          "repetition": 1,
+          "displayPit": 2,
+          "boardPit": 8,
+          "expectedBoardPits": [
+            8
+          ],
+          "legal": true,
+          "passed": true,
+          "seconds": 0.44,
+          "secondsPrecision": "UI-rounded"
+        },
+        {
+          "caseId": "large-capture",
+          "repetition": 2,
+          "displayPit": 2,
+          "boardPit": 8,
+          "expectedBoardPits": [
+            8
+          ],
+          "legal": true,
+          "passed": true,
+          "seconds": 0.46,
+          "secondsPrecision": "UI-rounded"
+        },
+        {
+          "caseId": "chain-into-capture",
+          "repetition": 1,
+          "displayPit": 5,
+          "boardPit": 11,
+          "expectedBoardPits": [
+            11
+          ],
+          "legal": true,
+          "passed": true,
+          "seconds": 0.56,
+          "secondsPrecision": "UI-rounded"
+        },
+        {
+          "caseId": "chain-into-capture",
+          "repetition": 2,
+          "displayPit": 5,
+          "boardPit": 11,
+          "expectedBoardPits": [
+            11
+          ],
+          "legal": true,
+          "passed": true,
+          "seconds": 0.57,
+          "secondsPrecision": "UI-rounded"
+        },
+        {
+          "caseId": "avoid-big-recapture",
+          "repetition": 1,
+          "displayPit": 4,
+          "boardPit": 10,
+          "expectedBoardPits": [
+            10,
+            12
+          ],
+          "legal": true,
+          "passed": true,
+          "seconds": 0.52,
+          "secondsPrecision": "UI-rounded"
+        },
+        {
+          "caseId": "avoid-big-recapture",
+          "repetition": 2,
+          "displayPit": 4,
+          "boardPit": 10,
+          "expectedBoardPits": [
+            10,
+            12
+          ],
+          "legal": true,
+          "passed": true,
+          "seconds": 0.53,
+          "secondsPrecision": "UI-rounded"
+        },
+        {
+          "caseId": "compare-bonus-chains",
+          "repetition": 1,
+          "displayPit": 5,
+          "boardPit": 11,
+          "expectedBoardPits": [
+            11
+          ],
+          "legal": true,
+          "passed": true,
+          "seconds": 0.51,
+          "secondsPrecision": "UI-rounded"
+        },
+        {
+          "caseId": "compare-bonus-chains",
+          "repetition": 2,
+          "displayPit": 5,
+          "boardPit": 11,
+          "expectedBoardPits": [
+            11
+          ],
+          "legal": true,
+          "passed": true,
+          "seconds": 0.51,
+          "secondsPrecision": "UI-rounded"
+        },
+        {
+          "caseId": "equal-captures",
+          "repetition": 1,
+          "displayPit": 3,
+          "boardPit": 9,
+          "expectedBoardPits": [
+            9
+          ],
+          "legal": true,
+          "passed": true,
+          "seconds": 0.5,
+          "secondsPrecision": "UI-rounded"
+        },
+        {
+          "caseId": "equal-captures",
+          "repetition": 2,
+          "displayPit": 3,
+          "boardPit": 9,
+          "expectedBoardPits": [
+            9
+          ],
+          "legal": true,
+          "passed": true,
+          "seconds": 0.5,
+          "secondsPrecision": "UI-rounded"
+        },
+        {
+          "caseId": "defend-while-sowing",
+          "repetition": 1,
+          "displayPit": 2,
+          "boardPit": 8,
+          "expectedBoardPits": [
+            8
+          ],
+          "legal": true,
+          "passed": true,
+          "seconds": 0.53,
+          "secondsPrecision": "UI-rounded"
+        },
+        {
+          "caseId": "defend-while-sowing",
+          "repetition": 2,
+          "displayPit": 2,
+          "boardPit": 8,
+          "expectedBoardPits": [
+            8
+          ],
+          "legal": true,
+          "passed": true,
+          "seconds": 0.53,
+          "secondsPrecision": "UI-rounded"
+        },
+        {
+          "caseId": "long-lap",
+          "repetition": 1,
+          "displayPit": 6,
+          "boardPit": 12,
+          "expectedBoardPits": null,
+          "legal": true,
+          "passed": null,
+          "seconds": 0.58,
+          "secondsPrecision": "UI-rounded"
+        },
+        {
+          "caseId": "long-lap",
+          "repetition": 2,
+          "displayPit": 6,
+          "boardPit": 12,
+          "expectedBoardPits": null,
+          "legal": true,
+          "passed": null,
+          "seconds": 0.59,
+          "secondsPrecision": "UI-rounded"
+        },
+        {
+          "caseId": "winning-sweep",
+          "repetition": 1,
+          "displayPit": 2,
+          "boardPit": 8,
+          "expectedBoardPits": [
+            8
+          ],
+          "legal": true,
+          "passed": true,
+          "seconds": 0.53,
+          "secondsPrecision": "UI-rounded"
+        },
+        {
+          "caseId": "winning-sweep",
+          "repetition": 2,
+          "displayPit": 2,
+          "boardPit": 8,
+          "expectedBoardPits": [
+            8
+          ],
+          "legal": true,
+          "passed": true,
+          "seconds": 0.53,
+          "secondsPrecision": "UI-rounded"
+        },
+        {
+          "caseId": "save-the-draw",
+          "repetition": 1,
+          "displayPit": 1,
+          "boardPit": 7,
+          "expectedBoardPits": [
+            7,
+            10,
+            12
+          ],
+          "legal": true,
+          "passed": true,
+          "seconds": 0.55,
+          "secondsPrecision": "UI-rounded"
+        },
+        {
+          "caseId": "save-the-draw",
+          "repetition": 2,
+          "displayPit": 6,
+          "boardPit": 12,
+          "expectedBoardPits": [
+            7,
+            10,
+            12
+          ],
+          "legal": true,
+          "passed": true,
+          "seconds": 0.56,
+          "secondsPrecision": "UI-rounded"
+        },
+        {
+          "caseId": "tied-wins",
+          "repetition": 1,
+          "displayPit": 1,
+          "boardPit": 7,
+          "expectedBoardPits": [
+            7,
+            9
+          ],
+          "legal": true,
+          "passed": true,
+          "seconds": 0.47,
+          "secondsPrecision": "UI-rounded"
+        },
+        {
+          "caseId": "tied-wins",
+          "repetition": 2,
+          "displayPit": 3,
+          "boardPit": 9,
+          "expectedBoardPits": [
+            7,
+            9
+          ],
+          "legal": true,
+          "passed": true,
+          "seconds": 0.47,
+          "secondsPrecision": "UI-rounded"
+        },
+        {
+          "caseId": "empty-opposite",
+          "repetition": 1,
+          "displayPit": 6,
+          "boardPit": 12,
+          "expectedBoardPits": null,
+          "legal": true,
+          "passed": null,
+          "seconds": 0.51,
+          "secondsPrecision": "UI-rounded"
+        },
+        {
+          "caseId": "empty-opposite",
+          "repetition": 2,
+          "displayPit": 6,
+          "boardPit": 12,
+          "expectedBoardPits": null,
+          "legal": true,
+          "passed": null,
+          "seconds": 0.51,
+          "secondsPrecision": "UI-rounded"
+        }
+      ]
+    },
+    {
+      "id": "lfm3-v7-holdout",
+      "model": "LiquidAI/LFM3-1.7B-GGUF",
+      "uiLabel": "LFM3-1.7B-GGUF",
+      "selection": "holdout",
+      "repetitions": 2,
+      "summary": {
+        "passed": 6,
+        "scored": 6,
+        "legal": 6,
+        "total": 6,
+        "firstOptionChosen": 2,
+        "medianSecondsRoundedFromUI": 0.55
+      },
+      "rawArchive": "lfm3-v7-holdout.json.gz",
+      "rawSha256": "d3e88e18874ee689aec0c24715df8ee3feb1100adde8c7e106b5da918857d852",
+      "startedAt": "2026-11-03T22:04:35.514Z",
+      "finishedAt": "2026-11-03T22:04:38.962Z",
+      "reportedRevision": "3715ca1+working",
+      "captureMethod": "Full visible report DOM read through the Chrome tab connection and written directly to task files. No download control used.",
+      "promptVersion": "shared-v7",
+      "suiteVersion": "mancala-tactics-v3",
+      "thinking": false,
+      "trials": [
+        {
+          "caseId": "holdout-bonus",
+          "repetition": 1,
+          "displayPit": 6,
+          "boardPit": 12,
+          "expectedBoardPits": [
+            12
+          ],
+          "legal": true,
+          "passed": true,
+          "seconds": 0.66,
+          "secondsPrecision": "Raw report retains exact time; this ledger may be rounded"
+        },
+        {
+          "caseId": "holdout-bonus",
+          "repetition": 2,
+          "displayPit": 6,
+          "boardPit": 12,
+          "expectedBoardPits": [
+            12
+          ],
+          "legal": true,
+          "passed": true,
+          "seconds": 0.61,
+          "secondsPrecision": "Raw report retains exact time; this ledger may be rounded"
+        },
+        {
+          "caseId": "holdout-defense",
+          "repetition": 1,
+          "displayPit": 5,
+          "boardPit": 11,
+          "expectedBoardPits": [
+            11
+          ],
+          "legal": true,
+          "passed": true,
+          "seconds": 0.54,
+          "secondsPrecision": "Raw report retains exact time; this ledger may be rounded"
+        },
+        {
+          "caseId": "holdout-defense",
+          "repetition": 2,
+          "displayPit": 5,
+          "boardPit": 11,
+          "expectedBoardPits": [
+            11
+          ],
+          "legal": true,
+          "passed": true,
+          "seconds": 0.57,
+          "secondsPrecision": "Raw report retains exact time; this ledger may be rounded"
+        },
+        {
+          "caseId": "holdout-capture",
+          "repetition": 1,
+          "displayPit": 5,
+          "boardPit": 11,
+          "expectedBoardPits": [
+            11
+          ],
+          "legal": true,
+          "passed": true,
+          "seconds": 0.53,
+          "secondsPrecision": "Raw report retains exact time; this ledger may be rounded"
+        },
+        {
+          "caseId": "holdout-capture",
+          "repetition": 2,
+          "displayPit": 5,
+          "boardPit": 11,
+          "expectedBoardPits": [
+            11
+          ],
+          "legal": true,
+          "passed": true,
+          "seconds": 0.53,
+          "secondsPrecision": "Raw report retains exact time; this ledger may be rounded"
+        }
+      ]
+    },
+    {
+      "id": "gemini-nano-v7-holdout",
+      "model": "prompt-api",
+      "uiLabel": "Gemini-Nano",
+      "selection": "holdout",
+      "repetitions": 2,
+      "summary": {
+        "passed": 6,
+        "scored": 6,
+        "legal": 6,
+        "total": 6,
+        "firstOptionChosen": 2,
+        "medianSecondsRoundedFromUI": 0.88
+      },
+      "captureMethod": "Native Chrome accessibility summary and trial ledger; no full raw transcript claimed.",
+      "promptVersion": "shared-v7",
+      "suiteVersion": "mancala-tactics-v3",
+      "thinking": false,
+      "trials": [
+        {
+          "caseId": "holdout-bonus",
+          "repetition": 1,
+          "displayPit": 6,
+          "boardPit": 12,
+          "expectedBoardPits": [
+            12
+          ],
+          "legal": true,
+          "passed": true,
+          "seconds": 0.91,
+          "secondsPrecision": "UI-rounded"
+        },
+        {
+          "caseId": "holdout-bonus",
+          "repetition": 2,
+          "displayPit": 6,
+          "boardPit": 12,
+          "expectedBoardPits": [
+            12
+          ],
+          "legal": true,
+          "passed": true,
+          "seconds": 0.86,
+          "secondsPrecision": "UI-rounded"
+        },
+        {
+          "caseId": "holdout-defense",
+          "repetition": 1,
+          "displayPit": 5,
+          "boardPit": 11,
+          "expectedBoardPits": [
+            11
+          ],
+          "legal": true,
+          "passed": true,
+          "seconds": 0.87,
+          "secondsPrecision": "UI-rounded"
+        },
+        {
+          "caseId": "holdout-defense",
+          "repetition": 2,
+          "displayPit": 5,
+          "boardPit": 11,
+          "expectedBoardPits": [
+            11
+          ],
+          "legal": true,
+          "passed": true,
+          "seconds": 0.87,
+          "secondsPrecision": "UI-rounded"
+        },
+        {
+          "caseId": "holdout-capture",
+          "repetition": 1,
+          "displayPit": 5,
+          "boardPit": 11,
+          "expectedBoardPits": [
+            11
+          ],
+          "legal": true,
+          "passed": true,
+          "seconds": 0.9,
+          "secondsPrecision": "UI-rounded"
+        },
+        {
+          "caseId": "holdout-capture",
+          "repetition": 2,
+          "displayPit": 5,
+          "boardPit": 11,
+          "expectedBoardPits": [
+            11
+          ],
+          "legal": true,
+          "passed": true,
+          "seconds": 0.89,
+          "secondsPrecision": "UI-rounded"
+        }
+      ]
+    },
+    {
+      "id": "gemini-nano-v7-rotated",
+      "model": "prompt-api",
+      "uiLabel": "Gemini-Nano",
+      "selection": "capture-or-bonus",
+      "repetitions": 6,
+      "summary": {
+        "passed": 6,
+        "scored": 6,
+        "legal": 6,
+        "total": 6,
+        "firstOptionChosen": 0,
+        "medianSeconds": 1.050699999988079
+      },
+      "rawArchive": "gemini-nano-v7-rotated.json.gz",
+      "rawSha256": "0fd1e08bd6204ac3059f078b2aef0e9a4037b96b9a17a8f4db6ae08720578496",
+      "startedAt": "2026-11-03T22:06:27.270Z",
+      "finishedAt": "2026-11-03T22:06:33.604Z",
+      "reportedRevision": "3715ca1+working",
+      "captureMethod": "Full visible report DOM read through the Chrome tab connection and written directly to task files. No download control used.",
+      "promptVersion": "shared-v7",
+      "suiteVersion": "mancala-tactics-v3",
+      "thinking": false,
+      "trials": [
+        {
+          "caseId": "capture-or-bonus",
+          "repetition": 1,
+          "displayPit": 5,
+          "boardPit": 11,
+          "expectedBoardPits": [
+            11
+          ],
+          "legal": true,
+          "passed": true,
+          "seconds": 1.0887999999523164,
+          "secondsPrecision": "Raw report retains exact time; this ledger may be rounded"
+        },
+        {
+          "caseId": "capture-or-bonus",
+          "repetition": 2,
+          "displayPit": 5,
+          "boardPit": 11,
+          "expectedBoardPits": [
+            11
+          ],
+          "legal": true,
+          "passed": true,
+          "seconds": 1.0728999999761581,
+          "secondsPrecision": "Raw report retains exact time; this ledger may be rounded"
+        },
+        {
+          "caseId": "capture-or-bonus",
+          "repetition": 3,
+          "displayPit": 5,
+          "boardPit": 11,
+          "expectedBoardPits": [
+            11
+          ],
+          "legal": true,
+          "passed": true,
+          "seconds": 1.0443999999761582,
+          "secondsPrecision": "Raw report retains exact time; this ledger may be rounded"
+        },
+        {
+          "caseId": "capture-or-bonus",
+          "repetition": 4,
+          "displayPit": 5,
+          "boardPit": 11,
+          "expectedBoardPits": [
+            11
+          ],
+          "legal": true,
+          "passed": true,
+          "seconds": 1.0537000000476837,
+          "secondsPrecision": "Raw report retains exact time; this ledger may be rounded"
+        },
+        {
+          "caseId": "capture-or-bonus",
+          "repetition": 5,
+          "displayPit": 5,
+          "boardPit": 11,
+          "expectedBoardPits": [
+            11
+          ],
+          "legal": true,
+          "passed": true,
+          "seconds": 1.0476999999284744,
+          "secondsPrecision": "Raw report retains exact time; this ledger may be rounded"
+        },
+        {
+          "caseId": "capture-or-bonus",
+          "repetition": 6,
+          "displayPit": 5,
+          "boardPit": 11,
+          "expectedBoardPits": [
+            11
+          ],
+          "legal": true,
+          "passed": true,
+          "seconds": 1.0197999999523162,
+          "secondsPrecision": "Raw report retains exact time; this ledger may be rounded"
+        }
+      ]
+    }
+  ],
+  "totalTrials": 82
+}

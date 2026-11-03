@@ -1,7 +1,7 @@
 import assert from "node:assert/strict"
 import test from "node:test"
 import { applyMove, createGame } from "./mancala.ts"
-import { buildMovePrompt } from "./shared-prompt.ts"
+import { buildMovePrompt } from "./shared-prompt-v6.ts"
 
 test("a narrower forced win no longer hides behind a four-turn tie", () => {
   const game = {

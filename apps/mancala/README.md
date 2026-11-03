@@ -30,7 +30,7 @@ availability and development-only Apple opponent match Checkers. Models are
 loaded only for an AI turn or an explicitly started benchmark; there is no cloud
 inference or heuristic replacement of an invalid model answer.
 
-`shared-prompt.ts` now uses `shared-v6` whole-turn context. The worker checks four
+`shared-prompt.ts` now uses `shared-v7` whole-turn context. The worker checks four
 completed turns per alternative (AI, Human, AI response, Human), including every
 bonus sow, captures and final sweeps. If the node limit prevents that horizon,
 all alternatives retry at the same three- or two-turn horizon. An unfinished
@@ -78,6 +78,16 @@ which covers this app's no-empty-opposite capture rule and defensive exposure.
 Its heuristic weights were not adopted. [Irving et al.](https://naml.us/paper/irving2000_kalah.pdf)
 inform the search discussion, but use a different capture variant; their solved
 opening claims do not apply here.
+
+V7 clarifies that a card's best continuation is conditional on choosing that
+card. Solved endgame comparisons explicitly quantify final-score loss relative
+to the best compared action, so a positive but narrower win is marked inferior.
+The solver and accepted benchmark moves are unchanged. With thinking off,
+Gemini Nano and LFM3 both measured 26/26 calibration objectives and 6/6 holdout
+trials; Nano also passed 6/6 rotated-order repeats of its former miss.
+[The v7 comparison](bench/fixtures/prompt-v7-2026-11-03/README.md) preserves the
+results, capture methods and timing limitations. Evidence was saved directly in
+the project without a browser download.
 
 The Prompt API requires a supporting browser; WebGL models require the existing
 WebGL runtime's browser/GPU capabilities. Model downloads can be substantial.
