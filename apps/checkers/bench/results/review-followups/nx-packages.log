@@ -1,0 +1,1102 @@
+
+ NX   Running targets test, typecheck, lint, build for 4 projects and 1 task they depend on:
+
+- checkers
+- structured-output
+- transformers-js
+- webgl
+
+
+
+> nx run structured-output:build  [local cache]
+
+> tsc --build tsconfig.lib.json
+
+
+> nx run structured-output:lint  [existing outputs match the cache, left as is]
+
+> eslint .
+
+(node:14520) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+
+> nx run webgl:lint  [existing outputs match the cache, left as is]
+
+> eslint .
+
+(node:17920) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+[0m[0m
+[0m[4m/Users/david/.codex/worktrees/checkers/tanstack-ai-browser/packages/webgl/bench/memory-names.ts[24m[0m
+[0m  [2m4:27[22m  [33mwarning[39m  Unexpected any. Specify a different type  [2m@typescript-eslint/no-explicit-any[22m[0m
+[0m[0m
+[0m[4m/Users/david/.codex/worktrees/checkers/tanstack-ai-browser/packages/webgl/bench/mm2.ts[24m[0m
+[0m   [2m572:16[22m  [33mwarning[39m  'transformFeedback' is defined but never used  [2m@typescript-eslint/no-unused-vars[22m[0m
+[0m   [2m585:16[22m  [33mwarning[39m  Forbidden non-null assertion                   [2m@typescript-eslint/no-non-null-assertion[22m[0m
+[0m   [2m590:16[22m  [33mwarning[39m  Forbidden non-null assertion                   [2m@typescript-eslint/no-non-null-assertion[22m[0m
+[0m   [2m596:21[22m  [33mwarning[39m  Forbidden non-null assertion                   [2m@typescript-eslint/no-non-null-assertion[22m[0m
+[0m   [2m609:17[22m  [33mwarning[39m  Forbidden non-null assertion                   [2m@typescript-eslint/no-non-null-assertion[22m[0m
+[0m   [2m669:18[22m  [33mwarning[39m  Forbidden non-null assertion                   [2m@typescript-eslint/no-non-null-assertion[22m[0m
+[0m   [2m677:20[22m  [33mwarning[39m  Forbidden non-null assertion                   [2m@typescript-eslint/no-non-null-assertion[22m[0m
+[0m   [2m696:17[22m  [33mwarning[39m  Forbidden non-null assertion                   [2m@typescript-eslint/no-non-null-assertion[22m[0m
+[0m   [2m922:18[22m  [33mwarning[39m  Forbidden non-null assertion                   [2m@typescript-eslint/no-non-null-assertion[22m[0m
+[0m   [2m931:18[22m  [33mwarning[39m  Forbidden non-null assertion                   [2m@typescript-eslint/no-non-null-assertion[22m[0m
+[0m   [2m939:20[22m  [33mwarning[39m  Forbidden non-null assertion                   [2m@typescript-eslint/no-non-null-assertion[22m[0m
+[0m   [2m945:20[22m  [33mwarning[39m  Forbidden non-null assertion                   [2m@typescript-eslint/no-non-null-assertion[22m[0m
+[0m  [2m1015:17[22m  [33mwarning[39m  Forbidden non-null assertion                   [2m@typescript-eslint/no-non-null-assertion[22m[0m
+[0m[0m
+[0m[4m/Users/david/.codex/worktrees/checkers/tanstack-ai-browser/packages/webgl/scripts/check-loaders.ts[24m[0m
+[0m   [2m579:33[22m  [33mwarning[39m  Forbidden non-null assertion  [2m@typescript-eslint/no-non-null-assertion[22m[0m
+[0m   [2m583:25[22m  [33mwarning[39m  Forbidden non-null assertion  [2m@typescript-eslint/no-non-null-assertion[22m[0m
+[0m   [2m604:7[22m   [33mwarning[39m  Forbidden non-null assertion  [2m@typescript-eslint/no-non-null-assertion[22m[0m
+[0m   [2m605:7[22m   [33mwarning[39m  Forbidden non-null assertion  [2m@typescript-eslint/no-non-null-assertion[22m[0m
+[0m   [2m709:18[22m  [33mwarning[39m  Forbidden non-null assertion  [2m@typescript-eslint/no-non-null-assertion[22m[0m
+[0m   [2m710:18[22m  [33mwarning[39m  Forbidden non-null assertion  [2m@typescript-eslint/no-non-null-assertion[22m[0m
+[0m   [2m711:40[22m  [33mwarning[39m  Forbidden non-null assertion  [2m@typescript-eslint/no-non-null-assertion[22m[0m
+[0m   [2m712:43[22m  [33mwarning[39m  Forbidden non-null assertion  [2m@typescript-eslint/no-non-null-assertion[22m[0m
+[0m   [2m713:18[22m  [33mwarning[39m  Forbidden non-null assertion  [2m@typescript-eslint/no-non-null-assertion[22m[0m
+[0m   [2m715:46[22m  [33mwarning[39m  Forbidden non-null assertion  [2m@typescript-eslint/no-non-null-assertion[22m[0m
+[0m   [2m716:46[22m  [33mwarning[39m  Forbidden non-null assertion  [2m@typescript-eslint/no-non-null-assertion[22m[0m
+[0m   [2m729:7[22m   [33mwarning[39m  Forbidden non-null assertion  [2m@typescript-eslint/no-non-null-assertion[22m[0m
+[0m   [2m730:7[22m   [33mwarning[39m  Forbidden non-null assertion  [2m@typescript-eslint/no-non-null-assertion[22m[0m
+[0m   [2m733:41[22m  [33mwarning[39m  Forbidden non-null assertion  [2m@typescript-eslint/no-non-null-assertion[22m[0m
+[0m   [2m733:61[22m  [33mwarning[39m  Forbidden non-null assertion  [2m@typescript-eslint/no-non-null-assertion[22m[0m
+[0m   [2m738:8[22m   [33mwarning[39m  Forbidden non-null assertion  [2m@typescript-eslint/no-non-null-assertion[22m[0m
+[0m   [2m789:16[22m  [33mwarning[39m  Forbidden non-null assertion  [2m@typescript-eslint/no-non-null-assertion[22m[0m
+[0m   [2m949:20[22m  [33mwarning[39m  Forbidden non-null assertion  [2m@typescript-eslint/no-non-null-assertion[22m[0m
+[0m   [2m949:40[22m  [33mwarning[39m  Forbidden non-null assertion  [2m@typescript-eslint/no-non-null-assertion[22m[0m
+[0m  [2m1127:16[22m  [33mwarning[39m  Forbidden non-null assertion  [2m@typescript-eslint/no-non-null-assertion[22m[0m
+[0m  [2m1159:18[22m  [33mwarning[39m  Forbidden non-null assertion  [2m@typescript-eslint/no-non-null-assertion[22m[0m
+[0m  [2m1160:14[22m  [33mwarning[39m  Forbidden non-null assertion  [2m@typescript-eslint/no-non-null-assertion[22m[0m
+[0m  [2m1161:14[22m  [33mwarning[39m  Forbidden non-null assertion  [2m@typescript-eslint/no-non-null-assertion[22m[0m
+[0m  [2m1162:14[22m  [33mwarning[39m  Forbidden non-null assertion  [2m@typescript-eslint/no-non-null-assertion[22m[0m
+[0m  [2m1165:35[22m  [33mwarning[39m  Forbidden non-null assertion  [2m@typescript-eslint/no-non-null-assertion[22m[0m
+[0m  [2m1166:36[22m  [33mwarning[39m  Forbidden non-null assertion  [2m@typescript-eslint/no-non-null-assertion[22m[0m
+[0m  [2m1167:32[22m  [33mwarning[39m  Forbidden non-null assertion  [2m@typescript-eslint/no-non-null-assertion[22m[0m
+[0m  [2m1184:25[22m  [33mwarning[39m  Forbidden non-null assertion  [2m@typescript-eslint/no-non-null-assertion[22m[0m
+[0m[0m
+[0m[4m/Users/david/.codex/worktrees/checkers/tanstack-ai-browser/packages/webgl/src/adapter.test.ts[24m[0m
+[0m  [2m194:7[22m  [33mwarning[39m  'LFM3_ONNX' is assigned a value but only used as a type  [2m@typescript-eslint/no-unused-vars[22m[0m
+[0m[0m
+[0m[4m/Users/david/.codex/worktrees/checkers/tanstack-ai-browser/packages/webgl/src/checkpoint-policy.ts[24m[0m
+[0m  [2m36:45[22m  [33mwarning[39m  Forbidden non-null assertion  [2m@typescript-eslint/no-non-null-assertion[22m[0m
+[0m[0m
+[0m[4m/Users/david/.codex/worktrees/checkers/tanstack-ai-browser/packages/webgl/src/engine.ts[24m[0m
+[0m  [2m3910:9[22m   [33mwarning[39m  Forbidden non-null assertion  [2m@typescript-eslint/no-non-null-assertion[22m[0m
+[0m  [2m3929:29[22m  [33mwarning[39m  Forbidden non-null assertion  [2m@typescript-eslint/no-non-null-assertion[22m[0m
+[0m  [2m4026:44[22m  [33mwarning[39m  Forbidden non-null assertion  [2m@typescript-eslint/no-non-null-assertion[22m[0m
+[0m  [2m4030:68[22m  [33mwarning[39m  Forbidden non-null assertion  [2m@typescript-eslint/no-non-null-assertion[22m[0m
+[0m  [2m4034:47[22m  [33mwarning[39m  Forbidden non-null assertion  [2m@typescript-eslint/no-non-null-assertion[22m[0m
+[0m[0m
+[0m[4m/Users/david/.codex/worktrees/checkers/tanstack-ai-browser/packages/webgl/src/thinking-budget.test.ts[24m[0m
+[0m    [2m8:3[22m   [33mwarning[39m  Forbidden non-null assertion  [2m@typescript-eslint/no-non-null-assertion[22m[0m
+[0m  [2m130:13[22m  [33mwarning[39m  Forbidden non-null assertion  [2m@typescript-eslint/no-non-null-assertion[22m[0m
+[0m  [2m136:16[22m  [33mwarning[39m  Forbidden non-null assertion  [2m@typescript-eslint/no-non-null-assertion[22m[0m
+[0m  [2m144:13[22m  [33mwarning[39m  Forbidden non-null assertion  [2m@typescript-eslint/no-non-null-assertion[22m[0m
+[0m  [2m149:16[22m  [33mwarning[39m  Forbidden non-null assertion  [2m@typescript-eslint/no-non-null-assertion[22m[0m
+[0m[0m
+[0m[33m[1m✖ 54 problems (0 errors, 54 warnings)[22m[39m[0m
+[0m[33m[1m[22m[39m[0m
+
+> nx run transformers-js:lint  [existing outputs match the cache, left as is]
+
+> eslint .
+
+(node:14595) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+[0m[0m
+[0m[4m/Users/david/.codex/worktrees/checkers/tanstack-ai-browser/packages/transformers-js/src/generation-control.test.ts[24m[0m
+[0m  [2m223:69[22m  [33mwarning[39m  '_token' is defined but never used  [2m@typescript-eslint/no-unused-vars[22m[0m
+[0m[0m
+[0m[33m[1m✖ 1 problem (0 errors, 1 warning)[22m[39m[0m
+[0m[33m[1m[22m[39m[0m
+
+> nx run structured-output:typecheck  [local cache]
+
+> tsc --build --emitDeclarationOnly
+
+
+> nx run webgl:build  [local cache]
+
+> tsc --build tsconfig.lib.json
+
+
+> nx run transformers-js:build  [local cache]
+
+> tsc --build tsconfig.lib.json
+
+
+> nx run webgl:typecheck  [local cache]
+
+> tsc --build --emitDeclarationOnly
+
+
+> nx run transformers-js:typecheck  [local cache]
+
+> tsc --build --emitDeclarationOnly
+
+
+> nx run checkers:generate-routes
+
+(node:18454) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+$ tsr generate
+(node:18462) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:18462) Warning: Accessing non-existent property 'replaceRouteChunk' of module exports inside circular dependency
+
+> nx run webgl:test
+
+(node:18456) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+$ node scripts/test.mjs
+(node:18490) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:18491) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+[32m✔ leaving the stream early stops the generation in the worker [90m(11.68675ms)[39m[39m
+[32m✔ structured output forwards real phases, ignoring synthetic thinking text and stale ids [90m(2.408292ms)[39m[39m
+[32m✔ structured output streams only thinking text across split tags [90m(1.212958ms)[39m[39m
+[32m✔ aborted structured generations cannot publish later phases [90m(2.45025ms)[39m[39m
+[32m✔ LFM3 GGUF forwards an explicit thinking budget through shared chat and structured output [90m(7.154458ms)[39m[39m
+[32m✔ LFM3 reasoning shorthand and omitted budgets remain unlimited [90m(2.290208ms)[39m[39m
+[32m✔ LFM3 rejects invalid thinking budgets before starting a worker [90m(0.434834ms)[39m[39m
+[32m✔ every thinking-capable WebGL model advertises budget support [90m(0.103834ms)[39m[39m
+[32m✔ LFM3 forwards zero budgets and ignores a valid cap when thinking is off [90m(2.11125ms)[39m[39m
+[32m✔ all thinking models forward the budget and caller output cap in both adapter paths [90m(16.640625ms)[39m[39m
+[32m✔ every WebGL model uses its recommended text sampling in both adapter paths [90m(24.117583ms)[39m[39m
+[32m✔ invalid output caps reject before model loading [90m(0.330833ms)[39m[39m
+[32m✔ request.signal abort blocks buffered thinking flush and rejects a late completion [90m(14.110708ms)[39m[39m
+(node:18492) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+▶ queries in the cache
+  [32m✔ runs cover the slots in order, never crossing a block or a ring's end [90m(0.456666ms)[39m[39m
+  [32m✔ a ring never gives up a key the tokens being written still read [90m(11.770917ms)[39m[39m
+  [32m✔ a full cache must hold the queries' slots [90m(0.125292ms)[39m[39m
+[32m✔ queries in the cache [90m(12.89825ms)[39m[39m
+(node:18493) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+[32m✔ real checkpoint extraction owns partial allocations: LFM convolution [90m(13.035083ms)[39m[39m
+[32m✔ real checkpoint extraction owns partial allocations: sliding-window KV, including wrapped copy [90m(10.439875ms)[39m[39m
+[32m✔ real checkpoint extraction owns partial allocations: Qwen token recurrence [90m(9.698416ms)[39m[39m
+[32m✔ real checkpoint extraction owns partial allocations: Qwen inside-chunk recurrence [90m(6.841667ms)[39m[39m
+[32m✔ real checkpoint extraction owns partial allocations: Qwen chunk-boundary recurrence [90m(5.563875ms)[39m[39m
+[32m✔ real checkpoint extraction owns partial allocations: Qwen token recurrence with independent anchor [90m(17.290209ms)[39m[39m
+[32m✔ real checkpoint extraction owns partial allocations: Qwen chunk recurrence with independent anchor [90m(9.926958ms)[39m[39m
+[32m✔ real checkpoint extraction owns partial allocations: Qwen shared prefix and anchor [90m(4.812542ms)[39m[39m
+(node:18494) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+▶ chunked gated delta rule
+  [32m✔ matches token by token: 64 tokens, chunks of 16 [90m(13.433959ms)[39m[39m
+  [32m✔ matches token by token: 64 tokens, chunks of 32 [90m(8.813166ms)[39m[39m
+  [32m✔ matches token by token: 50 tokens, chunks of 16 [90m(1.856458ms)[39m[39m
+  [32m✔ matches token by token: 37 tokens, chunks of 32 [90m(1.425834ms)[39m[39m
+  [32m✔ matches token by token: 5 tokens, chunks of 16 [90m(0.223625ms)[39m[39m
+  [32m✔ matches token by token: 1 tokens, chunks of 16 [90m(0.117834ms)[39m[39m
+  [32m✔ matches token by token: 96 tokens, chunks of 64 [90m(1.840167ms)[39m[39m
+  [32m✔ nearly collinear keys and slow decay stay exact [90m(1.237417ms)[39m[39m
+  [32m✔ fast decay (exp of big negative sums) doesn't overflow [90m(0.5565ms)[39m[39m
+  [32m✔ chunks ending at token 7 of 50 (the first 7, then 16): the same outputs, and the state there [90m(1.862458ms)[39m[39m
+  [32m✔ chunks ending at token 39 of 50 (the first 7, then 16): the same outputs, and the state there [90m(1.871875ms)[39m[39m
+  [32m✔ chunks ending at token 1 of 64 (the first 1, then 16): the same outputs, and the state there [90m(2.743042ms)[39m[39m
+  [32m✔ chunks ending at token 31 of 37 (the first 15, then 16): the same outputs, and the state there [90m(0.422166ms)[39m[39m
+  [32m✔ chunks ending at token 3 of 5 (the first 3, then 16): the same outputs, and the state there [90m(0.106125ms)[39m[39m
+  [32m✔ a chunked batch then token steps continue the same state [90m(1.92125ms)[39m[39m
+[32m✔ chunked gated delta rule [90m(39.298709ms)[39m[39m
+(node:18495) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+▶ lookupDraft
+  [32m✔ drafts what followed the latest earlier occurrence of the last 4 tokens [90m(1.230125ms)[39m[39m
+  [32m✔ an n-token match drafts at most 2^(n-1) tokens, and at most max [90m(0.076375ms)[39m[39m
+  [32m✔ the latest occurrence wins [90m(0.059875ms)[39m[39m
+  [32m✔ nothing below minMatch, nothing with max 0 [90m(0.053916ms)[39m[39m
+  [32m✔ drafts stop at the end of the text [90m(0.049166ms)[39m[39m
+[32m✔ lookupDraft [90m(2.703208ms)[39m[39m
+▶ DraftPolicy
+  [32m✔ times a token alone before drafting [90m(0.271708ms)[39m[39m
+  [32m✔ drafts the most when drafts are usually right and batches cost about a token [90m(2.851792ms)[39m[39m
+  [32m✔ stops drafting when drafts are rarely right [90m(0.651ms)[39m[39m
+  [32m✔ stops drafting when a batch costs more than it earns [90m(1.041958ms)[39m[39m
+  [32m✔ never writes slower than plain decoding by much [90m(5.339833ms)[39m[39m
+  [32m✔ drafts again once unchecked drafts start being right [90m(0.114334ms)[39m[39m
+  [32m✔ peek answers like choose without changing what it remembers [90m(0.065042ms)[39m[39m
+  [32m✔ a batch cut short scores only the drafts it judged [90m(0.048875ms)[39m[39m
+  [32m✔ one stalled batch doesn't stop drafting for the rest of the reply [90m(0.090375ms)[39m[39m
+  [32m✔ drafts past those checked are scored once a batch keeps every one [90m(0.069292ms)[39m[39m
+  [32m✔ rates stay between 0 and 1 [90m(0.092333ms)[39m[39m
+[32m✔ DraftPolicy [90m(10.904625ms)[39m[39m
+(node:18496) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+▶ the f16 matmul's chunks (Engine.f16Plan)
+  [32m✔ whole matrices where they fit, whole K-slices where one does [90m(0.615708ms)[39m[39m
+  [32m✔ rows in columns when one slice doesn't fit [90m(0.068542ms)[39m[39m
+  [32m✔ every chunk fits the scratch and covers the matrix [90m(0.385708ms)[39m[39m
+[32m✔ the f16 matmul's chunks (Engine.f16Plan) [90m(1.546792ms)[39m[39m
+(node:18497) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+[32m✔ omitted output limits use remaining model context, including beyond 4096 [90m(0.383083ms)[39m[39m
+[32m✔ explicit output limits take precedence while respecting the context boundary [90m(0.064875ms)[39m[39m
+[32m✔ invalid explicit output limits fail instead of being ignored [90m(0.196333ms)[39m[39m
+(node:18498) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+[32m✔ guided auto, required, and named tools emit exactly one coherent AGUI call [90m(23.902333ms)[39m[39m
+[32m✔ auto can use an existing tool result to answer without another tool call [90m(2.693333ms)[39m[39m
+[32m✔ toolChoice none bypasses guided routing [90m(1.418875ms)[39m[39m
+[32m✔ request-signal cancellation prevents guided generation before model loading [90m(11.920666ms)[39m[39m
+[32m✔ a real tool named answer remains callable in auto mode [90m(5.859333ms)[39m[39m
+[32m✔ no declared tools means hallucinated native calls remain text [90m(2.840083ms)[39m[39m
+[32m✔ failed native generations never publish tool calls or trigger repair [90m(1.882291ms)[39m[39m
+(node:18499) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+▶ half floats
+  [32m✔ values a half holds exactly round-trip [90m(6.635333ms)[39m[39m
+  [32m✔ rounds to the nearest half [90m(0.073417ms)[39m[39m
+  [32m✔ overflow is infinity, NaN stays NaN, signed zero kept [90m(0.08575ms)[39m[39m
+  [32m✔ the table and halvesToFloats agree with fromHalf [90m(0.406083ms)[39m[39m
+[32m✔ half floats [90m(7.768292ms)[39m[39m
+(node:18500) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+▶ the f16 prompt matmul's h2 reads (TUNING.f16Pack)
+  [32m✔ f16Pack 0 builds the RGBA16F kernels as they were [90m(1.065459ms)[39m[39m
+  [32m✔ each bit reads its input as h2 texels, two K texels a step [90m(0.228ms)[39m[39m
+  [32m✔ h2 dequantization calls the texel's math twice into one h2 texel [90m(0.306917ms)[39m[39m
+[32m✔ the f16 prompt matmul's h2 reads (TUNING.f16Pack) [90m(2.08675ms)[39m[39m
+(node:18501) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+[32m✔ packed f16 checkpoints allow missing activation scratch and name wh2 [90m(0.509041ms)[39m[39m
+[32m✔ legacy and mixed f16 scratch remain named without requiring every allocation [90m(0.125041ms)[39m[39m
+(node:18502) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+▶ panel layout
+  [32m✔ kt 151, segments of 2048, 1 rows, 16384 wide [90m(2.075458ms)[39m[39m
+  [32m✔ kt 513, segments of 2048, 1 rows, 16384 wide [90m(1.538584ms)[39m[39m
+  [32m✔ kt 1976, segments of 2048, 3 rows, 16384 wide [90m(10.528542ms)[39m[39m
+  [32m✔ kt 1977, segments of 2048, 8 rows, 16384 wide [90m(22.803375ms)[39m[39m
+  [32m✔ kt 8000, segments of 2048, 1 rows, 16384 wide [90m(4.543792ms)[39m[39m
+  [32m✔ kt 1980, segments of 128, 1 rows, 16384 wide [90m(1.561375ms)[39m[39m
+  [32m✔ kt 1980, segments of 2048, 2 rows, 4096 wide [90m(4.038833ms)[39m[39m
+[32m✔ panel layout [90m(47.810292ms)[39m[39m
+▶ chunked softmax
+  [32m✔ a cache of 1,000 keys [90m(3.736959ms)[39m[39m
+  [32m✔ a sliding window: the first 300 keys masked, whole chunks of them empty [90m(1.290333ms)[39m[39m
+  [32m✔ masked keys inside chunks, before and after live ones [90m(0.600292ms)[39m[39m
+  [32m✔ segments, the last one short (empty chunks at its end) [90m(2.049209ms)[39m[39m
+[32m✔ chunked softmax [90m(7.965916ms)[39m[39m
+(node:18503) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+[32m✔ cache none clears cross-call state while run-local KV and uploaded weights remain usable [90m(0.747709ms)[39m[39m
+[32m✔ none releases retained prompt state after generation errors and cancellation [90m(0.2855ms)[39m[39m
+[32m✔ omitted and positive native cache policy preserve existing reuse without new retention limits [90m(0.09775ms)[39m[39m
+(node:18504) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+▶ sharedPrefix
+  [32m✔ counts the leading items both have [90m(0.288542ms)[39m[39m
+[32m✔ sharedPrefix [90m(0.717125ms)[39m[39m
+▶ unsharedTail and anchorFor
+  [32m✔ a template that rewrites past replies: the generation prompt's tail, anchored at its <|im_start|> [90m(0.248417ms)[39m[39m
+  [32m✔ a template that writes replies back as asked: the anchor at the prompt's end [90m(0.081333ms)[39m[39m
+  [32m✔ no anchor after a tool's result: the last question's stays [90m(0.055167ms)[39m[39m
+[32m✔ unsharedTail and anchorFor [90m(0.479958ms)[39m[39m
+▶ promptPlan
+  [32m✔ a batch ends at the anchor, the rest read after it [90m(0.457875ms)[39m[39m
+  [32m✔ with few snapshots kept, only the anchor's [90m(0.077416ms)[39m[39m
+  [32m✔ an anchor saved from inside its batch splits nothing [90m(0.091459ms)[39m[39m
+  [32m✔ an anchor at the end, before the start or missing splits nothing [90m(0.069458ms)[39m[39m
+[32m✔ promptPlan [90m(0.817708ms)[39m[39m
+▶ token-verified stable prefix
+  [32m✔ leading system messages stay reusable across independent requests [90m(0.153917ms)[39m[39m
+  [32m✔ actual token equality handles template joins and rejects stale system prefixes [90m(0.122209ms)[39m[39m
+  [32m✔ user-required templates use verified tokenize-only probes; prompts without stable system use existing behavior [90m(0.094583ms)[39m[39m
+  [32m✔ tools and thinking settings are part of prefix compatibility [90m(0.103042ms)[39m[39m
+[32m✔ token-verified stable prefix [90m(0.579208ms)[39m[39m
+▶ stable prefix retention within the existing snapshot allowance
+  [32m✔ baseline end-only anchors lose independent prefixes; protected prefixes survive long dynamic tails [90m(2.409833ms)[39m[39m
+  [32m✔ conversational anchors still survive alongside the prefix and after generation snapshots [90m(0.162083ms)[39m[39m
+  [32m✔ a one-snapshot configuration preserves its previous conversational policy [90m(0.089125ms)[39m[39m
+  [32m✔ changed instructions and cancellation cannot restore an invalid suffix [90m(0.077792ms)[39m[39m
+  [32m✔ an existing point can become a prefix and carry both roles without role coercion [90m(0.076708ms)[39m[39m
+  [32m✔ checkpoint eviction prioritizes a new role without exceeding the count [90m(0.096542ms)[39m[39m
+[32m✔ stable prefix retention within the existing snapshot allowance [90m(3.023042ms)[39m[39m
+▶ stable prefixes for templates requiring a user query
+  [32m✔ A/B probes are cached and verified against real tokens without changing request messages [90m(0.212792ms)[39m[39m
+  [32m✔ fallback compatibility includes tools/thinking, and unusable probes are safely cached [90m(0.164333ms)[39m[39m
+[32m✔ stable prefixes for templates requiring a user query [90m(0.441459ms)[39m[39m
+▶ cost-neutral system checkpoints with legacy conversational anchors
+  [32m✔ short requests keep the original single model pass [90m(0.067042ms)[39m[39m
+  [32m✔ static prefix tagging never changes legacy batch sizes, including capacity tails [90m(0.296958ms)[39m[39m
+  [32m✔ a changing schema after the natural1024 checkpoint can reuse it rather than replay from512 [90m(0.234125ms)[39m[39m
+  [32m✔ ordinary conversation checkpoints retain exact original positions [90m(0.188333ms)[39m[39m
+  [32m✔ protected roles remain within one/two/eight existing snapshot allowances [90m(0.607334ms)[39m[39m
+  [32m✔ none skips optional checkpoint work but keeps in-call token accounting [90m(0.193791ms)[39m[39m
+[32m✔ cost-neutral system checkpoints with legacy conversational anchors [90m(2.744209ms)[39m[39m
+(node:18505) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+▶ rawRgba4
+  [32m✔ texel t of row r, block b, holds weights 4t..4t+3, the first in the low nibble [90m(2.007291ms)[39m[39m
+[32m✔ rawRgba4 [90m(2.477875ms)[39m[39m
+▶ MatMulNBits repacking
+  [32m✔ quantsFromRaw matches packMatMulNBits' quants [90m(1.060458ms)[39m[39m
+  [32m✔ packMatMulNBitsScales matches packMatMulNBits' scales and zero points [90m(0.156833ms)[39m[39m
+  [32m✔ rows land at row0 (matrices filled part by part) [90m(0.118459ms)[39m[39m
+  [32m✔ zero points unpack low nibble first, two blocks a byte [90m(0.067583ms)[39m[39m
+[32m✔ MatMulNBits repacking [90m(1.536792ms)[39m[39m
+▶ ggml dequantization
+  [32m✔ Q4_1: d · q + m, weight j in the low nibble, j + 16 in the high one [90m(4.135333ms)[39m[39m
+  [32m✔ Q5_K: 6-bit scales and mins (both packings), the fifth bit from qh [90m(0.213375ms)[39m[39m
+[32m✔ ggml dequantization [90m(4.468ms)[39m[39m
+(node:18506) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+[32m✔ leading repeated empty thought blocks are not answer or reasoning text [90m(0.515625ms)[39m[39m
+[32m✔ empty block markers can arrive one character at a time [90m(0.124667ms)[39m[39m
+[32m✔ JSON, code spans, body markers and nonempty later blocks remain literal answer data [90m(0.806166ms)[39m[39m
+[32m✔ flush preserves incomplete marker-shaped answer prefixes and removes complete empty blocks [90m(1.092208ms)[39m[39m
+[32m✔ literal JSON retains Paris closing markers, nonempty thought tags and UTF-8 text exactly [90m(0.312375ms)[39m[39m
+(node:18507) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+▶ createSampler
+  [32m✔ temperature 0 is the argmax at probability 1 [90m(3.074667ms)[39m[39m
+  [32m✔ the repetition penalty divides positive logits and multiplies negative ones [90m(0.121333ms)[39m[39m
+  [32m✔ presence penalty applies once to generated tokens, without penalizing prompt-only tokens [90m(0.096584ms)[39m[39m
+  [32m✔ min_p filters relative to the highest probability and renormalizes before top_p [90m(0.147666ms)[39m[39m
+  [32m✔ top_k keeps the k likeliest, normalized [90m(0.084541ms)[39m[39m
+  [32m✔ top_p drops the tail once the kept share reaches it [90m(0.074083ms)[39m[39m
+[32m✔ createSampler [90m(4.161792ms)[39m[39m
+▶ verify (speculative sampling)
+  [32m✔ tokens come out distributed as the distribution, draft 10 [90m(17.478083ms)[39m[39m
+  [32m✔ tokens come out distributed as the distribution, draft 11 [90m(16.067ms)[39m[39m
+  [32m✔ tokens come out distributed as the distribution, draft 13 [90m(13.824834ms)[39m[39m
+  [32m✔ tokens come out distributed as the distribution, draft 99 [90m(10.496667ms)[39m[39m
+  [32m✔ a draft at probability 1 is always kept [90m(0.139916ms)[39m[39m
+  [32m✔ greedy: a one-token distribution keeps its token, replaces any other [90m(0.088708ms)[39m[39m
+[32m✔ verify (speculative sampling) [90m(58.319625ms)[39m[39m
+▶ draw
+  [32m✔ draws in proportion to p [90m(2.11275ms)[39m[39m
+  [32m✔ never returns a token at probability 0 [90m(0.079417ms)[39m[39m
+[32m✔ draw [90m(2.266667ms)[39m[39m
+(node:18508) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+[32m✔ structured output forwards the actual schema and limits to worker generation [90m(2.124334ms)[39m[39m
+[32m✔ standard promptCache forwards none and key policy in both public structured and streaming chat [90m(11.461417ms)[39m[39m
+[32m✔ default structured serialization is byte-identical to the original system/schema contract [90m(0.369875ms)[39m[39m
+[32m✔ current tool thinking and authoritative tool results use baseline roles without an extra user message [90m(0.274292ms)[39m[39m
+[32m✔ matcher failures are explicit, never retried or replaced, and JSON tag literals stay intact [90m(0.261791ms)[39m[39m
+(node:18509) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+[32m✔ a one-off short or long request retains original forwards and allocates no learned state [90m(1.713709ms)[39m[39m
+[32m✔ a revealed sub-batch boundary is captured without splitting and reused by the next changed input [90m(3.586166ms)[39m[39m
+[32m✔ natural boundaries and whole short-input endpoints need no in-batch extraction [90m(0.364417ms)[39m[39m
+[32m✔ simultaneous conversational anchor and learned prefix obey the existing two-snapshot bound [90m(0.205875ms)[39m[39m
+[32m✔ one-snapshot models and explicit cache disable keep the original forward path [90m(0.209417ms)[39m[39m
+[32m✔ interrupted in-batch extraction frees every partial texture and clears transient capture state [90m(0.348459ms)[39m[39m
+[32m✔ stop after a batch retains only committed prefix state and reset frees it [90m(0.087583ms)[39m[39m
+[32m✔ a longer observed prefix can improve an existing shorter hit without changing the tail batches [90m(0.134083ms)[39m[39m
+[32m✔ minor schema prefix extensions preserve the safer retained fallback without imposing a token minimum [90m(0.090292ms)[39m[39m
+[32m✔ a fluctuating dynamic schema reuses its learned fallback instead of repeatedly discarding it [90m(0.319666ms)[39m[39m
+[32m✔ a profile switch keeps the normal long-prefix checkpoint despite a short previous match [90m(1.270208ms)[39m[39m
+[32m✔ repeated short content supersedes an unsuitable natural checkpoint without changing batches [90m(0.223042ms)[39m[39m
+[32m✔ template-only matches do not replace natural checkpoints and short content has no fixed cutoff [90m(0.063875ms)[39m[39m
+[32m✔ framing probes are memoized, token-verified, and never alter the real request [90m(0.148042ms)[39m[39m
+[32m✔ a reusable ordinary checkpoint is promoted without another GPU-state copy [90m(0.519125ms)[39m[39m
+[32m✔ an exact retry does not promote the full endpoint over a useful shorter prefix [90m(0.078875ms)[39m[39m
+(node:18510) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+▶ isOldVersion
+  [32m✔ a file and its markers saved at a pinned commit [90m(0.493917ms)[39m[39m
+  [32m✔ not the file at main [90m(0.062167ms)[39m[39m
+  [32m✔ not another file whose name ends the same [90m(0.065291ms)[39m[39m
+  [32m✔ not another repo's file [90m(0.058125ms)[39m[39m
+  [32m✔ a file in a folder [90m(0.056959ms)[39m[39m
+[32m✔ isOldVersion [90m(1.744417ms)[39m[39m
+(node:18511) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+[32m✔ thinking masks EOS but does not consume schema tokens until the closing marker [90m(0.844459ms)[39m[39m
+[32m✔ without template thinking the first token is schema constrained [90m(0.0775ms)[39m[39m
+[32m✔ CPU masks tokens before selection, including the sign bit of each word [90m(0.097458ms)[39m[39m
+[32m✔ a seeded model-generated opening marker stays in reasoning and never enters the JSON matcher [90m(0.062375ms)[39m[39m
+[32m✔ answer draft masks follow hypothetical prefixes without advancing live grammar [90m(5.595666ms)[39m[39m
+[32m✔ answer speculation discards an invalid suffix before it can enter KV or grammar state [90m(2.964208ms)[39m[39m
+(node:18512) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+▶ LFM3 thinking budget
+  [32m✔ an omitted budget leaves generation unchanged, even without markers [90m(2.115334ms)[39m[39m
+  [32m✔ zero closes a template-opened thinking block before the first draw [90m(0.443791ms)[39m[39m
+  [32m✔ the exact cap forces the next token, leaving answer generation available [90m(0.069375ms)[39m[39m
+  [32m✔ natural early closing never spends the remaining budget or forces a delimiter [90m(0.070084ms)[39m[39m
+  [32m✔ the model can open thinking later; delimiters are not content tokens [90m(0.054667ms)[39m[39m
+  [32m✔ reopened thinking spans share one budget instead of resetting it [90m(0.060709ms)[39m[39m
+  [32m✔ zero without any thinking does not claim exhaustion [90m(0.051917ms)[39m[39m
+  [32m✔ an overall output limit may stop before the thinking budget [90m(0.069666ms)[39m[39m
+  [32m✔ a speculative batch stops acceptance immediately at the cap [90m(0.073291ms)[39m[39m
+  [32m✔ rejects invalid budgets and missing or invalid single-token delimiters [90m(0.280875ms)[39m[39m
+[32m✔ LFM3 thinking budget [90m(3.9715ms)[39m[39m
+[32m✔ an exhausted budget allows its closing marker once, then masks both control tokens [90m(0.0825ms)[39m[39m
+[32m✔ natural early closing and omitted budgets preserve normal control-token behavior [90m(0.079375ms)[39m[39m
+(node:18513) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+[32m✔ subset tuning restores work estimates: success, empty cache [90m(1.967ms)[39m[39m
+[32m✔ subset tuning restores work estimates: success, populated cache [90m(0.438125ms)[39m[39m
+[32m✔ subset tuning restores work estimates: stopped, empty cache [90m(0.282583ms)[39m[39m
+[32m✔ subset tuning restores work estimates: stopped, populated cache [90m(0.186875ms)[39m[39m
+[32m✔ subset tuning restores work estimates: throw, empty cache [90m(0.467875ms)[39m[39m
+[32m✔ subset tuning restores work estimates: throw, populated cache [90m(0.179833ms)[39m[39m
+[34mℹ tests 193[39m
+[34mℹ suites 24[39m
+[34mℹ pass 193[39m
+[34mℹ fail 0[39m
+[34mℹ cancelled 0[39m
+[34mℹ skipped 0[39m
+[34mℹ todo 0[39m
+[34mℹ duration_ms 1630.294042[39m
+
+> nx run structured-output:test
+
+(node:18455) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+$ node scripts/test.mjs
+(node:18472) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:18473) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+[32m✔ Apfel off/omitted remains one pass with model defaults and exact schema [90m(11.649458ms)[39m[39m
+[32m✔ Apfel high caps only draft, preserves final settings, schema and caller history [90m(2.63725ms)[39m[39m
+[32m✔ Apfel high without a budget invents no cap; explicit smaller caller cap is preserved [90m(0.860917ms)[39m[39m
+[32m✔ Apfel zero budget skips draft and negative or invalid budgets fail before requests [90m(0.482042ms)[39m[39m
+[32m✔ Apfel emits reasoning before final text and preserves tool selection and calls [90m(1.483875ms)[39m[39m
+[32m✔ Apfel request.signal and legacy abortController cancel before, during draft and final [90m(1.459541ms)[39m[39m
+[32m✔ Apfel draft errors do not silently generate a final answer or retry [90m(0.506125ms)[39m[39m
+[32m✔ Apfel stopping a reasoning stream closes the draft and never starts the final [90m(0.161708ms)[39m[39m
+[32m✔ TanStack chat forwards Apfel high/off reasoning through structured finalization [90m(4.413459ms)[39m[39m
+[32m✔ Apfel draft notes preserve the original user turn and authoritative tool-result ordering [90m(0.449916ms)[39m[39m
+[32m✔ Apfel preserves provider token accounting without clamping or claiming a natural stop exhausted its budget [90m(0.195167ms)[39m[39m
+[32m✔ Apfel cancellation from a generation-phase callback prevents the draft request [90m(0.105917ms)[39m[39m
+(node:18474) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+[32m✔ webgl: structured cancellation via request.signal and legacy controller [90m(92.094333ms)[39m[39m
+[32m✔ transformers-js: structured cancellation via request.signal and legacy controller [90m(52.814541ms)[39m[39m
+[32m✔ wllama: structured cancellation via request.signal and legacy controller [90m(50.288625ms)[39m[39m
+[32m✔ prompt-api: structured cancellation via request.signal and legacy controller [90m(41.0265ms)[39m[39m
+[32m✔ apfel: structured cancellation via request.signal and legacy controller [90m(34.095625ms)[39m[39m
+[32m✔ installed TanStack chat forwards abortController through structured chatOptions.request.signal [90m(3.639375ms)[39m[39m
+[32m✔ Prompt API cancellation during usage measurement cannot publish a late answer [90m(0.173791ms)[39m[39m
+[32m✔ Prompt API initialization checks aborts across availability and late session creation [90m(3.537417ms)[39m[39m
+(node:18475) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+[32m✔ finite printable string objects reject impossible escape and UTF-8 prefixes before accepting them [90m(15.321333ms)[39m[39m
+[32m✔ forks retain immutable canonical masks, independent prefixes, and EOS [90m(10.255917ms)[39m[39m
+[32m✔ recognition leaves Unicode, escaped literals, unknown assertions and other schemas unchanged [90m(39.947ms)[39m[39m
+[32m✔ mask conversion caches exact bytes and bypasses vocabularies lacking canonical byte coverage [90m(0.618ms)[39m[39m
+[32m✔ HF ByteLevel metadata uses byte-level spaces and added-token byte overrides [90m(0.599583ms)[39m[39m
+[32m✔ every canonical prefix mask matches an independent finite-language oracle [90m(1032.35375ms)[39m[39m
+(node:18476) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+[32m✔ a move object enforces the enum and permits only EOS after completion [90m(16.440667ms)[39m[39m
+[32m✔ clones maintain separate speculative prefixes [90m(12.98225ms)[39m[39m
+[32m✔ exact UTF-8 bytes and escaped strings are accepted across token boundaries [90m(16.36675ms)[39m[39m
+[32m✔ HF ByteLevel vocabulary bridge preserves raw byte tokens and added special ids [90m(2.654209ms)[39m[39m
+[32m✔ EOS override supports runtimes that keep EOS on model configuration [90m(2.4305ms)[39m[39m
+[32m✔ unsupported assertions fail explicitly [90m(0.297ms)[39m[39m
+[32m✔ invalid tokenizers and dead ends fail explicitly [90m(0.371792ms)[39m[39m
+[32m✔ numeric roots preserve valid extensions after an accepting prefix [90m(11.579417ms)[39m[39m
+[32m✔ structured answer preserves tag literals in JSON and strips only leading reasoning [90m(0.183ms)[39m[39m
+[32m✔ compact punctuation forbids whitespace loops outside strings while preserving string spaces [90m(8.981583ms)[39m[39m
+[32m✔ finite tool-routing and argument enums reject wrong prefixes before closing quotes [90m(17.697334ms)[39m[39m
+[32m✔ parsed structured values validate schemas without a model tokenizer [90m(576.45775ms)[39m[39m
+[32m✔ parsed value validation rejects non-JSON coercions and cycles [90m(102.421584ms)[39m[39m
+[32m✔ parsed native arguments validate independent of property insertion order and string whitespace [90m(17.883375ms)[39m[39m
+[32m✔ explicit EOS replaces existing camel-case and snake-case metadata consistently [90m(5.804084ms)[39m[39m
+(node:18477) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+[32m✔ guided auto selects tools and constrains their original argument schema [90m(0.828375ms)[39m[39m
+[32m✔ guided answer does not fabricate tool calls [90m(0.085417ms)[39m[39m
+[32m✔ specific tool skips routing and multiple required tools cannot select answer [90m(0.752042ms)[39m[39m
+[32m✔ guided tools reject malformed args and unknown tool names [90m(0.173084ms)[39m[39m
+[32m✔ guided stages preserve reported cached-token usage without inventing hits [90m(0.112125ms)[39m[39m
+[32m✔ one required tool skips its forced routing pass and keeps the exact argument constraint and usage [90m(0.105458ms)[39m[39m
+[32m✔ multiple required tools still route before constraining the selected tool's arguments [90m(0.134083ms)[39m[39m
+[32m✔ required one-tool fast path preserves early and in-generation cancellation [90m(0.183625ms)[39m[39m
+(node:18478) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+[32m✔ wllama: the same public chat promptCache matrix requires no provider-specific consumer options [90m(85.316125ms)[39m[39m
+[32m✔ apfel: the same public chat promptCache matrix requires no provider-specific consumer options [90m(51.844625ms)[39m[39m
+[32m✔ prompt-api: the same public chat promptCache matrix requires no provider-specific consumer options [90m(51.204625ms)[39m[39m
+[32m✔ wllama streaming translates only the standard none hint and forwards real backend cache counts [90m(3.683833ms)[39m[39m
+[32m✔ native structured requests preserve exact schema and current tool-result messages [90m(0.62925ms)[39m[39m
+[32m✔ apfel reports provider cache usage honestly without fabricating support for retention hints [90m(1.510209ms)[39m[39m
+[32m✔ wllama skips managed prompt-state persistence when its effective native cache flag is false [90m(21.139ms)[39m[39m
+(node:18479) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+[32m✔ wllama delegates the exact schema, thinking switch and output cap, and rejects length completion [90m(67.212625ms)[39m[39m
+[32m✔ Prompt API passes the exact native schema and rejects unsupported schemas without downgrade or retry [90m(22.948292ms)[39m[39m
+[32m✔ apfel forwards the exact guided schema and caller output cap, and rejects length completion [90m(45.402708ms)[39m[39m
+[32m✔ Prompt API tool schemas preserve assertions instead of weakening them [90m(7.781958ms)[39m[39m
+[32m✔ wllama maps explicit thinking budgets through its public runtime option in both paths [90m(39.70475ms)[39m[39m
+(node:18480) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+[32m✔ Prompt API off/omitted reasoning remains one native constrained pass [90m(1.591ms)[39m[39m
+[32m✔ emulated Prompt API budget subtracts message overhead and never aborts the final caller [90m(1.866375ms)[39m[39m
+[32m✔ emulated thinking with no budget has no invented token ceiling [90m(0.324208ms)[39m[39m
+[32m✔ caller abort before or during draft prevents final generation, via request.signal or legacy abortController [90m(0.799667ms)[39m[39m
+[32m✔ caller abort interrupts final generation after an emulated draft [90m(0.338834ms)[39m[39m
+[32m✔ emulated draft preserves constrained tool selection and argument generation [90m(0.922334ms)[39m[39m
+[32m✔ zero emulated budget skips the draft but retains constrained final generation [90m(0.136584ms)[39m[39m
+[32m✔ emulated stream keeps native tool calls and labels its reasoning usage [90m(0.490958ms)[39m[39m
+[32m✔ off and omitted streamed calls preserve retained session behavior [90m(0.755875ms)[39m[39m
+[32m✔ shared TanStack chat forwards opt-in reasoning to the Prompt API adapter [90m(5.843666ms)[39m[39m
+[32m✔ invalid emulated budgets reject before leasing a native session [90m(0.149917ms)[39m[39m
+[32m✔ Prompt API required one-tool calls skip the forced routing clone and constrain arguments once [90m(0.228459ms)[39m[39m
+[32m✔ Prompt API auto and multiple required tools still need constrained routing decisions [90m(0.298875ms)[39m[39m
+[32m✔ Prompt API forced one-tool argument cancellation cleans up its clone and lease without publishing a call [90m(0.108209ms)[39m[39m
+(node:18481) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+[32m✔ structured calls reuse a clean base, use fresh clones, preserve the exact schema and report cached input [90m(2.765292ms)[39m[39m
+[32m✔ stateless structured callers reuse matching system/options bases without a thread ID [90m(0.395875ms)[39m[39m
+[32m✔ thread, system, sampling and language changes never reuse incompatible bases [90m(0.979709ms)[39m[39m
+[32m✔ compatible history appends only its gap, while edited history resets the prefix [90m(0.596459ms)[39m[39m
+[32m✔ structured finalization never replaces the retained chat/tool namespace [90m(2.251167ms)[39m[39m
+[32m✔ request.signal and legacy cancellation stop clones without discarding healthy prefixes [90m(0.651542ms)[39m[39m
+[32m✔ abort while cloning preserves its parent; native schema failures and invalid JSON do too [90m(0.396542ms)[39m[39m
+[32m✔ concurrent generations share an already warm base and cannot affect each other's clone [90m(0.243166ms)[39m[39m
+[32m✔ overlapping cold calls share one prepared base without orphan sessions [90m(0.167542ms)[39m[39m
+[32m✔ explicit cleanup and the existing shared cache bound include structured bases [90m(0.341333ms)[39m[39m
+[32m✔ concurrent distinct cold structured threads trim idle bases back to the retained limit [90m(5.600958ms)[39m[39m
+[32m✔ pool trimming preserves independent concurrent clones and their cancellation [90m(0.445208ms)[39m[39m
+[32m✔ trimming never destroys busy leases and keeps idle eviction in LRU order [90m(0.197792ms)[39m[39m
+[32m✔ concurrent cold chat leases sharing a key destroy the detached session on release [90m(0.107333ms)[39m[39m
+[32m✔ clone overflow is reported on structured usage and invokes the existing callback [90m(0.107834ms)[39m[39m
+[32m✔ the public TanStack structured-output path reuses the adapter base across calls [90m(0.594375ms)[39m[39m
+[32m✔ structured bases with different expected input modalities are isolated [90m(0.111833ms)[39m[39m
+[32m✔ a queued caller can cancel promptly without letting later preparation bypass the active one [90m(0.209125ms)[39m[39m
+[32m✔ emulated working notes and constrained answers never contaminate a cached base [90m(0.84375ms)[39m[39m
+[32m✔ a browser-destroyed cached base is recreated before generation without retrying a response [90m(0.234708ms)[39m[39m
+[32m✔ public TanStack promptCache none creates fresh structured requests with no managed cached prefix [90m(0.776ms)[39m[39m
+[32m✔ none bypasses anonymous structured bases and does not evict a previous reusable session [90m(0.215875ms)[39m[39m
+[32m✔ custom standard cache keys share compatible structured prefixes and still reset changed history or options [90m(0.260709ms)[39m[39m
+[32m✔ short and long preserve the existing opportunistic cache without imposing different retention caps [90m(0.329667ms)[39m[39m
+[32m✔ streaming cache-key reuse keeps AG-UI correlation on each caller thread [90m(0.408125ms)[39m[39m
+[32m✔ standard none streaming releases each session instead of retaining conversational state [90m(0.265166ms)[39m[39m
+[32m✔ emulated reasoning streams remain ephemeral even with an explicit long-lived cache key [90m(0.520167ms)[39m[39m
+[32m✔ concurrent uncached requests and cancellation clean up every per-request native session [90m(0.22475ms)[39m[39m
+[32m✔ an explicit shared cache key never substitutes for compatible caller history [90m(0.185333ms)[39m[39m
+(node:18482) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+[32m✔ Wllama caller aborts stop both loading waits, while the shared background load completes [90m(45.922667ms)[39m[39m
+[34mℹ tests 105[39m
+[34mℹ suites 0[39m
+[34mℹ pass 105[39m
+[34mℹ fail 0[39m
+[34mℹ cancelled 0[39m
+[34mℹ skipped 0[39m
+[34mℹ todo 0[39m
+[34mℹ duration_ms 1833.982125[39m
+
+> nx run transformers-js:test
+
+(node:18514) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+$ node scripts/test.mjs
+(node:18518) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:18519) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+[32m✔ structured output forwards the schema, canonical token cap, thinking cap, and model context default [90m(5.893542ms)[39m[39m
+[32m✔ required and specific tools use constrained decisions and arguments, emitting one tool call [90m(2.374167ms)[39m[39m
+[32m✔ native auto can answer without a JSON routing decision [90m(1.956875ms)[39m[39m
+[32m✔ invalid token budgets fail before loading a worker [90m(0.367666ms)[39m[39m
+[32m✔ canceling model loading rejects promptly without generating [90m(0.233916ms)[39m[39m
+[32m✔ request-only signal cancels structured model loading [90m(11.094458ms)[39m[39m
+[32m✔ toolChoice none never emits tool events for spontaneous native markup [90m(1.633375ms)[39m[39m
+[32m✔ no declared tools means model tool markup remains ordinary text [90m(3.169375ms)[39m[39m
+[32m✔ native auto preserves tool choice and repairs invalid arguments under the selected schema [90m(14.449292ms)[39m[39m
+[32m✔ native auto rejects undeclared tool calls before emitting tool events [90m(1.1ms)[39m[39m
+[32m✔ valid native auto arguments emit directly without an extra model call [90m(6.868167ms)[39m[39m
+[32m✔ malformed native auto envelopes fail before any tool event [90m(2.615333ms)[39m[39m
+[32m✔ SDK promptCache controls both adapter paths without changing default retention or generation settings [90m(5.963416ms)[39m[39m
+[32m✔ required multiple tools still route under a schema before exact argument generation [90m(0.441209ms)[39m[39m
+[32m✔ structured serialization stays byte-for-byte in the original system/schema layout with current tool context [90m(1.674583ms)[39m[39m
+[32m✔ guided tool arguments retain original instruction/schema serialization in the system message [90m(1.586ms)[39m[39m
+[32m✔ the same public SDK promptCache policy matrix works without provider-specific consumer options [90m(15.168083ms)[39m[39m
+[32m✔ structured matcher failures and incomplete JSON are never repaired, retried, or tag-stripped [90m(0.527167ms)[39m[39m
+(node:18520) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+▶ pooledSize
+  [32m✔ rounds up to a quarter step of the power of two [90m(0.314875ms)[39m[39m
+  [32m✔ small requests share one size [90m(0.520708ms)[39m[39m
+  [32m✔ never shrinks, never adds more than a quarter [90m(0.17775ms)[39m[39m
+  [32m✔ a growing request lands on few sizes [90m(0.197459ms)[39m[39m
+[32m✔ pooledSize [90m(1.729833ms)[39m[39m
+▶ SparePool
+  [32m✔ hands a spare back for the same key [90m(0.140084ms)[39m[39m
+  [32m✔ a spare lasts through the next step, then goes [90m(0.395916ms)[39m[39m
+  [32m✔ a spare taken and put back again starts over [90m(0.0805ms)[39m[39m
+  [32m✔ clear releases everything [90m(0.108959ms)[39m[39m
+[32m✔ SparePool [90m(0.859334ms)[39m[39m
+(node:18521) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+▶ checkpointsToDrop
+  [32m✔ keeps the first and the latest past the count [90m(0.691542ms)[39m[39m
+  [32m✔ LFM-sized checkpoints: six caches of six fit the budget, as before [90m(0.593875ms)[39m[39m
+  [32m✔ past the budget, the least recently used cache's middles go first [90m(0.117167ms)[39m[39m
+  [32m✔ then other caches' latest, then their first [90m(0.084833ms)[39m[39m
+  [32m✔ the latest cache keeps its first and latest whatever the budget [90m(0.064041ms)[39m[39m
+  [32m✔ Qwen3.5-sized checkpoints stay within the budget [90m(0.154125ms)[39m[39m
+[32m✔ checkpointsToDrop [90m(2.253833ms)[39m[39m
+(node:18522) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+▶ halfBits
+  [32m✔ values float16 holds exactly [90m(0.342458ms)[39m[39m
+  [32m✔ rounds to nearest, ties to even, carrying into the exponent [90m(0.076208ms)[39m[39m
+[32m✔ halfBits [90m(0.883792ms)[39m[39m
+▶ embedRows
+  [32m✔ dequantizes each row: (code - zero point) × its block's scale [90m(0.276042ms)[39m[39m
+  [32m✔ float32 scales are used as they are [90m(0.093375ms)[39m[39m
+  [32m✔ zero points default to 8, and out-of-range ids throw [90m(0.199166ms)[39m[39m
+[32m✔ embedRows [90m(0.664084ms)[39m[39m
+(node:18523) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+[32m✔ constraints filter before top-k, even when the allowed token is not the model's favorite [90m(1.082791ms)[39m[39m
+[32m✔ a zero thinking budget closes immediately before schema generation [90m(0.113625ms)[39m[39m
+[32m✔ thinking content hits the exact cap and forced markers are excluded [90m(0.08075ms)[39m[39m
+[32m✔ multi-token thinking delimiters transition without being sent to the JSON grammar [90m(0.079875ms)[39m[39m
+[32m✔ natural thinking completion is allowed before the budget [90m(0.061541ms)[39m[39m
+[32m✔ incomplete constrained output reports truncation, but cancellation stays cancellation [90m(0.231666ms)[39m[39m
+[32m✔ a model that opens thinking itself gets its actual opening marker before the JSON grammar [90m(0.101417ms)[39m[39m
+[32m✔ structured answer extraction preserves thinking-marker text inside JSON strings [90m(0.097875ms)[39m[39m
+[32m✔ native reopened thinking shares the original remaining budget [90m(0.107292ms)[39m[39m
+[32m✔ native reopening after budget exhaustion forces an empty span without spending more tokens [90m(0.102542ms)[39m[39m
+[32m✔ multi-token native opening markers rearm only when complete and do not reset the counter [90m(0.0785ms)[39m[39m
+[32m✔ thinking-off literal markers do not reopen or force tokens [90m(0.065541ms)[39m[39m
+[32m✔ structured answer marker-shaped tokens are handled by the grammar rather than rearming thinking [90m(0.078458ms)[39m[39m
+[32m✔ post-budget native output bans actual control IDs after allowing the forced close once [90m(0.05325ms)[39m[39m
+[32m✔ omitted budgets and natural early endings leave native control logits unchanged [90m(0.087334ms)[39m[39m
+[32m✔ budget zero allows its empty forced block then bans native control tags [90m(0.644875ms)[39m[39m
+[32m✔ Gemma-style marker words and newlines are not banned as control IDs [90m(0.135084ms)[39m[39m
+[32m✔ structured JSON marker tokens stay governed by the schema after the budget is spent [90m(0.074083ms)[39m[39m
+(node:18524) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+▶ claimMemory
+  [32m✔ keeps small models side by side within the budget [90m(1.174708ms)[39m[39m
+  [32m✔ unloads another runtime's model when two don't fit [90m(0.158958ms)[39m[39m
+  [32m✔ unloads the least recently used first, only as many as needed [90m(5.926166ms)[39m[39m
+  [32m✔ never unloads a model kept loaded [90m(0.214375ms)[39m[39m
+  [32m✔ a runtime's new model replaces its own, without unloading it [90m(0.122792ms)[39m[39m
+  [32m✔ a released model no longer counts [90m(0.088834ms)[39m[39m
+  [32m✔ a bigger budget keeps both [90m(0.088291ms)[39m[39m
+[32m✔ claimMemory [90m(8.419959ms)[39m[39m
+(node:18525) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+▶ chunkLargeMatMulNBits
+  [32m✔ leaves a model alone when no multiply is over the limit [90m(0.967792ms)[39m[39m
+  [32m✔ splits a large multiply into row chunks joined by a Concat, in place [90m(1.943125ms)[39m[39m
+  [32m✔ slices flat scales and zero points by elements per row [90m(1.060792ms)[39m[39m
+  [32m✔ copies the model's other fields through unchanged [90m(0.644125ms)[39m[39m
+[32m✔ chunkLargeMatMulNBits [90m(5.743041ms)[39m[39m
+▶ trimRotaryTables
+  [32m✔ cuts external tables to the first rows: same offset, shorter length [90m(0.663709ms)[39m[39m
+  [32m✔ cuts inline float32 tables to their first rows [90m(0.345458ms)[39m[39m
+  [32m✔ leaves tables that another op reads, or that are short enough [90m(0.414833ms)[39m[39m
+[32m✔ trimRotaryTables [90m(1.694917ms)[39m[39m
+▶ scoreLastTokenOnly
+  [32m✔ slices the output layer's input to the last position [90m(0.505375ms)[39m[39m
+  [32m✔ finds the output layer behind a Cast or a soft cap [90m(0.780333ms)[39m[39m
+  [32m✔ leaves models that take num_logits_to_keep, or have no logits [90m(0.233917ms)[39m[39m
+[32m✔ scoreLastTokenOnly [90m(1.651375ms)[39m[39m
+▶ readQuantizedEmbedding
+  [32m✔ reads a 4-bit embedding table's layout [90m(0.515209ms)[39m[39m
+  [32m✔ only float32 rows, and only embedding graphs [90m(0.586958ms)[39m[39m
+[32m✔ readQuantizedEmbedding [90m(1.167959ms)[39m[39m
+▶ moveScansToCpu
+  [32m✔ Scan bodies and the float32 work around a Scan go to the CPU, renamed [90m(1.964625ms)[39m[39m
+  [32m✔ the CPU's nodes read copies of constants the GPU's read too [90m(0.988666ms)[39m[39m
+  [32m✔ nodes outside the branch keep their names [90m(0.799625ms)[39m[39m
+  [32m✔ nothing for a model without a Scan [90m(0.138958ms)[39m[39m
+[32m✔ moveScansToCpu [90m(3.992625ms)[39m[39m
+▶ foldScanTransposes
+  [32m✔ the Scan reads and writes the untransposed tensors along other axes [90m(1.029083ms)[39m[39m
+  [32m✔ not where the other axes would change order [90m(0.444958ms)[39m[39m
+  [32m✔ not where something else reads the transposed tensor [90m(0.208541ms)[39m[39m
+[32m✔ foldScanTransposes [90m(1.734ms)[39m[39m
+▶ sinkTransposesThroughConcat
+  [32m✔ Concats join the untransposed tensors, then transpose [90m(0.793875ms)[39m[39m
+  [32m✔ only where a convolution reads one of the Concats [90m(0.20125ms)[39m[39m
+[32m✔ sinkTransposesThroughConcat [90m(1.041583ms)[39m[39m
+▶ matVecInScanBodies
+  [32m✔ a Scan body's ReduceSum(Mul(X, Unsqueeze(v, -1)), -2) becomes a MatMul [90m(1.17325ms)[39m[39m
+  [32m✔ not where the sum keeps its axis or runs along another [90m(0.415958ms)[39m[39m
+[32m✔ matVecInScanBodies [90m(1.63825ms)[39m[39m
+(node:18526) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+[32m✔ none uses run-owned KV, bypasses prior/disk caches, disposes on all exits and preserves other contexts [90m(2.97975ms)[39m[39m
+[32m✔ cold structured initialization retains cancellation and disposes the late constraint without inference [90m(0.542291ms)[39m[39m
+[32m✔ stop during model-runtime initialization is retained before a native criterion exists [90m(0.116667ms)[39m[39m
+(node:18527) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+▶ reusablePrefixLength
+  [32m✔ keeps an exact instruction prefix despite a long template-only closing suffix [90m(0.383917ms)[39m[39m
+  [32m✔ changing schema guidance and current input preserves only the stable leading instructions [90m(0.12875ms)[39m[39m
+  [32m✔ leaves the final prompt token unread for logits, including an identical retry [90m(0.065ms)[39m[39m
+  [32m✔ never reuses a nonmatching token or assumes text joins have stable tokenization [90m(0.062208ms)[39m[39m
+  [32m✔ supports typed token arrays without changing either sequence [90m(0.41275ms)[39m[39m
+[32m✔ reusablePrefixLength [90m(2.113583ms)[39m[39m
+▶ system prefixes for templates requiring a user
+  [32m✔ supported system-only rendering is unchanged and does not probe user messages [90m(0.224833ms)[39m[39m
+  [32m✔ user-required templates cache only the common A/B token prefix, never synthetic user content [90m(0.1835ms)[39m[39m
+  [32m✔ a conditional prefix shared by A/B is intersected again with the actual caller prompt [90m(0.096334ms)[39m[39m
+  [32m✔ tool-only leading context can use the same user-required fallback [90m(0.081458ms)[39m[39m
+  [32m✔ unsupported probes safely disable this prefix optimization [90m(0.110792ms)[39m[39m
+[32m✔ system prefixes for templates requiring a user [90m(0.848209ms)[39m[39m
+(node:18528) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+▶ nextPromptStep
+  [32m✔ starts untimed prompts at the first step size [90m(0.818209ms)[39m[39m
+  [32m✔ fits PROMPT_STEP_MS at the last rate [90m(0.075041ms)[39m[39m
+  [32m✔ at most doubles from one step to the next [90m(0.058209ms)[39m[39m
+  [32m✔ a prompt starts at no more than twice the first step [90m(0.0525ms)[39m[39m
+  [32m✔ never past the largest step, whatever the speed [90m(0.050417ms)[39m[39m
+  [32m✔ never under the smallest step, however slow [90m(0.052208ms)[39m[39m
+  [32m✔ a slow device shrinks steps at once [90m(0.045167ms)[39m[39m
+  [32m✔ grows 256, 512, 1024 on a fast device [90m(0.395292ms)[39m[39m
+[32m✔ nextPromptStep [90m(2.157792ms)[39m[39m
+▶ promptStepEnd
+  [32m✔ a whole step when nothing is in the way [90m(0.10375ms)[39m[39m
+  [32m✔ ends at the prompt's end [90m(0.078917ms)[39m[39m
+  [32m✔ ends at the first stop on the way [90m(0.056166ms)[39m[39m
+  [32m✔ ignores stops at or behind the start and at the step's end [90m(0.052625ms)[39m[39m
+[32m✔ promptStepEnd [90m(0.421167ms)[39m[39m
+(node:18529) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+[32m✔ repeated empty leading thought blocks do not leak into answers or create reasoning pieces [90m(0.542125ms)[39m[39m
+[32m✔ custom model thinking markers handle split empty blocks [90m(0.214791ms)[39m[39m
+[32m✔ literal marker text inside JSON, code spans, or an answer body is preserved [90m(0.595375ms)[39m[39m
+[32m✔ flush keeps incomplete marker prefixes and discards only complete empty blocks [90m(0.146792ms)[39m[39m
+[34mℹ tests 114[39m
+[34mℹ suites 18[39m
+[34mℹ pass 114[39m
+[34mℹ fail 0[39m
+[34mℹ cancelled 0[39m
+[34mℹ skipped 0[39m
+[34mℹ todo 0[39m
+[34mℹ duration_ms 1632.672834[39m
+
+> nx run checkers:build
+
+(node:18550) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+$ vite build
+(node:18560) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+vite v8.3.5 building client environment for production...
+transforming...
+[32m✓[0m 625 modules transformed.
+rendering chunks...
+computing gzip size...
+[2mdist/client/[0m[32m.assetsignore                           [0m[1;2m  0.02 kB[0m
+[2mdist/client/[0m[2massets/[0m[32manalysis.worker-CAm9VM_j.js      [0m[1;2m 21.82 kB[0m
+[2mdist/client/[0m[2massets/[0m[32mjson-schema.browser-BtSvDyey.js  [0m[1;2m 77.54 kB[0m
+[2mdist/client/[0m[2massets/[0m[32mworker-DxshPsuv.js               [0m[1;2m333.96 kB[0m
+[2mdist/client/[0m[2massets/[0m[35mturn-log-MFU3PMYm.css            [0m[1;2m  1.84 kB[0m[2m │ gzip:   0.72 kB[0m
+[2mdist/client/[0m[2massets/[0m[35mstyle-B6IiXmMt.css               [0m[1;2m  8.67 kB[0m[2m │ gzip:   2.22 kB[0m
+[2mdist/client/[0m[2massets/[0m[35mstyles-DWIV2Sar.css              [0m[1;2m 24.05 kB[0m[2m │ gzip:   6.08 kB[0m
+[2mdist/client/[0m[2massets/[0m[36muse-prompt-api-DDgSYIJb.js       [0m[1;2m  0.31 kB[0m[2m │ gzip:   0.23 kB[0m
+[2mdist/client/[0m[2massets/[0m[36mroutes--d8UA8MC.js               [0m[1;2m  0.71 kB[0m[2m │ gzip:   0.46 kB[0m
+[2mdist/client/[0m[2massets/[0m[36mconfirm-new-game-C6TAOINZ.js     [0m[1;2m 11.23 kB[0m[2m │ gzip:   4.25 kB[0m
+[2mdist/client/[0m[2massets/[0m[36mgame-BULRrQpy.js                 [0m[1;2m 22.73 kB[0m[2m │ gzip:   7.74 kB[0m
+[2mdist/client/[0m[2massets/[0m[36mbench-DHQFwNoc.js                [0m[1;2m 48.21 kB[0m[2m │ gzip:  14.05 kB[0m
+[2mdist/client/[0m[2massets/[0m[36mjson-schema.browser-BmxiM65G.js  [0m[1;2m 77.02 kB[0m[2m │ gzip:  20.77 kB[0m
+[2mdist/client/[0m[2massets/[0m[36mai-oaX_PNZg.js                   [0m[1;2m400.05 kB[0m[2m │ gzip: 112.84 kB[0m
+[2mdist/client/[0m[2massets/[0m[36mindex-D214njLp.js                [0m[33;1m643.24 kB[0m[2m │ gzip: 199.02 kB[0m
+
+[plugin builtin:vite-reporter] [33;1m
+(!) Some chunks are larger than 500 kB after minification. Consider:
+- Using dynamic import() to code-split the application
+- Use build.rolldownOptions.output.codeSplitting to improve chunking: https://rolldown.rs/reference/OutputOptions.codeSplitting
+- Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.[0m
+✓ built in 262ms
+vite v8.3.5 building ssr environment for production...
+transforming...
+[32m✓[0m 677 modules transformed.
+rendering chunks...
+computing gzip size...
+[2mdist/server/[0m[32mwrangler.json                                  [0m[1;2m  1.49 kB[0m[2m │ gzip:   0.73 kB[0m
+[2mdist/server/[0m[32m.vite/manifest.json                            [0m[1;2m  5.75 kB[0m[2m │ gzip:   0.99 kB[0m
+[2mdist/server/[0m[2massets/[0m[32manalysis.worker-CAm9VM_j.js             [0m[1;2m 21.82 kB[0m
+[2mdist/server/[0m[2massets/[0m[32mjson-schema.browser-BtSvDyey.js         [0m[1;2m 77.54 kB[0m
+[2mdist/server/[0m[2massets/[0m[32mworker-DxshPsuv.js                      [0m[1;2m333.96 kB[0m
+[2mdist/server/[0m[2massets/[0m[35mturn-log-MFU3PMYm.css                   [0m[1;2m  1.84 kB[0m[2m │ gzip:   0.72 kB[0m
+[2mdist/server/[0m[2massets/[0m[35mstyle-B6IiXmMt.css                      [0m[1;2m  8.67 kB[0m[2m │ gzip:   2.22 kB[0m
+[2mdist/server/[0m[2massets/[0m[35mstyles-DWIV2Sar.css                     [0m[1;2m 24.05 kB[0m[2m │ gzip:   6.08 kB[0m
+[2mdist/server/[0m[2massets/[0m[36mstart-CBw1mwln.js                       [0m[1;2m  0.31 kB[0m[2m │ gzip:   0.23 kB[0m[2m │ map:     0.40 kB[0m
+[2mdist/server/[0m[2massets/[0m[36mempty-plugin-adapters-BsRz-CQL.js       [0m[1;2m  0.32 kB[0m[2m │ gzip:   0.21 kB[0m[2m │ map:     0.55 kB[0m
+[2mdist/server/[0m[2massets/[0m[36muse-prompt-api-DM-y-QsY.js              [0m[1;2m  0.81 kB[0m[2m │ gzip:   0.44 kB[0m[2m │ map:     1.13 kB[0m
+[2mdist/server/[0m[2massets/[0m[36m_tanstack-start-manifest_v-9qFc1OoR.js  [0m[1;2m  1.19 kB[0m[2m │ gzip:   0.45 kB[0m
+[2mdist/server/[0m[2massets/[0m[36mroutes-GkIHgS9M.js                      [0m[1;2m  1.62 kB[0m[2m │ gzip:   0.73 kB[0m[2m │ map:     2.78 kB[0m
+[2mdist/server/[0m[2massets/[0m[36museRouter-CbYqP0EK.js                   [0m[1;2m 20.24 kB[0m[2m │ gzip:   5.49 kB[0m[2m │ map:    32.36 kB[0m
+[2mdist/server/[0m[2massets/[0m[36mMatch-B2npolE8.js                       [0m[1;2m 21.54 kB[0m[2m │ gzip:   5.64 kB[0m[2m │ map:    39.73 kB[0m
+[2mdist/server/[0m[2massets/[0m[36mconfirm-new-game-D_2rmEEC.js            [0m[1;2m 22.41 kB[0m[2m │ gzip:   5.88 kB[0m[2m │ map:    36.40 kB[0m
+[2mdist/server/[0m[2massets/[0m[36mgame-BkZKPPL4.js                        [0m[1;2m 44.74 kB[0m[2m │ gzip:  10.72 kB[0m[2m │ map:    76.78 kB[0m
+[2mdist/server/[0m[2massets/[0m[36mbench-Bq616PjG.js                       [0m[1;2m 78.35 kB[0m[2m │ gzip:  17.67 kB[0m[2m │ map:   129.01 kB[0m
+[2mdist/server/[0m[2massets/[0m[36mjson-schema.browser-DF3UjNrL.js         [0m[1;2m 96.83 kB[0m[2m │ gzip:  24.38 kB[0m[2m │ map:   167.20 kB[0m
+[2mdist/server/[0m[2massets/[0m[36mmatchContext-BK58aOxQ.js                [0m[1;2m123.82 kB[0m[2m │ gzip:  31.65 kB[0m[2m │ map:   277.41 kB[0m
+[2mdist/server/[0m[2massets/[0m[36mrouter-9w4gFLif.js                      [0m[33;1m736.01 kB[0m[2m │ gzip: 168.23 kB[0m[2m │ map: 1,486.09 kB[0m
+[2mdist/server/[0m[36mindex.js                                       [0m[33;1m748.35 kB[0m[2m │ gzip: 158.12 kB[0m[2m │ map: 1,385.88 kB[0m
+[2mdist/server/[0m[2massets/[0m[36mai-D8iHs2jG.js                          [0m[33;1m860.00 kB[0m[2m │ gzip: 212.10 kB[0m[2m │ map: 1,889.76 kB[0m
+
+[plugin vite:css-post] [33m[SOURCEMAP_BROKEN] [0mSourcemap is likely to be incorrect: a plugin (vite:css-post) was used to transform files, but didn't generate a sourcemap for the transformation. Consult the plugin documentation for help: https://rolldown.rs/guide/troubleshooting#warning-sourcemap-is-likely-to-be-incorrect
+
+✓ built in 176ms
+[prerender] Prerendering pages...
+[prerender] Concurrency: 32
+[prerender] Crawling: /
+[prerender] Crawling: /bench
+[prerender] Crawling: /game
+GET / 200 OK (16ms)
+GET /game/ 307 Temporary Redirect (4ms)
+GET /bench/ 307 Temporary Redirect (4ms)
+GET /bench 200 OK (4ms)
+GET /game 200 OK (2ms)
+[prerender] Prerendered 3 pages:
+[prerender] - /
+[prerender] - /game
+[prerender] - /bench
+
+> nx run checkers:typecheck
+
+> tsc --noEmit
+
+
+> nx run checkers:lint
+
+> eslint .
+
+(node:18551) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+[0m[0m
+[0m[4m/Users/david/.codex/worktrees/checkers/tanstack-ai-browser/apps/checkers/src/lib/db.tsx[24m[0m
+[0m  [2m23:23[22m  [33mwarning[39m  Unexpected mix of '||' and '&&'. Use parentheses to clarify the intended order of operations  [2mno-mixed-operators[22m[0m
+[0m  [2m23:63[22m  [33mwarning[39m  Unexpected mix of '||' and '&&'. Use parentheses to clarify the intended order of operations  [2mno-mixed-operators[22m[0m
+[0m[0m
+[0m[4m/Users/david/.codex/worktrees/checkers/tanstack-ai-browser/apps/checkers/src/lib/game-storage.test.ts[24m[0m
+[0m  [2m66:12[22m  [33mwarning[39m  '_' is assigned a value but never used  [2m@typescript-eslint/no-unused-vars[22m[0m
+[0m[0m
+[0m[33m[1m✖ 3 problems (0 errors, 3 warnings)[22m[39m[0m
+[0m[33m[1m[22m[39m[0m
+
+> nx run checkers:test
+
+(node:18624) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+$ node --experimental-strip-types --test src/lib/*.test.ts bench/*.test.ts
+(node:18626) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:18627) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+[32m✔ shared-v6 serialization remains byte-identical to the saved raw reported-game fixtures [90m(253.690917ms)[39m[39m
+[32m✔ shared-v7 keeps the common prefix stable, conditional definitions dynamic, and formatting in the schema [90m(248.417291ms)[39m[39m
+[32m✔ per-game move priority is independent of permutation, subsets, and newly legal actions [90m(0.484792ms)[39m[39m
+[32m✔ new game sessions vary the stable move order without depending on random calls [90m(0.235417ms)[39m[39m
+[32m✔ stable priorities distribute similar legal action ids across game sessions [90m(30.389042ms)[39m[39m
+[32m✔ shared-v7 remains byte-identical to all 37 saved production inputs [90m(176.967292ms)[39m[39m
+[32m✔ compact v8 retains every board, history, horizon, legal card and position fact [90m(222.25125ms)[39m[39m
+[32m✔ benchmark validation accepts every historical and candidate prompt version [90m(0.135291ms)[39m[39m
+[32m✔ v9 keeps the smallest-loss fallback conditional and preserves every existing dynamic input [90m(504.604917ms)[39m[39m
+[32m✔ v8 remains byte-identical to the saved 37-case production report [90m(168.510875ms)[39m[39m
+(node:18628) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+[32m✔ reported defensive positions replay legal history and retain all tied smallest-loss choices [90m(362.239042ms)[39m[39m
+[32m✔ the reported double-jump crown is avoidable but not every other move is equally safe [90m(26.759833ms)[39m[39m
+[32m✔ offering the last king forces defeat while the accepted defenses keep playing [90m(1.057709ms)[39m[39m
+[32m✔ compensated captures and crowning stay available before the two actual blunders [90m(37.8265ms)[39m[39m
+(node:18629) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+[32m✔ the frozen checkers suite independently audits every accepted set and separates holdouts [90m(239.5455ms)[39m[39m
+[32m✔ the audit rejects a favorite move when an objective has multiple valid ties [90m(0.957291ms)[39m[39m
+[32m✔ the mechanical capture diagnostic is a single complete chain without an AI decision grade [90m(0.107ms)[39m[39m
+[32m✔ draw objectives replay real legal repetitions rather than injecting repetition counters [90m(0.362917ms)[39m[39m
+[32m✔ forced following-turn wins are checked against every legal Red reply [90m(0.390292ms)[39m[39m
+[32m✔ promotion risk concerns other pieces, since a newly crowned edge king cannot itself be jumped [90m(0.500292ms)[39m[39m
+[32m✔ fixture validation rejects light squares, duplicate pieces, uncrowned promotion-row men and one-move grades [90m(0.202416ms)[39m[39m
+[32m✔ the promotion-denial tradeoff stays ungraded when a larger capture has the better checked return [90m(23.057042ms)[39m[39m
+[32m✔ cache replay uses real non-forced turns, independent snapshots, and honest counters [90m(2.211125ms)[39m[39m
+(node:18630) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+[32m✔ memoized analysis matches all 44 pre-change annotations and complete prompts [90m(1171.774ms)[39m[39m
+[32m✔ the real worker entry produces identical prompts, including draw-clock and repetition variants [90m(627.388292ms)[39m[39m
+[32m✔ pre-cancelled and initialization-cancelled analyses never post a position [90m(0.513292ms)[39m[39m
+[32m✔ cancel during CPU search terminates its worker and ignores late results [90m(0.216042ms)[39m[39m
+[32m✔ success and worker errors release listeners; historical transcripts are not cloned [90m(0.202416ms)[39m[39m
+[32m✔ sequential turns reuse an idle worker, while cancelling a reused worker terminates it [90m(0.197542ms)[39m[39m
+(node:18631) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+[32m✔ new games have 12 pieces each, seven opening moves, and independent state [90m(3.085875ms)[39m[39m
+[32m✔ mandatory captures suppress steps and require the complete jump chain [90m(0.316333ms)[39m[39m
+[32m✔ all capture branches are offered without requiring the longest branch [90m(0.098708ms)[39m[39m
+[32m✔ men cannot move or capture backward, while kings can [90m(0.186833ms)[39m[39m
+[32m✔ promotion ends a capture turn before a newly crowned king could jump backward [90m(0.118541ms)[39m[39m
+[32m✔ AI men advance downward and crown on the bottom row [90m(0.089541ms)[39m[39m
+[32m✔ previewing an incomplete jump removes only captures already traversed [90m(0.090458ms)[39m[39m
+[32m✔ a side with pieces but no legal moves loses [90m(0.068583ms)[39m[39m
+[32m✔ capturing the final opposing piece wins [90m(0.075291ms)[39m[39m
+[32m✔ third occurrence of the same board and side to move is a draw [90m(0.196792ms)[39m[39m
+[32m✔ 80 quiet plies draws, and capture or any man advance resets the count [90m(0.133084ms)[39m[39m
+[32m✔ illegal moves and moves after game end are rejected [90m(0.1095ms)[39m[39m
+[32m✔ square names follow a8 at the top left and reject invalid indexes [90m(0.0625ms)[39m[39m
+[32m✔ a king can finish a multi-jump on its original square without recapturing pieces [90m(0.203167ms)[39m[39m
+[32m✔ move playback follows each capture and resumes from a human's completed first jump [90m(0.124208ms)[39m[39m
+[32m✔ AI playback moves through all jumps and crowns only on the final landing [90m(0.119ms)[39m[39m
+[32m✔ unrelated or restored snapshots do not invent motion [90m(0.105542ms)[39m[39m
+(node:18632) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+[32m✔ reported positions replay the real opening and accept every nonlosing alternative [90m(25.749459ms)[39m[39m
+[32m✔ move 6 counts Red's compulsory final recapture instead of claiming an even trade [90m(17.799708ms)[39m[39m
+[32m✔ move 28 preserves the even trade and counts the favorable double jump separately [90m(7.952792ms)[39m[39m
+[32m✔ every exchange witness replays legally, continues only compulsory captures beyond its declared horizon, and stops at quiet or terminal play [90m(275.824542ms)[39m[39m
+(node:18633) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+[32m✔ independent connections accept only one conflicting opening move from a stale position [90m(6.232209ms)[39m[39m
+[32m✔ restart rejects a late AI reply and a later restart supersedes an accepted earlier reply [90m(3.066ms)[39m[39m
+[32m✔ opponent edits merge with accepted moves and invalidate replies for the old opponent [90m(2.185375ms)[39m[39m
+[32m✔ simultaneous failure logs deduplicate and failed transactions leave the row intact [90m(3.378792ms)[39m[39m
+[32m✔ upgrading preserves the saved row and closes older unconditional-writer connections [90m(1.656083ms)[39m[39m
+(node:18634) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+[32m✔ capture opportunities and king escapes match independent replies: reported-exchange-move-6 [90m(26.730541ms)[39m[39m
+[32m✔ capture opportunities and king escapes match independent replies: reported-exchange-move-28 [90m(12.724709ms)[39m[39m
+[32m✔ capture opportunities and king escapes match independent replies: reported-runner-guard-82 [90m(32.329792ms)[39m[39m
+[32m✔ capture opportunities and king escapes match independent replies: reported-runner-too-late-84 [90m(50.267125ms)[39m[39m
+[32m✔ capture opportunities and king escapes match independent replies: reported-runner-compensation-48 [90m(20.843125ms)[39m[39m
+[32m✔ capture opportunities and king escapes match independent replies: win-full-chain [90m(4.964541ms)[39m[39m
+[32m✔ capture opportunities and king escapes match independent replies: win-by-blockade [90m(0.718458ms)[39m[39m
+[32m✔ capture opportunities and king escapes match independent replies: win-unseen-endgame [90m(0.189042ms)[39m[39m
+[32m✔ capture opportunities and king escapes match independent replies: avoid-fatal-double-jump [90m(41.139042ms)[39m[39m
+[32m✔ capture opportunities and king escapes match independent replies: protect-last-king [90m(0.915958ms)[39m[39m
+[32m✔ capture opportunities and king escapes match independent replies: avoid-blocked-loss [90m(0.222792ms)[39m[39m
+[32m✔ capture opportunities and king escapes match independent replies: defense-unseen [90m(0.237875ms)[39m[39m
+[32m✔ capture opportunities and king escapes match independent replies: capture-king-value [90m(13.128166ms)[39m[39m
+[32m✔ capture opportunities and king escapes match independent replies: count-full-capture-chain [90m(0.282125ms)[39m[39m
+[32m✔ capture opportunities and king escapes match independent replies: recapture-compensation [90m(0.26025ms)[39m[39m
+[32m✔ capture opportunities and king escapes match independent replies: exchange-unseen [90m(2.497833ms)[39m[39m
+[32m✔ capture opportunities and king escapes match independent replies: safe-crowning [90m(42.161833ms)[39m[39m
+[32m✔ capture opportunities and king escapes match independent replies: promotion-not-at-any-cost [90m(1.050208ms)[39m[39m
+[32m✔ capture opportunities and king escapes match independent replies: promotion-unseen [90m(65.679125ms)[39m[39m
+[32m✔ capture opportunities and king escapes match independent replies: deny-red-promotion [90m(15.792416ms)[39m[39m
+[32m✔ capture opportunities and king escapes match independent replies: deny-red-promotion-alternative [90m(23.723792ms)[39m[39m
+[32m✔ capture opportunities and king escapes match independent replies: force-next-turn-win [90m(0.437792ms)[39m[39m
+[32m✔ capture opportunities and king escapes match independent replies: force-next-turn-win-alternative [90m(0.746792ms)[39m[39m
+[32m✔ capture opportunities and king escapes match independent replies: avoid-third-repeat-ahead [90m(0.3085ms)[39m[39m
+[32m✔ capture opportunities and king escapes match independent replies: take-third-repeat-behind [90m(0.231958ms)[39m[39m
+[32m✔ capture opportunities and king escapes match independent replies: opening-variety [90m(7.3315ms)[39m[39m
+[32m✔ capture opportunities and king escapes match independent replies: king-activity [90m(0.282375ms)[39m[39m
+[32m✔ capture opportunities and king escapes match independent replies: back-row-development [90m(1.345375ms)[39m[39m
+[32m✔ capture opportunities and king escapes match independent replies: forced-full-chain [90m(0.089458ms)[39m[39m
+[32m✔ capture opportunities and king escapes match independent replies: endgame-two-kings-force-king [90m(0.814417ms)[39m[39m
+[32m✔ capture opportunities and king escapes match independent replies: endgame-three-kings-corner-net [90m(0.550292ms)[39m[39m
+[32m✔ capture opportunities and king escapes match independent replies: endgame-force-capture-with-man [90m(2.564416ms)[39m[39m
+[32m✔ capture opportunities and king escapes match independent replies: endgame-force-king-over-man [90m(1.148709ms)[39m[39m
+[32m✔ capture opportunities and king escapes match independent replies: endgame-pressure-negative-control [90m(1.16025ms)[39m[39m
+[32m✔ capture opportunities and king escapes match independent replies: endgame-reversal-diagnostic [90m(0.86175ms)[39m[39m
+[32m✔ capture opportunities and king escapes match independent replies: endgame-holdout-a [90m(16.154625ms)[39m[39m
+[32m✔ capture opportunities and king escapes match independent replies: endgame-holdout-b [90m(0.537625ms)[39m[39m
+[32m✔ capture opportunities and king escapes match independent replies: reported-smallest-loss-44 [90m(52.578166ms)[39m[39m
+[32m✔ capture opportunities and king escapes match independent replies: reported-smallest-loss-46 [90m(44.723542ms)[39m[39m
+[32m✔ endgame grades preserve every strongest guaranteed-capture tie and never replace an immediate win [90m(13.0645ms)[39m[39m
+[32m✔ a moving Red king is tracked by identity through the complete reply and Black multi-jump [90m(0.753666ms)[39m[39m
+[32m✔ fewer Red replies alone does not justify hanging a Black king [90m(0.578667ms)[39m[39m
+[32m✔ quiet pressure and undoing history remain ungraded observations [90m(0.667375ms)[39m[39m
+[32m✔ a two-king material majority does not itself claim a forced win or capture [90m(0.302167ms)[39m[39m
+(node:18635) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+[32m✔ outcomes match the rule-only audit: reported-exchange-move-6 [90m(31.734917ms)[39m[39m
+[32m✔ outcomes match the rule-only audit: reported-exchange-move-28 [90m(17.651042ms)[39m[39m
+[32m✔ outcomes match the rule-only audit: reported-runner-guard-82 [90m(46.783041ms)[39m[39m
+[32m✔ outcomes match the rule-only audit: reported-runner-too-late-84 [90m(66.292334ms)[39m[39m
+[32m✔ outcomes match the rule-only audit: reported-runner-compensation-48 [90m(25.551959ms)[39m[39m
+[32m✔ outcomes match the rule-only audit: win-full-chain [90m(6.380166ms)[39m[39m
+[32m✔ outcomes match the rule-only audit: win-by-blockade [90m(0.900042ms)[39m[39m
+[32m✔ outcomes match the rule-only audit: win-unseen-endgame [90m(0.239625ms)[39m[39m
+[32m✔ outcomes match the rule-only audit: avoid-fatal-double-jump [90m(56.712375ms)[39m[39m
+[32m✔ outcomes match the rule-only audit: protect-last-king [90m(1.302792ms)[39m[39m
+[32m✔ outcomes match the rule-only audit: avoid-blocked-loss [90m(0.314375ms)[39m[39m
+[32m✔ outcomes match the rule-only audit: defense-unseen [90m(0.565583ms)[39m[39m
+[32m✔ outcomes match the rule-only audit: capture-king-value [90m(17.857708ms)[39m[39m
+[32m✔ outcomes match the rule-only audit: count-full-capture-chain [90m(0.443375ms)[39m[39m
+[32m✔ outcomes match the rule-only audit: recapture-compensation [90m(0.416208ms)[39m[39m
+[32m✔ outcomes match the rule-only audit: exchange-unseen [90m(3.214834ms)[39m[39m
+[32m✔ outcomes match the rule-only audit: safe-crowning [90m(58.149583ms)[39m[39m
+[32m✔ outcomes match the rule-only audit: promotion-not-at-any-cost [90m(1.596625ms)[39m[39m
+[32m✔ outcomes match the rule-only audit: promotion-unseen [90m(95.140083ms)[39m[39m
+[32m✔ outcomes match the rule-only audit: deny-red-promotion [90m(20.105375ms)[39m[39m
+[32m✔ outcomes match the rule-only audit: deny-red-promotion-alternative [90m(33.242083ms)[39m[39m
+[32m✔ outcomes match the rule-only audit: force-next-turn-win [90m(0.553792ms)[39m[39m
+[32m✔ outcomes match the rule-only audit: force-next-turn-win-alternative [90m(1.18825ms)[39m[39m
+[32m✔ outcomes match the rule-only audit: avoid-third-repeat-ahead [90m(0.3875ms)[39m[39m
+[32m✔ outcomes match the rule-only audit: take-third-repeat-behind [90m(0.259875ms)[39m[39m
+[32m✔ outcomes match the rule-only audit: opening-variety [90m(10.492167ms)[39m[39m
+[32m✔ outcomes match the rule-only audit: king-activity [90m(0.356709ms)[39m[39m
+[32m✔ outcomes match the rule-only audit: back-row-development [90m(1.885625ms)[39m[39m
+[32m✔ outcomes match the rule-only audit: forced-full-chain [90m(0.112917ms)[39m[39m
+[32m✔ outcomes match the rule-only audit: endgame-two-kings-force-king [90m(1.209458ms)[39m[39m
+[32m✔ outcomes match the rule-only audit: endgame-three-kings-corner-net [90m(0.832667ms)[39m[39m
+[32m✔ outcomes match the rule-only audit: endgame-force-capture-with-man [90m(3.641583ms)[39m[39m
+[32m✔ outcomes match the rule-only audit: endgame-force-king-over-man [90m(1.772625ms)[39m[39m
+[32m✔ outcomes match the rule-only audit: endgame-pressure-negative-control [90m(1.7285ms)[39m[39m
+[32m✔ outcomes match the rule-only audit: endgame-reversal-diagnostic [90m(1.248417ms)[39m[39m
+[32m✔ outcomes match the rule-only audit: endgame-holdout-a [90m(23.005167ms)[39m[39m
+[32m✔ outcomes match the rule-only audit: endgame-holdout-b [90m(0.715625ms)[39m[39m
+[32m✔ outcomes match the rule-only audit: reported-smallest-loss-44 [90m(76.727ms)[39m[39m
+[32m✔ outcomes match the rule-only audit: reported-smallest-loss-46 [90m(63.187459ms)[39m[39m
+[32m✔ accepted tactical objectives can be recovered from the annotated facts without hiding alternatives [90m(400.717459ms)[39m[39m
+[32m✔ all board prompts are model agnostic and preserve the caller's complete move order [90m(436.219708ms)[39m[39m
+[32m✔ complete Red multi-jumps and exposure of another Black checker remain explicit [90m(17.474125ms)[39m[39m
+[32m✔ material facts include captured kings and newly gained kings at all three plies [90m(239.635792ms)[39m[39m
+[32m✔ king activity, latest-own-turn reversal, and actual repetition metadata do not pretend to be forced tactics [90m(0.85025ms)[39m[39m
+[32m✔ baseline formatting retains the original coordinate contract, headings, capture counts and last-five-turn window [90m(0.184084ms)[39m[39m
+[32m✔ historical shared-v7 keeps its stable instructions and independent bounded alternatives [90m(4.054584ms)[39m[39m
+[32m✔ benchmark replay metadata preserves each custom initial board and turn [90m(0.125583ms)[39m[39m
+[32m✔ quiet progress remains an optional observation and never masks immediate tactics [90m(22.478375ms)[39m[39m
+(node:18636) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+[32m✔ move 82 preserves the king-row guard and uses the other king [90m(62.483125ms)[39m[39m
+[32m✔ the retained guard takes both the runner and its supporting king in a compulsory chain [90m(0.673834ms)[39m[39m
+[32m✔ move 84 is already too late for a material-safe blockade, and remains ungraded [90m(27.381292ms)[39m[39m
+[32m✔ a compensated promotion is not automatically graded as a failure [90m(14.696959ms)[39m[39m
+[32m✔ the promotion horizon is explicit and only expands for an uncrowned near-crown Red runner [90m(26.537416ms)[39m[39m
+[32m✔ a historic forced-capture holdout is not mislabeled safe after a later Red promotion [90m(12.081541ms)[39m[39m
+(node:18637) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+[32m✔ audio initialization and gesture subscriptions are SSR-safe [90m(3.372916ms)[39m[39m
+[32m✔ document gestures ignore synthetic events and touch pointerdown, then prime before resume on tap [90m(6.478083ms)[39m[39m
+[32m✔ future cues use the native audio clock and cancellation affects only the selected cue [90m(2.112334ms)[39m[39m
+[32m✔ explicit unmute claims playback focus and confirms only after resume completes [90m(2.0335ms)[39m[39m
+[32m✔ mute and hidden-page transitions cancel a pending confirmation and future cues [90m(5.24675ms)[39m[39m
+[32m✔ same-commit route handoff preserves context and focus; last owner releases and suspends [90m(2.995375ms)[39m[39m
+[32m✔ a later trusted gesture supersedes an older pending unmute preview without a timer [90m(2.029167ms)[39m[39m
+[32m✔ cross-tab mute releases audio focus and rejected resume remains retryable [90m(2.21075ms)[39m[39m
+(node:18638) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+[32m✔ new games keep an independent original board and clear prior failures [90m(2.903084ms)[39m[39m
+[32m✔ full turn logs replay every move and preserve complete AI prompt facts [90m(3.692458ms)[39m[39m
+[32m✔ logged snapshots contain no nested history or earlier AI analysis trees [90m(0.426791ms)[39m[39m
+[32m✔ forced turns honestly record no inference, prompt, reasoning pass, or output cap [90m(0.190459ms)[39m[39m
+[32m✔ model traces distinguish native reasoning, emulated notes and browser-managed output [90m(0.194167ms)[39m[39m
+[32m✔ mismatched sessions, plies, opponents and selected moves cannot acquire a successful trace [90m(0.220208ms)[39m[39m
+[32m✔ legacy standard games reconstruct positions but do not invent missing AI prompts [90m(0.191666ms)[39m[39m
+[32m✔ recorded custom starts replay with their original side while unknown starts stay unavailable [90m(0.279334ms)[39m[39m
+[32m✔ failed attempts retain real errors and facts without becoming committed moves [90m(0.236417ms)[39m[39m
+[34mℹ tests 170[39m
+[34mℹ suites 0[39m
+[34mℹ pass 170[39m
+[34mℹ fail 0[39m
+[34mℹ cancelled 0[39m
+[34mℹ skipped 0[39m
+[34mℹ todo 0[39m
+[34mℹ duration_ms 1899.123458[39m
+
+
+
+ NX   Successfully ran targets test, typecheck, lint, build for 4 projects and 1 task they depend on
+
+Nx read the output from the cache instead of running the command for 9 out of 17 tasks.
+
+  Run duration:      6.0s
+  Cache:             9/17 hit (53%)
+  Critical path:     2.1s (1 task)
+  Recoverable time:  3.8s (64% of the run)

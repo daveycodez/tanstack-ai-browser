@@ -1,0 +1,86 @@
+{
+  "lfm": [
+    {
+      "phase": "before-paired",
+      "total": 37,
+      "inferred": 36,
+      "legal": 37,
+      "scored": 27,
+      "passed": 26,
+      "firstOption": 15,
+      "medianSeconds": 0.5183999999761582
+    },
+    {
+      "phase": "after-paired",
+      "total": 37,
+      "inferred": 36,
+      "legal": 37,
+      "scored": 27,
+      "passed": 26,
+      "firstOption": 14,
+      "medianSeconds": 0.5116500000357628
+    },
+    {
+      "phase": "before-production",
+      "total": 37,
+      "inferred": 36,
+      "legal": 37,
+      "scored": 27,
+      "passed": 27,
+      "firstOption": 15,
+      "medianSeconds": 0.5268500000238419
+    },
+    {
+      "phase": "after-production",
+      "total": 37,
+      "inferred": 36,
+      "legal": 37,
+      "scored": 27,
+      "passed": 27,
+      "firstOption": 15,
+      "medianSeconds": 0.5324000000357628
+    }
+  ],
+  "nano": [
+    {
+      "phase": "before-paired",
+      "total": 37,
+      "inferred": 36,
+      "legal": 37,
+      "scored": 27,
+      "passed": 26,
+      "firstOption": 7,
+      "medianSeconds": 0.8321499999761581
+    },
+    {
+      "phase": "after-paired",
+      "total": 37,
+      "inferred": 36,
+      "legal": 37,
+      "scored": 27,
+      "passed": 26,
+      "firstOption": 7,
+      "medianSeconds": 0.8206999999880791
+    },
+    {
+      "phase": "before-production",
+      "total": 37,
+      "inferred": 36,
+      "legal": 37,
+      "scored": 27,
+      "passed": 27,
+      "firstOption": 11,
+      "medianSeconds": 0.8240500000119209
+    },
+    {
+      "phase": "after-production",
+      "total": 37,
+      "inferred": 36,
+      "legal": 37,
+      "scored": 27,
+      "passed": 27,
+      "firstOption": 10,
+      "medianSeconds": 0.8262500000596047
+    }
+  ]
+}

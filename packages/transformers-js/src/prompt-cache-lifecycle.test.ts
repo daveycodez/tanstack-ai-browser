@@ -11,12 +11,15 @@ const root=resolve(process.cwd(),"../.."),require=createRequire(join(root,"packa
 const {build}=await import(pathToFileURL(require.resolve("esbuild")).href) as typeof import("esbuild")
 const temporary=await mkdtemp(join(tmpdir(),"tf-prompt-cache-lifecycle-"))
 after(()=>rm(temporary,{recursive:true,force:true}))
-const source=readFileSync(join(root,"packages/transformers-js/src/worker.ts"),"utf8")+`
+const source=readFileSync(join(root,"packages/transformers-js/src/worker.ts"),"utf8").replace("await createConstraint(", "await constraintFixture(")+`
 export const setFixture=(fixture)=>{current=fixture;};
 export const runFixture=generate;
 export const keptFixture=()=>savedCaches;
 export const clearFixture=discardSaved;
-export const stopFixture=(id)=>running.get(id)?.interrupt();
+export const stopFixture=(id)=>ctx.onmessage({data:{type:"stop",id}});
+let constraintFixture=createConstraint;
+export const setConstraintFixture=(create)=>{constraintFixture=create;};
+export const pendingFixture=()=>({requests:requests.size,running:running.size});
 `
 const outfile=join(temporary,"worker.mjs")
 await build({stdin:{contents:source,resolveDir:join(root,"packages/transformers-js/src"),loader:"ts"},outfile,bundle:true,format:"esm",platform:"node",conditions:["@tanstack-ai-browser/source"],logLevel:"error"})
@@ -101,4 +104,41 @@ test("none uses run-owned KV, bypasses prior/disk caches, disposes on all exits 
   }
   control.mode="success"
   assert.ok((await run("resume-warm")).cachedTokens>0,"a subsequent default-retention request can still reuse the untouched context")
+})
+
+
+test("cold structured initialization retains cancellation and disposes the late constraint without inference", async () => {
+  await worker.clearFixture()
+  control.mode = "success"; control.forward = []; control.generation = []
+  let loaded!: (constraint: { dispose(): void }) => void, entered!: () => void
+  const ready = new Promise<void>(resolve => { entered = resolve })
+  const grammar = new Promise(resolve => { loaded = resolve })
+  let disposed = 0
+  worker.setConstraintFixture(() => { entered(); return grammar })
+  const result = worker.runFixture("cold-grammar", [{role:"user",content:"hello"}], [], false,
+    {temperature:0.1,top_k:50,repetition_penalty:1}, 16, undefined, "<think>", "</think>", undefined, {const:null}, false)
+  await ready
+  worker.stopFixture("cold-grammar")
+  loaded({dispose(){disposed++}})
+  await assert.rejects(result, error => (error as Error).name === "AbortError")
+  assert.equal(disposed, 1)
+  assert.equal(control.forward.length, 0, "prompt processing never starts")
+  assert.equal(control.generation.length, 0, "model.generate never starts")
+  assert.deepEqual(worker.pendingFixture(), {requests:0,running:0})
+  // Reusing the request id after settlement has no stale cancellation state.
+  assert.ok((await run("cold-grammar", false)).outputTokens > 0)
+})
+
+test("stop during model-runtime initialization is retained before a native criterion exists", async () => {
+  let ready!: (runtime: unknown) => void
+  const runtime = new Promise(resolve => { ready = resolve })
+  worker.setFixture({modelId:"cache-fixture", runtime})
+  control.forward = []; control.generation = []
+  const result = run("cold-runtime", false)
+  worker.stopFixture("cold-runtime")
+  ready({tf,tokenizer,model,endTokens:/<eos>/g,device:"wasm",dtype:"q4",contextLength:8192})
+  await assert.rejects(result, error => (error as Error).name === "AbortError")
+  assert.equal(control.forward.length, 0)
+  assert.equal(control.generation.length, 0)
+  assert.deepEqual(worker.pendingFixture(), {requests:0,running:0})
 })

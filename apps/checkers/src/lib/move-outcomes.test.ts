@@ -98,6 +98,11 @@ test("accepted tactical objectives can be recovered from the annotated facts wit
       const best = Math.max(...candidates.map(move => move.outcome.worstNetAfterResponse))
       accepted = candidates.filter(move => move.outcome.worstNetAfterResponse === best).map(move => move.id)
     }
+    if (fixture.objective === "minimize-checked-loss") {
+      const candidates = moves.filter(move => safe(move) && move.outcome.status === "playing")
+      const best = Math.max(...candidates.map(move => move.outcome.worstNetAfterResponse))
+      accepted = candidates.filter(move => move.outcome.worstNetAfterResponse === best).map(move => move.id)
+    }
     if (fixture.objective === "safe-promotion") accepted = moves.filter(move => safe(move) && move.promotes && !move.outcome.moverCanBeCaptured && move.outcome.worstNetAfterResponse >= 0).map(move => move.id)
     if (fixture.objective === "prevent-promotion") accepted = moves.filter(move => safe(move) && move.outcome.redPromotionReplies === 0 && move.outcome.worstNetAfterResponse >= 0).map(move => move.id)
     if (fixture.objective === "force-win-next-turn") accepted = moves.filter(move => move.outcome.forcesWinNextTurn).map(move => move.id)
@@ -179,7 +184,7 @@ test("king activity, latest-own-turn reversal, and actual repetition metadata do
   assert.equal(kingMoves.find(move => move.id === "b4-c5")?.outcome.kingDistanceAfter, 5)
   assert.equal(kingMoves.find(move => move.id === "b4-a5")?.outcome.kingDistanceAfter, 7)
   assert.ok(kingMoves.every(move => /King distance to nearest Red/.test(describeMove(move))))
-  assert.match(buildSharedPrompt(kingGame, kingMoves).systemPrompt, /King distance is only a quiet activity hint, not safety/)
+  assert.match(buildSharedPrompt(kingGame, kingMoves).systemPrompt, /King distance.*quiet activity.*not safety/)
   const repetition = annotateMoves(find("avoid-third-repeat-ahead")).find(move => move.id === "a3-b4")
   assert.ok(repetition)
   assert.equal(repetition.outcome.reversesLastOwnMove, true)
@@ -212,9 +217,9 @@ test("baseline formatting retains the original coordinate contract, headings, ca
   assert.ok(chain.prompt.includes("b6xd4xf2: b6-d4-f2; 2; -"))
 })
 
-test("shared prompt keeps stable instructions together and describes independent bounded alternatives", () => {
+test("historical shared-v7 keeps its stable instructions and independent bounded alternatives", () => {
   const game = find("opening-variety")
-  const prompt = buildSharedPrompt(game, annotateMoves(game))
+  const prompt = buildSharedPrompt(game, annotateMoves(game), "shared-v7")
   assert.equal(prompt.systemPrompt, SHARED_V7_SYSTEM_PROMPT)
   assert.match(prompt.systemPrompt, /Each card is a separate alternative/)
   assert.match(prompt.systemPrompt, /bounded preview does not prove a positional win/)
@@ -241,7 +246,7 @@ test("quiet progress remains an optional observation and never masks immediate t
   const king = find("king-activity")
   const choices = annotateMoves(king)
   const prompt = buildSharedPrompt(king, choices)
-  const progress = prompt.prompt.split("\n").find(line => line.startsWith("SAFE QUIET PROGRESS:"))
+  const progress = prompt.prompt.split("\n").reverse().find(line => line.startsWith("SAFE QUIET PROGRESS:"))
   assert.ok(progress)
   assert.match(progress, /Move king b4 to c[35]/)
   assert.doesNotMatch(progress, /Move king b4 to a[35]/)

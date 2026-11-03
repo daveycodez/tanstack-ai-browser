@@ -1,9 +1,10 @@
 import type { BenchmarkCase } from "./types.ts"
 import { RUNNER_REGRESSIONS } from "./runner-regressions.ts"
 import { EXCHANGE_REGRESSIONS } from "./exchange-regressions.ts"
+import { DEFENSIVE_REGRESSIONS } from "./defensive-regressions.ts"
 export { gameForCase } from "./fixtures.ts"
 
-export const SUITE_VERSION = "checkers-audited-v6"
+export const SUITE_VERSION = "checkers-audited-v7"
 
 /** Frozen constructed teaching positions and legal histories, not expert engine judgments. */
 export const CASES: BenchmarkCase[] = [
@@ -732,5 +733,6 @@ export const CASES: BenchmarkCase[] = [
     "expectedMoveIds": [
       "b6-c5"
     ]
-  }
+  },
+  ...DEFENSIVE_REGRESSIONS
 ]

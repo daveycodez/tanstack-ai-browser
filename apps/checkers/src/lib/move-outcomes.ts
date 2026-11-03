@@ -1,4 +1,4 @@
-import { applyMove, legalMoves, positionKey, squareName } from "./checkers.ts"
+import { createMoveSearch, legalMoves, positionKey, squareName } from "./checkers.ts"
 import type { Board, Game, Move, Piece, Side } from "./checkers.ts"
 
 export const OUTCOME_VERSION = "runner-replies-v4"
@@ -76,40 +76,49 @@ function distanceToRed(board: Board, square: number) {
 }
 
 type CaptureSettlement = { balance: number; line: string[] }
+type Search = ReturnType<typeof createMoveSearch> & {
+  captures: Map<string, CaptureSettlement>
+  responses: Map<string, CaptureSettlement>
+}
 
 /** Continue compulsory captures only; every edge removes a piece, so no depth cap is needed. */
-function settleCaptures(game: Game, cache: Map<string, CaptureSettlement>): CaptureSettlement {
+function settleCaptures(game: Game, search: Search): CaptureSettlement {
   if (game.status !== "playing") return { balance: materialBalance(game.board), line: [] }
-  const moves = legalMoves(game.board, game.turn)
+  const moves = search.moves(game.board, game.turn)
   if (!moves[0]?.captures.length) return { balance: materialBalance(game.board), line: [] }
   // Piece count strictly decreases through this subtree: neither repetition nor the quiet clock
   // can end a later capture turn. Identical board/turn states have identical continuations.
   const key = positionKey(game.board, game.turn)
-  const cached = cache.get(key)
+  const cached = search.captures.get(key)
   if (cached) return cached
   let best: CaptureSettlement | undefined
   for (const move of moves) {
-    const continuation = settleCaptures(applyMove(game, move.id), cache)
+    const continuation = settleCaptures(search.apply(game, move.id), search)
     if (!best || (game.turn === "ai" ? continuation.balance > best.balance : continuation.balance < best.balance)) {
       best = { balance: continuation.balance, line: [move.id, ...continuation.line] }
     }
   }
   if (!best) throw new Error("A compulsory capture position has no legal capture.")
-  cache.set(key, best)
+  search.captures.set(key, best)
   return best
 }
 
 /** A nearby runner needs its quiet approach checked as well as its immediate crown. */
-function checkRunnerResponse(game: Game, cache: Map<string, CaptureSettlement>): CaptureSettlement {
+function checkRunnerResponse(game: Game, search: Search): CaptureSettlement {
   if (game.status !== "playing") return { balance: materialBalance(game.board), line: [] }
+  // Quiet moves can draw: unlike capture-only settlement, the complete repetition
+  // history and quiet clock are part of this cache key.
+  const key = JSON.stringify([positionKey(game.board, game.turn), game.quietMoves, game.positions])
+  const cached = search.responses.get(key)
+  if (cached) return cached
   let worst: CaptureSettlement | undefined
-  for (const redMove of legalMoves(game.board, "human")) {
-    const red = applyMove(game, redMove.id)
+  for (const redMove of search.moves(game.board, "human")) {
+    const red = search.apply(game, redMove.id)
     let best: CaptureSettlement = { balance: materialBalance(red.board), line: [redMove.id] }
     if (red.status === "playing") {
       let responseBest: CaptureSettlement | undefined
-      for (const blackMove of legalMoves(red.board, "ai")) {
-        const settled = settleCaptures(applyMove(red, blackMove.id), cache)
+      for (const blackMove of search.moves(red.board, "ai")) {
+        const settled = settleCaptures(search.apply(red, blackMove.id), search)
         if (!responseBest || settled.balance > responseBest.balance) {
           responseBest = { balance: settled.balance, line: [redMove.id, blackMove.id, ...settled.line] }
         }
@@ -120,6 +129,7 @@ function checkRunnerResponse(game: Game, cache: Map<string, CaptureSettlement>):
     if (!worst || best.balance < worst.balance) worst = best
   }
   if (!worst) throw new Error("A playing position has no Red turn.")
+  search.responses.set(key, worst)
   return worst
 }
 
@@ -127,18 +137,18 @@ function checkRunnerResponse(game: Game, cache: Map<string, CaptureSettlement>):
 export function annotateMoves(game: Game, moves: readonly Move[] = legalMoves(game.board, "ai")): AnnotatedMove[] {
   if (game.turn !== "ai" || game.status !== "playing") throw new Error("Outcomes require an active Black turn.")
   const beforeBalance = materialBalance(game.board)
-  const captureCache = new Map<string, CaptureSettlement>()
+  const search: Search = { ...createMoveSearch(), captures: new Map(), responses: new Map() }
   const redTurnsChecked = game.board.some((piece, square) => piece?.side === "human" && !piece.king && Math.floor(square / 8) <= 2) ? 2 : 1
   const lastOwn = [...game.history].reverse().find(record => record.side === "ai")
   return moves.map(move => {
     const piece = game.board[move.path[0]]
     if (!piece) throw new Error("A move starts on an empty square.")
-    const after = applyMove(game, move.id)
+    const after = search.apply(game, move.id)
     const destination = move.path[move.path.length - 1]
     const captured = capturedPieces(game.board, move)
     const redKings = after.board.flatMap((piece, square) => piece?.side === "human" && piece.king ? [square] : [])
-    const replies: ReplyOutcome[] = after.status !== "playing" ? [] : legalMoves(after.board, "human").map(reply => {
-      const next = applyMove(after, reply.id)
+    const replies: ReplyOutcome[] = after.status !== "playing" ? [] : search.moves(after.board, "human").map(reply => {
+      const next = search.apply(after, reply.id)
       let best = materialBalance(next.board) - beforeBalance
       let bestResponseIds: string[] = []
       let exchangeLine = [reply.id]
@@ -147,14 +157,14 @@ export function annotateMoves(game: Game, moves: readonly Move[] = legalMoves(ga
       const capturableRedKings = new Set<number>()
       if (next.status === "playing") {
         best = -Infinity
-        for (const response of legalMoves(next.board, "ai")) {
-          const leaf = applyMove(next, response.id)
+        for (const response of search.moves(next.board, "ai")) {
+          const leaf = search.apply(next, response.id)
           nextCaptureValue = Math.max(nextCaptureValue, capturedPieces(next.board, response).reduce((total, piece) => total + piece.value, 0))
           for (const king of redKings) {
             const square = reply.path[0] === king ? reply.path[reply.path.length - 1] : king
             if (response.captures.includes(square)) capturableRedKings.add(king)
           }
-          const settled = redTurnsChecked === 2 ? checkRunnerResponse(leaf, captureCache) : settleCaptures(leaf, captureCache)
+          const settled = redTurnsChecked === 2 ? checkRunnerResponse(leaf, search) : settleCaptures(leaf, search)
           const net = settled.balance - beforeBalance
           if (net > best) { best = net; bestResponseIds = [response.id]; exchangeLine = [reply.id, response.id, ...settled.line] }
           else if (net === best) bestResponseIds.push(response.id)

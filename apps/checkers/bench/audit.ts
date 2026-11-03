@@ -82,6 +82,11 @@ export function acceptedChoices(game: Game, objective: Objective, choices = insp
     const best = Math.max(...candidates.map(choice => choice.worstNet))
     return candidates.filter(choice => choice.worstNet === best).map(choice => choice.id)
   }
+  if (objective === "minimize-checked-loss") {
+    const candidates = choices.filter(choice => safe(choice) && choice.status === "playing")
+    const best = Math.max(...candidates.map(choice => choice.worstNet))
+    return candidates.filter(choice => choice.worstNet === best).map(choice => choice.id)
+  }
   if (objective === "safe-promotion") return choices.filter(choice => safe(choice) && choice.promotes && !choice.newKingTaken && choice.worstNet >= 0).map(choice => choice.id)
   if (objective === "prevent-promotion") return choices.filter(choice => safe(choice) && !choice.permitsPromotion && choice.worstNet >= 0).map(choice => choice.id)
   if (objective === "force-win-next-turn") return choices.filter(choice => choice.forcesWin).map(choice => choice.id)
@@ -121,6 +126,10 @@ export function auditCase(testCase: BenchmarkCase): AuditObservation {
     if (testCase.objective === "best-safe-exchange") {
       assert(choices.every(choice => choice.captures > 0), `${testCase.id}: material fixture must use compulsory captures`)
       assert(Math.max(...choices.filter(choice => expected.includes(choice.id)).map(choice => choice.worstNet)) >= 0, `${testCase.id}: no nonlosing exchange`)
+    }
+    if (testCase.objective === "minimize-checked-loss") {
+      assert(choices.every(choice => choice.worstNet < 0), `${testCase.id}: smallest-loss fixture needs all negative exchanges`)
+      assert(!choices.some(choice => choice.forcesWin || choice.status === "draw"), `${testCase.id}: competing forced win or immediate draw`)
     }
     if (testCase.objective === "force-next-capture") {
       assert(choices.filter(choice => expected.includes(choice.id)).every(choice => choice.worstNet >= 0), `${testCase.id}: a forced capture masks a negative checked exchange`)

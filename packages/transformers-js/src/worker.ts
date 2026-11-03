@@ -1672,6 +1672,7 @@ function load(
 }
 
 const running = new Map<string, StoppingCriteria>()
+const requests = new Map<string, AbortController>()
 
 /** Below this much room for a reply, the chat is too long to answer. */
 
@@ -2488,7 +2489,14 @@ function createStreamer(
   }
 }
 
-async function generate(
+async function generate(...args: Parameters<typeof generateRun>): Promise<RunTimings> {
+  const request = new AbortController()
+  requests.set(args[0], request)
+  try { return await generateRun(...args) }
+  finally { requests.delete(args[0]) }
+}
+
+async function generateRun(
   id: string,
   chat: Array<ChatTurn>,
   tools: Array<ToolSpec>,
@@ -2504,10 +2512,13 @@ async function generate(
 ): Promise<RunTimings> {
   // Time to first token counts from here: it includes reading the prompt.
   const requested = performance.now()
+  const signal = requests.get(id)?.signal
+  signal?.throwIfAborted()
   if (!current) throw new Error("No model loaded.")
   const loaded = current
   const { tf, tokenizer, model, endTokens, device, dtype, ...runtime } =
     await loaded.runtime
+  signal?.throwIfAborted()
   // Never past what the model was loaded for (its rotary tables end there).
   const contextLength = Math.min(
     requestedContext ?? runtime.contextLength,
@@ -2553,195 +2564,201 @@ async function generate(
     .flatMap(value => value === undefined ? [] : Array.isArray(value) ? value : [value])
   const open = Array.from(tokenizer(thinkingOpen, { add_special_tokens: false }).input_ids.data, Number)
   const close = Array.from(tokenizer(thinkingClose, { add_special_tokens: false }).input_ids.data, Number)
-  const constraint = outputSchema === undefined ? undefined : await createConstraint({ schema: outputSchema, tokenizer, eosTokenId: eos[0], maxTokens: maxNewTokens + 1 })
-  const controlTokens = thinkingControlTokens(open, close, tokenizer.all_special_ids ?? [], eos)
-  const control = new GenerationControl({ promptTokens: ids.length, startsInThinking, open, controlTokens, allowReopen: thinking !== false, forceOpen: !startsInThinking && thinking === true, close, eos, budget: thinkingBudgetTokens, constraint })
   const stopping = new tf.InterruptableStoppingCriteria()
   running.set(id, stopping)
-  // Every generated token, counted as the streamer gets it (text arrives
-  // word by word, later than its tokens).
-  let outputTokens = 0
-  let firstToken: number | null = null
-  let lastToken = 0
-  let readStarted = performance.now()
-  // What the last run left in the cache that this prompt starts with.
-  const retain = cachePrompt !== false
-  const systemEnd = retain ? systemLength(tokenizer, chat, tools, thinking, ids) : 0
-  // A no-retention call owns a fresh cache. Existing conversation caches are not
-  // borrowed, mutated or evicted, and disk state is neither read nor written.
-  let reused = retain ? reuseSaved(tf, cacheId, ids, systemEnd) : {
-    cache: null,
-    cached: 0,
-    checkpoints: [] as Array<Checkpoint>,
-    common: 0
-  }
-  const timings = (): RunTimings => ({
-    inputTokens: ids.length,
-    cachedTokens: reused.cached,
-    outputTokens,
-    firstTokenMs: firstToken === null ? null : firstToken - requested,
-    promptMs: firstToken === null ? null : firstToken - readStarted,
-    decodeMs: firstToken === null ? 0 : lastToken - firstToken,
-    ...control.stats
-  })
-  const streamer = createStreamer(tokenizer, {
-    // Special tokens stay in the text, all but the end of turn: models mark
-    // their tool calls with them (LFM2.5, Gemma 4), and Gemma 4 its
-    // thinking and strings.
-    skipSpecial: false,
-    onTokens: (tokens: Array<bigint>) => {
-      lastToken = performance.now()
-      firstToken ??= lastToken
-      outputTokens += tokens.length
-      endGpuStep()
-      if (outputTokens % 16 === 0) nudgeGarbageCollector()
-      if (outputTokens % 32 === 0) {
-        logMemory(`reply ${outputTokens} tokens (prompt ${gpu.promptTokens})`)
+  let constraint: Awaited<ReturnType<typeof createConstraint>> | undefined
+  try {
+    constraint = outputSchema === undefined ? undefined : await createConstraint({ schema: outputSchema, tokenizer, eosTokenId: eos[0], maxTokens: maxNewTokens + 1 })
+    signal?.throwIfAborted()
+    const controlTokens = thinkingControlTokens(open, close, tokenizer.all_special_ids ?? [], eos)
+    const control = new GenerationControl({ promptTokens: ids.length, startsInThinking, open, controlTokens, allowReopen: thinking !== false, forceOpen: !startsInThinking && thinking === true, close, eos, budget: thinkingBudgetTokens, constraint })
+    // Every generated token, counted as the streamer gets it (text arrives
+    // word by word, later than its tokens).
+    let outputTokens = 0
+    let firstToken: number | null = null
+    let lastToken = 0
+    let readStarted = performance.now()
+    // What the last run left in the cache that this prompt starts with.
+    const retain = cachePrompt !== false
+    const systemEnd = retain ? systemLength(tokenizer, chat, tools, thinking, ids) : 0
+    // A no-retention call owns a fresh cache. Existing conversation caches are not
+    // borrowed, mutated or evicted, and disk state is neither read nor written.
+    let reused = retain ? reuseSaved(tf, cacheId, ids, systemEnd) : {
+      cache: null,
+      cached: 0,
+      checkpoints: [] as Array<Checkpoint>,
+      common: 0
+    }
+    const timings = (): RunTimings => ({
+      inputTokens: ids.length,
+      cachedTokens: reused.cached,
+      outputTokens,
+      firstTokenMs: firstToken === null ? null : firstToken - requested,
+      promptMs: firstToken === null ? null : firstToken - readStarted,
+      decodeMs: firstToken === null ? 0 : lastToken - firstToken,
+      ...control.stats
+    })
+    const streamer = createStreamer(tokenizer, {
+      // Special tokens stay in the text, all but the end of turn: models mark
+      // their tool calls with them (LFM2.5, Gemma 4), and Gemma 4 its
+      // thinking and strings.
+      skipSpecial: false,
+      onTokens: (tokens: Array<bigint>) => {
+        lastToken = performance.now()
+        firstToken ??= lastToken
+        outputTokens += tokens.length
+        endGpuStep()
+        if (outputTokens % 16 === 0) nudgeGarbageCollector()
+        if (outputTokens % 32 === 0) {
+          logMemory(`reply ${outputTokens} tokens (prompt ${gpu.promptTokens})`)
+        }
+      },
+      onText: (raw: string) => {
+        const text = raw.replace(endTokens, "")
+        if (text) ctx.postMessage({ type: "token", id, text })
       }
-    },
-    onText: (raw: string) => {
-      const text = raw.replace(endTokens, "")
-      if (text) ctx.postMessage({ type: "token", id, text })
+    })
+    // Prompt reading starts here, for its speed (the model is loaded).
+    readStarted = performance.now()
+    // Nothing in memory covers the system prompt and tools: try the disk.
+    const wantsSystem = retain && reused.cached < systemEnd && systemEnd >= MIN_DISK_TOKENS
+    const fromDisk = wantsSystem
+      ? await loadFromDisk(tf, cacheId, ids.slice(0, systemEnd), device).catch(
+          () => null
+        )
+      : null
+    if (fromDisk) {
+      reused.checkpoints.forEach(disposeCheckpoint)
+      await reused.cache?.dispose().catch(() => undefined)
+      reused = {
+        cache: fromDisk,
+        cached: systemEnd,
+        checkpoints: [checkpoint(tf, fromDisk, systemEnd)],
+        common: Math.max(reused.common, systemEnd)
+      }
+      if (DEBUG) {
+        ctx.postMessage({
+          type: "log",
+          text: `[cache] loaded ${systemEnd} tokens from disk in ${Math.round(performance.now() - readStarted)} ms`
+        })
+      }
     }
-  })
-  // Prompt reading starts here, for its speed (the model is loaded).
-  readStarted = performance.now()
-  // Nothing in memory covers the system prompt and tools: try the disk.
-  const wantsSystem = retain && reused.cached < systemEnd && systemEnd >= MIN_DISK_TOKENS
-  const fromDisk = wantsSystem
-    ? await loadFromDisk(tf, cacheId, ids.slice(0, systemEnd), device).catch(
-        () => null
-      )
-    : null
-  if (fromDisk) {
-    reused.checkpoints.forEach(disposeCheckpoint)
-    await reused.cache?.dispose().catch(() => undefined)
-    reused = {
-      cache: fromDisk,
-      cached: systemEnd,
-      checkpoints: [checkpoint(tf, fromDisk, systemEnd)],
-      common: Math.max(reused.common, systemEnd)
-    }
+    // This run reads the system prompt and tools from scratch: save them.
+    const savesSystem = wantsSystem && !fromDisk
+    let cache: Cache | null = reused.cache
+    const checkpoints = reused.checkpoints
+    /** Every token the model has read, prompt and reply, once it's replied. */
+    let sequence: Array<number> = ids
     if (DEBUG) {
       ctx.postMessage({
         type: "log",
-        text: `[cache] loaded ${systemEnd} tokens from disk in ${Math.round(performance.now() - readStarted)} ms`
+        text: `[cache] ${reused.cached} of ${ids.length} prompt tokens already read`
       })
     }
-  }
-  // This run reads the system prompt and tools from scratch: save them.
-  const savesSystem = wantsSystem && !fromDisk
-  let cache: Cache | null = reused.cache
-  const checkpoints = reused.checkpoints
-  /** Every token the model has read, prompt and reply, once it's replied. */
-  let sequence: Array<number> = ids
-  if (DEBUG) {
-    ctx.postMessage({
-      type: "log",
-      text: `[cache] ${reused.cached} of ${ids.length} prompt tokens already read`
-    })
-  }
-  try {
-    const addCheckpoint = (at: Cache, length: number) => {
-      if (!retain) return
-      checkpoints.push(checkpoint(tf, at, length))
-      // Keep the oldest (often the end of the system prompt and tools, which
-      // new chats share) and the latest.
-      fitCheckpoints([checkpoints, ...savedCaches.map((e) => e.checkpoints)])
-    }
-    // Checkpoints on the way: where the system prompt and tools end, which
-    // the next chat or sub-agent run repeats, and where this prompt stopped
-    // matching a kept cache past them, which the next prompt may match too.
-    const stops = [
-      systemEnd,
-      reused.common > systemEnd + SAME_CHAT_TOKENS ? reused.common : 0
-    ]
-      .filter((at) => at > reused.cached && at < ids.length - 1)
-      .sort((a, b) => a - b)
-    cache = await unlessGpuLost(
-      readPrompt(
-        tf,
-        model,
-        inputs.input_ids,
-        reused.cached,
-        cache,
-        stopping,
-        stops,
-        addCheckpoint
+    try {
+      signal?.throwIfAborted()
+      const addCheckpoint = (at: Cache, length: number) => {
+        if (!retain) return
+        checkpoints.push(checkpoint(tf, at, length))
+        // Keep the oldest (often the end of the system prompt and tools, which
+        // new chats share) and the latest.
+        fitCheckpoints([checkpoints, ...savedCaches.map((e) => e.checkpoints)])
+      }
+      // Checkpoints on the way: where the system prompt and tools end, which
+      // the next chat or sub-agent run repeats, and where this prompt stopped
+      // matching a kept cache past them, which the next prompt may match too.
+      const stops = [
+        systemEnd,
+        reused.common > systemEnd + SAME_CHAT_TOKENS ? reused.common : 0
+      ]
+        .filter((at) => at > reused.cached && at < ids.length - 1)
+        .sort((a, b) => a - b)
+      cache = await unlessGpuLost(
+        readPrompt(
+          tf,
+          model,
+          inputs.input_ids,
+          reused.cached,
+          cache,
+          stopping,
+          stops,
+          addCheckpoint
+        )
       )
-    )
-    if (stopping.interrupted) return timings()
-    if (cache) addCheckpoint(cache, ids.length - 1)
-    // generate() reads the rest of the prompt and updates the cache in place.
-    const output = (await unlessGpuLost(
-      model.generate({
-        ...inputs,
-        ...(cache && {
-          past_key_values: cache,
-          attention_mask: tf.ones(inputs.input_ids.dims)
-        }),
-        max_new_tokens: maxNewTokens,
-        // The sampler below picks each token and leaves only it possible,
-        // so the greedy pick takes it; Transformers.js's own penalty and
-        // sampling stay off.
-        do_sample: false,
-        repetition_penalty: 1,
-        logits_processor: [createSampler(sampling, control.prepare)],
-        streamer,
-        stopping_criteria: [stopping]
-      })
-    )) as Tensor
-    sequence = Array.from(output.data, Number)
-    control.finish(sequence, stopping.interrupted)
-  } catch (error) {
-    // The model's GPU memory is gone with the device: load it again next time.
-    if (gpu.lost && current === loaded) current = null
-    checkpoints.forEach(disposeCheckpoint)
-    checkpoints.length = 0
-    await cache?.dispose().catch(() => undefined)
-    cache = null
-    throw error
+      if (stopping.interrupted) return timings()
+      if (cache) addCheckpoint(cache, ids.length - 1)
+      // generate() reads the rest of the prompt and updates the cache in place.
+      const output = (await unlessGpuLost(
+        model.generate({
+          ...inputs,
+          ...(cache && {
+            past_key_values: cache,
+            attention_mask: tf.ones(inputs.input_ids.dims)
+          }),
+          max_new_tokens: maxNewTokens,
+          // The sampler below picks each token and leaves only it possible,
+          // so the greedy pick takes it; Transformers.js's own penalty and
+          // sampling stay off.
+          do_sample: false,
+          repetition_penalty: 1,
+          logits_processor: [createSampler(sampling, control.prepare)],
+          streamer,
+          stopping_criteria: [stopping]
+        })
+      )) as Tensor
+      sequence = Array.from(output.data, Number)
+      control.finish(sequence, stopping.interrupted)
+    } catch (error) {
+      // The model's GPU memory is gone with the device: load it again next time.
+      if (gpu.lost && current === loaded) current = null
+      checkpoints.forEach(disposeCheckpoint)
+      checkpoints.length = 0
+      await cache?.dispose().catch(() => undefined)
+      cache = null
+      throw error
+    } finally {
+      // Keep the cache for the next run. It holds every token it has read
+      // (the last token generated isn't read until the next step).
+      if (cache && current === loaded && retain) {
+        const length = cache.get_seq_length()
+        const atSystem = checkpoints.find((c) => c.length === systemEnd)
+        if (savesSystem && atSystem && length >= systemEnd) {
+          saveToDisk(cacheId, ids.slice(0, systemEnd), cache, atSystem)
+        }
+        keepSaved(tf, {
+          modelId: cacheId,
+          ids: sequence.slice(0, length),
+          cache,
+          checkpoints
+        })
+      } else if (cache) {
+        checkpoints.forEach(disposeCheckpoint)
+        await cache.dispose().catch(() => undefined)
+      }
+      dropSpareBuffers()
+      logMemory(`reply finished, ${outputTokens} tokens`)
+      if (DEBUG) {
+        ctx.postMessage({
+          type: "log",
+          text: `[memory] live buffers: ${liveBreakdown()}`
+        })
+      }
+    }
+    // Cut off by the context limit, not by the reply's own length limit.
+    if (
+      maxNewTokens < wanted &&
+      outputTokens >= maxNewTokens &&
+      !stopping.interrupted
+    ) {
+      throw new ContextLimitError(
+        `The reply stopped at the model's limit of ${contextLength.toLocaleString("en-US")} tokens for a session. Start a new session to keep going.`
+      )
+    }
+    return timings()
   } finally {
     running.delete(id)
     constraint?.dispose()
-    // Keep the cache for the next run. It holds every token it has read
-    // (the last token generated isn't read until the next step).
-    if (cache && current === loaded && retain) {
-      const length = cache.get_seq_length()
-      const atSystem = checkpoints.find((c) => c.length === systemEnd)
-      if (savesSystem && atSystem && length >= systemEnd) {
-        saveToDisk(cacheId, ids.slice(0, systemEnd), cache, atSystem)
-      }
-      keepSaved(tf, {
-        modelId: cacheId,
-        ids: sequence.slice(0, length),
-        cache,
-        checkpoints
-      })
-    } else if (cache) {
-      checkpoints.forEach(disposeCheckpoint)
-      await cache.dispose().catch(() => undefined)
-    }
-    dropSpareBuffers()
-    logMemory(`reply finished, ${outputTokens} tokens`)
-    if (DEBUG) {
-      ctx.postMessage({
-        type: "log",
-        text: `[memory] live buffers: ${liveBreakdown()}`
-      })
-    }
   }
-  // Cut off by the context limit, not by the reply's own length limit.
-  if (
-    maxNewTokens < wanted &&
-    outputTokens >= maxNewTokens &&
-    !stopping.interrupted
-  ) {
-    throw new ContextLimitError(
-      `The reply stopped at the model's limit of ${contextLength.toLocaleString("en-US")} tokens for a session. Start a new session to keep going.`
-    )
-  }
-  return timings()
 }
 
 const errorMessage = (error: unknown) =>
@@ -2783,6 +2800,7 @@ ctx.onmessage = ({ data }) => {
         })
       })
   } else {
+    requests.get(data.id)?.abort()
     running.get(data.id)?.interrupt()
   }
 }

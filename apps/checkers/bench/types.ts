@@ -3,7 +3,7 @@ import type { Game, Side } from "../src/lib/checkers.ts"
 import type { OpponentModel } from "../src/lib/opponents.ts"
 import type { PromptVersion } from "../src/lib/shared-prompt.ts"
 
-export type Objective = "win-now" | "avoid-immediate-loss" | "best-safe-exchange" | "avoid-losing-exchange" | "best-runner-defense" | "safe-promotion" | "prevent-promotion" | "force-win-next-turn" | "force-next-capture" | "avoid-draw-ahead" | "take-draw-behind" | "diagnostic"
+export type Objective = "win-now" | "avoid-immediate-loss" | "best-safe-exchange" | "avoid-losing-exchange" | "best-runner-defense" | "minimize-checked-loss" | "safe-promotion" | "prevent-promotion" | "force-win-next-turn" | "force-next-capture" | "avoid-draw-ahead" | "take-draw-behind" | "diagnostic"
 export type BenchmarkCase = {
   id: string
   label: string
@@ -87,6 +87,6 @@ export type ComparisonQualityPhase = {
 }
 export type CacheComparisonReport = {
   schemaVersion: 1; runId: string; startedAt: string; finishedAt: string; revision: string; partial: boolean; phase: string
-  config: { model: CacheComparisonModel; runtimeModel?: { id: string; name: string; browser: string | null }; before: PromptVersion; after: PromptVersion; reasoning: "off"; reasoningBudgetTokens: 512; maxOutputTokens: 8192 | null; sampling: "model defaults"; promptCache: "long"; suiteVersion: string; caseIds: string[]; quality: boolean; qualityRepetitions: 0 | 1; includeProductionOrder: boolean; sessionId: string; selectedPlies: number[]; skippedForcedPlies: number[]; notes: string[] }
+  config: { model: CacheComparisonModel; runtimeModel?: { id: string; name: string; browser: string | null }; before: PromptVersion; after: PromptVersion; reasoning: "off"; reasoningBudgetTokens: 512; maxOutputTokens: 8192 | null; sampling: "model defaults"; promptCache: "long"; suiteVersion: string; caseIds: string[]; quality: boolean; cache?: boolean; qualityRepetitions: 0 | 1; includeProductionOrder: boolean; sessionId: string; selectedPlies: number[]; skippedForcedPlies: number[]; notes: string[] }
   quality: ComparisonQualityPhase[]; cache: CacheReplayReport[]
 }

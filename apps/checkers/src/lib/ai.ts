@@ -15,7 +15,8 @@ import {
 import { z } from "zod"
 import { legalMoves } from "./checkers"
 import { orderMovesForGame } from "./move-order"
-import { buildMovePrompt, SHARED_PROMPT_VERSION } from "./shared-prompt"
+import { SHARED_PROMPT_VERSION } from "./shared-prompt"
+import { analyzeMovePrompt } from "./analysis-worker"
 import type { PromptInput, PromptVersion } from "./shared-prompt"
 import type { Game } from "./checkers"
 import { opponentOption, resolveOpponent } from "./opponents"
@@ -123,7 +124,8 @@ export async function chooseAiMove(
   } else {
     moves = orderMovesForGame(game.sessionId, moves)
   }
-  const input = buildMovePrompt(game, moves, diagnostics?.promptVersion ?? GAME_PROMPT_VERSION)
+  const input = await analyzeMovePrompt({ game, moves, version: diagnostics?.promptVersion ?? GAME_PROMPT_VERSION }, signal)
+  signal.throwIfAborted()
   diagnostics?.onInput?.(input)
   if (moves.length === 1) {
     diagnostics?.onAnswer?.(JSON.stringify(input.version === "baseline-v1" ? { moveId: input.choices[0].label } : { move: input.choices[0].label }))

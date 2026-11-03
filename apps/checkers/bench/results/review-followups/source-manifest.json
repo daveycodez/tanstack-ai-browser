@@ -1,0 +1,15 @@
+{
+  "base": "332021e",
+  "reviewBase": "a02eea7",
+  "mainReviewBase": "2c10f9e",
+  "sha256": {
+    "apps/checkers/src/lib/game-storage.ts": "70376007556710e09e8ea7383c60f70ecb85f80a167ee990bbe151dccd380e83",
+    "apps/checkers/src/lib/db.tsx": "59b5647927d47a510550fedeec77a70b39c0df6b6be6cf59eb75a7913ffd892e",
+    "apps/checkers/src/lib/analysis-worker.ts": "7f7fb2bb6bcddb0d76fd466fcfc3dba74f2297af4de570d866113b8ef0ca74ff",
+    "apps/checkers/src/lib/analysis.worker.ts": "e831ea7fb6e49b64d61461263f68de8d66bf5a3e2041b69cb857fbc401b856d9",
+    "apps/checkers/src/lib/checkers.ts": "237c66293fce0f19be66278ad5879e8fad1525287fb3d9f87d12a0ecf58dcfbe",
+    "apps/checkers/src/lib/move-outcomes.ts": "67b4d025b0642f2e1ba4c3be24dc6d71223def71d6f7b54adce1bdc8c9cc2b43",
+    "packages/transformers-js/src/worker.ts": "ca88dd70f46347c55c48d7332a96ce63919647e7fe59cbe2ce051b56376ceb70",
+    "packages/structured-output/src/index.ts": "15cf78ec1a4af43b4fef024c431371fd27d385c36603567cc71e4080a18cef07"
+  }
+}

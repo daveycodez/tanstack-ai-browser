@@ -30,7 +30,7 @@ test("move 82 preserves the king-row guard and uses the other king", () => {
   assert.equal(threat.netAfterBestResponse, -1)
   assert.deepEqual(threat.exchangeLine, ["b6-c7", "a7-b8", "c7-d8", "b8-a7"])
   assert.match(describeMove(abandon), /Red b6-c7 → Black a7-b8 → Red c7-d8/)
-  const safe = buildMovePrompt(game).prompt.split("\n").find(line => line.startsWith("NON-LOSING CHECKED EXCHANGES:"))
+  const safe = buildMovePrompt(game).prompt.split("\n").reverse().find(line => line.startsWith("NON-LOSING CHECKED EXCHANGES:"))
   assert.ok(safe)
   assert.match(safe, /Move king e1 to f2/)
   assert.doesNotMatch(safe, /Move king b8 to a7/)
