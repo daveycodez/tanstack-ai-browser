@@ -4,10 +4,9 @@ import { IDBFactory } from "fake-indexeddb"
 import { createIndexedDB } from "@tanstack/react-db"
 import { createGameStorage } from "./game-storage.ts"
 import { legalMoves, newGame } from "./chess.ts"
-import type { PieceColor } from "./chess.ts"
 import { resolveOpponent } from "./opponents.ts"
 
-async function tabs(makeGame: (color?: PieceColor) => ReturnType<typeof newGame> = (color = "white") => newGame(color)) {
+async function tabs(makeGame = () => newGame("white")) {
   const factory = new IDBFactory()
   const open = () => new Promise<IDBDatabase>((resolve, reject) => {
     const request = factory.open("chess", 1)
@@ -106,9 +105,10 @@ test("version upgrade preserves a legacy game and closes its unconditional-write
 })
 
 
-test("color assignment is durable across connections and alternates only for a new session", async () => {
+test("each new session draws independently and can assign the same color again", async () => {
   let creations = 0
-  const { a, b, close } = await tabs(color => { creations++; return newGame(color ?? "black") })
+  const draws = ["black", "black", "white"] as const
+  const { a, b, close } = await tabs(() => newGame(draws[creations++]))
   try {
     const [first, same] = await Promise.all([a.ensureGame(), b.ensureGame()])
     assert.equal(creations, 1)
@@ -122,14 +122,14 @@ test("color assignment is durable across connections and alternates only for a n
     assert.equal(saved?.turn, "human")
     const next = await b.startNewGame()
     assert.equal(creations, 2)
-    assert.equal(next.humanColor, "white")
-    assert.equal(next.turn, "human")
+    assert.equal(next.humanColor, "black", "consecutive games can draw the same side")
+    assert.equal(next.turn, "ai")
     assert.equal(await a.commitMove(first.sessionId, 1, "e7e5"), false)
     assert.equal((await a.ensureGame()).sessionId, next.sessionId)
     assert.equal(creations, 2)
     const third = await a.startNewGame()
-    assert.equal(third.humanColor, "black")
-    assert.equal(third.turn, "ai")
+    assert.equal(third.humanColor, "white")
+    assert.equal(third.turn, "human")
     assert.equal(creations, 3)
   } finally { close() }
 })

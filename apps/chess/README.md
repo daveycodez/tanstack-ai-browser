@@ -1,7 +1,7 @@
 # Chess
 
 A responsive blue-and-silver chess game built with TanStack Start, React, TanStack DB,
-and this workspace’s local Prompt API and WebGL adapters. Your first game randomly assigns White or Black; each new game swaps your side. White moves first; the
+and this workspace’s local Prompt API and WebGL adapters. Every new game independently gives you a 50% chance of White or Black. White moves first; the
 board starts with your pieces at the bottom. The AI opens when you play Black. No hosted inference or API key is required.
 
 ## Run

@@ -135,7 +135,7 @@ export function MenuView({
           )}
           <div className="menu-details">
             <span className="white-piece-dot" />
-            {current && game ? `You play ${colorForSide(game, "human")}` : "Sides alternate"}
+            {current && game ? `You play ${colorForSide(game, "human")}` : "Random colors"}
             <span className="detail-separator" />
             <span>No clock. No rush.</span>
           </div>
