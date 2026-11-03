@@ -6,7 +6,7 @@ import { applyMove, legalMoves, squareName } from "./checkers.ts"
 import type { Game } from "./checkers.ts"
 import { annotateMoves, describeMove, material, materialBalance, moveLabel } from "./move-outcomes.ts"
 import type { AnnotatedMove } from "./move-outcomes.ts"
-import { buildBaselinePrompt, buildMovePrompt, buildSharedPrompt, SHARED_PROMPT_VERSION, SHARED_SYSTEM_PROMPT } from "./shared-prompt.ts"
+import { buildBaselinePrompt, buildMovePrompt, buildSharedPrompt, SHARED_PROMPT_VERSION, SHARED_V7_SYSTEM_PROMPT } from "./shared-prompt.ts"
 
 const sorted = (ids: readonly string[]) => [...ids].sort()
 const find = (id: string) => {
@@ -179,7 +179,7 @@ test("king activity, latest-own-turn reversal, and actual repetition metadata do
   assert.equal(kingMoves.find(move => move.id === "b4-c5")?.outcome.kingDistanceAfter, 5)
   assert.equal(kingMoves.find(move => move.id === "b4-a5")?.outcome.kingDistanceAfter, 7)
   assert.ok(kingMoves.every(move => /King distance to nearest Red/.test(describeMove(move))))
-  assert.match(buildSharedPrompt(kingGame, kingMoves).prompt, /King distance is only a quiet activity hint, not safety/)
+  assert.match(buildSharedPrompt(kingGame, kingMoves).systemPrompt, /King distance is only a quiet activity hint, not safety/)
   const repetition = annotateMoves(find("avoid-third-repeat-ahead")).find(move => move.id === "a3-b4")
   assert.ok(repetition)
   assert.equal(repetition.outcome.reversesLastOwnMove, true)
@@ -212,15 +212,15 @@ test("baseline formatting retains the original coordinate contract, headings, ca
   assert.ok(chain.prompt.includes("b6xd4xf2: b6-d4-f2; 2; -"))
 })
 
-test("shared prompt uses one concise system instruction and describes independent bounded alternatives", () => {
+test("shared prompt keeps stable instructions together and describes independent bounded alternatives", () => {
   const game = find("opening-variety")
   const prompt = buildSharedPrompt(game, annotateMoves(game))
-  assert.equal(prompt.systemPrompt, SHARED_SYSTEM_PROMPT)
+  assert.equal(prompt.systemPrompt, SHARED_V7_SYSTEM_PROMPT)
   assert.match(prompt.systemPrompt, /Each card is a separate alternative/)
-  assert.match(prompt.prompt, /bounded preview does not prove a positional win/)
-  assert.match(prompt.prompt, /activity hint, not safety/)
-  assert.match(prompt.prompt, /Returning to an earlier square can be necessary/)
-  assert.match(prompt.prompt, /Return exactly one JSON object with key "move"/)
+  assert.match(prompt.systemPrompt, /bounded preview does not prove a positional win/)
+  assert.match(prompt.systemPrompt, /activity hint, not safety/)
+  assert.match(prompt.systemPrompt, /Returning to an earlier square can be necessary/)
+  assert.doesNotMatch(prompt.systemPrompt, /JSON|closing brace|Copy the entire label/)
   assert.equal(prompt.choices.length, legalMoves(game.board, "ai").length)
 })
 
@@ -246,7 +246,7 @@ test("quiet progress remains an optional observation and never masks immediate t
   assert.match(progress, /Move king b4 to c[35]/)
   assert.doesNotMatch(progress, /Move king b4 to a[35]/)
   assert.equal(prompt.choices.length, 4, "less active legal moves remain selectable")
-  assert.match(progress, /not a forced win/)
+  assert.match(prompt.prompt, /not a forced win/)
   for (const id of ["win-full-chain", "safe-crowning", "force-next-turn-win"]) {
     const game = find(id)
     assert.doesNotMatch(buildSharedPrompt(game, annotateMoves(game)).prompt, /SAFE QUIET PROGRESS:/)

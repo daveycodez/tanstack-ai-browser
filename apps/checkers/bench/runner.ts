@@ -1,6 +1,6 @@
 import { promptApiModel } from "@tanstack-ai-browser/prompt-api"
 import { chooseAiMove } from "../src/lib/ai.ts"
-import { SHARED_PROMPT_VERSION } from "../src/lib/shared-prompt.ts"
+import { PREVIOUS_PROMPT_VERSION, SHARED_PROMPT_VERSION } from "../src/lib/shared-prompt.ts"
 import { OUTCOME_VERSION } from "../src/lib/move-outcomes.ts"
 import { applyMove, legalMoves } from "../src/lib/checkers.ts"
 import { opponentOption, resolveOpponent } from "../src/lib/opponents.ts"
@@ -19,6 +19,7 @@ export type BenchmarkOptions = {
   signal: AbortSignal
   onResult: (result: BenchmarkResult) => void
   onProgress?: (label: string) => void
+  orderPolicy?: "paired" | "production"
 }
 export function benchmarkOrder(caseId: string, repetition: number, ids: readonly string[]): string[] {
   let seed = 2166136261
@@ -46,7 +47,7 @@ export function summarize(results: readonly BenchmarkResult[]): BenchmarkReport[
 /** Explicit browser runs only. It calls production inference without touching saved games. */
 export async function runBenchmark(options: BenchmarkOptions): Promise<BenchmarkReport> {
   if (!Number.isInteger(options.repetitions) || options.repetitions < 1 || options.repetitions > 20) throw new RangeError("Repetitions must be between 1 and 20.")
-  if (!["baseline-v1", SHARED_PROMPT_VERSION].includes(options.promptVersion)) throw new Error("Unknown prompt version.")
+  if (!["baseline-v1", PREVIOUS_PROMPT_VERSION, SHARED_PROMPT_VERSION].includes(options.promptVersion)) throw new Error("Unknown prompt version.")
   const budget = options.reasoningBudgetTokens ?? 512
   if (!Number.isSafeInteger(budget) || budget < 0) throw new RangeError("Reasoning budget must be a nonnegative safe integer.")
   const selected = options.caseIds ?? CASES.filter(testCase => testCase.partition === "calibration").map(testCase => testCase.id)
@@ -58,10 +59,10 @@ export async function runBenchmark(options: BenchmarkOptions): Promise<Benchmark
     config: { ...opponent,
       ...(opponent.model === "prompt-api" && { runtimeModel: promptApiModel() }),
       reasoningMode: !opponent.thinking ? "off" : opponent.model === "prompt-api" ? "emulated-working-notes" : "native",
-      reasoningBudgetTokens: budget, maxOutputTokens: opponent.model === "prompt-api" ? null : 8192, sampling: "model defaults",
+      reasoningBudgetTokens: budget, maxOutputTokens: opponent.model === "prompt-api" ? null : 8192, sampling: "model defaults", promptCache: "long",
       repetitions: options.repetitions, caseIds: cases.map(testCase => testCase.id), suiteVersion: SUITE_VERSION, promptVersion: options.promptVersion,
       ...(options.promptVersion !== "baseline-v1" && { outcomeVersion: OUTCOME_VERSION }),
-      orderPolicy: "case/repetition seeded permutations, identical across models and prompt versions", outputContract: options.promptVersion === "baseline-v1" ? "legal-moveId-enum" : "legal-action-label-enum" },
+      orderPolicy: options.orderPolicy === "production" ? "production per-game stable action priorities" : "case/repetition seeded permutations, identical across models and prompt versions", outputContract: options.promptVersion === "baseline-v1" ? "legal-moveId-enum" : "legal-action-label-enum" },
     results: [], summary: summarize([])
   }
   const execute = async () => {
@@ -69,6 +70,7 @@ export async function runBenchmark(options: BenchmarkOptions): Promise<Benchmark
       if (options.signal.aborted) break outer
       const game = gameForCase(testCase)
       game.opponent = opponent
+      if (options.orderPolicy === "production") game.sessionId = `checkers-suite-${testCase.id}-${repetition}`
       const moves = legalMoves(game.board, "ai")
       const result: BenchmarkResult = {
         trial: report.results.length + 1, repetition: repetition + 1, caseId: testCase.id, label: testCase.label, objective: testCase.description,
@@ -85,7 +87,7 @@ export async function runBenchmark(options: BenchmarkOptions): Promise<Benchmark
         result.moveId = await chooseAiMove(game, controller,
           phase => options.onProgress?.(`Trial ${result.trial}: ${testCase.label} — ${phase}`),
           delta => { result.reasoningText += delta },
-          { promptVersion: options.promptVersion, reasoningBudgetTokens: budget, moveOrder: benchmarkOrder(testCase.id, repetition, moves.map(move => move.id)),
+          { promptVersion: options.promptVersion, reasoningBudgetTokens: budget, ...(options.orderPolicy !== "production" && { moveOrder: benchmarkOrder(testCase.id, repetition, moves.map(move => move.id)) }),
             onInput(input) { result.choices = input.choices; result.prompt = input.prompt; result.systemPrompt = input.systemPrompt },
             onAnswer(answer) { result.rawAnswer = answer }, onUsage(usage) { result.usage = usage } })
         options.signal.throwIfAborted()

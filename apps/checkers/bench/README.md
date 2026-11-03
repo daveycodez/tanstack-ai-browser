@@ -4,7 +4,7 @@ Open `/bench` on the Checkers dev server (`http://localhost:3002/bench`). Start 
 `pnpm nx dev checkers` if needed. The page shares the game's origin and downloaded model
 cache, but constructs positions independently and never modifies the saved game. It is not linked from the main menu.
 
-Inference starts only after **Run benchmark**. Stop cancels the active trial and keeps
+Inference starts only after an explicit benchmark/comparison/replay run button. Stop cancels the active trial and keeps
 completed results. The page prints the full JSON report, with an explicit copy button;
 it never automatically downloads files. Builds, prerendering and tests do not call models.
 
@@ -39,7 +39,7 @@ Original raw v1 reports remain intact; the audit explains the corrected grading.
 ## Shared production path
 
 The runner calls `chooseAiMove`, exactly as the game does, with instrumentation callbacks.
-The original baseline (`baseline-v1`) is preserved unchanged. The current `shared-v6`
+The original baseline (`baseline-v1`) is preserved unchanged. The current `shared-v7`
 contract uses descriptive actions such as `Jump king d2 over c3 to b4`. Every legal action
 remains in the enum; neither card order nor a hidden fallback selects a move for the model.
 
@@ -83,3 +83,38 @@ repetition, identical across the paired models/profiles. Provider templates, sam
 backends and native schema enforcement still differ; this is an app-experience comparison.
 
 See [FINDINGS.md](FINDINGS.md) for completed browser measurements and raw reports.
+
+## Prompt caching comparison
+
+The game passes the standard TanStack `promptCache: "long"` and its existing per-game
+`threadId` for every adapter. `shared-v7` places unchanged common rules and outcome-reading guidance
+in a stable system prefix, with conditional definitions and live position/card/fact
+payloads after it. No cache-specific consumer API, adapter change, schema relocation,
+extra generation pass, or dummy padding is used. Legal-action schemas stay exact.
+
+Production presentation follows Chess: persisted game ID + move ID gives a mixed
+hash priority. New games have variety; the same position in the same game is stable,
+including reloads/retries. It never sorts by outcome strength or filters legal moves.
+The default benchmark retains the historical case/repetition permutations; select
+**Action ordering → Production per-game** to test actual presentation separately.
+
+**Run comparison** compares byte-identical `shared-v6` with `shared-v7` on all 37
+unchanged cases under identical paired orders, optionally also checking both under
+production ordering. It then replays seven recorded non-forced AI decisions twice
+each. **Run cache replay only** omits the quality phases for focused cache validation.
+Missing runtime counters remain unreported. First-position samples are not a model
+cold-start test. Full JSON is collapsed until requested, preserving raw prompts,
+boards, answers, usage, and errors. Stop preserves completed trials.
+
+See [CACHE-FINDINGS.md](CACHE-FINDINGS.md) for the measured cache/quality tradeoff,
+initial preparation cost, unchanged suite, and raw before/after evidence.
+
+The current lean revision omits JSON-format prose: the exact structured-output schema
+enforces the response. Conditional fact definitions appear only when relevant, in a fixed order after
+the stable prefix and before the board. This avoids an always-present glossary and its initialization cost.
+No padding or consumer cache hints are used. WebGL now learns short shared boundaries
+inside existing batches after observing reuse.
+
+Earlier zero-reuse lean measurements predate the WebGL engine's short-prefix fix.
+The unchanged current prompt now reuses about 410 input tokens after warmup; exact
+retries still cache. See the engine-integration section of CACHE-FINDINGS.md.

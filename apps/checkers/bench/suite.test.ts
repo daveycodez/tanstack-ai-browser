@@ -97,3 +97,18 @@ test("the promotion-denial tradeoff stays ungraded when a larger capture has the
   assert.equal(capture.humanWins, false)
   assert.equal(auditCase(fixture).expectedMoveIds, null)
 })
+
+test("cache replay uses real non-forced turns, independent snapshots, and honest counters", async () => {
+  const {cacheReplayPositions,cacheMetrics}=await import("./cache-replay-positions.ts")
+  const {positions,skippedForcedPlies}=cacheReplayPositions()
+  assert.equal(positions.length,7)
+  assert.deepEqual(positions.map(game=>game.history.length),[1,3,5,9,13,19,21])
+  assert.deepEqual(skippedForcedPlies,[7,11,15,17])
+  assert.equal(new Set(positions.map(game=>game.sessionId)).size,1)
+  for(const game of positions){assert.equal(game.turn,"ai");assert.ok(legalMoves(game.board,"ai").length>1)}
+  positions[0].board.fill(null)
+  assert.ok(cacheReplayPositions().positions[0].board.some(Boolean))
+  assert.equal(cacheMetrics(undefined,1,"prompt-api").cachedInputTokens,null)
+  assert.equal(cacheMetrics({promptTokens:10,completionTokens:1,totalTokens:11},1,"prompt-api").cachedInputTokens,null)
+  assert.equal(cacheMetrics({promptTokens:10,completionTokens:1,totalTokens:11},1,"LiquidAI/LFM3-1.7B-GGUF").cachedInputTokens,0)
+})

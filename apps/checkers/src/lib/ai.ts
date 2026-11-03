@@ -14,6 +14,7 @@ import {
 } from "@tanstack-ai-browser/webgl"
 import { z } from "zod"
 import { legalMoves } from "./checkers"
+import { orderMovesForGame } from "./move-order"
 import { buildMovePrompt, SHARED_PROMPT_VERSION } from "./shared-prompt"
 import type { PromptInput, PromptVersion } from "./shared-prompt"
 import type { Game } from "./checkers"
@@ -112,7 +113,7 @@ export async function chooseAiMove(
   if (game.turn !== "ai" || game.status !== "playing") {
     throw new Error("There is no AI turn to play.")
   }
-  const moves = legalMoves(game.board, "ai")
+  let moves = legalMoves(game.board, "ai")
   if (!moves.length) throw new Error("The AI has no legal moves.")
   if (moves.length === 1 && !diagnostics?.onInput) return moves[0].id
   if (diagnostics?.moveOrder) {
@@ -120,10 +121,7 @@ export async function chooseAiMove(
     if (order.size !== moves.length || diagnostics.moveOrder.length !== moves.length || moves.some(move => !order.has(move.id))) throw new Error("The requested order must contain every legal move exactly once.")
     moves.sort((a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0))
   } else {
-    for (let index = moves.length - 1; index > 0; index--) {
-      const other = Math.floor(Math.random() * (index + 1))
-      ;[moves[index], moves[other]] = [moves[other], moves[index]]
-    }
+    moves = orderMovesForGame(game.sessionId, moves)
   }
   const input = buildMovePrompt(game, moves, diagnostics?.promptVersion ?? GAME_PROMPT_VERSION)
   diagnostics?.onInput?.(input)
@@ -172,6 +170,7 @@ export async function chooseAiMove(
     onPhase?.("processing")
     const options = {
       threadId: `checkers-${game.sessionId}`,
+      promptCache: "long" as const,
       ...(input.systemPrompt && { systemPrompts: [input.systemPrompt] }),
       ...(diagnostics?.onUsage && { middleware: [{
         name: "checkers-usage",
