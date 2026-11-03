@@ -411,3 +411,21 @@ test("the same public SDK promptCache policy matrix works without provider-speci
     }finally{unloadModel()}
   }
 })
+
+test("structured matcher failures and incomplete JSON are never repaired, retried, or tag-stripped",async()=>{
+  const {transformersJsText}=await import("./adapter.js"),{unloadModel}=await import("./client.js")
+  unloadModel();FakeWorker.ready=true
+  const literal="Paris</think>Paris <think>tag</think>"
+  const outputSchema={type:"object",properties:{value:{const:literal}},required:["value"],additionalProperties:false}
+  const adapter=transformersJsText(MODEL)
+  const invoke=()=>adapter.structuredOutput({chatOptions:options(),outputSchema})
+  let calls=0
+  try{
+    FakeWorker.generate=(worker,request)=>{calls++;worker.send({type:"token",id:request.id,text:'{"value":"partial'});worker.send({type:"error",id:request.id,message:"No token can complete the requested output schema."})}
+    await assert.rejects(invoke(),/No token can complete/);assert.equal(calls,1)
+    calls=0;FakeWorker.generate=(worker,request)=>{calls++;worker.send({type:"token",id:request.id,text:'Paris</think>Paris'});worker.send({type:"done",id:request.id,stats})}
+    await assert.rejects(invoke(),/isn't JSON/);assert.equal(calls,1)
+    FakeWorker.generate=(worker,request)=>{worker.send({type:"token",id:request.id,text:JSON.stringify({value:literal})});worker.send({type:"done",id:request.id,stats})}
+    const result=await invoke();assert.deepEqual(result.data,{value:literal});assert.equal(result.rawText,JSON.stringify({value:literal}))
+  }finally{unloadModel()}
+})

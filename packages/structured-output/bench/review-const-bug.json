@@ -1,0 +1,132 @@
+{
+  "dependency": "llguidance@0.2.1",
+  "entry": "@tanstack-ai-browser/structured-output createConstraint()",
+  "schema": {
+    "type": "object",
+    "properties": {
+      "value": {
+        "type": "string",
+        "const": "Paris</think>Paris"
+      }
+    },
+    "required": [
+      "value"
+    ],
+    "additionalProperties": false
+  },
+  "tokenizer": "IDs 0..255 equal raw byte; EOS 256",
+  "modelUsed": false,
+  "samplingUsed": false,
+  "cases": [
+    {
+      "name": "valid literal control: \"Paris\"",
+      "expected": true,
+      "actual": true,
+      "desiredBehavior": true,
+      "raw": "{\"value\":\"Paris\"}",
+      "roundTrip": true
+    },
+    {
+      "name": "valid literal control: \"Paris</think>Paris\"",
+      "expected": true,
+      "actual": true,
+      "desiredBehavior": true,
+      "raw": "{\"value\":\"Paris</think>Paris\"}",
+      "roundTrip": true
+    },
+    {
+      "name": "valid literal control: \"Paris</think>Paris <think>tag</think> héllo 👑\"",
+      "expected": true,
+      "actual": true,
+      "desiredBehavior": true,
+      "raw": "{\"value\":\"Paris</think>Paris <think>tag</think> héllo 👑\"}",
+      "roundTrip": true
+    },
+    {
+      "name": "valid literal control: \"quoted \\\"text\\\" \\\\ slash / newline\\n\\t\\u0001\"",
+      "expected": true,
+      "actual": true,
+      "desiredBehavior": true,
+      "raw": "{\"value\":\"quoted \\\"text\\\" \\\\ slash / newline\\n\\t\\u0001\"}",
+      "roundTrip": true
+    },
+    {
+      "name": "valid Unicode-escape control: \"Paris</think>Paris\"",
+      "expected": true,
+      "actual": true,
+      "desiredBehavior": true,
+      "raw": "{\"value\":\"Paris\\u003c/think>Paris\"}",
+      "roundTrip": true
+    },
+    {
+      "name": "valid Unicode-escape control: \"héllo 👑\"",
+      "expected": true,
+      "actual": true,
+      "desiredBehavior": true,
+      "raw": "{\"value\":\"h\\u00e9llo \\ud83d\\udc51\"}",
+      "roundTrip": true
+    },
+    {
+      "name": "escaped quote must not extend finite string Paris</think>Paris",
+      "expected": false,
+      "actual": true,
+      "desiredBehavior": false,
+      "prefix": "{\"value\":\"Paris\\",
+      "candidateByte": 34,
+      "candidateMeaning": "an escaped quote, not the required <"
+    },
+    {
+      "name": "impossible partial Unicode escape must be rejected",
+      "expected": false,
+      "actual": true,
+      "desiredBehavior": false,
+      "prefix": "{\"value\":\"Paris\\u",
+      "candidateByte": 51,
+      "candidateMeaning": "3xxx cannot encode the required U+003C"
+    },
+    {
+      "name": "non-ASCII UTF-8 lead cannot encode the required ASCII <",
+      "expected": false,
+      "actual": true,
+      "desiredBehavior": false,
+      "candidateByte": 194
+    },
+    {
+      "name": "false-positive UTF-8 lead reaches a dead end",
+      "expected": true,
+      "actual": true,
+      "desiredBehavior": true,
+      "error": "No token can complete the requested output schema."
+    },
+    {
+      "name": "traced semantic path: wrong escaped quote, incomplete UTF-8, dead end",
+      "acceptedBytes": [
+        123,
+        34,
+        118,
+        97,
+        108,
+        117,
+        101,
+        34,
+        58,
+        34,
+        80,
+        97,
+        114,
+        105,
+        115,
+        92,
+        34,
+        194
+      ],
+      "acceptedAllBytes": true,
+      "error": {
+        "code": "constraint-dead-end",
+        "message": "No token can complete the requested output schema."
+      },
+      "diagnosticOnly": true
+    }
+  ],
+  "desiredBehaviorFailures": 3
+}
