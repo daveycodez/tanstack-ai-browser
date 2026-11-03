@@ -126,3 +126,8 @@ keeps the suite and every accepted action unchanged. Both models passed 26/26
 calibration objectives and 6/6 holdouts with thinking off. Nano's original miss
 also passed 6/6 rotated-choice repeats. Raw DOM-read reports and observed ledgers
 are distinguished, and all artifacts were saved directly to task/project paths.
+
+The subsequent [Qwen3.5-2B GGUF run](fixtures/qwen-gguf-2026-11-03/README.md)
+used the identical v7 suite with thinking off: **23/26 calibration objectives**,
+**6/6 holdouts**, and **38/38 legal choices**. All three calibration misses and
+the complete report transcripts are preserved without a prompt change or retry.
