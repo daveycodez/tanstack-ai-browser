@@ -483,43 +483,67 @@ function geometricSupport(engine: Chess, color: "w" | "b"): CaptureMap {
   return result
 }
 
+type ReplyAnalysis = {
+  recaptures: ChessMove[]
+  check: boolean
+  checkmate: boolean
+}
+type AnalyzeReply = (reply: ChessMove) => ReplyAnalysis
+
+/** Scoped to one candidate on the live history-bearing engine. Reply identity
+ * avoids sharing results between equal boards with different draw histories.
+ */
+function replyAnalyzer(engine: Chess): AnalyzeReply {
+  const cache = new Map<ChessMove, ReplyAnalysis>()
+  return (reply) => {
+    const cached = cache.get(reply)
+    if (cached) return cached
+    engine.move(reply)
+    try {
+      const state = positionStatus(engine)
+      const result = {
+        recaptures: state.status === "playing"
+          ? engine.moves({ verbose: true }).filter(move =>
+              describe(move).captures.includes(indexOf(reply.to)))
+          : [],
+        check: engine.isCheck(),
+        checkmate: state.status === "human-won" || state.status === "ai-won"
+      }
+      cache.set(reply, result)
+      return result
+    } finally {
+      engine.undo()
+    }
+  }
+}
+
 function supportAfterMove(
   engine: Chess,
   candidate: ChessMove,
   before: CaptureMap,
   beforeEnemy: CaptureMap,
-  replies: ChessMove[]
+  replies: ChessMove[],
+  analyzeReply: AnalyzeReply
 ): MoveSupport {
   const destination = indexOf(candidate.to)
   const after = geometricSupport(engine, candidate.color)
   const conditionalRecaptures: MoveSupport["conditionalRecaptures"] = []
   for (const capture of replies) {
     if (!describe(capture).captures.includes(destination)) continue
-    engine.move(capture)
-    try {
-      const defenders = new Map<number, PieceRef>()
-      if (positionStatus(engine).status === "playing") {
-        for (const recapture of engine.moves({ verbose: true })) {
-          if (
-            recapture.captured === "k" ||
-            !describe(recapture).captures.includes(indexOf(capture.to))
-          )
-            continue
-          const square = indexOf(recapture.from)
-          defenders.set(square, { piece: recapture.piece, square })
-        }
-      }
-      conditionalRecaptures.push({
-        captureId: describe(capture).id,
-        attacker: {
-          piece: capture.promotion ?? capture.piece,
-          square: indexOf(capture.to)
-        },
-        defenders: [...defenders.values()]
-      })
-    } finally {
-      engine.undo()
+    const defenders = new Map<number, PieceRef>()
+    for (const recapture of analyzeReply(capture).recaptures) {
+      if (recapture.captured === "k") continue
+      const square = indexOf(recapture.from)
+      defenders.set(square, { piece: recapture.piece, square })
     }
+    conditionalRecaptures.push({
+      captureId: describe(capture).id,
+      attacker: {
+        piece: capture.promotion ?? capture.piece,
+        square: indexOf(capture.to)
+      },
+      defenders: [...defenders.values()]
+    })
   }
   const addedFriendlySupport: MoveSupport["addedFriendlySupport"] = []
   for (const [square, target] of after) {
@@ -803,9 +827,9 @@ function kingCoverAfterMove(
 }
 
 function promotionReplyOutcome(
-  engine: Chess,
   candidate: ChessMove,
-  reply: ChessMove
+  reply: ChessMove,
+  analyzeReply: AnalyzeReply
 ): PromotionReply {
   if (!reply.promotion || reply.promotion === "p" || reply.promotion === "k") {
     throw new Error("Expected an actual legal promotion reply.")
@@ -816,36 +840,29 @@ function promotionReplyOutcome(
     (candidate.promotion ? value(candidate.promotion) - value("p") : 0) -
     (reply.captured ? value(reply.captured) : 0) -
     (value(reply.promotion) - value("p"))
-  engine.move(reply)
-  try {
-    const captures = positionStatus(engine).status === "playing"
-      ? engine.moves({ verbose: true }).filter((capture) =>
-          describe(capture).captures.includes(indexOf(reply.to)))
-      : []
-    const capturers = new Map<number, PieceRef>()
-    for (const capture of captures) {
-      const square = indexOf(capture.from)
-      capturers.set(square, { piece: capture.piece, square })
-    }
-    return {
-      id: describe(reply).id,
-      from: indexOf(reply.from),
-      to: indexOf(reply.to),
-      promotion: reply.promotion,
-      ...(reply.captured ? { captured: reply.captured } : {}),
-      check: engine.isCheck(),
-      checkmate: engine.isCheckmate(),
-      capturableBy: [...capturers.values()],
-      netAfterPromotion,
-      ...(captures.length ? {
-        netAfterImmediateCapture: netAfterPromotion + Math.max(...captures.map((capture) =>
-          value(reply.promotion ?? "p") + (capture.promotion ? value(capture.promotion) - value("p") : 0)))
-      } : {})
-    }
-  } finally {
-    engine.undo()
+  const { recaptures: captures, check, checkmate } = analyzeReply(reply)
+  const capturers = new Map<number, PieceRef>()
+  for (const capture of captures) {
+    const square = indexOf(capture.from)
+    capturers.set(square, { piece: capture.piece, square })
+  }
+  return {
+    id: describe(reply).id,
+    from: indexOf(reply.from),
+    to: indexOf(reply.to),
+    promotion: reply.promotion,
+    ...(reply.captured ? { captured: reply.captured } : {}),
+    check,
+    checkmate,
+    capturableBy: [...capturers.values()],
+    netAfterPromotion,
+    ...(captures.length ? {
+      netAfterImmediateCapture: netAfterPromotion + Math.max(...captures.map((capture) =>
+        value(reply.promotion ?? "p") + (capture.promotion ? value(capture.promotion) - value("p") : 0)))
+    } : {})
   }
 }
+
 function kingMobilityAfterMove(
   engine: Chess,
   candidate: ChessMove,
@@ -880,9 +897,9 @@ function kingMobilityAfterMove(
 }
 
 function materialLossAfterReply(
-  engine: Chess,
   candidate: ChessMove,
-  reply: ChessMove
+  reply: ChessMove,
+  analyzeReply: AnalyzeReply
 ): ReplyMaterialLoss | undefined {
   if (!reply.captured || reply.captured === "k") return undefined
   const value = (piece: PieceType) => pieceValues[piece] ?? 0
@@ -893,37 +910,25 @@ function materialLossAfterReply(
     ? value(reply.promotion) - value("p")
     : 0
   const attackerValue = value(reply.promotion ?? reply.piece)
-  engine.move(reply)
-  try {
-    const recaptures =
-      positionStatus(engine).status === "playing"
-        ? engine
-            .moves({ verbose: true })
-            .filter((recapture) =>
-              describe(recapture).captures.includes(indexOf(reply.to))
-            )
-        : []
-    // Material only: include a recapturing pawn's promotion, without evaluating
-    // positional strength or later play. The opponent need not choose this line.
-    const recaptureGain = Math.max(
-      0,
-      ...recaptures.map(
-        (recapture) =>
-          attackerValue +
-          (recapture.promotion ? value(recapture.promotion) - value("p") : 0)
-      )
+  const recaptures = analyzeReply(reply).recaptures
+  // Material only: include a recapturing pawn's promotion, without evaluating
+  // positional strength or later play. The opponent need not choose this line.
+  const recaptureGain = Math.max(
+    0,
+    ...recaptures.map(
+      (recapture) =>
+        attackerValue +
+        (recapture.promotion ? value(recapture.promotion) - value("p") : 0)
     )
-    const netMaterial =
-      candidateGain - value(reply.captured) - promotionGain + recaptureGain
-    if (netMaterial >= 0) return undefined
-    return {
-      piece: reply.captured,
-      square: describe(reply).captures[0],
-      capturedBy: { piece: reply.piece, square: indexOf(reply.from) },
-      netMaterial
-    }
-  } finally {
-    engine.undo()
+  )
+  const netMaterial =
+    candidateGain - value(reply.captured) - promotionGain + recaptureGain
+  if (netMaterial >= 0) return undefined
+  return {
+    piece: reply.captured,
+    square: describe(reply).captures[0],
+    capturedBy: { piece: reply.piece, square: indexOf(reply.from) },
+    netMaterial
   }
 }
 
@@ -963,6 +968,7 @@ export function annotatedLegalMoves(
     engine.move(candidate)
     try {
       const state = positionStatus(engine)
+      const analyzeReply = replyAnalyzer(engine)
       let allowsMateInOne = false
       let replies: ChessMove[] = []
       const promotionReplies: PromotionReply[] | undefined = options.promotionReplies ? [] : undefined
@@ -979,9 +985,9 @@ export function annotatedLegalMoves(
         replies = engine.moves({ verbose: true })
         for (const reply of replies) {
           if (reply.san.endsWith("#")) allowsMateInOne = true
-          if (promotionReplies && reply.promotion) promotionReplies.push(promotionReplyOutcome(engine, candidate, reply))
+          if (promotionReplies && reply.promotion) promotionReplies.push(promotionReplyOutcome(candidate, reply, analyzeReply))
           if (replyMaterialLosses) {
-            const loss = materialLossAfterReply(engine, candidate, reply)
+            const loss = materialLossAfterReply(candidate, reply, analyzeReply)
             if (loss) {
               replyMaterialLosses.push(loss)
               if (loss.piece === "q" || loss.piece === "r")
@@ -1043,7 +1049,8 @@ export function annotatedLegalMoves(
                   candidate,
                   beforeSupport,
                   beforeEnemy ?? new Map(),
-                  replies
+                  replies,
+                  analyzeReply
                 )
               }
             : {}),

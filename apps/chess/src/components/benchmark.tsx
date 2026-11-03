@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react"
+import { memo, useEffect, useMemo, useRef, useState } from "react"
 import type { FormEvent, ReactNode } from "react"
 import { promptApiAvailability } from "@tanstack-ai-browser/prompt-api"
 import {
@@ -100,6 +100,157 @@ function Detail({ title, children }: { title: string; children: ReactNode }) {
   )
 }
 
+type RunReasoning = { enabled: boolean; supported: boolean; mode: ReasoningMode }
+const EMPTY_REPORT = { results: [] }
+
+function LazyDetails({ summary, className, children }: {
+  summary: string
+  className?: string
+  children: () => ReactNode
+}) {
+  const [open, setOpen] = useState(false)
+  return (
+    <details className={className} onToggle={event => setOpen(event.currentTarget.open)}>
+      <summary>{summary}</summary>
+      {open && children()}
+    </details>
+  )
+}
+const ReportJson = memo(function ReportJson({ report }: { report: object }) {
+  const json = useMemo(() => JSON.stringify(report, null, 2), [report])
+  return <pre id="benchmark-results-json">{json}</pre>
+})
+
+const TrialRow = memo(function TrialRow({ result, runReasoning }: {
+  result: BenchmarkResult
+  runReasoning: RunReasoning
+}) {
+  return (
+    <tbody>
+      <tr>
+        <td className="position-label">
+          {result.trial}. {result.label}
+          <span className="partition-label">
+            {result.partition === "holdout"
+              ? "Held out"
+              : "Calibration"}
+          </span>
+        </td>
+        <td className="move-code">
+          {result.choices.find((choice) => choice.id === result.moveId)
+            ?.notation ?? result.rawAnswer ?? result.moveId ?? "—"}
+        </td>
+        <td>
+          {result.index >= 0
+            ? `${result.index + 1} / ${result.total}`
+            : `— / ${result.total}`}
+        </td>
+        <td>
+          <span
+            className={`badge ${result.legal ? "good" : "bad"}`}
+          >
+            {result.legal
+              ? "Legal"
+              : result.error
+                ? "Error"
+                : "Invalid"}
+          </span>
+        </td>
+        <td>
+          <span
+            className={`badge ${result.passed === null ? "neutral" : result.passed ? "good" : "bad"}`}
+          >
+            {result.passed === null
+              ? "Diagnostic"
+              : result.passed
+                ? "Met"
+                : "Not met"}
+          </span>
+        </td>
+        <td className="numeric">{seconds(result.seconds)}</td>
+        <td className="error-cell">{result.error ?? "—"}</td>
+      </tr>
+      <tr className="detail-row">
+        <td colSpan={7}>
+          <LazyDetails summary="Inspect objective and model response">
+            {() => <div className="trial-detail">
+              <Detail title="Objective">{result.objective}</Detail>
+              <Detail title="Accepted moves">
+                {result.expectedMoveIds?.join(", ") ??
+                  "Ungraded diagnostic. No best move is asserted."}
+              </Detail>
+              {CASES.find(
+                (testCase) => testCase.id === result.caseId
+              )?.signalDescription && (
+                <Detail title="Diagnostic signal">
+                  {
+                    CASES.find(
+                      (testCase) => testCase.id === result.caseId
+                    )?.signalDescription
+                  }
+                </Detail>
+              )}
+              {result.condition && (
+                <Detail title="Condition">
+                  {result.condition}
+                </Detail>
+              )}
+              {result.systemPrompt && (
+                <Detail title="Exact shared system instruction">
+                  {result.systemPrompt}
+                </Detail>
+              )}
+              {result.prompt && (
+                <Detail title="Exact shared user prompt">
+                  {result.prompt}
+                </Detail>
+              )}
+              <Detail title="Exact ordered choices">
+                {result.choices
+                  .map(
+                    (choice, index) =>
+                      `${index + 1}. ${choice.id}\n${choice.outcome}`
+                  )
+                  .join("\n\n") || "No choices recorded."}
+              </Detail>
+              <Detail
+                title={
+                  runReasoning.mode === "emulated-working-notes"
+                    ? "Prompt API working notes (emulated)"
+                    : runReasoning.mode === "native"
+                      ? "Native reasoning trace"
+                      : "Reasoning output"
+                }
+              >
+                {result.reasoningText ||
+                  (!runReasoning.supported
+                    ? "This model/API does not expose a reasoning trace."
+                    : !runReasoning.enabled
+                      ? "Reasoning was off for this run."
+                      : runReasoning.mode ===
+                          "emulated-working-notes"
+                        ? "No working notes were returned for this trial."
+                        : "No reasoning trace was returned for this trial.")}
+              </Detail>
+              {result.usage && (
+                <Detail title="Provider usage">
+                  {JSON.stringify(result.usage, null, 2)}
+                </Detail>
+              )}
+              <Detail title="Raw model answer">
+                {result.rawAnswer ?? "No answer recorded."}
+              </Detail>
+              {result.error && (
+                <Detail title="Error">{result.error}</Detail>
+              )}
+            </div>}
+          </LazyDetails>
+        </td>
+      </tr>
+    </tbody>
+  )
+})
+
 export function BenchmarkView() {
   const [model, setModel] = useState<OpponentModel>(DEFAULT_OPPONENT.model)
   const [promptAvailable, setPromptAvailable] = useState(false)
@@ -117,11 +268,7 @@ export function BenchmarkView() {
   const [results, setResults] = useState<BenchmarkResult[]>([])
   const [report, setReport] = useState<BenchmarkReport>()
   const [partialReport, setPartialReport] = useState<Record<string, unknown>>()
-  const [runReasoning, setRunReasoning] = useState<{
-    enabled: boolean
-    supported: boolean
-    mode: ReasoningMode
-  }>({
+  const [runReasoning, setRunReasoning] = useState<RunReasoning>({
     enabled: false,
     supported: true,
     mode: "off"
@@ -571,129 +718,7 @@ export function BenchmarkView() {
             </thead>
             {results.length ? (
               results.map((result) => (
-                <tbody key={result.trial}>
-                  <tr>
-                    <td className="position-label">
-                      {result.trial}. {result.label}
-                      <span className="partition-label">
-                        {result.partition === "holdout"
-                          ? "Held out"
-                          : "Calibration"}
-                      </span>
-                    </td>
-                    <td className="move-code">
-                      {result.choices.find((choice) => choice.id === result.moveId)
-                        ?.notation ?? result.rawAnswer ?? result.moveId ?? "—"}
-                    </td>
-                    <td>
-                      {result.index >= 0
-                        ? `${result.index + 1} / ${result.total}`
-                        : `— / ${result.total}`}
-                    </td>
-                    <td>
-                      <span
-                        className={`badge ${result.legal ? "good" : "bad"}`}
-                      >
-                        {result.legal
-                          ? "Legal"
-                          : result.error
-                            ? "Error"
-                            : "Invalid"}
-                      </span>
-                    </td>
-                    <td>
-                      <span
-                        className={`badge ${result.passed === null ? "neutral" : result.passed ? "good" : "bad"}`}
-                      >
-                        {result.passed === null
-                          ? "Diagnostic"
-                          : result.passed
-                            ? "Met"
-                            : "Not met"}
-                      </span>
-                    </td>
-                    <td className="numeric">{seconds(result.seconds)}</td>
-                    <td className="error-cell">{result.error ?? "—"}</td>
-                  </tr>
-                  <tr className="detail-row">
-                    <td colSpan={7}>
-                      <details>
-                        <summary>Inspect objective and model response</summary>
-                        <div className="trial-detail">
-                          <Detail title="Objective">{result.objective}</Detail>
-                          <Detail title="Accepted moves">
-                            {result.expectedMoveIds?.join(", ") ??
-                              "Ungraded diagnostic. No best move is asserted."}
-                          </Detail>
-                          {CASES.find(
-                            (testCase) => testCase.id === result.caseId
-                          )?.signalDescription && (
-                            <Detail title="Diagnostic signal">
-                              {
-                                CASES.find(
-                                  (testCase) => testCase.id === result.caseId
-                                )?.signalDescription
-                              }
-                            </Detail>
-                          )}
-                          {result.condition && (
-                            <Detail title="Condition">
-                              {result.condition}
-                            </Detail>
-                          )}
-                          {result.systemPrompt && (
-                            <Detail title="Exact shared system instruction">
-                              {result.systemPrompt}
-                            </Detail>
-                          )}
-                          {result.prompt && (
-                            <Detail title="Exact shared user prompt">
-                              {result.prompt}
-                            </Detail>
-                          )}
-                          <Detail title="Exact ordered choices">
-                            {result.choices
-                              .map(
-                                (choice, index) =>
-                                  `${index + 1}. ${choice.id}\n${choice.outcome}`
-                              )
-                              .join("\n\n") || "No choices recorded."}
-                          </Detail>
-                          <Detail
-                            title={
-                              runReasoning.mode === "emulated-working-notes"
-                                ? "Prompt API working notes (emulated)"
-                                : runReasoning.mode === "native"
-                                  ? "Native reasoning trace"
-                                  : "Reasoning output"
-                            }
-                          >
-                            {result.reasoningText ||
-                              (!runReasoning.supported
-                                ? "This model/API does not expose a reasoning trace."
-                                : !runReasoning.enabled
-                                  ? "Reasoning was off for this run."
-                                  : runReasoning.mode ===
-                                      "emulated-working-notes"
-                                    ? "No working notes were returned for this trial."
-                                    : "No reasoning trace was returned for this trial.")}
-                          </Detail>
-                          {result.usage && (
-                            <Detail title="Provider usage">
-                              {JSON.stringify(result.usage, null, 2)}
-                            </Detail>
-                          )}
-                          <Detail title="Raw model answer">
-                            {result.rawAnswer ?? "No answer recorded."}
-                          </Detail>
-                          {result.error && (
-                            <Detail title="Error">{result.error}</Detail>
-                          )}
-                        </div>
-                      </details>
-                    </td>
-                  </tr>
-                </tbody>
+                <TrialRow key={result.trial} result={result} runReasoning={runReasoning} />
               ))
             ) : (
               <tbody>
@@ -706,16 +731,9 @@ export function BenchmarkView() {
         </div>
       </section>
       <section className="results-section">
-        <details className="printed-report">
-          <summary>Full report JSON</summary>
-          <pre id="benchmark-results-json">
-            {JSON.stringify(
-              report ?? partialReport ?? { results: [] },
-              null,
-              2
-            )}
-          </pre>
-        </details>
+        <LazyDetails className="printed-report" summary="Full report JSON">
+          {() => <ReportJson report={report ?? partialReport ?? EMPTY_REPORT} />}
+        </LazyDetails>
       </section>
       <footer className="page-footer">
         Manual diagnostic · Not part of the automated test suite · No game data

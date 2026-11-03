@@ -100,7 +100,8 @@ prove causal index bias or chess strength.
 
 Expandable details retain the exact system/user input, ordered facts, raw answer,
 resolved UCI, choice index, legal result, grade, latency, notes and errors.
-`#benchmark-results-json` contains the full report. Current reports use
+Expanding **Full report JSON** mounts `#benchmark-results-json` with the complete
+report. Trial details also mount only while expanded. Current reports use
 `schemaVersion: 4`, zero-based indices and `-1` for an invalid choice. Preserve
 partial runs and operational failures as such.
 
