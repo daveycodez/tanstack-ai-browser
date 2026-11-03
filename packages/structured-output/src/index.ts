@@ -1,4 +1,5 @@
 import type { JsonGuidanceRuntime } from "llguidance/json-schema"
+import { canonicalAsciiObject, canonicalTokenMask } from "./canonical-mask.js"
 
 /** Exact model tokenizer, not token strings decoded independently. */
 export type ConstraintTokenizer = object
@@ -54,7 +55,7 @@ class JsonConstraint implements Constraint {
   private mask: Uint32Array | undefined
   private accepting = false
   private disposed = false
-  constructor(private readonly interpreter: Interpreter, readonly vocabSize: number, readonly eosTokenId: number, private readonly endAtAcceptance: boolean) {}
+  constructor(private readonly interpreter: Interpreter, readonly vocabSize: number, readonly eosTokenId: number, private readonly endAtAcceptance: boolean, private readonly canonicalMask?: Uint32Array) {}
 
   private check() {
     if (this.disposed) throw new StructuredOutputError("constraint-violation", "The structured-output constraint has been disposed.")
@@ -71,15 +72,17 @@ class JsonConstraint implements Constraint {
       mask[this.eosTokenId >>> 5] |= 1 << (this.eosTokenId & 31)
       return this.mask = mask
     }
-    if (!result.mask.some(word => word !== 0)) throw new StructuredOutputError("constraint-dead-end", "No token can complete the requested output schema.")
-    this.accepting = tokenAllowed(result.mask, this.eosTokenId)
+    const canonical = this.canonicalMask
+    const allowed = canonical ? result.mask.map((word, index) => word & canonical[index]) : result.mask
+    if (!allowed.some(word => word !== 0)) throw new StructuredOutputError("constraint-dead-end", "No token can complete the requested output schema.")
+    this.accepting = tokenAllowed(allowed, this.eosTokenId)
     if (this.accepting && this.endAtAcceptance) {
       // End at a complete value: never spend an unbounded output allowance on whitespace.
-      const mask = new Uint32Array(result.mask.length)
+      const mask = new Uint32Array(allowed.length)
       mask[this.eosTokenId >>> 5] |= 1 << (this.eosTokenId & 31)
       return this.mask = mask
     }
-    return this.mask = result.mask
+    return this.mask = allowed
   }
 
   get complete() {
@@ -97,7 +100,7 @@ class JsonConstraint implements Constraint {
 
   clone(): Constraint {
     this.check()
-    return new JsonConstraint(this.interpreter.clone(), this.vocabSize, this.eosTokenId, this.endAtAcceptance)
+    return new JsonConstraint(this.interpreter.clone(), this.vocabSize, this.eosTokenId, this.endAtAcceptance, this.canonicalMask)
   }
 
   dispose() {
@@ -165,7 +168,8 @@ export async function createConstraint(options: ConstraintOptions): Promise<Cons
     if (cause instanceof StructuredOutputError) throw cause
     throw new StructuredOutputError("invalid-tokenizer", cause instanceof Error ? cause.message : String(cause), { cause })
   }
-  return new JsonConstraint(interpreter, vocabSize, eos, excludesNumericRoot(options.schema))
+  return new JsonConstraint(interpreter, vocabSize, eos, excludesNumericRoot(options.schema),
+    canonicalAsciiObject(options.schema) ? canonicalTokenMask(source, vocabSize, eos) : undefined)
 }
 export { chooseGuidedTool, addGuidedUsage } from './guided-tools.js'
 export type { GuidedCompletion, GuidedToolResult } from './guided-tools.js'
