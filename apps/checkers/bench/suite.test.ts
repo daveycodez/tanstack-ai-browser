@@ -12,11 +12,11 @@ const find = (id: string) => {
 
 test("the frozen checkers suite independently audits every accepted set and separates holdouts", () => {
   const observations = auditSuite(CASES)
-  assert.equal(SUITE_VERSION, "checkers-audited-v6")
-  assert.equal(observations.length, 37)
-  assert.equal(observations.filter(item => item.partition === "calibration").length, 31)
+  assert.equal(SUITE_VERSION, "checkers-audited-v7")
+  assert.equal(observations.length, 39)
+  assert.equal(observations.filter(item => item.partition === "calibration").length, 33)
   assert.equal(observations.filter(item => item.partition === "holdout").length, 6)
-  assert.equal(observations.filter(item => item.expectedMoveIds !== null).length, 27)
+  assert.equal(observations.filter(item => item.expectedMoveIds !== null).length, 29)
   assert.equal(observations.filter(item => item.expectedMoveIds === null).length, 10)
   assert.equal(observations.filter(item => item.legalMoveIds.length === 1).length, 1)
 })

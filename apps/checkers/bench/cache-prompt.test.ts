@@ -5,7 +5,7 @@ import test from "node:test"
 import { legalMoves } from "../src/lib/checkers.ts"
 import { annotateMoves } from "../src/lib/move-outcomes.ts"
 import { orderMovesForGame, stableMoveOrder } from "../src/lib/move-order.ts"
-import { buildMovePrompt, buildSharedPrompt, isPromptVersion, PREVIOUS_PROMPT_VERSION, SHARED_PROMPT_VERSION, SHARED_SYSTEM_PROMPT, SHARED_V7_SYSTEM_PROMPT, SHARED_V8_SYSTEM_PROMPT } from "../src/lib/shared-prompt.ts"
+import { buildMovePrompt, buildSharedPrompt, isPromptVersion, PREVIOUS_PROMPT_VERSION, SHARED_PROMPT_VERSION, SHARED_SYSTEM_PROMPT, SHARED_V7_SYSTEM_PROMPT, SHARED_V8_SYSTEM_PROMPT, SHARED_V9_SYSTEM_PROMPT, SMALLEST_LOSS_INSTRUCTION } from "../src/lib/shared-prompt.ts"
 import { CASES, gameForCase } from "./cases.ts"
 import type { BenchmarkReport } from "./types.ts"
 
@@ -29,7 +29,6 @@ test("shared-v6 serialization remains byte-identical to the saved raw reported-g
 })
 
 test("shared-v7 keeps the common prefix stable, conditional definitions dynamic, and formatting in the schema", () => {
-  assert.equal(PREVIOUS_PROMPT_VERSION, "shared-v7")
   const systemLines = SHARED_V7_SYSTEM_PROMPT.split("\n")
   assert.equal(systemLines.length, 4)
   assert.equal(systemLines[0], SHARED_SYSTEM_PROMPT)
@@ -151,7 +150,6 @@ test("shared-v7 remains byte-identical to all 37 saved production inputs", () =>
 })
 
 test("compact v8 retains every board, history, horizon, legal card and position fact", () => {
-  assert.equal(SHARED_PROMPT_VERSION, "shared-v8")
   assert.match(SHARED_V8_SYSTEM_PROMPT, /Win now or force a win; otherwise prevent Red's immediate win/)
   assert.match(SHARED_V8_SYSTEM_PROMPT, /higher nonnegative checked material gains/)
   assert.match(SHARED_V8_SYSTEM_PROMPT, /When safe, prefer free captures and immediate crowning over ordinary quiet development/)
@@ -196,6 +194,44 @@ test("compact v8 retains every board, history, horizon, legal card and position 
 
 
 test("benchmark validation accepts every historical and candidate prompt version", () => {
-  for (const version of ["baseline-v1", "shared-v6", "shared-v7", "shared-v8"]) assert.equal(isPromptVersion(version), true)
-  for (const version of ["", "shared-v9", "unknown"]) assert.equal(isPromptVersion(version), false)
+  for (const version of ["baseline-v1", "shared-v6", "shared-v7", "shared-v8", "shared-v9"]) assert.equal(isPromptVersion(version), true)
+  for (const version of ["", "shared-v10", "unknown"]) assert.equal(isPromptVersion(version), false)
+})
+
+
+test("v9 keeps the smallest-loss fallback conditional and preserves every existing dynamic input", () => {
+  assert.equal(PREVIOUS_PROMPT_VERSION, "shared-v8")
+  assert.equal(SHARED_PROMPT_VERSION, "shared-v9")
+  assert.equal(SHARED_V9_SYSTEM_PROMPT.replace(` ${SMALLEST_LOSS_INSTRUCTION}`, ""), SHARED_V8_SYSTEM_PROMPT)
+  for (const fixture of CASES) {
+    const game = gameForCase(fixture), moves = legalMoves(game.board, "ai")
+    const before = buildMovePrompt(game, moves, "shared-v8"), after = buildMovePrompt(game, moves, "shared-v9")
+    assert.equal(after.systemPrompt, SHARED_V9_SYSTEM_PROMPT)
+    const lines = after.prompt.split("\n")
+    assert.equal(before.prompt, lines.filter(line => !line.startsWith("SMALLEST CHECKED LOSS:")).join("\n"), fixture.id)
+    const summary = lines.filter(line => line.startsWith("SMALLEST CHECKED LOSS:"))
+    assert.ok(summary.length <= 1)
+    if (summary.length) {
+      const annotated = annotateMoves(game, moves)
+      assert.ok(annotated.every(move => move.outcome.worstNetAfterResponse < 0))
+      assert.ok(!annotated.some(move => move.outcome.status !== "playing" || move.outcome.forcesWinNextTurn))
+      const defenses = annotated.filter(move => !move.outcome.allowsRedWin)
+      const best = Math.max(...defenses.map(move => move.outcome.worstNetAfterResponse))
+      assert.equal(summary[0], `SMALLEST CHECKED LOSS: Black net ${best}: ${defenses.filter(move => move.outcome.worstNetAfterResponse === best).map(move => move.label).join("; ")}.`)
+    }
+    assert.deepEqual(before.choices, after.choices, fixture.id)
+    assert.equal(before.outcomeVersion, after.outcomeVersion)
+  }
+})
+
+test("v8 remains byte-identical to the saved 37-case production report", () => {
+  const frozen = JSON.parse(gunzipSync(readFileSync(new URL("./results/prompt-audit-v8/lfm-final-production-guard.json.gz", import.meta.url))).toString()) as BenchmarkReport
+  assert.equal(frozen.config.promptVersion, "shared-v8")
+  assert.equal(frozen.results.length, 37)
+  for (const result of frozen.results) {
+    const legal = new Map(legalMoves(result.position.board, "ai").map(move => [move.id, move]))
+    const moves = result.choices.map(choice => { const move = legal.get(choice.id); assert.ok(move); return move })
+    const input = buildMovePrompt(result.position, moves, "shared-v8")
+    assert.deepEqual({systemPrompt:input.systemPrompt,prompt:input.prompt,choices:input.choices}, {systemPrompt:result.systemPrompt,prompt:result.prompt,choices:result.choices}, result.caseId)
+  }
 })

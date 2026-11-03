@@ -98,6 +98,11 @@ test("accepted tactical objectives can be recovered from the annotated facts wit
       const best = Math.max(...candidates.map(move => move.outcome.worstNetAfterResponse))
       accepted = candidates.filter(move => move.outcome.worstNetAfterResponse === best).map(move => move.id)
     }
+    if (fixture.objective === "minimize-checked-loss") {
+      const candidates = moves.filter(move => safe(move) && move.outcome.status === "playing")
+      const best = Math.max(...candidates.map(move => move.outcome.worstNetAfterResponse))
+      accepted = candidates.filter(move => move.outcome.worstNetAfterResponse === best).map(move => move.id)
+    }
     if (fixture.objective === "safe-promotion") accepted = moves.filter(move => safe(move) && move.promotes && !move.outcome.moverCanBeCaptured && move.outcome.worstNetAfterResponse >= 0).map(move => move.id)
     if (fixture.objective === "prevent-promotion") accepted = moves.filter(move => safe(move) && move.outcome.redPromotionReplies === 0 && move.outcome.worstNetAfterResponse >= 0).map(move => move.id)
     if (fixture.objective === "force-win-next-turn") accepted = moves.filter(move => move.outcome.forcesWinNextTurn).map(move => move.id)
