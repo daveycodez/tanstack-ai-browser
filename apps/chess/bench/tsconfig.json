@@ -1,7 +1,7 @@
 {
   "extends": "../tsconfig.json",
   "include": ["./**/*.ts", "../src/lib/**/*.ts"],
-  "exclude": ["../src/lib/**/*.test.ts"],
+  "exclude": ["../src/lib/**/*.test.ts", "./results/**"],
   "compilerOptions": {
     "types": ["vite/client", "node"]
   }
