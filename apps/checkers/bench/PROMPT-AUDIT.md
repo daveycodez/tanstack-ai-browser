@@ -99,13 +99,13 @@ single-run differences are not a controlled latency improvement.
 - **149 tests, typecheck, lint, production/prerender build and independent suite
   audit passed.** No model inference runs during automated checks.
 
-Raw evidence: [LFM comparison](results/prompt-audit-v8/lfm-comparison.json.gz),
-[Nano comparison](results/prompt-audit-v8/nano-comparison.json.gz),
-[token counts](results/prompt-audit-v8/token-counts.json),
-[summary](results/prompt-audit-v8/quality-summary.json),
-[source hashes](results/prompt-audit-v8/source-manifest.json),
-[Nx output](results/prompt-audit-v8/nx-checks.log),
-[Chrome proof](results/prompt-audit-v8/nano-chrome.png).
+Raw evidence: LFM comparison (raw run archived locally),
+Nano comparison (raw run archived locally),
+token counts (raw run archived locally),
+summary (raw run archived locally),
+source hashes (raw run archived locally),
+Nx output (raw run archived locally),
+Chrome proof (raw run archived locally).
 
 The Vite startup revision in browser reports can predate HEAD. Exact prompt strings,
 version labels, frozen baseline and source hashes identify the evaluated payloads.
@@ -130,8 +130,8 @@ v8 production-order LFM3 suite passed again: **27/27 scored, 37/37 legal**,
 36 model calls and one forced move, median decision 0.525 seconds. Real short
 prefix restoration remained present (359 matched tokens in the last trial).
 This is a compatibility check, not a new before/after throughput comparison.
-[Raw report](results/prompt-audit-v8/lfm-final-production-guard.json.gz) and
-[Chrome result](results/prompt-audit-v8/lfm-final-production-guard.png).
+Raw report (raw run archived locally) and
+Chrome result (raw run archived locally).
 
 The separate constraint change also passed 401 tests across structured-output
 (104), WebGL (185) and Transformers.js (112), with all 12 package

@@ -9,7 +9,7 @@ import { buildMovePrompt, buildSharedPrompt, isPromptVersion, PREVIOUS_PROMPT_VE
 import { CASES, gameForCase } from "./cases.ts"
 import type { BenchmarkReport } from "./types.ts"
 
-const report = JSON.parse(readFileSync(new URL("./results/30-lfm-reported-final-v6.json", import.meta.url), "utf8")) as BenchmarkReport
+const report = JSON.parse(gunzipSync(readFileSync(new URL("../src/lib/__fixtures__/prompt-v6.json.gz", import.meta.url))).toString()) as BenchmarkReport
 
 test("shared-v6 serialization remains byte-identical to the saved raw reported-game fixtures", () => {
   assert.equal(report.config.promptVersion, "shared-v6")
@@ -138,7 +138,7 @@ test("stable priorities distribute similar legal action ids across game sessions
 
 
 test("shared-v7 remains byte-identical to all 37 saved production inputs", () => {
-  const frozen = JSON.parse(gunzipSync(readFileSync(new URL("./results/2026-11-02-prompt-cleanup-lfm-quality.json.gz", import.meta.url))).toString()) as BenchmarkReport
+  const frozen = JSON.parse(gunzipSync(readFileSync(new URL("../src/lib/__fixtures__/prompt-v7.json.gz", import.meta.url))).toString()) as BenchmarkReport
   assert.equal(frozen.config.promptVersion, "shared-v7")
   assert.equal(frozen.results.length, 37)
   for (const result of frozen.results) {
@@ -225,7 +225,7 @@ test("v9 keeps the smallest-loss fallback conditional and preserves every existi
 })
 
 test("v8 remains byte-identical to the saved 37-case production report", () => {
-  const frozen = JSON.parse(gunzipSync(readFileSync(new URL("./results/prompt-audit-v8/lfm-final-production-guard.json.gz", import.meta.url))).toString()) as BenchmarkReport
+  const frozen = JSON.parse(gunzipSync(readFileSync(new URL("../src/lib/__fixtures__/prompt-v8.json.gz", import.meta.url))).toString()) as BenchmarkReport
   assert.equal(frozen.config.promptVersion, "shared-v8")
   assert.equal(frozen.results.length, 37)
   for (const result of frozen.results) {

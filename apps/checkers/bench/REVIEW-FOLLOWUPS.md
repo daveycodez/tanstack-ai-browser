@@ -61,10 +61,10 @@ in Chrome and use its two buttons. Storage checks run in independent iframe cont
 against a uniquely named disposable database; the saved game is untouched. The worker
 check uses the exact recorded 17-ply fixture and compares its full prompt to the baseline.
 
-Evidence: [native storage](results/review-followups/native-storage.json),
-[native worker](results/review-followups/native-analysis.json),
-[Chrome screenshot](results/review-followups/native-chrome.png),
-[44 frozen baseline records](results/review-followups/analysis-baseline.json.gz),
-[Nx package checks](results/review-followups/nx-packages.log),
-[Nx Checkers checks](results/review-followups/nx-checkers.log),
-[source hashes](results/review-followups/source-manifest.json).
+Evidence: native storage (raw run archived locally),
+native worker (raw run archived locally),
+Chrome screenshot (raw run archived locally),
+[44 frozen baseline records](../src/lib/__fixtures__/analysis-baseline.json.gz),
+Nx package checks (raw run archived locally),
+Nx Checkers checks (raw run archived locally),
+source hashes (raw run archived locally).

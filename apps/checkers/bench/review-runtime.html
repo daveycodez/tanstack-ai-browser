@@ -35,7 +35,7 @@ if(child){
  for(const frame of frames){await call(frame,'close');frame.remove()}indexedDB.deleteDatabase(name);status.textContent='Storage verification passed.';
  }catch(error){status.textContent='FAILED';document.querySelector('#storage-result').textContent=error.stack}};
  document.querySelector('#analysis').onclick=async()=>{status.textContent='Running real analysis worker…';try{
- const response=await fetch('/bench/results/review-followups/analysis-native-fixture.json');const record=await response.json();
+ const response=await fetch('/bench/fixtures/analysis-native.json');const record=await response.json();
  const longTasks=[];const observer=new PerformanceObserver(list=>{for(const entry of list.getEntries())longTasks.push(entry.duration)});observer.observe({type:'longtask',buffered:false});
  let ticks=0,maxGap=0,last=performance.now();const timer=setInterval(()=>{const now=performance.now();maxGap=Math.max(maxGap,now-last);last=now;ticks++},4);
  const started=performance.now();const input=await analyzeMovePrompt({game:record.game,moves:legalMoves(record.game.board,'ai'),version:'shared-v9'},new AbortController().signal);const elapsed=performance.now()-started;clearInterval(timer);

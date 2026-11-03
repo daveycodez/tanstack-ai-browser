@@ -90,9 +90,9 @@ cold-download benchmark. These are observed timings, not controlled performance
 promises; machine activity and run order can affect them.
 
 Raw reports (gzip JSON):
-- [LFM initial comparison](results/2026-11-02-game-cache-initial-lfm.json.gz)
-- [Nano initial comparison](results/2026-11-02-game-cache-initial-nano.json.gz)
-- [Exact source hashes](results/2026-11-02-game-cache-initial-source.json)
+- LFM initial comparison (raw run archived locally)
+- Nano initial comparison (raw run archived locally)
+- Exact source hashes (raw run archived locally)
 
 The report's build revision reflects Vite startup and can predate the working-tree
 HEAD. The source manifest identifies the code actually tested. Full prompts, boards,
@@ -139,13 +139,13 @@ run order, and machine activity are not isolated by this small replay. LFM's fin
 first sample includes model preparation and is not a comparable cold-input timing.
 
 Final raw evidence:
-- [LFM v6 production quality](results/2026-11-02-game-cache-final-lfm-v6-production.json.gz)
-- [LFM v7 production quality](results/2026-11-02-game-cache-final-lfm-v7-production.json.gz)
-- [Nano v6 production quality](results/2026-11-02-game-cache-final-nano-v6-production.json.gz)
-- [Nano v7 production quality](results/2026-11-02-game-cache-final-nano-v7-production.json.gz)
-- [LFM final replay](results/2026-11-02-game-cache-final-lfm-replay.json.gz)
-- [Nano final replay](results/2026-11-02-game-cache-final-nano-replay.json.gz)
-- [Final runtime and suite source hashes](results/2026-11-02-game-cache-final-source.json)
+- LFM v6 production quality (raw run archived locally)
+- LFM v7 production quality (raw run archived locally)
+- Nano v6 production quality (raw run archived locally)
+- Nano v7 production quality (raw run archived locally)
+- LFM final replay (raw run archived locally)
+- Nano final replay (raw run archived locally)
+- Final runtime and suite source hashes (raw run archived locally)
 
 The cache-only reports explicitly record `quality: false`; their empty quality phases
 do not imply a skipped or passed suite. The four full quality reports above supply
@@ -159,7 +159,7 @@ All targets passed: 146 tests, TypeScript, lint, production/prerender build, and
 independent 37-case audit. Builds/tests make no model requests. Final `git diff --check`
 passed and all changed/untracked files belong to `apps/checkers/`.
 
-[Chrome replay screenshot](results/2026-11-02-cache-replay-chrome.png).
+Chrome replay screenshot (raw run archived locally).
 
 ## Ordered lean revision: JSON guidance removed
 
@@ -213,16 +213,16 @@ not controlled performance guarantees; model loading makes LFM first samples uns
 for a direct initialization comparison. No Prompt API prefill timing is invented.
 
 Final evidence:
-- [LFM quality](results/2026-11-02-prompt-cleanup-lfm-quality.json.gz)
-- [Nano quality](results/2026-11-02-prompt-cleanup-nano-quality.json.gz)
-- [Final LFM seeded control](results/2026-11-02-prompt-cleanup-lfm-control.json.gz)
-- [Original v6 seeded control](results/2026-11-02-prompt-cleanup-v6-control.json.gz)
-- [LFM cache replay](results/2026-11-02-prompt-cleanup-lfm-replay.json.gz)
-- [Nano cache replay](results/2026-11-02-prompt-cleanup-nano-replay.json.gz)
-- [Rejected inline quality](results/2026-11-02-prompt-cleanup-rejected-inline-lfm.json.gz)
-- [Rejected inline seeded control](results/2026-11-02-prompt-cleanup-rejected-inline-control.json.gz)
-- [Final source hashes](results/2026-11-02-prompt-cleanup-source.json)
-- [Chrome proof](results/2026-11-02-prompt-cleanup-chrome.png)
+- LFM quality (raw run archived locally)
+- Nano quality (raw run archived locally)
+- Final LFM seeded control (raw run archived locally)
+- Original v6 seeded control (raw run archived locally)
+- LFM cache replay (raw run archived locally)
+- Nano cache replay (raw run archived locally)
+- Rejected inline quality (raw run archived locally)
+- Rejected inline seeded control (raw run archived locally)
+- Final source hashes (raw run archived locally)
+- Chrome proof (raw run archived locally)
 
 All 146 automated tests, typecheck, lint, build/prerender, and independent suite audit
 passed on the final source. The regressions verify no JSON-format guidance in live

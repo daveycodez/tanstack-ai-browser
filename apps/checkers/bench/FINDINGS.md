@@ -74,18 +74,18 @@ are preserved rather than retrospectively edited. See [SUITE-AUDIT.md](SUITE-AUD
 - Twelve new complete raw reports preserve 380 trials, including eight forced turns.
   All choices replay legally. Before/after profiles use matching legal-ID permutations;
   paired provider system/user prompts, choices and accepted sets match byte-for-byte.
-- [Final LFM reported cases](results/30-lfm-reported-final-v6.json),
-  [final Nano reported cases](results/31-nano-reported-final-v6.json),
-  [final LFM full suite](results/32-lfm-full-final-v6.json),
-  [final Nano full suite](results/33-nano-full-final-v6.json).
-  [Followup manifest](results/followup-manifest.json) records every new report hash,
+- Final LFM reported cases (raw run archived locally),
+  final Nano reported cases (raw run archived locally),
+  final LFM full suite (raw run archived locally),
+  final Nano full suite (raw run archived locally).
+  Followup manifest (raw run archived locally) records every new report hash,
   configuration, summary, paired-input check and final source fingerprint. Original
   files and the original manifest below remain historical snapshots.
 - Indicative model-free Node measurement on this Mac: mean per-position median
   annotation time rose from 0.40 ms to 3.93 ms over the 37 cases; the largest new
   median was 29.13 ms (five warmups, 20 paired samples each). This is not a mobile
   latency claim or a controlled inference-speed comparison. Raw
-  [annotation measurements](results/followup-annotation-cost.json).
+  annotation measurements (raw run archived locally).
 
 ## Historical initial frozen comparison
 
@@ -104,10 +104,10 @@ The remaining Nano calibration miss was the declared preference for an available
 repetition draw when behind. It chose to keep playing on one repetition. This was a
 priority-policy miss, not an illegal move or an immediate-losing tactic.
 
-Final reports: [LFM original](results/10-lfm-final-original.json),
-[Nano original](results/11-nano-final-original.json),
-[LFM shared](results/16-lfm-shared-v4.json),
-[Nano shared](results/17-nano-shared-v4.json).
+Final reports: LFM original (raw run archived locally),
+Nano original (raw run archived locally),
+LFM shared (raw run archived locally),
+Nano shared (raw run archived locally).
 
 ### First held-out checkpoint
 
@@ -121,8 +121,8 @@ changes are documented below and their reruns are compatibility checks.
 | LFM3 GGUF | 12/12 | 12/12 | 0.627 s |
 | Chrome Gemini Nano | 12/12 | 12/12 | 0.742 s |
 
-Raw: [LFM holdouts](results/20-lfm-v4-holdout.json),
-[Nano holdouts](results/21-nano-v4-holdout.json).
+Raw: LFM holdouts (raw run archived locally),
+Nano holdouts (raw run archived locally).
 
 These are bounded teaching objectives on constructed/replayed positions, not an Elo
 estimate or proof of expert play. Full legal choice sets remain selectable. No opening
@@ -145,10 +145,10 @@ run per model before and after that change:
 | Chrome Nano | 4/8 | 8/8 |
 
 This is a diagnostic preference signal on one position, not a best-move grade. Raw
-observations: [LFM v3](results/14-lfm-v3-king-activity.json),
-[Nano v3](results/15-nano-v3-king-activity.json),
-[LFM v4](results/18-lfm-v4-king-activity.json),
-[Nano v4](results/19-nano-v4-king-activity.json).
+observations: LFM v3 (raw run archived locally),
+Nano v3 (raw run archived locally),
+LFM v4 (raw run archived locally),
+Nano v4 (raw run archived locally).
 
 The expanded suite includes coordinated king capture opportunities, corner pressure,
 whole multi-jumps, a negative mobility control, and a quiet-history diagnostic. The
@@ -190,13 +190,13 @@ of its budget restating the board/rules and did not reach the decision; both tri
 remained misses. A 2,048-token diagnostic on an exchange case reached the material
 comparison and passed twice, while still showing uncertainty about jump geometry.
 This motivated clearer action labels, not a model-specific prompt or a larger gameplay
-budget. [512-token trace](results/05-lfm-v1-thinking-512.json),
-[2,048-token trace](results/09-lfm-v2-thinking-2048.json).
+budget. 512-token trace (raw run archived locally),
+2,048-token trace (raw run archived locally).
 
 Nano's explicit emulated working notes recognized the safe crown in two diagnostic
 trials after the off-mode prompt had missed it. These are generated draft notes, not
 hidden native Gemini reasoning. The final normal runs keep thinking/working notes off;
-the game's enabled-reasoning budget stays 512. [Working-note trace](results/06-nano-v1-working-notes-512.json).
+the game's enabled-reasoning budget stays 512. Working-note trace (raw run archived locally).
 
 Historical calibration reports are retained, including failures and rejected wording.
 Their different suite versions/denominators are not interchangeable with the final
@@ -227,13 +227,13 @@ ties are also documented as teaching preferences, not proven strategic blunders.
   case/repetition. No temperature, top-p, top-k or context override was added.
 - WebGL requests `maxTokens: 8192`; Prompt API output remains browser managed. Larger
   reasoning budgets were diagnostic only. Provider defaults and native templates differ.
-- The [manifest](results/manifest.json) records report hashes, versions, metrics and final
+- The manifest (raw run archived locally) records report hashes, versions, metrics and final
   source fingerprints. Raw reports are preserved without retrospective regrading.
 - 120 model-free regressions plus independent fixture audit, typecheck, lint and build
   passed. Static prerendering emits `/`, `/game`, and `/bench`, without model inference.
 - A real game produced and persisted a `shared-v4` / `legal-replies-v2` AI trace. After
   reload its exact prompt, every choice outcome, raw answer and usage remained intact;
-  replay verified and Copy log succeeded. [Example full log](results/production-turn-log-example.json).
+  replay verified and Copy log succeeded. Example full log (raw run archived locally).
 
 The full turn log is intended for the next real-game failure: paste it to reproduce the
 position, inspect the facts the model saw, and add a defensible new suite objective.
