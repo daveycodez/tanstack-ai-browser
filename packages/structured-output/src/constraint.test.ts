@@ -190,3 +190,20 @@ test("parsed native arguments validate independent of property insertion order a
   assert.equal(await validateStructuredValue(constant, { b: "c d", a: "a b" }), true)
   assert.equal(await validateStructuredValue({ enum: [{ a: "a b", b: "c d" }] }, { b: "c d", a: "a b" }), true)
 })
+
+
+test("explicit EOS replaces existing camel-case and snake-case metadata consistently", async () => {
+  const source = { tokens: [...tokenizer.tokens, []], eosTokenId: 256, eos_token_id: 256, special_token_ids: [256, 257] }
+  for (const eos of [257, 256, 257]) {
+    const c = await createConstraint({ schema: { const: null }, tokenizer: source, eosTokenId: eos })
+    accept(c, "null")
+    assert.equal(c.eosTokenId, eos)
+    assert.equal(c.complete, true)
+    assert.equal(tokenAllowed(c.computeMask(), eos), true)
+    assert.equal(tokenAllowed(c.computeMask(), eos === 256 ? 257 : 256), false)
+    c.accept(eos)
+    c.dispose()
+  }
+  assert.equal(source.eosTokenId, 256)
+  assert.equal(source.eos_token_id, 256)
+})

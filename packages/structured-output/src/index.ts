@@ -45,7 +45,7 @@ function withEos(tokenizer: ConstraintTokenizer, eos: number | undefined): objec
   if (!byEos) { byEos = new Map(); eosOverrides.set(tokenizer, byEos) }
   let source = byEos.get(eos)
   if (!source) {
-    source = new Proxy(tokenizer, { get(target, key, receiver) { return key === "eos_token_id" ? eos : Reflect.get(target, key, receiver) } })
+    source = new Proxy(tokenizer, { get(target, key, receiver) { return key === "eos_token_id" || key === "eosTokenId" ? eos : Reflect.get(target, key, receiver) } })
     byEos.set(eos, source)
   }
   return source
