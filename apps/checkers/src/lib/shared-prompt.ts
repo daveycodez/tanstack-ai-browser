@@ -3,9 +3,9 @@ import type { Game, Move } from "./checkers.ts"
 import { annotateMoves, describeMove, materialBalance, OUTCOME_VERSION } from "./move-outcomes.ts"
 import type { AnnotatedMove } from "./move-outcomes.ts"
 
-export const SHARED_PROMPT_VERSION = "shared-v11" as const
-export const PREVIOUS_PROMPT_VERSION = "shared-v10" as const
-export const PROMPT_VERSIONS = ["baseline-v1", "shared-v6", "shared-v7", "shared-v8", "shared-v9", "shared-v10", "shared-v11"] as const
+export const SHARED_PROMPT_VERSION = "shared-v12" as const
+export const PREVIOUS_PROMPT_VERSION = "shared-v11" as const
+export const PROMPT_VERSIONS = ["baseline-v1", "shared-v6", "shared-v7", "shared-v8", "shared-v9", "shared-v10", "shared-v11", "shared-v12"] as const
 export type PromptVersion = typeof PROMPT_VERSIONS[number]
 export const isPromptVersion = (value: string): value is PromptVersion => PROMPT_VERSIONS.some(version => version === value)
 export const SHARED_SYSTEM_PROMPT = "Choose one legal Black action using the verified checkers outcomes. Win now or force a win; otherwise prevent Red's immediate win. Prefer higher nonnegative checked material gains. Take free captures and crown a man now before ordinary quiet development when safe. Prevent free Red promotions when no better exchange exists. Avoid a draw when ahead; prefer an available draw when behind unless a listed win exists. When no tactic decides, favor safe quiet progress: advance men or use kings together to restrict safe escapes. Avoid needless reversals; a retreat can still be necessary. Each card is a separate alternative. Card order is not a recommendation."
@@ -101,6 +101,12 @@ export function checkedPriorityChoices(game: Game, moves: readonly AnnotatedMove
 }
 
 export function buildSharedPrompt(game: Game, annotated: readonly AnnotatedMove[], version: Exclude<PromptVersion, "baseline-v1"> = SHARED_PROMPT_VERSION): PromptInput {
+  if (version === "shared-v12") {
+    const previous = buildSharedPrompt(game, annotated, "shared-v11")
+    const pieces = (text: string) => text.replace(/\bmen\b/g, "pieces").replace(/\bman\b/g, "piece").replace(/\bMen\b/g, "Pieces").replace(/\bMan\b/g, "Piece").replace(/\bMEN\b/g, "PIECES").replace(/\bMAN\b/g, "PIECE")
+    return { ...previous, version, systemPrompt: pieces(previous.systemPrompt), prompt: pieces(previous.prompt),
+      choices: previous.choices.map(choice => ({ ...choice, label: pieces(choice.label), outcome: pieces(choice.outcome) })) }
+  }
   const priority = version === "shared-v11" ? checkedPriorityChoices(game, annotated) : []
   const recommended = priority.length < annotated.length ? new Set(priority.map(move => move.id)) : new Set<string>()
   const choices = annotated.map(move => ({ id: move.id, label: move.label,

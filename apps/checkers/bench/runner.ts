@@ -3,7 +3,7 @@ import { chooseAiMove } from "../src/lib/ai.ts"
 import { isPromptVersion } from "../src/lib/shared-prompt.ts"
 import { OUTCOME_VERSION } from "../src/lib/move-outcomes.ts"
 import { applyMove, legalMoves } from "../src/lib/checkers.ts"
-import { opponentOption, resolveOpponent } from "../src/lib/opponents.ts"
+import { opponentOption, resolveOpponent, usesEmulatedReasoning } from "../src/lib/opponents.ts"
 import type { OpponentModel } from "../src/lib/opponents.ts"
 import { CASES, SUITE_VERSION, gameForCase } from "./cases.ts"
 import type { BenchmarkReport, BenchmarkResult, PromptVersion } from "./types.ts"
@@ -58,7 +58,7 @@ export async function runBenchmark(options: BenchmarkOptions): Promise<Benchmark
     schemaVersion: 1, runId: crypto.randomUUID(), startedAt: new Date().toISOString(), finishedAt: "", revision: __CHECKERS_BENCH_REVISION__, partial: false,
     config: { ...opponent,
       ...(opponent.model === "prompt-api" && { runtimeModel: promptApiModel() }),
-      reasoningMode: !opponent.thinking ? "off" : opponent.model === "prompt-api" ? "emulated-working-notes" : "native",
+      reasoningMode: !opponent.thinking ? "off" : usesEmulatedReasoning(opponent.model) ? "emulated-working-notes" : "native",
       reasoningBudgetTokens: budget, maxOutputTokens: opponent.model === "prompt-api" ? null : 8192, sampling: "model defaults", promptCache: "long",
       repetitions: options.repetitions, caseIds: cases.map(testCase => testCase.id), suiteVersion: SUITE_VERSION, promptVersion: options.promptVersion,
       ...(options.promptVersion !== "baseline-v1" && { outcomeVersion: OUTCOME_VERSION }),

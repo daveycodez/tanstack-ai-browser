@@ -43,7 +43,7 @@ Original raw v1 reports remain intact; the audit explains the corrected grading.
 ## Shared production path
 
 The runner calls `chooseAiMove`, exactly as the game does, with instrumentation callbacks.
-The original baseline (`baseline-v1`) is preserved unchanged. The current `shared-v11`
+The original baseline (`baseline-v1`) is preserved unchanged. The current `shared-v12`
 contract uses descriptive actions such as `Jump king d2 over c3 to b4`. Every legal action
 remains in the enum; neither card order nor a hidden fallback selects a move for the model.
 
@@ -215,3 +215,27 @@ runs for all five tested models using this same prompt and model-default
 sampling. It is one run per model, not an Elo estimate or a counterbalanced
 latency comparison. The remaining 1.2B promotion-defense failure stays scored;
 no objective was relaxed for this prompt change.
+
+
+## Piece terminology and local Apple model (v12)
+
+The current prompt uses piece/pieces and king throughout, including action labels
+and uppercase headings. Move IDs, all legal choices, verified outcomes, policy,
+sampling and output budgets are unchanged; historical v6-v11 prompts stay frozen.
+The production LFM3 tokenizer still measures 358 static system tokens.
+
+Apfel v1.16.0 consistently rejected the original `back-row-development` input
+with HTTP 400 `content_policy_violation`. Controlled browser probes held the JSON
+schema and settings fixed: changing only the rules phrase “Black men” to “Black
+pieces” succeeded three times, while original, newline-only, lowercase and
+explicit-game-context controls failed. This isolates a wording-sensitive false
+positive in that position, rather than an illegal move or JSON parsing problem.
+The adapter continues to surface native errors. The current latest summary
+contains fresh six-model runs with piece terminology; raw probes remain local.
+
+`Apple-FoundationModel` is first in the game and benchmark opponent pickers only
+in Vite development. It uses the Apfel adapter's local default endpoint and the
+same game AI path, native cancellation, model-default sampling, maxTokens 8192,
+and optional adapter-emulated working notes. Production builds omit the option;
+a stored development-only selection resolves to a normal supported opponent.
+No adapter or engine package code was changed.

@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
   "suiteVersion": "checkers-audited-v10",
-  "promptVersion": "shared-v11",
+  "promptVersion": "shared-v12",
   "outcomeVersion": "runner-replies-v4",
   "config": {
     "thinking": false,
@@ -11,13 +11,14 @@
     "promptCache": "long"
   },
   "tokenChange": {
+    "fromPromptVersion": "shared-v11",
     "tokenizer": "production LFM3",
     "systemBefore": 358,
     "systemAfter": 358,
     "additionalUserTokens": {
       "min": 0,
-      "median": 5,
-      "max": 35
+      "median": 1,
+      "max": 9
     }
   },
   "notes": [
@@ -26,32 +27,45 @@
   ],
   "runs": [
     {
-      "model": "LiquidAI/LFM2.5-1.2B-Instruct-GGUF",
-      "runId": "fb7e0c19-af41-40e6-9c75-ef839ba3320d",
-      "startedAt": "2026-11-03T12:23:27.137Z",
-      "finishedAt": "2026-11-03T12:23:55.376Z",
+      "model": "apple-foundationmodel",
+      "label": "Apple-FoundationModel",
+      "runId": "e70eac14-6313-4940-9cd3-562bc5cb1f71",
+      "startedAt": "2026-11-03T12:56:58.195Z",
+      "finishedAt": "2026-11-03T12:57:42.860Z",
       "maxOutputTokens": 8192,
       "summary": {
         "total": 39,
         "inferred": 38,
         "legal": 39,
         "scored": 27,
-        "passed": 26,
-        "firstOption": 11,
-        "medianSeconds": 0.706
+        "passed": 27,
+        "firstOption": 13,
+        "medianSeconds": 1.138
       },
-      "failures": [
-        {
-          "caseId": "deny-red-promotion",
-          "moveId": "a5-b4"
-        }
-      ]
+      "failures": []
+    },
+    {
+      "model": "LiquidAI/LFM2.5-1.2B-Instruct-GGUF",
+      "runId": "f119e859-ed32-47db-becc-46e93de174e0",
+      "startedAt": "2026-11-03T12:52:21.799Z",
+      "finishedAt": "2026-11-03T12:52:50.424Z",
+      "maxOutputTokens": 8192,
+      "summary": {
+        "total": 39,
+        "inferred": 38,
+        "legal": 39,
+        "scored": 27,
+        "passed": 27,
+        "firstOption": 10,
+        "medianSeconds": 0.704
+      },
+      "failures": []
     },
     {
       "model": "LiquidAI/LFM2.5-350M-GGUF",
-      "runId": "08be2932-929c-48f5-98fb-f50c40d493e9",
-      "startedAt": "2026-11-03T12:30:27.790Z",
-      "finishedAt": "2026-11-03T12:30:37.996Z",
+      "runId": "2ee9a8b2-894d-4bd8-ad6b-018a001213ff",
+      "startedAt": "2026-11-03T12:53:14.124Z",
+      "finishedAt": "2026-11-03T12:53:23.627Z",
       "maxOutputTokens": 8192,
       "summary": {
         "total": 39,
@@ -59,8 +73,8 @@
         "legal": 39,
         "scored": 27,
         "passed": 24,
-        "firstOption": 14,
-        "medianSeconds": 0.25
+        "firstOption": 15,
+        "medianSeconds": 0.234
       },
       "failures": [
         {
@@ -79,9 +93,9 @@
     },
     {
       "model": "LiquidAI/LFM3-1.7B-GGUF",
-      "runId": "0ed49367-eeef-4a36-8c56-fa84fc9801fe",
-      "startedAt": "2026-11-03T12:27:51.140Z",
-      "finishedAt": "2026-11-03T12:28:33.236Z",
+      "runId": "af9f060c-262d-46a2-88e5-4f7d2a5aa410",
+      "startedAt": "2026-11-03T12:53:42.557Z",
+      "finishedAt": "2026-11-03T12:54:07.724Z",
       "maxOutputTokens": 8192,
       "summary": {
         "total": 39,
@@ -90,7 +104,7 @@
         "scored": 27,
         "passed": 27,
         "firstOption": 13,
-        "medianSeconds": 0.97
+        "medianSeconds": 0.557
       },
       "failures": []
     },
@@ -101,9 +115,9 @@
         "name": "Gemini Nano",
         "browser": "Chrome"
       },
-      "runId": "1e5b146e-b6a4-40e2-97cc-6522de4a3377",
-      "startedAt": "2026-11-03T12:29:35.506Z",
-      "finishedAt": "2026-11-03T12:30:14.785Z",
+      "runId": "83ea492f-9107-40bd-aa77-7c946d8b34c3",
+      "startedAt": "2026-11-03T12:55:39.335Z",
+      "finishedAt": "2026-11-03T12:56:48.450Z",
       "maxOutputTokens": null,
       "summary": {
         "total": 39,
@@ -111,16 +125,16 @@
         "legal": 39,
         "scored": 27,
         "passed": 27,
-        "firstOption": 13,
-        "medianSeconds": 0.886
+        "firstOption": 14,
+        "medianSeconds": 1.623
       },
       "failures": []
     },
     {
       "model": "unsloth/Qwen3.5-2B-GGUF",
-      "runId": "2b67e767-f840-40e1-a736-4a34bf0833de",
-      "startedAt": "2026-11-03T12:28:53.606Z",
-      "finishedAt": "2026-11-03T12:29:23.755Z",
+      "runId": "5b80b6ef-d81a-4207-8df6-5226e10c87c5",
+      "startedAt": "2026-11-03T12:54:38.576Z",
+      "finishedAt": "2026-11-03T12:55:18.334Z",
       "maxOutputTokens": 8192,
       "summary": {
         "total": 39,
@@ -128,8 +142,8 @@
         "legal": 39,
         "scored": 27,
         "passed": 27,
-        "firstOption": 9,
-        "medianSeconds": 0.689
+        "firstOption": 13,
+        "medianSeconds": 0.829
       },
       "failures": []
     }

@@ -13,6 +13,7 @@
     "bench-audit": "node --experimental-strip-types bench/audit.ts"
   },
   "dependencies": {
+    "@tanstack-ai-browser/apfel": "workspace:*",
     "@tanstack-ai-browser/prompt-api": "workspace:*",
     "@tanstack-ai-browser/webgl": "workspace:*",
     "@tanstack/ai": "1.0.0",

@@ -1,4 +1,5 @@
 import { chat } from "@tanstack/ai"
+import { apfelText } from "@tanstack-ai-browser/apfel"
 import type { AnyTextAdapter, ChatMiddleware, UsageInfo } from "@tanstack/ai"
 import {
   loadPromptApiModel,
@@ -19,7 +20,7 @@ import { SHARED_PROMPT_VERSION } from "./shared-prompt"
 import { analyzeMovePrompt } from "./analysis-worker"
 import type { PromptInput, PromptVersion } from "./shared-prompt"
 import type { Game } from "./checkers"
-import { opponentOption, resolveOpponent } from "./opponents"
+import { APFEL_MODEL, opponentOption, resolveOpponent } from "./opponents"
 import type { OpponentSettings } from "./opponents"
 import type {
   GenerationPhase,
@@ -49,6 +50,7 @@ let activeWebGlModel: WebGlTextModel | undefined
 /** The selected adapter's real download, cache, GPU upload, and failure status. */
 export function loadingStoreFor(settings?: OpponentSettings): LoadingStore {
   const { model } = resolveOpponent(settings)
+  if (model === APFEL_MODEL) return { get: () => ({ state: "ready" }), subscribe: () => () => undefined }
   return model === "prompt-api" ? promptApiStatus() : modelStatus(model)
 }
 
@@ -134,7 +136,7 @@ export async function chooseAiMove(
 
   const opponent = resolveOpponent(game.opponent)
   const thinkingSupport = opponentOption(opponent.model).thinking
-  if (opponent.model !== "prompt-api" && !hasWebGl2()) {
+  if (opponent.model !== "prompt-api" && opponent.model !== APFEL_MODEL && !hasWebGl2()) {
     throw new Error(
       "This browser cannot run the local AI. Enable hardware acceleration and use a browser with WebGL 2 and OffscreenCanvas support."
     )
@@ -147,7 +149,7 @@ export async function chooseAiMove(
   const reasoningBudgetTokens = diagnostics?.reasoningBudgetTokens ?? REASONING_BUDGET_TOKENS
   if (!Number.isSafeInteger(reasoningBudgetTokens) || reasoningBudgetTokens < 0) throw new RangeError("Reasoning budget must be a nonnegative safe integer.")
 
-  if (opponent.model === "prompt-api") {
+  if (opponent.model === "prompt-api" || opponent.model === APFEL_MODEL) {
     if (activeWebGlModel) {
       unloadModel()
       activeWebGlModel = undefined
@@ -189,7 +191,17 @@ export async function chooseAiMove(
       abortController: generationController
     }
     const answer =
-      opponent.model === "prompt-api"
+      import.meta.env?.DEV === true && opponent.model === APFEL_MODEL
+        ? await chat({
+            ...options,
+            adapter: withCancellation<AnyTextAdapter>(apfelText(APFEL_MODEL, {
+              ...(onPhase && { onGenerationPhase: (phase) => { if (!generationSignal.aborted) onPhase(phase) } }),
+              ...(onThinking && { onThinking: (delta) => { if (!generationSignal.aborted) onThinking(delta) } })
+            }), generationController, diagnostics?.onAnswer),
+            reasoning: opponent.thinking ? { level: "high" as const, budgetTokens: reasoningBudgetTokens } : ("off" as const),
+            modelOptions: { maxTokens: MAX_OUTPUT_TOKENS }
+          })
+        : opponent.model === "prompt-api"
         ? await chat({
             ...options,
             adapter: withCancellation(promptApiText({
@@ -208,7 +220,7 @@ export async function chooseAiMove(
             ...options,
             // Runtime catalog metadata determines the selected model's reasoning support.
             adapter: withCancellation<AnyTextAdapter>(
-              webglText(opponent.model, {
+              webglText(opponent.model as WebGlTextModel, {
                 ...(onPhase && {
                   onGenerationPhase: (phase: GenerationPhase) => {
                     if (!generationSignal.aborted) onPhase(phase)

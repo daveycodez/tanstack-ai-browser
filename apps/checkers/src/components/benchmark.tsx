@@ -5,7 +5,7 @@ import { CASES, SUITE_VERSION } from "../../bench/cases"
 import { runBenchmark, summarize } from "../../bench/runner"
 import { runCacheComparison } from "../../bench/cache-replay"
 import type { BenchmarkReport, BenchmarkResult, PromptVersion, CacheComparisonModel, CacheComparisonReport } from "../../bench/types"
-import { DEFAULT_OPPONENT, opponentOption, WEBGL_OPPONENTS } from "../lib/opponents"
+import { DEFAULT_OPPONENT, DEV_OPPONENTS, opponentOption, usesEmulatedReasoning, WEBGL_OPPONENTS } from "../lib/opponents"
 import type { OpponentModel } from "../lib/opponents"
 import { PREVIOUS_PROMPT_VERSION, PROMPT_VERSIONS, SHARED_PROMPT_VERSION } from "../lib/shared-prompt"
 import { usePromptApiAvailable } from "../lib/use-prompt-api"
@@ -142,7 +142,7 @@ export function BenchmarkView() {
     if (!ready || controller.current || !event.currentTarget.reportValidity() || !selectedCases.length) return
     const active = new AbortController()
     controller.current = active
-    const config = { model, thinking: effectiveThinking, reasoningMode: !effectiveThinking ? "off" : model === "prompt-api" ? "emulated-working-notes" : "native", reasoningBudgetTokens, repetitions, promptVersion, orderPolicy, suiteVersion: SUITE_VERSION, caseIds: selectedCases.map(testCase => testCase.id), maxOutputTokens: model === "prompt-api" ? null : 8192, sampling: "model defaults" }
+    const config = { model, thinking: effectiveThinking, reasoningMode: !effectiveThinking ? "off" : usesEmulatedReasoning(model) ? "emulated-working-notes" : "native", reasoningBudgetTokens, repetitions, promptVersion, orderPolicy, suiteVersion: SUITE_VERSION, caseIds: selectedCases.map(testCase => testCase.id), maxOutputTokens: model === "prompt-api" ? null : 8192, sampling: "model defaults" }
     const completed: BenchmarkResult[] = []
     setRunConfig(config)
     setResults([])
@@ -207,6 +207,7 @@ export function BenchmarkView() {
         <legend>Run settings</legend>
         <div className="bench-control-grid">
           <label>Opponent model<select aria-label="Opponent model" value={model} onChange={event => { setModel(event.currentTarget.value as OpponentModel); setThinking(false) }}>
+            {DEV_OPPONENTS.map(option => <option key={option.id} value={option.id}>{option.label}</option>)}
             {promptApiAvailable && <option value="prompt-api">{opponentOption("prompt-api").label}</option>}
             {WEBGL_OPPONENTS.map(option => <option key={option.id} value={option.id}>{option.label}</option>)}
           </select></label>
@@ -217,7 +218,7 @@ export function BenchmarkView() {
             <option value="calibration">Calibration positions</option><option value="holdout">Held-out positions</option><option value="all">All positions</option><option value="reported-games">All reported game positions</option><option value="reported-runners">Reported runner defenses</option><option value="reported-exchanges">Reported game exchanges</option><option value="failed">Failures from the previous run</option>
             <optgroup label="Single position">{CASES.map(testCase => <option key={testCase.id} value={testCase.id}>{testCase.label}</option>)}</optgroup>
           </select></label>
-          <label className="bench-thinking"><span>{model === "prompt-api" ? "Working notes" : "Thinking"}</span><span className="bench-check-row"><input aria-label="Thinking" type="checkbox" checked={effectiveThinking} disabled={running || support !== "optional"} onChange={event => setThinking(event.currentTarget.checked)} /><span>{support === "none" ? "Not supported" : support === "required" ? "Required by model" : effectiveThinking ? "On" : "Off"}</span></span></label>
+          <label className="bench-thinking"><span>{usesEmulatedReasoning(model) ? "Working notes" : "Thinking"}</span><span className="bench-check-row"><input aria-label="Thinking" type="checkbox" checked={effectiveThinking} disabled={running || support !== "optional"} onChange={event => setThinking(event.currentTarget.checked)} /><span>{support === "none" ? "Not supported" : support === "required" ? "Required by model" : effectiveThinking ? "On" : "Off"}</span></span></label>
           <label>Reasoning budget<input aria-label="Reasoning budget" type="number" min={0} step={1} required value={reasoningBudgetTokens} disabled={running || !effectiveThinking} onChange={event => setReasoningBudgetTokens(Number(event.currentTarget.value))} /></label>
         </div>
       </fieldset>

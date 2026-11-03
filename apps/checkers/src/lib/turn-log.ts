@@ -1,6 +1,7 @@
 import { applyMove, legalMoves, newGame, positionKey } from "./checkers.ts"
 import type { AiDecisionTrace, Board, Game, MoveRecord, PositionSnapshot } from "./checkers.ts"
 import type { OpponentSettings } from "./opponents"
+import { usesEmulatedReasoning } from "./opponents.ts"
 
 const cloneBoard = (board: Board): Board => board.map(piece => piece ? { ...piece } : null)
 const boardIdentity = (board: Board) => positionKey(board, "human")
@@ -21,7 +22,7 @@ export function createAiTrace(
     id: crypto.randomUUID(), sessionId: game.sessionId, ply: game.history.length + 1,
     mode, status: "success", positionBefore: snapshotPosition(game), model: opponent.model,
     requestedThinking: opponent.thinking, thinking,
-    reasoningMode: !thinking ? "off" : opponent.model === "prompt-api" ? "emulated-working-notes" : "native",
+    reasoningMode: !thinking ? "off" : usesEmulatedReasoning(opponent.model) ? "emulated-working-notes" : "native",
     reasoningBudgetTokens: thinking ? limits.reasoningBudgetTokens ?? 512 : null,
     maxOutputTokens: mode === "forced" || opponent.model === "prompt-api" ? null : limits.maxOutputTokens ?? 8192,
     sampling: "model defaults", legalMoveIds: legalMoves(game.board, game.turn).map(move => move.id),
