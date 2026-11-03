@@ -2,11 +2,12 @@ import { Link } from "@tanstack/react-router"
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react"
 import type { FormEvent, ReactNode } from "react"
 import { CASES, SUITE_VERSION } from "../../bench/cases"
-import { runBenchmark } from "../../bench/runner"
-import type { BenchmarkReport, BenchmarkResult, PromptVersion } from "../../bench/types"
+import { runBenchmark, summarize } from "../../bench/runner"
+import { runCacheComparison } from "../../bench/cache-replay"
+import type { BenchmarkReport, BenchmarkResult, PromptVersion, CacheComparisonModel, CacheComparisonReport } from "../../bench/types"
 import { DEFAULT_OPPONENT, opponentOption, WEBGL_OPPONENTS } from "../lib/opponents"
 import type { OpponentModel } from "../lib/opponents"
-import { SHARED_PROMPT_VERSION } from "../lib/shared-prompt"
+import { PREVIOUS_PROMPT_VERSION, SHARED_PROMPT_VERSION } from "../lib/shared-prompt"
 import { usePromptApiAvailable } from "../lib/use-prompt-api"
 
 const subscribeHydration = () => () => undefined
@@ -59,6 +60,32 @@ function Trial({ result }: { result: BenchmarkResult }) {
   </details>
 }
 
+function CacheComparisonResults({ report }: { report: CacheComparisonReport }) {
+  const [open, setOpen] = useState(false)
+  const [copyStatus, setCopyStatus] = useState("")
+  const metric = (values: (number | null)[], milliseconds = false) => {
+    const value = median(values.filter((item): item is number => item !== null))
+    return value === null ? "Not reported" : milliseconds ? `${value.toFixed(1)} ms` : value.toFixed(0)
+  }
+  return <section className="bench-section" aria-label="Cache comparison results">
+    <div className="bench-section-heading"><h2>Quality and cache comparison</h2><span>{report.partial ? "Partial" : report.finishedAt ? "Complete" : "Running"}</span></div>
+    <p className="bench-note">{report.phase} · Reasoning off · model-default sampling. Recorded plies {report.config.selectedPlies.join(", ")}; forced plies {report.config.skippedForcedPlies.join(", ")} remain in the game history but do not call the model.</p>
+    <div className="bench-table-wrap"><table><thead><tr><th>Quality pass</th><th>Completed</th><th>Objective passes</th><th>Legal</th><th>Median</th></tr></thead><tbody>{report.quality.map(phase => {
+      const summary = phase.report?.summary ?? summarize(phase.results ?? [])
+      return <tr key={phase.id}><td>{phase.label}</td><td>{summary.total} / {phase.totalTrials}</td><td>{summary.passed} / {summary.scored}</td><td>{summary.legal} / {summary.total}</td><td>{time(summary.medianSeconds)}</td></tr>
+    })}</tbody></table></div>
+    <div className="bench-section-heading" style={{ marginTop: 24 }}><h3>Recorded-game cache replay</h3><span>Provider-reported counters</span></div>
+    <div className="bench-table-wrap"><table><thead><tr><th>Prompt / input</th><th>Trials</th><th>Median input tokens</th><th>Median cached tokens</th><th>Median prefill</th><th>Median total</th></tr></thead><tbody>{report.cache.flatMap(replay => (["first-turn", "changed-turn", "exact-repeat"] as const).map(kind => {
+      const trials = replay.trials.filter(trial => trial.kind === kind)
+      return <tr key={`${replay.promptVersion}:${kind}`}><td>{replay.promptVersion}<small>{kind}</small></td><td>{trials.filter(trial => trial.legal).length} / {trials.length} legal</td><td>{metric(trials.map(trial => trial.metrics.inputTokens))}</td><td>{metric(trials.map(trial => trial.metrics.cachedInputTokens))}</td><td>{metric(trials.map(trial => trial.metrics.prefillMs), true)}</td><td>{metric(trials.map(trial => trial.metrics.totalMs), true)}</td></tr>
+    }))}</tbody></table></div>
+    <p className="bench-note" style={{ marginTop: 12 }}>Both replay versions use the same production per-game ordering and session ID. This isolates the prompt layout; the v6 control does not use its previous random ordering. The runtime is not flushed, so the first turn is not claimed cold. Missing counters stay unreported, including unavailable Prompt API cache/prefill statistics.</p>
+    <div className="bench-section-heading" style={{ marginTop: 24 }}><h3>Raw comparison</h3><button className="bench-button" type="button" onClick={() => { void navigator.clipboard.writeText(json(report)).then(() => setCopyStatus("Comparison copied."), () => setCopyStatus("Select the JSON below to copy it.")) }}>Copy comparison</button></div>
+    <p className="bench-note" aria-live="polite">{copyStatus || "Full quality trials, replay inputs, answers and usage remain in the report."}</p>
+    <details className="bench-report" id="cache-comparison-report" onToggle={event => setOpen(event.currentTarget.open)}><summary>Cache comparison JSON</summary>{open && <pre id="cache-comparison-results-json">{json(report)}</pre>}</details>
+  </section>
+}
+
 export function BenchmarkView() {
   const [model, setModel] = useState<OpponentModel>(DEFAULT_OPPONENT.model)
   const [thinking, setThinking] = useState(false)
@@ -66,6 +93,7 @@ export function BenchmarkView() {
   const [repetitions, setRepetitions] = useState(2)
   const [promptVersion, setPromptVersion] = useState<PromptVersion>(SHARED_PROMPT_VERSION)
   const [position, setPosition] = useState("calibration")
+  const [orderPolicy, setOrderPolicy] = useState<"paired" | "production">("paired")
   const ready = useSyncExternalStore(subscribeHydration, () => true, () => false)
   const [running, setRunning] = useState(false)
   const [results, setResults] = useState<BenchmarkResult[]>([])
@@ -74,6 +102,10 @@ export function BenchmarkView() {
   const [status, setStatus] = useState("Ready. Inference starts only when you press Run benchmark.")
   const [error, setError] = useState<string>()
   const [copyStatus, setCopyStatus] = useState("")
+  const [reportOpen, setReportOpen] = useState(false)
+  const [comparisonModel, setComparisonModel] = useState<CacheComparisonModel>("LiquidAI/LFM3-1.7B-GGUF")
+  const [productionOrder, setProductionOrder] = useState(true)
+  const [comparison, setComparison] = useState<CacheComparisonReport>()
   const controller = useRef<AbortController | undefined>(undefined)
   const mounted = useRef(true)
   const promptApiAvailable = usePromptApiAvailable()
@@ -110,7 +142,7 @@ export function BenchmarkView() {
     if (!ready || controller.current || !event.currentTarget.reportValidity() || !selectedCases.length) return
     const active = new AbortController()
     controller.current = active
-    const config = { model, thinking: effectiveThinking, reasoningMode: !effectiveThinking ? "off" : model === "prompt-api" ? "emulated-working-notes" : "native", reasoningBudgetTokens, repetitions, promptVersion, suiteVersion: SUITE_VERSION, caseIds: selectedCases.map(testCase => testCase.id), maxOutputTokens: model === "prompt-api" ? null : 8192, sampling: "model defaults" }
+    const config = { model, thinking: effectiveThinking, reasoningMode: !effectiveThinking ? "off" : model === "prompt-api" ? "emulated-working-notes" : "native", reasoningBudgetTokens, repetitions, promptVersion, orderPolicy, suiteVersion: SUITE_VERSION, caseIds: selectedCases.map(testCase => testCase.id), maxOutputTokens: model === "prompt-api" ? null : 8192, sampling: "model defaults" }
     const completed: BenchmarkResult[] = []
     setRunConfig(config)
     setResults([])
@@ -120,7 +152,7 @@ export function BenchmarkView() {
     setRunning(true)
     setStatus("Preparing model and positions…")
     try {
-      const output = await runBenchmark({ model, thinking: effectiveThinking, reasoningBudgetTokens, repetitions, promptVersion, caseIds: config.caseIds, signal: active.signal,
+      const output = await runBenchmark({ model, thinking: effectiveThinking, reasoningBudgetTokens, repetitions, promptVersion, orderPolicy, caseIds: config.caseIds, signal: active.signal,
         onResult(result) { if (controller.current !== active) return; completed.push(result); if (mounted.current) setResults([...completed]) },
         onProgress(label) { if (mounted.current && controller.current === active && !active.signal.aborted) setStatus(label) }
       })
@@ -131,6 +163,29 @@ export function BenchmarkView() {
       if (!mounted.current) return
       if (active.signal.aborted) setStatus(`Stopped. ${completed.length} completed trials are preserved below.`)
       else { setError(failure instanceof Error ? failure.message : String(failure)); setStatus("The run ended with an error. Completed trials are preserved below.") }
+    } finally {
+      if (controller.current === active) controller.current = undefined
+      if (mounted.current) setRunning(false)
+    }
+  }
+
+  async function startComparison(event: FormEvent<HTMLFormElement> | undefined, quality = true) {
+    event?.preventDefault()
+    if (!ready || controller.current) return
+    const active = new AbortController()
+    controller.current = active
+    setRunning(true)
+    setError(undefined)
+    setComparison(undefined)
+    setStatus(quality ? "Preparing quality and cache comparison…" : "Preparing cache replay only…")
+    try {
+      const output = await runCacheComparison({ model: comparisonModel, includeProductionOrder: productionOrder, quality, signal: active.signal,
+        onUpdate(value) { if (mounted.current && controller.current === active) setComparison(value) },
+        onProgress(label) { if (mounted.current && controller.current === active) setStatus(label) }
+      })
+      if (mounted.current) setComparison(output)
+    } catch (failure) {
+      if (mounted.current && !active.signal.aborted) setError(failure instanceof Error ? failure.message : String(failure))
     } finally {
       if (controller.current === active) controller.current = undefined
       if (mounted.current) setRunning(false)
@@ -155,7 +210,8 @@ export function BenchmarkView() {
             {promptApiAvailable && <option value="prompt-api">{opponentOption("prompt-api").label}</option>}
             {WEBGL_OPPONENTS.map(option => <option key={option.id} value={option.id}>{option.label}</option>)}
           </select></label>
-          <label>Prompt version<select aria-label="Prompt version" value={promptVersion} onChange={event => setPromptVersion(event.currentTarget.value as PromptVersion)}><option value={SHARED_PROMPT_VERSION}>Shared outcomes</option><option value="baseline-v1">Original baseline</option></select></label>
+          <label>Prompt version<select aria-label="Prompt version" value={promptVersion} onChange={event => setPromptVersion(event.currentTarget.value as PromptVersion)}><option value={SHARED_PROMPT_VERSION}>{SHARED_PROMPT_VERSION} · cache-friendly</option><option value={PREVIOUS_PROMPT_VERSION}>{PREVIOUS_PROMPT_VERSION} · previous layout</option><option value="baseline-v1">Original baseline</option></select></label>
+          <label>Action ordering<select aria-label="Action ordering" value={orderPolicy} onChange={event => setOrderPolicy(event.currentTarget.value as "paired" | "production")}><option value="paired">Paired benchmark order</option><option value="production">Production per-game order</option></select></label>
           <label>Repetitions<input aria-label="Repetitions" type="number" min={1} max={20} step={1} required value={repetitions} onChange={event => setRepetitions(Number(event.currentTarget.value))} /></label>
           <label>Positions<select aria-label="Positions" value={position} onChange={event => setPosition(event.currentTarget.value)}>
             <option value="calibration">Calibration positions</option><option value="holdout">Held-out positions</option><option value="all">All positions</option><option value="reported-games">All reported game positions</option><option value="reported-runners">Reported runner defenses</option><option value="reported-exchanges">Reported game exchanges</option><option value="failed">Failures from the previous run</option>
@@ -169,8 +225,17 @@ export function BenchmarkView() {
       <p className="bench-note">Runs through the game’s AI path. No saved-game changes, hosted API, automatic retry, or result download. Forced moves are reported separately from model decisions. Sampling uses model defaults.</p>
       <p className="bench-note">Thinking is native on supported WebGL models. Prompt API working notes are an explicit, emulated extra pass. Keep them off for the baseline comparison.</p>
     </form>
+    <form className="bench-controls" style={{ marginTop: 24 }} onSubmit={event => { void startComparison(event) }}>
+      <fieldset disabled={running || !ready}><legend>Prompt cache and quality comparison</legend><div className="bench-control-grid">
+        <label>Comparison model<select aria-label="Comparison model" value={comparisonModel} onChange={event => setComparisonModel(event.currentTarget.value as CacheComparisonModel)}><option value="LiquidAI/LFM3-1.7B-GGUF">LFM3-1.7B-GGUF</option>{promptApiAvailable && <option value="prompt-api">{opponentOption("prompt-api").label}</option>}</select></label>
+        <label>Production-order controls<span className="bench-check-row"><input aria-label="Include production ordering" type="checkbox" checked={productionOrder} onChange={event => setProductionOrder(event.currentTarget.checked)} />Both v6 and v7</span></label>
+      </div></fieldset>
+      <div className="bench-run-row"><button className="bench-button bench-button-primary" type="submit" disabled={running || !ready}>Run comparison</button><button className="bench-button" type="button" disabled={running || !ready} onClick={() => { void startComparison(undefined, false) }}>Run cache replay only</button><button className="bench-button" type="button" disabled={!running} onClick={() => { controller.current?.abort(); setStatus("Stopping the active trial…") }}>Stop comparison</button><span>{CASES.length} frozen cases × {productionOrder ? 4 : 2} quality passes + 28 cache trials</span></div>
+      <p className="bench-note">Compare {PREVIOUS_PROMPT_VERSION} and {SHARED_PROMPT_VERSION} on identical paired legal orders, then optionally check both versions with the same production ordering. Replays send the first seven non-forced AI decisions from the recorded game twice each. Run cache replay only skips all quality passes and performs just those 28 cache trials. No saved-game access or engine cache flags; reasoning stays off, standard prompt caching uses long retention, and final output remains 8,192 tokens on WebGL or browser-managed on Prompt API.</p>
+    </form>
     <div className="bench-status" role="status" aria-live="polite">{status}</div>
     {error && <p className="bench-error" role="alert">{error}</p>}
+    {comparison && <CacheComparisonResults report={comparison} />}
     <section className="bench-summary" aria-label="Run summary">
       <div><span>Objective passes</span><strong>{scored.filter(result => result.passed).length} / {scored.length}</strong></div>
       <div><span>Legal replies</span><strong>{results.filter(result => result.legal).length} / {results.length}</strong></div>
@@ -184,7 +249,7 @@ export function BenchmarkView() {
       })}</tbody></table></div> : <p className="bench-empty">Results appear here as each trial finishes.</p>}
     </section>
     <section className="bench-section" aria-labelledby="bench-trials-heading"><div className="bench-section-heading"><h2 id="bench-trials-heading">Every trial</h2><span>{results.length} completed</span></div><p className="bench-note">Expand a trial to see every move outcome, the exact prompts, model answer, and available reasoning. A pass applies to its stated objective, not general playing strength.</p><div className="bench-trials">{results.map(result => <Trial key={`${result.caseId}:${result.repetition}:${result.trial}`} result={result} />)}</div></section>
-    <section className="bench-section"><div className="bench-section-heading"><h2>Full report</h2><button className="bench-button" type="button" disabled={!results.length} onClick={() => { void copyReport() }}>Copy report</button></div><p className="bench-note" aria-live="polite">{copyStatus || "All completed trials remain available if a run is stopped."}</p><details className="bench-report" open={!!report}><summary>Report JSON</summary><pre id="benchmark-results-json">{json(fullReport)}</pre></details></section>
+    <section className="bench-section"><div className="bench-section-heading"><h2>Full report</h2><button className="bench-button" type="button" disabled={!results.length} onClick={() => { void copyReport() }}>Copy report</button></div><p className="bench-note" aria-live="polite">{copyStatus || "All completed trials remain available if a run is stopped."}</p><details className="bench-report" onToggle={event => setReportOpen(event.currentTarget.open)}><summary>Report JSON</summary>{reportOpen && <pre id="benchmark-results-json">{json(fullReport)}</pre>}</details></section>
     <footer className="bench-footer">No model inference runs during prerendering, builds, or automated tests.</footer>
   </main>
 }

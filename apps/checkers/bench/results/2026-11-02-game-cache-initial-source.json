@@ -1,0 +1,17 @@
+{
+  "head": "aaf9992feefa6266a7f9b08a781984cdec908583",
+  "note": "Browser revision constant is Vite startup HEAD; source content hashes identify this exact initial hash-priority candidate.",
+  "files": {
+    "apps/checkers/bench/cache-prompt.test.ts": "eda7aaf7ecf38b2c9a5139714dc32a77b8f860225b76a400aa58596e1405864a",
+    "apps/checkers/bench/cache-replay-positions.ts": "fee58fd65a9b1b4a17c236cf54d47774cf1b7cbd42369921fc6233aec38880fe",
+    "apps/checkers/bench/cache-replay.ts": "db37676f855e56dafec1856a7efe4a4255297578719ed2f6af58b437ca2bcacd",
+    "apps/checkers/bench/runner.ts": "78c417b50c3f30959e614d1f5f24e8857f9fd8db73ad40ff67fd789bdb0f0bab",
+    "apps/checkers/bench/suite.test.ts": "2ece7e148ef968427c9670d657f8c65b1bcbe5a9a9a1eba017b8c28eaaf0f9b9",
+    "apps/checkers/bench/types.ts": "d14317987aaf4921a20fb523f2a21579ba7ecbb32e525bcc1c97c122172fd1d9",
+    "apps/checkers/src/components/benchmark.tsx": "f949547132af21a9a00b9b4a9d2a349fbdba13cfaaae28bd3e20922b10f975f9",
+    "apps/checkers/src/lib/ai.ts": "a942a6599933ea79eb8b70a5c792e854c3393073e14d5f1159cb82ca1aaeac36",
+    "apps/checkers/src/lib/move-order.ts": "804606e85a02b6b9f5ef666813a22e135b751d4f6ae98fa5b39931e013cc1543",
+    "apps/checkers/src/lib/move-outcomes.test.ts": "212821934f425bbbd9c3d8bac9113b4cd03b99837f37b83d1f914a2778314ca2",
+    "apps/checkers/src/lib/shared-prompt.ts": "63a4213ff34f94534b07754a2b51120f5987dec95d47a36e0505dc3fc28de449"
+  }
+}
