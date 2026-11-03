@@ -2,7 +2,7 @@
 
 `/bench` is a TanStack Start route for explicitly requested browser model checks.
 It uses the production `chooseAiMove()` path and never reads or writes the saved
-game. Only pressing **Run benchmark** invokes a model. Tests, builds, prerendering
+game. Only explicitly pressing a **Run** button invokes a model. Tests, builds, prerendering
 and CI do not run inference. Results and full JSON print in-page; nothing is
 automatically downloaded.
 
@@ -21,6 +21,18 @@ shares the game's origin and model cache. WebGL may download weights on first
 use; Prompt API appears when the browser supports it. No hosted model API or key
 is used.
 
+## Mac parallel evaluation
+
+On Mac desktops, **Run all three (Mac parallel)** runs Nano, LFM3 GGUF and Qwen GGUF
+concurrently in this one tab. All models receive the same positions, seeds and
+prompt. Select a result card to inspect one model; **Full batch JSON** prints all
+reports. **Stop** cancels every run and preserves completed trials. Phones remain serial.
+
+The WebGL models use isolated in-page runtimes because each window's adapter has
+one loaded-model slot. Prompt API stays in the main window. No inference starts
+on runtime-route load, and no game storage is opened. Parallel timings are marked
+diagnostic; measure latency separately with one model running.
+
 ## Controls and request contract
 
 Choose a model, 1–20 repetitions per position (default 2), and a position preset.
@@ -37,8 +49,10 @@ WebGL's total generation
 ceiling is 8,192 tokens; Prompt API's browser-managed final-output limit is recorded
 as `null`. These are different capabilities.
 
-Every model receives the same **shared-v25** system and user assembly, standard
-piece values and model-default sampling. There are no active profile, context,
+Every model receives the same **shared-v46** system and user assembly, standard
+piece values and model-default sampling. The optional **WebGL temperature** control
+is a manual sampling diagnostic; it leaves the shared prompt and ordinary gameplay
+defaults unchanged. Native Prompt API retains browser sampling. There are no active profile, context,
 queen-weight or per-model prompt switches. Guidance is phase-relevant: urgent
 positions omit soft generic coaching; quiet positions receive applicable opening,
 cover or king-coordination context. Actual promotion emergencies remain visible.

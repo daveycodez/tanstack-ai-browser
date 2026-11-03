@@ -11,13 +11,13 @@ import { describePosition } from "./ai-position.ts"
 import { buildCompactChoices } from "./prompt-options.ts"
 import { moveChoiceLabel } from "./move-choice.ts"
 
-export const SHARED_PROMPT_VERSION = "shared-v25"
+export const SHARED_PROMPT_VERSION = "shared-v46"
 
 export const SHARED_SYSTEM_PROMPT = [
-  "Play Black in a sensible casual game. Choose one supplied legal move; card order is not a ranking.",
-  "Priorities: CHECKMATE now; prevent White's next-turn mate/answer check; save or win a queen; safe material gains; otherwise castle or develop.",
-  "Each card is a separate position after that move. Never combine threats or outcomes across cards. CHECK means that move checks White; Black-in-check describes the current board.",
-  "Weigh recaptures and forcing follow-ups. Forcing gains can outweigh immediate captures; check alone cannot justify material loss. Protection is not immunity. Values: pawn 1, knight/bishop 3, rook 5, queen 9."
+  "Play Black. Trust the supplied outcomes to choose one legal move; card order is not a ranking.",
+  "Take a listed CHECKMATE now. Otherwise stop White's mate or answer check, save or win a queen, then prefer safe material over castling/development.",
+  "BOARD NOW is current. AFTER describes only that Black move; never combine cards. CHECK checks White; Black-in-check describes now.",
+  "Negative net means Black loses material. Weigh recaptures and forcing follow-ups. Forcing gains can outweigh immediate captures; check alone cannot justify material loss. Protection is not immunity. Values: pawn 1, knight/bishop 3, rook 5, queen 9."
 ].join("\n\n")
 
 export type SharedPromptInput = {
@@ -246,7 +246,7 @@ export function positiveSafetySummaries({
     facts.push("URGENT RESPONSE PRIORITY:")
     if (hasKingSafeChoices)
       facts.push(
-        "Some moves allow White to mate next turn. Choose a KING-SAFE move before captures, checks, development or castling."
+        "Choose one of the listed KING-SAFE moves: stop White's mate without sacrificing a queen or rook, ahead of checks, captures or development."
       )
     if (hasQueenRescueChoices)
       facts.push(
@@ -256,7 +256,7 @@ export function positiveSafetySummaries({
       facts.push(
         tacticalFocus
           ? "After king/queen safety, choose among MATERIAL-SAFE moves. Prefer captures or forcing gains over quiet moves or non-winning checks; avoid negative exchange nets."
-          : "After king/queen safety, choose among MATERIAL-SAFE moves and avoid negative exchange nets; otherwise castle or develop."
+          : "After king/queen safety, choose a listed MATERIAL-SAFE move. Keep threatened pieces defended before castling or development."
       )
   }
   return facts.length ? ["URGENT POSITION FACTS:", ...facts] : []
@@ -392,7 +392,7 @@ export function buildSharedPrompt({
   }).map((choice) => {
     let outcome = choice.outcome.replace(
       "WHITE CAN CHECKMATE NEXT TURN",
-      "DANGER TO BLACK: White can win on its next move"
+      "LOSS NEXT TURN: White mates Black"
     )
     const move = movesById.get(choice.id)
     if (!move) throw new Error("A legal card has no matching move.")
@@ -431,7 +431,7 @@ export function buildSharedPrompt({
       id: choice.id,
       notation: move.notation,
       label: moveChoiceLabel(move),
-      outcome: `${moveChoiceLabel(move)} | SAN ${move.notation} | ${outcome.slice(outcome.indexOf(" | ", choice.id.length + 3) + 3)}`
+      outcome: `${moveChoiceLabel(move)} | AFTER: ${outcome.slice(outcome.indexOf(" | ", choice.id.length + 3) + 3)}`
     }
   })
   const board = describePosition(game)
@@ -530,7 +530,7 @@ export function buildSharedPrompt({
     !wins.length &&
     moves.some((move) => (move.outcome.promotionReplies?.length ?? 0) > 0)
   const prompt = [
-    "Current position:",
+    "BOARD NOW:",
     ...(showOpening
       ? [
           "Central pawn pushes gain space and can free bishops or knights."
@@ -571,12 +571,12 @@ export function buildSharedPrompt({
     ...(wins.length
       ? [
           "AVAILABLE IMMEDIATE OPPORTUNITIES:",
-          `Black can WIN THIS TURN with: ${wins.join(", ")}.`
+          `Black can WIN THIS TURN with: ${wins.join(", ")}.${moves.some((move) => move.outcome.stalemate) ? " Choose a win; avoid STALEMATE (draw)." : ""}`
         ]
       : safeCaptures.length
         ? [
             "AVAILABLE IMMEDIATE OPPORTUNITIES:",
-            `Available captures with no immediate legal recapture of the moved piece: ${safeCaptures.map((move) => move.label).join("; ")}. Checked replies show no net material loss or White mate in one.`
+            `Prefer captures with no immediate legal recapture of the moved piece: ${safeCaptures.map((move) => move.label).join("; ")}. Checked replies show no net material loss or White mate in one.`
           ]
         : []),
   ].join("\n")

@@ -564,7 +564,7 @@ test("the normal game that exceeded the former character guard preserves its boa
     prompt
       .split("\n")
       .filter((line) =>
-        /^[^|]+ \| SAN [^|]+ \|/.test(line)
+        /^[^|]+ \| AFTER:/.test(line)
       )
       .map((line) => resolveActionLabel(moves, line.split(" | ")[0])),
     legalIds

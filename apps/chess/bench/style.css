@@ -549,3 +549,10 @@
     height: 44px;
   }
 }
+
+.benchmark-shell .batch-results { margin-block: 1.5rem; }
+.benchmark-shell .batch-models { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .75rem; }
+.benchmark-shell .batch-model { display: flex; flex-direction: column; align-items: flex-start; gap: .5rem; padding: 1rem; text-align: left; border: 1px solid var(--line, #d7dfe9); border-radius: .75rem; background: white; color: inherit; cursor: pointer; }
+.benchmark-shell .batch-model.selected { border-color: #5276a1; box-shadow: 0 0 0 1px #5276a1; }
+.benchmark-shell .batch-model small { overflow-wrap: anywhere; opacity: .75; }
+@media (max-width: 700px) { .benchmark-shell .batch-models { grid-template-columns: 1fr; } }

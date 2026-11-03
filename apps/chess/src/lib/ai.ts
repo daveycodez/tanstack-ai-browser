@@ -28,6 +28,8 @@ import type {
 export type { ModelStatus } from "@tanstack-ai-browser/webgl"
 
 export type AiMoveOptions = {
+  /** Manual WebGL sampling diagnostic; gameplay retains model defaults. */
+  webglTemperature?: number
   /** Manual diagnostic override; null omits the cap. Gameplay defaults to 512. */
   reasoningBudgetTokens?: 512 | 1024 | null
   /** Paired fixture order for manual benchmarks; normal gameplay uses a stable per-game order. */
@@ -220,7 +222,7 @@ export async function chooseAiMove(
                   }
                 : ("off" as const)
             }),
-            modelOptions: { maxTokens: 8192 }
+            modelOptions: { maxTokens: 8192, ...(options?.webglTemperature !== undefined && { temperature: options.webglTemperature }) }
           })
     generationSignal.throwIfAborted()
     const { move } = outputSchema.parse(answer)

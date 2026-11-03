@@ -61,7 +61,8 @@ export type BenchmarkReport = {
     /** null means no explicit thinking-token cap. */
     reasoningBudgetTokens: 512 | 1024 | null
     maxOutputTokens: 8192 | null
-    sampling: "model defaults"
+    sampling: "model defaults" | "temperature override"
+    webglTemperature?: number
     promptCache?: "default" | "none"
     timingComparable?: boolean
     timingConditions?: string

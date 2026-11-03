@@ -49,7 +49,7 @@ castles, the last eight individual moves, and every legal move with concise outc
 facts. FEN, full history, castling rights, en passant, and counters remain authoritative
 inside the rules engine; the model does not have to decode FEN.
 
-The active **shared-v25** prompt makes context relevant to the position. Tactical
+The active **shared-v46** prompt makes context relevant to the position. Tactical
 positions retain concrete dangers and opportunities without generic opening or
 endgame coaching. Quiet positions receive early-development advice, actual
 pawn-cover context, or simplified king-coordination facts when relevant.

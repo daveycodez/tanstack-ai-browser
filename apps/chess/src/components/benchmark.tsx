@@ -1,4 +1,4 @@
-import { memo, useEffect, useMemo, useRef, useState } from "react"
+import { memo, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react"
 import type { FormEvent, ReactNode } from "react"
 import { promptApiAvailability } from "@tanstack-ai-browser/prompt-api"
 import {
@@ -10,6 +10,8 @@ import type { OpponentModel } from "../lib/opponents"
 import { CASES } from "../../bench/cases"
 import { CACHE_REPLAY_CASES } from "../../bench/cache-replay"
 import { runBenchmark } from "../../bench/runner"
+import { runBenchmarkInFrame } from "../../bench/run-in-frame"
+import type { RuntimeOptions } from "../../bench/run-in-frame"
 import type {
   BenchmarkReport,
   BenchmarkResult,
@@ -102,6 +104,19 @@ function Detail({ title, children }: { title: string; children: ReactNode }) {
 
 type RunReasoning = { enabled: boolean; supported: boolean; mode: ReasoningMode }
 const EMPTY_REPORT = { results: [] }
+const subscribePlatform = () => () => undefined
+const macSnapshot = () => typeof navigator !== "undefined" && /Mac/.test(navigator.platform) && navigator.maxTouchPoints === 0
+const PARALLEL_MODELS = ["prompt-api", "LiquidAI/LFM3-1.7B-GGUF", "unsloth/Qwen3.5-2B-GGUF"] as const
+type BatchModel = typeof PARALLEL_MODELS[number]
+type BatchSlot = {
+  model: BatchModel
+  config: RuntimeOptions
+  results: BenchmarkResult[]
+  report?: BenchmarkReport
+  reasoning: RunReasoning
+  error?: string
+}
+type BatchState = Partial<Record<BatchModel, BatchSlot>>
 
 function LazyDetails({ summary, className, children }: {
   summary: string
@@ -116,9 +131,9 @@ function LazyDetails({ summary, className, children }: {
     </details>
   )
 }
-const ReportJson = memo(function ReportJson({ report }: { report: object }) {
+const ReportJson = memo(function ReportJson({ report, id = "benchmark-results-json" }: { report: object; id?: string }) {
   const json = useMemo(() => JSON.stringify(report, null, 2), [report])
-  return <pre id="benchmark-results-json">{json}</pre>
+  return <pre id={id}>{json}</pre>
 })
 
 const TrialRow = memo(function TrialRow({ result, runReasoning }: {
@@ -261,22 +276,45 @@ export function BenchmarkView() {
   const [repetitions, setRepetitions] = useState(2)
   const [disablePromptCache, setDisablePromptCache] = useState(false)
   const [otherGpuWorkload, setOtherGpuWorkload] = useState(false)
+  const [webglTemperature, setWebglTemperature] = useState<number>()
   const [reasoningBudgetTokens, setReasoningBudgetTokens] = useState<
     512 | 1024 | null
   >(512)
   const [running, setRunning] = useState(false)
-  const [results, setResults] = useState<BenchmarkResult[]>([])
-  const [report, setReport] = useState<BenchmarkReport>()
-  const [partialReport, setPartialReport] = useState<Record<string, unknown>>()
-  const [runReasoning, setRunReasoning] = useState<RunReasoning>({
+  const [singleResults, setResults] = useState<BenchmarkResult[]>([])
+  const [singleReport, setReport] = useState<BenchmarkReport>()
+  const [singlePartialReport, setPartialReport] = useState<Record<string, unknown>>()
+  const [singleRunReasoning, setRunReasoning] = useState<RunReasoning>({
     enabled: false,
     supported: true,
     mode: "off"
   })
-  const [status, setStatus] = useState(
+  const [singleStatus, setStatus] = useState(
     "Ready. Every model uses the same prompt and position facts."
   )
-  const [error, setError] = useState<string>()
+  const [singleError, setError] = useState<string>()
+  const parallelMac = useSyncExternalStore(subscribePlatform, macSnapshot, () => false)
+  const [batch, setBatch] = useState<BatchState>()
+  const [batchProgress, setBatchProgress] = useState<Partial<Record<BatchModel, string>>>({})
+  const [viewedModel, setViewedModel] = useState<BatchModel>("unsloth/Qwen3.5-2B-GGUF")
+  const activeBatch = batch?.[viewedModel]
+  const results = activeBatch ? activeBatch.results : singleResults
+  const report = activeBatch ? activeBatch.report : singleReport
+  const status = activeBatch ? batchProgress[viewedModel] ?? "Preparing model…" : singleStatus
+  const error = activeBatch ? activeBatch.error : singleError
+  const runReasoning = activeBatch ? activeBatch.reasoning : singleRunReasoning
+  const partialReport = useMemo(() => activeBatch ? {
+    partial: true, choiceIndexBase: 0, config: activeBatch.config, results: activeBatch.results
+  } : singlePartialReport, [activeBatch, singlePartialReport])
+  const batchReport = useMemo(() => batch ? {
+    schemaVersion: 1, mode: "mac-parallel", timingComparable: false,
+    reports: PARALLEL_MODELS.map(model => {
+      const slot = batch[model]
+      return { model, error: slot?.error, report: slot?.report ?? {
+        partial: true, choiceIndexBase: 0, config: slot?.config, results: slot?.results ?? []
+      } }
+    })
+  } : undefined, [batch])
   const controller = useRef<AbortController | undefined>(undefined)
   const mounted = useRef(true)
   const support = opponentOption(model).thinking
@@ -335,6 +373,7 @@ export function BenchmarkView() {
     if (controller.current || !event.currentTarget.reportValidity()) return
     const active = new AbortController()
     controller.current = active
+    setBatch(undefined)
     const startedAt = new Date().toISOString()
     const config = {
       model,
@@ -356,7 +395,8 @@ export function BenchmarkView() {
       caseIds: selectedCases.map((testCase) => testCase.id),
       reasoningBudgetTokens,
       maxOutputTokens: model === "prompt-api" ? null : 8192,
-      sampling: "model defaults"
+      sampling: model !== "prompt-api" && webglTemperature !== undefined ? "temperature override" : "model defaults",
+      ...(model !== "prompt-api" && webglTemperature !== undefined && { webglTemperature })
     }
     const completedResults: BenchmarkResult[] = []
     setRunning(true)
@@ -386,6 +426,7 @@ export function BenchmarkView() {
         movePresentation,
         moveOrderSeed,
         reasoningBudgetTokens,
+        webglTemperature,
         caseIds: config.caseIds,
         signal: active.signal,
         onResult: (result) => {
@@ -428,6 +469,70 @@ export function BenchmarkView() {
           "The run stopped after an error. Completed trials and available reasoning are printed below."
         )
       }
+    } finally {
+      if (controller.current === active) controller.current = undefined
+      if (mounted.current) setRunning(false)
+    }
+  }
+
+
+  async function startParallel() {
+    if (controller.current || !parallelMac || !promptAvailable) return
+    if (!Number.isInteger(repetitions) || repetitions < 1 || repetitions > 20 || !selectedCases.length) {
+      setError("Choose 1–20 repetitions and a valid position set.")
+      return
+    }
+    const active = new AbortController()
+    controller.current = active
+    const common = {
+      thinking, repetitions, disablePromptCache,
+      otherGpuWorkload: true, movePresentation, moveOrderSeed,
+      reasoningBudgetTokens, webglTemperature, caseIds: selectedCases.map(item => item.id)
+    }
+    const initial: BatchState = {}
+    for (const target of PARALLEL_MODELS) initial[target] = {
+      model: target, config: { ...common, model: target }, results: [],
+      reasoning: { enabled: thinking, supported: true,
+        mode: !thinking ? "off" : target === "prompt-api" ? "emulated-working-notes" : "native" }
+    }
+    setBatch(initial)
+    setViewedModel("unsloth/Qwen3.5-2B-GGUF")
+    setBatchProgress({})
+    setOtherGpuWorkload(true)
+    setError(undefined)
+    setRunning(true)
+    const update = (target: BatchModel, change: (slot: BatchSlot) => BatchSlot) => {
+      if (!mounted.current || controller.current !== active) return
+      setBatch(previous => {
+        const slot = previous?.[target]
+        return previous && slot ? { ...previous, [target]: change(slot) } : previous
+      })
+    }
+    const progress = (target: BatchModel, text: string) => {
+      if (mounted.current && controller.current === active)
+        setBatchProgress(previous => ({ ...previous, [target]: text }))
+    }
+    try {
+      await Promise.allSettled(PARALLEL_MODELS.map(async target => {
+        const options = {
+          ...common, model: target, signal: active.signal,
+          onResult: (result: BenchmarkResult) => update(target, slot => ({ ...slot, results: [...slot.results, result] })),
+          onProgress: (text: string) => { if (!active.signal.aborted) progress(target, text) }
+        }
+        try {
+          const completed = await (target === "prompt-api" ? runBenchmark(options) : runBenchmarkInFrame(options))
+          update(target, slot => ({ ...slot, report: completed, results: completed.results,
+            reasoning: { enabled: completed.config.thinking, supported: completed.config.reasoningSupported, mode: completed.config.reasoningMode } }))
+          progress(target, `${completed.partial ? "Stopped" : "Complete"}. ${completed.results.length} trials finished.`)
+        } catch (failure) {
+          if (active.signal.aborted) progress(target, "Stopped. Completed trials are preserved.")
+          else {
+            const message = failure instanceof Error ? failure.message : String(failure)
+            update(target, slot => ({ ...slot, error: message }))
+            progress(target, "Failed. Completed trials are preserved.")
+          }
+        }
+      }))
     } finally {
       if (controller.current === active) controller.current = undefined
       if (mounted.current) setRunning(false)
@@ -604,12 +709,23 @@ export function BenchmarkView() {
                 ))}
               </select>
             </label>
+            <label>
+              WebGL temperature (diagnostic)
+              <input type="number" min={0} max={2} step={0.05} placeholder="Model default"
+                value={webglTemperature ?? ""} onChange={event => setWebglTemperature(event.target.value === "" ? undefined : Number(event.target.value))} />
+            </label>
+            <p>Blank uses vendor defaults. This override applies to WebGL models; Prompt API keeps browser sampling.</p>
           </details>
         </fieldset>
         <div className="run-actions">
           <button className="button primary" type="submit" disabled={running}>
             Run benchmark
           </button>
+          {parallelMac && (
+            <button className="button" type="button" disabled={running || !promptAvailable} onClick={() => void startParallel()}>
+              Run all three (Mac parallel)
+            </button>
+          )}
           <button
             className="button"
             type="button"
@@ -629,6 +745,30 @@ export function BenchmarkView() {
           notes, according to the mode actually used.
         </p>
       </form>
+      {batch && (
+        <section className="batch-results" aria-label="Parallel model results">
+          <h2>Mac parallel evaluation</h2>
+          <p>One tab, identical prompts and cases. Select a model to inspect its results. Timings include concurrent GPU work.</p>
+          <div className="batch-models">
+            {PARALLEL_MODELS.map(target => {
+              const slot = batch[target]
+              if (!slot) return null
+              const scored = slot.results.filter(result => result.passed !== null)
+              const usage = slot.results.flatMap(result => typeof result.usage?.promptTokens === "number" ? [result.usage.promptTokens] : [])
+              return (
+                <button className={`batch-model${viewedModel === target ? " selected" : ""}`} type="button" key={target}
+                  aria-pressed={viewedModel === target} onClick={() => setViewedModel(target)}>
+                  <strong>{opponentOption(target).label}</strong>
+                  <span>{slot.results.filter(result => result.passed).length}/{scored.length} objectives · {slot.results.filter(result => result.legal).length}/{slot.results.length} legal</span>
+                  {usage.length > 0 && <span>{Math.round(usage.reduce((sum, count) => sum + count, 0) / usage.length)} average input tokens</span>}
+                  <small>{batchProgress[target] ?? "Preparing model…"}</small>
+                </button>
+              )
+            })}
+          </div>
+          <p>Showing {opponentOption(viewedModel).label}. Token counts are provider-reported; each model tokenizes the same text differently.</p>
+        </section>
+      )}
       <section className="run-status" aria-label="Run status">
         <span className={`status-dot${running ? " running" : ""}`} />
         <p role="status" aria-live="polite">
@@ -735,6 +875,13 @@ export function BenchmarkView() {
           {() => <ReportJson report={report ?? partialReport ?? EMPTY_REPORT} />}
         </LazyDetails>
       </section>
+      {batchReport && (
+        <section className="results-section">
+          <LazyDetails className="printed-report" summary="Full batch JSON">
+            {() => <ReportJson report={batchReport} id="benchmark-batch-results-json" />}
+          </LazyDetails>
+        </section>
+      )}
       <footer className="page-footer">
         Manual diagnostic · Not part of the automated test suite · No game data
         is read or written

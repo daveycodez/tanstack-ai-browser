@@ -15,6 +15,7 @@ export type BenchmarkOptions = {
   movePresentation?: "game" | "new-games" | "stress"
   moveOrderSeed?: string
   repetitions: number
+  webglTemperature?: number
   disablePromptCache?: boolean
   otherGpuWorkload?: boolean
   reasoningBudgetTokens?: 512 | 1024 | null
@@ -33,6 +34,8 @@ export async function runBenchmark(
     options.repetitions > 20
   )
     throw new RangeError("Repetitions must be 1–20.")
+  if (options.webglTemperature !== undefined && (!Number.isFinite(options.webglTemperature) || options.webglTemperature < 0 || options.webglTemperature > 2))
+    throw new RangeError("WebGL temperature must be between 0 and 2.")
   const reasoningBudgetTokens =
     options.reasoningBudgetTokens === undefined ? 512 : options.reasoningBudgetTokens
   if (
@@ -73,7 +76,8 @@ export async function runBenchmark(
           : "native",
       reasoningBudgetTokens,
       maxOutputTokens: opponent.model === "prompt-api" ? null : 8192,
-      sampling: "model defaults",
+      sampling: opponent.model !== "prompt-api" && options.webglTemperature !== undefined ? "temperature override" : "model defaults",
+      ...(opponent.model !== "prompt-api" && options.webglTemperature !== undefined && { webglTemperature: options.webglTemperature }),
       promptCache: options.disablePromptCache ? "none" : "default",
       timingComparable: !options.otherGpuWorkload,
       timingConditions: options.otherGpuWorkload ? "Other GPU workload active; timings are diagnostic only" : "No competing GPU workload declared",
@@ -156,6 +160,7 @@ export async function runBenchmark(
           },
           {
             reasoningBudgetTokens,
+            webglTemperature: options.webglTemperature,
             disablePromptCache: options.disablePromptCache,
             moveOrderSeed: options.movePresentation === "new-games"
               ? `${moveOrderSeed}:${repetition + 1}`

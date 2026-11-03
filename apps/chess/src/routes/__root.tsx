@@ -38,7 +38,7 @@ export const Route = createRootRoute({
 
 function RootContent() {
   const pathname = useLocation({ select: (location) => location.pathname })
-  if (pathname === "/bench" || pathname === "/bench/") return <Outlet />
+  if (pathname === "/bench" || pathname === "/bench/" || pathname === "/bench-runtime" || pathname === "/bench-runtime/") return <Outlet />
   return (
     <GameStorageProvider>
       <Outlet />
