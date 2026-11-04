@@ -95,10 +95,7 @@ test("the formerly short-horizon miss is judged by its proven terminal margin", 
 test("the Sol match regression replays from the actual opening and grades every terminal alternative", () => {
   const recorded = JSON.parse(
     readFileSync(
-      new URL(
-        "./fixtures/sol-game-review-2026-11-03/original-game.json",
-        import.meta.url
-      ),
+      new URL("./fixtures/sol-game-regression.json", import.meta.url),
       "utf8"
     )
   ) as {
@@ -153,10 +150,7 @@ test("the new draw-to-loss regression accepts only the independently proved draw
 test("both matched-run win-to-loss regressions replay from their actual openings and retain independent full-terminal grades", () => {
   const proofs = JSON.parse(
     readFileSync(
-      new URL(
-        "./fixtures/outcome-proof-2026-11-03/candidate-proofs.json",
-        import.meta.url
-      ),
+      new URL("./fixtures/matched-outcome-regressions.json", import.meta.url),
       "utf8"
     )
   ) as {

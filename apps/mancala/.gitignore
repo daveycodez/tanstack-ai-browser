@@ -11,3 +11,9 @@ dist
 !.env.template
 .dev.vars
 .dev.vars.*
+
+# Full benchmark captures stay local. Commit only reviewed regression inputs.
+/bench/artifacts/
+/bench/fixtures/*
+!/bench/fixtures/sol-game-regression.json
+!/bench/fixtures/matched-outcome-regressions.json
