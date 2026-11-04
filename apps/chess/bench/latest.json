@@ -1,0 +1,194 @@
+{
+  "schemaVersion": 2,
+  "experiment": "chess prompt compaction",
+  "date": "2026-11-04",
+  "baseRevision": "aedca34",
+  "before": "shared-v98-prefer-safe-captures",
+  "after": "shared-v99-concise",
+  "config": {
+    "thinking": false,
+    "sampling": "model defaults",
+    "cases": 39,
+    "repetitionsPerOrderCycle": 2,
+    "independentQualityCycles": 1,
+    "qualityOrder": "even cases before/after; odd cases after/before; identical action orders",
+    "qualityTimingComparable": false
+  },
+  "quality": [
+    {
+      "model": "LiquidAI/LFM3-1.7B-GGUF",
+      "before": {
+        "trials": 78,
+        "inferred": 78,
+        "legal": 78,
+        "scored": 42,
+        "passed": 41,
+        "meanInputTokens": 2161.230769230769
+      },
+      "after": {
+        "trials": 78,
+        "inferred": 78,
+        "legal": 78,
+        "scored": 42,
+        "passed": 41,
+        "meanInputTokens": 1703.4102564102564
+      },
+      "inputReductionPercent": 21.183323842065292,
+      "runIds": [
+        "5dbc410c-a2a9-4409-82a7-23fb52ecd472",
+        "6f4f8adc-b3b0-4da0-ae8f-42827b959cc0",
+        "2796907d-5b94-4a20-a90f-3f8d04d69f60",
+        "42c839ba-6ef0-4014-8875-e8cda90da831"
+      ]
+    },
+    {
+      "model": "prompt-api",
+      "before": {
+        "trials": 78,
+        "inferred": 78,
+        "legal": 78,
+        "scored": 42,
+        "passed": 41,
+        "meanInputTokens": 2049.9615384615386
+      },
+      "after": {
+        "trials": 78,
+        "inferred": 78,
+        "legal": 78,
+        "scored": 42,
+        "passed": 42,
+        "meanInputTokens": 1696.8333333333333
+      },
+      "inputReductionPercent": 17.226089294983648,
+      "runIds": [
+        "3ffa4f2e-4fa1-484f-b6ba-ac4bec356845",
+        "3e9e3a88-7242-45ed-94c6-158807dc5688",
+        "285c8df6-c3af-4de5-ad0b-c99c7d95b29a",
+        "1b2fdcd1-8aba-4009-8b03-8e38fb228268"
+      ]
+    },
+    {
+      "model": "unsloth/Qwen3.5-2B-GGUF",
+      "before": {
+        "trials": 78,
+        "inferred": 78,
+        "legal": 78,
+        "scored": 42,
+        "passed": 36,
+        "meanInputTokens": 2071.1153846153848
+      },
+      "after": {
+        "trials": 78,
+        "inferred": 78,
+        "legal": 78,
+        "scored": 42,
+        "passed": 38,
+        "meanInputTokens": 1690.6025641025642
+      },
+      "inputReductionPercent": 18.3723622227587,
+      "runIds": [
+        "a7dcb98a-636c-420a-b190-b855c336db8a",
+        "8e89eeae-cce9-4b6a-b318-e6432147f0a6",
+        "4fb8a7d8-cec5-44ba-94eb-e22eb0cc1f2e",
+        "f375f23e-f2a8-4f35-a51c-ce64186da618"
+      ]
+    }
+  ],
+  "serialReplay": {
+    "model": "LiquidAI/LFM3-1.7B-GGUF",
+    "positions": 7,
+    "sequence": "recorded opening",
+    "order": [
+      "shared-v98-prefer-safe-captures",
+      "shared-v99-concise",
+      "shared-v99-concise",
+      "shared-v98-prefer-safe-captures"
+    ],
+    "warmupCallsExcluded": 18,
+    "recordedCalls": 56,
+    "before": {
+      "meanInputTokens": 2112.714285714286,
+      "groups": {
+        "changed-position": {
+          "samples": 12,
+          "medianTotalMs": 826.4499999880791,
+          "meanTotalMs": 891.9749999940395,
+          "medianPromptMs": 664.3500000238419
+        },
+        "exact-repeat": {
+          "samples": 14,
+          "medianTotalMs": 171.5999999642372,
+          "meanTotalMs": 199.18571427038736,
+          "medianPromptMs": 4.300000011920929
+        },
+        "first-position": {
+          "samples": 2,
+          "medianTotalMs": 145.0999999642372,
+          "meanTotalMs": 145.0999999642372,
+          "medianPromptMs": 4.25
+        }
+      }
+    },
+    "after": {
+      "meanInputTokens": 1698.857142857143,
+      "groups": {
+        "changed-position": {
+          "samples": 12,
+          "medianTotalMs": 677.3000000119209,
+          "meanTotalMs": 738.5666666825613,
+          "medianPromptMs": 503.69999998807907
+        },
+        "exact-repeat": {
+          "samples": 14,
+          "medianTotalMs": 181.14999997615814,
+          "meanTotalMs": 201.69285713774818,
+          "medianPromptMs": 4.200000047683716
+        },
+        "first-position": {
+          "samples": 2,
+          "medianTotalMs": 134.3499999642372,
+          "meanTotalMs": 134.3499999642372,
+          "medianPromptMs": 4.550000011920929
+        }
+      }
+    },
+    "inputReductionPercent": 19.588883629724798,
+    "changedPositionMedianReductionPercent": 18.047068785565912
+  },
+  "sourceSha256": {
+    "apps/chess/src/lib/shared-prompt.ts": "6daf3d007d7d4efa548bb4a3edafe12f46a1c100b6deeed1dd43ceb1ff41eadd",
+    "apps/chess/src/lib/shared-prompt-v98.ts": "f5dd9ccc2198a154d43f3be177e7004a9aa796789789dd116995ed984b1a765b",
+    "apps/chess/src/lib/ai.ts": "a43c6b9c8182e2f521a751083f723e50dadb17b481d194c57cb251642252e4a9",
+    "apps/chess/bench/runner.ts": "f22feca8551d0fcee9b678e8388fd436ffde04068002735a77d7d0a5d1b4b05e",
+    "apps/chess/bench/prompt-comparison.ts": "f871f9d0ad105e75c4aee7abb8f466ec8fbd4cd222e9b7d7ce823796bc0e9997"
+  },
+  "notes": [
+    "One provider-independent prompt; every original legal label/order and all numeric outcome facts are preserved.",
+    "Case expectations, analysis algorithms, model selection, sampling, generation limits and adapters are unchanged.",
+    "Quality timings are concurrent and excluded from latency claims. Serial timing is warm and counterbalanced, not cold model loading or mobile performance.",
+    "Previously exposed holdouts are compatibility checks, not fresh unseen tests.",
+    "Raw reports, rejected candidate wordings and screenshots remain local artifacts.",
+    "Complete decoded piece lists and every FEN metadata field are retained. The redundant FEN placement encoding is removed only from model text; full FEN remains in game and audit records.",
+    "Repeated standard piece values are stated once in the system; dynamic nets, warnings, coordinates and counts remain per action.",
+    "Exact-repeat median was 171.6 to 181.1 ms in this sample; no exact-repeat speedup is claimed."
+  ],
+  "validation": {
+    "tests": 260,
+    "typecheck": "passed",
+    "lint": "passed with warnings",
+    "productionBuild": "passed",
+    "benchmarkAudit": "passed",
+    "recordedInputsReproduced": 468,
+    "defaultGameSmoke": {
+      "passed": true,
+      "model": "LiquidAI/LFM3-1.7B-GGUF",
+      "codeDefault": "shared-v99-concise",
+      "humanAction": "e2e4",
+      "opponentActions": [
+        "f7f6"
+      ],
+      "browserConsoleErrors": 0
+    },
+    "benchmarkTypecheck": "passed"
+  }
+}

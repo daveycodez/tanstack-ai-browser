@@ -1,1236 +1,195 @@
 {
-  "schemaVersion": 2,
-  "suiteVersion": "checkers-audited-v10",
-  "promptVersion": "shared-v13",
-  "outcomeVersion": "runner-replies-v4",
-  "execution": "Mac same-tab model parallelism, one persistent runtime per model",
+  "schemaVersion": 3,
+  "experiment": "Checkers prompt compaction",
+  "date": "2026-11-04",
+  "baseRevision": "aedca34",
+  "suiteVersion": "checkers-audited-v13",
+  "outcomeVersion": "checked-replies-v6",
+  "before": "shared-v18",
+  "after": "shared-v19",
+  "execution": "Chrome on Mac; three isolated model runtimes for quality; LFM3 alone for timing",
   "config": {
     "thinking": false,
     "sampling": "model defaults",
-    "repetitions": 1,
-    "humanColors": [
-      "white",
-      "black"
-    ],
-    "orderPolicy": "production per-game stable action priorities",
+    "qualityCases": 44,
+    "repetitions": 2,
+    "humanColor": "white",
+    "qualityOrder": "even cases before/after; odd cases after/before; identical seeded action orders",
     "promptCache": "long"
   },
-  "systemPromptTokens": {
-    "tokenizer": "production LFM3",
-    "previous": 358,
-    "current": 367
-  },
-  "systemPromptSha256": "f0fe01b7838099cb288610f3f4ae617338c37412d1993e64e54c58dd0aea180a",
-  "notes": [
-    "One fresh complete multi-model evaluation: 39 positions per human color, 27 scored and one forced per color.",
-    "Color fixtures are role-equivalent tactical recolorings; actual white-first openings and persistence are separately verified.",
-    "Timings include concurrent GPU work and are not comparable with earlier serial runs."
-  ],
-  "runs": [
-    {
-      "model": "apple-foundationmodel",
-      "label": "Apple-FoundationModel",
-      "runId": "37b757c4-0993-4387-b61e-94884270aa9a",
-      "startedAt": "2026-11-03T14:12:44.159Z",
-      "finishedAt": "2026-11-03T14:14:28.477Z",
-      "maxOutputTokens": 8192,
-      "summary": {
-        "total": 78,
-        "inferred": 76,
-        "legal": 78,
-        "scored": 54,
-        "passed": 54,
-        "firstOption": 27,
-        "medianSeconds": 1.234
-      },
-      "byHumanColor": {
-        "white": {
-          "total": 39,
-          "legal": 39,
-          "scored": 27,
-          "passed": 27
-        },
-        "black": {
-          "total": 39,
-          "legal": 39,
-          "scored": 27,
-          "passed": 27
-        }
-      },
-      "failures": []
-    },
-    {
-      "model": "LiquidAI/LFM2.5-1.2B-Instruct-GGUF",
-      "runId": "f57ba432-bd4e-4753-bef0-8cc923643b7a",
-      "startedAt": "2026-11-03T14:12:44.484Z",
-      "finishedAt": "2026-11-03T14:14:38.581Z",
-      "maxOutputTokens": 8192,
-      "summary": {
-        "total": 78,
-        "inferred": 76,
-        "legal": 78,
-        "scored": 54,
-        "passed": 54,
-        "firstOption": 21,
-        "medianSeconds": 1.488
-      },
-      "byHumanColor": {
-        "white": {
-          "total": 39,
-          "legal": 39,
-          "scored": 27,
-          "passed": 27
-        },
-        "black": {
-          "total": 39,
-          "legal": 39,
-          "scored": 27,
-          "passed": 27
-        }
-      },
-      "failures": []
-    },
-    {
-      "model": "LiquidAI/LFM2.5-350M-GGUF",
-      "runId": "9bb7ba9b-6c94-4f9a-99d8-430ce919d009",
-      "startedAt": "2026-11-03T14:12:44.487Z",
-      "finishedAt": "2026-11-03T14:14:24.315Z",
-      "maxOutputTokens": 8192,
-      "summary": {
-        "total": 78,
-        "inferred": 76,
-        "legal": 78,
-        "scored": 54,
-        "passed": 50,
-        "firstOption": 30,
-        "medianSeconds": 1.355
-      },
-      "byHumanColor": {
-        "white": {
-          "total": 39,
-          "legal": 39,
-          "scored": 27,
-          "passed": 25
-        },
-        "black": {
-          "total": 39,
-          "legal": 39,
-          "scored": 27,
-          "passed": 25
-        }
-      },
-      "failures": [
-        {
-          "caseId": "capture-king-value",
-          "humanColor": "white",
-          "moveId": "a3xc5",
-          "checkedNet": 1,
-          "bestAcceptedNet": 3
-        },
-        {
-          "caseId": "deny-red-promotion",
-          "humanColor": "white",
-          "moveId": "a5-b6",
-          "checkedNet": -3,
-          "bestAcceptedNet": 0
-        },
-        {
-          "caseId": "capture-king-value",
-          "humanColor": "black",
-          "moveId": "a3xc5",
-          "checkedNet": 1,
-          "bestAcceptedNet": 3
-        },
-        {
-          "caseId": "deny-red-promotion",
-          "humanColor": "black",
-          "moveId": "a5-b6",
-          "checkedNet": -3,
-          "bestAcceptedNet": 0
-        }
-      ]
-    },
+  "quality": [
     {
       "model": "LiquidAI/LFM3-1.7B-GGUF",
-      "runId": "da628e90-6f1b-42a7-b2bf-64c75282d68c",
-      "startedAt": "2026-11-03T14:12:44.505Z",
-      "finishedAt": "2026-11-03T14:15:00.106Z",
-      "maxOutputTokens": 8192,
-      "summary": {
-        "total": 78,
-        "inferred": 76,
-        "legal": 78,
-        "scored": 54,
-        "passed": 54,
-        "firstOption": 28,
-        "medianSeconds": 1.625
+      "before": {
+        "trials": 88,
+        "inferred": 86,
+        "legal": 88,
+        "scored": 64,
+        "passed": 59,
+        "meanInputTokens": 1257.6046511627908
       },
-      "byHumanColor": {
-        "white": {
-          "total": 39,
-          "legal": 39,
-          "scored": 27,
-          "passed": 27
-        },
-        "black": {
-          "total": 39,
-          "legal": 39,
-          "scored": 27,
-          "passed": 27
-        }
+      "after": {
+        "trials": 88,
+        "inferred": 86,
+        "legal": 88,
+        "scored": 64,
+        "passed": 59,
+        "meanInputTokens": 881
       },
-      "failures": []
+      "inputReductionPercent": 29.946187843260542,
+      "runIds": [
+        "33d02eb4-4cd4-4a61-8e7b-2d70d3e5d412",
+        "cc7755ee-3ddb-4455-9c84-3e5daa1fd296",
+        "bdc07d18-9609-4cf6-b469-b39ada63cc5f",
+        "7cad93d6-1ab9-424b-9fdc-ce0af064f04d"
+      ]
     },
     {
       "model": "prompt-api",
-      "runtimeModel": {
-        "id": "gemini-nano",
-        "name": "Gemini Nano",
-        "browser": "Chrome"
+      "before": {
+        "trials": 88,
+        "inferred": 86,
+        "legal": 88,
+        "scored": 64,
+        "passed": 59,
+        "meanInputTokens": 1232.8372093023256
       },
-      "runId": "fafda54f-aff7-409f-bac7-35d9731dc926",
-      "startedAt": "2026-11-03T14:12:44.160Z",
-      "finishedAt": "2026-11-03T14:15:05.134Z",
-      "maxOutputTokens": null,
-      "summary": {
-        "total": 78,
-        "inferred": 76,
-        "legal": 78,
-        "scored": 54,
-        "passed": 54,
-        "firstOption": 24,
-        "medianSeconds": 1.751
+      "after": {
+        "trials": 88,
+        "inferred": 86,
+        "legal": 88,
+        "scored": 64,
+        "passed": 59,
+        "meanInputTokens": 871.6744186046511
       },
-      "byHumanColor": {
-        "white": {
-          "total": 39,
-          "legal": 39,
-          "scored": 27,
-          "passed": 27
-        },
-        "black": {
-          "total": 39,
-          "legal": 39,
-          "scored": 27,
-          "passed": 27
-        }
-      },
-      "failures": []
+      "inputReductionPercent": 29.295253904776285,
+      "runIds": [
+        "031ca4da-62b1-404d-a8b8-4e4fc6b8eb0f",
+        "3b4ed0fb-4f68-4289-8896-47704b319c0f",
+        "1939b079-6256-475b-9474-43a0b34ac8df",
+        "47701d28-5623-46f6-aec0-d4406f1fe015"
+      ]
     },
     {
       "model": "unsloth/Qwen3.5-2B-GGUF",
-      "runId": "40d0f60d-cb7d-4969-919c-ce689a1e8e4d",
-      "startedAt": "2026-11-03T14:12:44.512Z",
-      "finishedAt": "2026-11-03T14:15:12.607Z",
-      "maxOutputTokens": 8192,
-      "summary": {
-        "total": 78,
-        "inferred": 76,
-        "legal": 78,
-        "scored": 54,
-        "passed": 53,
-        "firstOption": 25,
-        "medianSeconds": 1.998
+      "before": {
+        "trials": 88,
+        "inferred": 86,
+        "legal": 88,
+        "scored": 64,
+        "passed": 52,
+        "meanInputTokens": 1238.7209302325582
       },
-      "byHumanColor": {
-        "white": {
-          "total": 39,
-          "legal": 39,
-          "scored": 27,
-          "passed": 27
-        },
-        "black": {
-          "total": 39,
-          "legal": 39,
-          "scored": 27,
-          "passed": 26
-        }
+      "after": {
+        "trials": 88,
+        "inferred": 86,
+        "legal": 88,
+        "scored": 64,
+        "passed": 57,
+        "meanInputTokens": 875.9302325581396
       },
-      "failures": [
-        {
-          "caseId": "reported-smallest-loss-44",
-          "humanColor": "black",
-          "moveId": "f6-g5",
-          "checkedNet": -4,
-          "bestAcceptedNet": -1
-        }
+      "inputReductionPercent": 29.287524640946216,
+      "runIds": [
+        "814e9473-0a36-4ed7-9bf8-c22b464523f6",
+        "343401e9-b621-474d-8645-b96061338501",
+        "c5204c40-3072-41d6-9cd6-315b25ec69db",
+        "43be592f-418d-4f4c-ab7f-c71ae217404c"
       ]
     }
   ],
-  "standardEngineStudy": {
-    "protocol": "existing-engine-human-style-v1",
-    "runId": "e5a31459-4d38-45f0-871c-97a5439944a1",
-    "startedAt": "2026-11-03T22:27:52.544Z",
-    "finishedAt": "2026-11-03T22:29:13.810Z",
+  "replay": {
     "model": "LiquidAI/LFM3-1.7B-GGUF",
-    "suiteVersion": "checkers-audited-v11",
-    "standardEngine": {
-      "name": "Cake",
-      "repository": "https://github.com/martinfierz/cake",
-      "revision": "0221bfb2a625015c067e48825d6be3a6c28fa6d5",
-      "configuration": "Native fixed-depth search; official evaluation/pattern weights; opening book and external tablebases disabled",
-      "history": "Stock search receives its most recent 10 prior positions; application adjudicates final threefold repetition and 80-ply quiet-clock draws"
-    },
-    "promptVersion": "shared-v14",
-    "thinking": false,
-    "sampling": "model defaults",
-    "maxPlies": 120,
-    "blindReviewPlies": 40,
-    "partial": false,
-    "skill": {
-      "model": {
-        "passed": 27,
-        "total": 27
-      },
-      "cake": {
-        "passed": 27,
-        "total": 27
-      },
-      "matches": [
-        {
-          "id": "model:white:style-game-a",
-          "aiColor": "black",
-          "result": "human-won",
-          "plies": 53
+    "uniquePositions": 7,
+    "order": [
+      "shared-v18",
+      "shared-v19",
+      "shared-v19",
+      "shared-v18"
+    ],
+    "warmupCallsExcluded": 18,
+    "recordedCalls": 56,
+    "before": {
+      "version": "shared-v18",
+      "meanInputTokens": 1498.2857142857142,
+      "groups": {
+        "changed-turn": {
+          "samples": 12,
+          "medianTotalMs": 646.4500000476837,
+          "meanTotalMs": 645.4750000039736,
+          "medianPromptMs": 418.0499999523163
         },
-        {
-          "id": "model:white:style-game-b",
-          "aiColor": "black",
-          "result": "human-won",
-          "plies": 51
+        "exact-repeat": {
+          "samples": 14,
+          "medianTotalMs": 217.69999998807907,
+          "meanTotalMs": 229.20000000510896,
+          "medianPromptMs": 4.100000023841858
         },
-        {
-          "id": "model:black:style-game-a",
-          "aiColor": "white",
-          "result": "human-won",
-          "plies": 46
-        },
-        {
-          "id": "model:black:style-game-b",
-          "aiColor": "white",
-          "result": "human-won",
-          "plies": 58
+        "first-turn": {
+          "samples": 2,
+          "medianTotalMs": 211.30000007152557,
+          "meanTotalMs": 211.30000007152557,
+          "medianPromptMs": 5.949999988079071
         }
-      ]
-    },
-    "interpretation": "Actual existing non-LLM Cake engine versus the production LLM opponent. Style profiles are descriptive; human-like scores require explicit blinded human ratings. Match results measure this configuration, not Elo. Capped games are unresolved, not draws.",
-    "searchDepthRequested": 7,
-    "suiteDisagreements": [],
-    "correctedCases": [
-      {
-        "id": "reported-runner-guard-82",
-        "modelMove": "e1-f2",
-        "cakeMove": "b8-a7",
-        "modelPass": true,
-        "cakePass": true,
-        "inferred": true
-      },
-      {
-        "id": "promotion-not-at-any-cost",
-        "modelMove": "e5-f4",
-        "cakeMove": "e5-f4",
-        "modelPass": true,
-        "cakePass": true,
-        "inferred": true
-      },
-      {
-        "id": "deny-red-promotion",
-        "modelMove": "g7-f6",
-        "cakeMove": "a5-b4",
-        "modelPass": true,
-        "cakePass": true,
-        "inferred": true
       }
-    ],
-    "profiles": {
-      "model": {
-        "traces": 4,
-        "nonforcedDecisions": 76,
-        "quality": {
-          "scored": 76,
-          "unscored": 0,
-          "acceptable": 51,
-          "costly": 21,
-          "severe": 4
+    },
+    "after": {
+      "version": "shared-v19",
+      "meanInputTokens": 1025.142857142857,
+      "groups": {
+        "changed-turn": {
+          "samples": 12,
+          "medianTotalMs": 525.7999999523163,
+          "meanTotalMs": 513.8499999741713,
+          "medianPromptMs": 289.55000001192093
         },
-        "quietDecisions": 72,
-        "quietReversals": 0,
-        "promotions": 1,
-        "note": "Unequal game lengths and branching make these descriptive, not paired strength estimates."
-      },
-      "cake": {
-        "traces": 4,
-        "nonforcedDecisions": 218,
-        "quality": {
-          "scored": 218,
-          "unscored": 0,
-          "acceptable": 218,
-          "costly": 0,
-          "severe": 0
+        "exact-repeat": {
+          "samples": 14,
+          "medianTotalMs": 217.19999998807907,
+          "meanTotalMs": 229.1142857159887,
+          "medianPromptMs": 4.100000023841858
         },
-        "quietDecisions": 208,
-        "quietReversals": 24,
-        "promotions": 12,
-        "note": "Unequal game lengths and branching make these descriptive, not paired strength estimates."
+        "first-turn": {
+          "samples": 2,
+          "medianTotalMs": 209.45000004768372,
+          "meanTotalMs": 209.45000004768372,
+          "medianPromptMs": 4.050000011920929
+        }
       }
     },
-    "automatedAssessment": null,
-    "humanRatings": {
-      "count": 0,
-      "score": null
-    },
-    "notes": [
-      "Fresh Chrome evaluation with suite v11 and prompt v14; no regrading of an older run.",
-      "Earlier automated style ratings were for v13 and are not carried forward to these changed games.",
-      "Root runs describe the separately versioned broader multi-model quality evaluation."
-    ],
-    "suiteCorrection": {
-      "grading": "Rule-based acceptance of sound guard alternatives and compensated crowns; promotion case now requires preserving the pieces.",
-      "productionGuidance": "At equal checked exchange value, avoid a promotion that concedes more pieces than a quiet alternative. Replays existing verified lines; no deeper search.",
-      "changedPriorityCasesIn39Fixtures": [
-        "promotion-not-at-any-cost"
-      ],
-      "systemPromptCharacters": {
-        "before": 1795,
-        "after": 1761
-      }
-    }
+    "inputReductionPercent": 31.57894736842105,
+    "changedTurnMedianReductionPercent": 18.66346973261165
   },
-  "cakeDepthSweep": {
-    "protocol": "cake-native-depth-sweep-v1",
-    "model": "LiquidAI/LFM3-1.7B-GGUF",
-    "suiteVersion": "checkers-audited-v11",
-    "promptVersion": "shared-v14",
-    "thinking": false,
-    "sampling": "model defaults",
-    "depthOrder": [
-      1,
-      7,
-      3,
-      5
-    ],
-    "maxPlies": 240,
-    "seeds": [
-      "style-game-a",
-      "style-game-b"
-    ],
-    "humanColors": [
-      "white",
-      "black"
-    ],
-    "openingBook": false,
-    "tablebases": false,
-    "engine": {
-      "name": "Cake",
-      "repository": "https://github.com/martinfierz/cake",
-      "revision": "0221bfb2a625015c067e48825d6be3a6c28fa6d5",
-      "configuration": "Native fixed-depth search; official evaluation/pattern weights; opening book and external tablebases disabled",
-      "history": "Stock search receives its most recent 10 prior positions; application adjudicates final threefold repetition and 80-ply quiet-clock draws"
-    },
-    "execution": "Chrome on Mac; depth1 completed in the first WebGL document, then depths7/3/5 shared one persistent WebGL document and worker",
-    "infrastructure": {
-      "initializationFailuresOutsideGames": 1,
-      "completedDepthsPreserved": [
-        1
-      ],
-      "resumedDepths": [
-        7,
-        3,
-        5
-      ]
-    },
-    "results": [
-      {
-        "depth": 1,
-        "runId": "7cadfa44-709d-4e53-aa86-35a94565eacc",
-        "startedAt": "2026-11-03T22:36:00.375Z",
-        "finishedAt": "2026-11-03T22:37:33.938Z",
-        "games": 4,
-        "wins": 0,
-        "draws": 2,
-        "losses": 2,
-        "unresolved": 0,
-        "errors": 0,
-        "matches": [
-          {
-            "id": "model:white:style-game-a",
-            "aiColor": "black",
-            "result": "draw",
-            "plies": 67
-          },
-          {
-            "id": "model:white:style-game-b",
-            "aiColor": "black",
-            "result": "human-won",
-            "plies": 85
-          },
-          {
-            "id": "model:black:style-game-a",
-            "aiColor": "white",
-            "result": "draw",
-            "plies": 140
-          },
-          {
-            "id": "model:black:style-game-b",
-            "aiColor": "white",
-            "result": "human-won",
-            "plies": 50
-          }
-        ]
-      },
-      {
-        "depth": 3,
-        "runId": "de9d81f2-2aea-4340-a1ad-d34a1ef51883",
-        "startedAt": "2026-11-03T22:41:41.745Z",
-        "finishedAt": "2026-11-03T22:42:41.498Z",
-        "games": 4,
-        "wins": 0,
-        "draws": 0,
-        "losses": 4,
-        "unresolved": 0,
-        "errors": 0,
-        "matches": [
-          {
-            "id": "model:white:style-game-a",
-            "aiColor": "black",
-            "result": "human-won",
-            "plies": 69
-          },
-          {
-            "id": "model:white:style-game-b",
-            "aiColor": "black",
-            "result": "human-won",
-            "plies": 51
-          },
-          {
-            "id": "model:black:style-game-a",
-            "aiColor": "white",
-            "result": "human-won",
-            "plies": 48
-          },
-          {
-            "id": "model:black:style-game-b",
-            "aiColor": "white",
-            "result": "human-won",
-            "plies": 84
-          }
-        ]
-      },
-      {
-        "depth": 5,
-        "runId": "eb9cf9be-140d-4743-a66f-650c36201912",
-        "startedAt": "2026-11-03T22:42:41.502Z",
-        "finishedAt": "2026-11-03T22:43:49.065Z",
-        "games": 4,
-        "wins": 0,
-        "draws": 0,
-        "losses": 4,
-        "unresolved": 0,
-        "errors": 0,
-        "matches": [
-          {
-            "id": "model:white:style-game-a",
-            "aiColor": "black",
-            "result": "human-won",
-            "plies": 53
-          },
-          {
-            "id": "model:white:style-game-b",
-            "aiColor": "black",
-            "result": "human-won",
-            "plies": 91
-          },
-          {
-            "id": "model:black:style-game-a",
-            "aiColor": "white",
-            "result": "human-won",
-            "plies": 78
-          },
-          {
-            "id": "model:black:style-game-b",
-            "aiColor": "white",
-            "result": "human-won",
-            "plies": 58
-          }
-        ]
-      },
-      {
-        "depth": 7,
-        "runId": "551d0ff8-1266-41d4-8874-5b87dca519f8",
-        "startedAt": "2026-11-03T22:40:49.412Z",
-        "finishedAt": "2026-11-03T22:41:41.743Z",
-        "games": 4,
-        "wins": 0,
-        "draws": 0,
-        "losses": 4,
-        "unresolved": 0,
-        "errors": 0,
-        "matches": [
-          {
-            "id": "model:white:style-game-a",
-            "aiColor": "black",
-            "result": "human-won",
-            "plies": 53
-          },
-          {
-            "id": "model:white:style-game-b",
-            "aiColor": "black",
-            "result": "human-won",
-            "plies": 51
-          },
-          {
-            "id": "model:black:style-game-a",
-            "aiColor": "white",
-            "result": "human-won",
-            "plies": 46
-          },
-          {
-            "id": "model:black:style-game-b",
-            "aiColor": "white",
-            "result": "human-won",
-            "plies": 58
-          }
-        ]
-      }
-    ],
-    "total": {
-      "games": 16,
-      "wins": 0,
-      "draws": 2,
-      "losses": 14,
-      "unresolved": 0,
-      "errors": 0
-    },
-    "interpretation": "No observed LFM3 wins at any tested native depth. Depth1 yielded two actual threefold-repetition draws, not horizon draws. Four games per depth do not establish that a future win is impossible. No calibrated human Elo or population win-rate data was found for these specific Cake settings; no human percentile assigned.",
-    "humanCalibration": {
-      "rating": null,
-      "populationWinRate": null,
-      "reference": "https://github.com/eygilbert/CheckerBoard/blob/master/help.htm",
-      "note": "CheckerBoard documentation describes Cake as strong even at low levels, but supplies no population calibration for this native depth configuration."
-    }
+  "sourceSha256": {
+    "apps/checkers/src/lib/shared-prompt.ts": "12756dac55e4d5d717ac6fb53d287568cbfa1aa258b83d1c3429f67204938549",
+    "apps/checkers/src/lib/concise-prompt.ts": "80fd8aa4549b4515e772245bfd6791f29091c2d9c8a1520be27d12ac2d273083",
+    "apps/checkers/bench/prompt-comparison.ts": "a75ce534f91d3e7bb785cb178a11c2336daf27c075453307bf5f7a6402b19c72",
+    "apps/checkers/src/lib/move-outcomes.ts": "5088452ac6f7d6f4ae75006e6e3a6fa64d5316f170f14e01f8e618dcbf20240f"
   },
-  "cake1Improvement": {
-    "protocol": "cake1-case-improvement-v1",
-    "promptVersion": "shared-v17",
-    "outcomeVersion": "checked-replies-v6",
-    "suiteVersion": "checkers-audited-v13",
-    "settings": {
-      "model": "LiquidAI/LFM3-1.7B-GGUF",
-      "prompt": "shared-v17",
-      "suite": "checkers-audited-v13",
+  "notes": [
+    "All accepted sets, outcome search, legal labels/order, schema, sampling and generation settings are unchanged. No recommended moves are added.",
+    "All 528 recorded quality inputs were reproduced byte for byte after cleanup and default activation; 264 before/after pairs had identical action order and scoring.",
+    "516 inferred decisions and 12 forced turns were legal, with zero generation errors.",
+    "Earlier candidate wordings were rejected for tactical regressions; only the accepted final comparison is summarized here.",
+    "Six historical holdouts are compatibility checks, not fresh unseen evidence.",
+    "Input savings depend on position and tokenizer; suite-wide native means are about 29-30%, while the fixed seven-position real-game replay averages 31.6%.",
+    "Quality runs used concurrent models and their latency is not used for speed claims. Timing is a warm serial replay, not a cold-load or whole-game benchmark.",
+    "The first timing sample in each block follows an excluded warm-up at that position. Changed turns and exact retries are reported separately.",
+    "Raw reports are local artifacts and are not tracked."
+  ],
+  "validation": {
+    "tests": 255,
+    "typecheck": "passed",
+    "lint": "passed; 12 existing warnings",
+    "benchmarkAudit": "passed",
+    "productionBuild": "passed",
+    "recordedInputsReproduced": 528,
+    "matchedActionOrderAndScoringPairs": 264,
+    "defaultGameSmoke": {
+      "humanMove": "a3-b4",
+      "aiMove": "d6-c5",
+      "promptVersion": "shared-v19",
       "thinking": false,
-      "sampling": "model defaults",
-      "cakeDepth": 1,
-      "maxPlies": 240
-    },
-    "calibration": {
-      "promptVersion": "shared-v14",
-      "runId": "0bf4dfc9-c831-45db-b14a-845980efd701",
-      "games": 3,
-      "wins": 0,
-      "draws": 2,
-      "losses": 1,
-      "matches": [
-        {
-          "id": "model:black:cake1-calibration-1",
-          "aiColor": "white",
-          "result": "draw",
-          "plies": 102
-        },
-        {
-          "id": "model:white:cake1-calibration-2",
-          "aiColor": "black",
-          "result": "draw",
-          "plies": 96
-        },
-        {
-          "id": "model:black:cake1-calibration-3",
-          "aiColor": "white",
-          "result": "human-won",
-          "plies": 118
-        }
-      ]
-    },
-    "firstValidation": {
-      "promptVersion": "shared-v15",
-      "runId": "77a5bac5-9c77-499c-9a75-30eb1ec7253d",
-      "games": 3,
-      "wins": 0,
-      "draws": 1,
-      "losses": 2,
-      "matches": [
-        {
-          "id": "model:white:cake1-validation-1",
-          "aiColor": "black",
-          "result": "human-won",
-          "plies": 111
-        },
-        {
-          "id": "model:black:cake1-validation-2",
-          "aiColor": "white",
-          "result": "human-won",
-          "plies": 58
-        },
-        {
-          "id": "model:white:cake1-validation-3",
-          "aiColor": "black",
-          "result": "draw",
-          "plies": 80
-        }
-      ]
-    },
-    "confirmationPilot": {
-      "promptVersion": "shared-v16",
-      "runId": "543e7406-cb77-4cba-a24d-b94252f210a4",
-      "games": 3,
-      "wins": 1,
-      "draws": 1,
-      "losses": 1,
-      "matches": [
-        {
-          "id": "model:black:cake1-confirmation-1",
-          "aiColor": "white",
-          "result": "human-won",
-          "plies": 88
-        },
-        {
-          "id": "model:white:cake1-confirmation-2",
-          "aiColor": "black",
-          "result": "ai-won",
-          "plies": 102
-        },
-        {
-          "id": "model:black:cake1-confirmation-3",
-          "aiColor": "white",
-          "result": "draw",
-          "plies": 119
-        }
-      ]
-    },
-    "extendedTwelve": {
-      "verified": true,
-      "rounds": [
-        {
-          "round": 1,
-          "first": "LFM3",
-          "second": "Cake",
-          "winner": "Cake",
-          "result": "human-won",
-          "plies": 84,
-          "aiColor": "white"
-        },
-        {
-          "round": 2,
-          "first": "Cake",
-          "second": "LFM3",
-          "winner": null,
-          "result": "draw",
-          "plies": 97,
-          "aiColor": "black"
-        },
-        {
-          "round": 3,
-          "first": "LFM3",
-          "second": "Cake",
-          "winner": null,
-          "result": "draw",
-          "plies": 163,
-          "aiColor": "white"
-        },
-        {
-          "round": 4,
-          "first": "Cake",
-          "second": "LFM3",
-          "winner": "Cake",
-          "result": "human-won",
-          "plies": 79,
-          "aiColor": "black"
-        },
-        {
-          "round": 5,
-          "first": "LFM3",
-          "second": "Cake",
-          "winner": null,
-          "result": "draw",
-          "plies": 78,
-          "aiColor": "white"
-        },
-        {
-          "round": 6,
-          "first": "Cake",
-          "second": "LFM3",
-          "winner": null,
-          "result": "draw",
-          "plies": 92,
-          "aiColor": "black"
-        },
-        {
-          "round": 7,
-          "first": "LFM3",
-          "second": "Cake",
-          "winner": "Cake",
-          "result": "human-won",
-          "plies": 48,
-          "aiColor": "white"
-        },
-        {
-          "round": 8,
-          "first": "Cake",
-          "second": "LFM3",
-          "winner": null,
-          "result": "draw",
-          "plies": 121,
-          "aiColor": "black"
-        },
-        {
-          "round": 9,
-          "first": "LFM3",
-          "second": "Cake",
-          "winner": "Cake",
-          "result": "human-won",
-          "plies": 112,
-          "aiColor": "white"
-        },
-        {
-          "round": 10,
-          "first": "Cake",
-          "second": "LFM3",
-          "winner": null,
-          "result": "draw",
-          "plies": 110,
-          "aiColor": "black"
-        },
-        {
-          "round": 11,
-          "first": "LFM3",
-          "second": "Cake",
-          "winner": null,
-          "result": "draw",
-          "plies": 134,
-          "aiColor": "white"
-        },
-        {
-          "round": 12,
-          "first": "Cake",
-          "second": "LFM3",
-          "winner": null,
-          "result": "draw",
-          "plies": 124,
-          "aiColor": "black"
-        }
-      ],
-      "players": {
-        "LFM3": {
-          "first": {
-            "games": 6,
-            "wins": 0,
-            "draws": 3,
-            "losses": 3,
-            "unresolved": 0,
-            "errors": 0
-          },
-          "second": {
-            "games": 6,
-            "wins": 0,
-            "draws": 5,
-            "losses": 1,
-            "unresolved": 0,
-            "errors": 0
-          }
-        },
-        "Cake": {
-          "first": {
-            "games": 6,
-            "wins": 1,
-            "draws": 5,
-            "losses": 0,
-            "unresolved": 0,
-            "errors": 0
-          },
-          "second": {
-            "games": 6,
-            "wins": 3,
-            "draws": 3,
-            "losses": 0,
-            "unresolved": 0,
-            "errors": 0
-          }
-        }
-      },
-      "firstMoverWins": 1,
-      "secondMoverWins": 3,
-      "draws": 8,
-      "promptsVerified": 540,
-      "cakeRepliesRequeried": 523,
-      "settings": {
-        "model": "LiquidAI/LFM3-1.7B-GGUF",
-        "prompt": "shared-v16",
-        "suite": "checkers-audited-v12",
-        "thinking": false,
-        "sampling": "model defaults",
-        "cakeDepth": 1,
-        "maxPlies": 240
-      },
-      "pilotExcluded": true
-    },
-    "newCases": [
-      {
-        "id": "cake1-recapture-bait",
-        "badMove": "h6-g5",
-        "failure": "An apparently even recapture hides a quiet bait and forced double jump.",
-        "witness": [
-          "b4xd6",
-          "c7xe5",
-          "g3-f4",
-          "e5xg3",
-          "h2xf4xh6"
-        ]
-      },
-      {
-        "id": "cake1-finish-lone-king",
-        "badMove": "e3-f4",
-        "preferredMove": "e3-d4",
-        "failure": "Missed exact finish within four own turns in one/two pieces versus one."
-      },
-      {
-        "id": "cake1-dont-offer-draw-ahead",
-        "badMove": "g3-f2",
-        "failure": "Offered the opponent an immediate third-repetition claim while ahead with safe continuations."
-      }
-    ],
-    "terminalSafetyRegression": {
-      "badMove": "e3-f2",
-      "failure": "Material-preferred recapture blocks all surviving pieces; status now outranks material.",
-      "witness": [
-        "c5xe3",
-        "f4xd2",
-        "h2xf4xh6"
-      ]
-    },
-    "quality": [
-      {
-        "model": "LiquidAI/LFM3-1.7B-GGUF",
-        "summary": {
-          "total": 44,
-          "inferred": 43,
-          "legal": 44,
-          "scored": 32,
-          "passed": 32,
-          "firstOption": 16,
-          "medianSeconds": 2.3045999999046325
-        },
-        "failures": []
-      },
-      {
-        "model": "prompt-api",
-        "summary": {
-          "total": 44,
-          "inferred": 43,
-          "legal": 44,
-          "scored": 32,
-          "passed": 32,
-          "firstOption": 16,
-          "medianSeconds": 3.349
-        },
-        "failures": []
-      },
-      {
-        "model": "unsloth/Qwen3.5-2B-GGUF",
-        "summary": {
-          "total": 44,
-          "inferred": 43,
-          "legal": 44,
-          "scored": 32,
-          "passed": 32,
-          "firstOption": 15,
-          "medianSeconds": 0.6793999999761582
-        },
-        "failures": []
-      }
-    ],
-    "nativeCake7Tactics": {
-      "passed": 32,
-      "total": 32
-    },
-    "systemPromptCharacters": {
-      "before": 1761,
-      "after": 1756
-    },
-    "tests": 246,
-    "goalAssessment": "Fresh updated12-game batch produced3wins4losses5draws, compared with0wins4losses8draws in preceding frozen batch. Occasional wins demonstrated (25% observed), not proof of a stable one-in-three rate. User accepted the observed balance.",
-    "rawArtifacts": "Outside Git; only latest compact summary retained.",
-    "previousV16Overall": {
-      "games": 15,
-      "wins": 1,
-      "draws": 9,
-      "losses": 5
-    },
-    "previousQualityV16": [
-      {
-        "model": "LiquidAI/LFM3-1.7B-GGUF",
-        "summary": {
-          "total": 42,
-          "inferred": 41,
-          "legal": 42,
-          "scored": 30,
-          "passed": 30,
-          "firstOption": 17,
-          "medianSeconds": 0.5480999999046325
-        },
-        "failures": []
-      },
-      {
-        "model": "prompt-api",
-        "summary": {
-          "total": 42,
-          "inferred": 41,
-          "legal": 42,
-          "scored": 30,
-          "passed": 30,
-          "firstOption": 15,
-          "medianSeconds": 0.8758999999761582
-        },
-        "failures": []
-      },
-      {
-        "model": "unsloth/Qwen3.5-2B-GGUF",
-        "summary": {
-          "total": 42,
-          "inferred": 41,
-          "legal": 42,
-          "scored": 30,
-          "passed": 29,
-          "firstOption": 13,
-          "medianSeconds": 0.6998999999761581
-        },
-        "failures": [
-          {
-            "id": "promotion-unseen",
-            "chosen": "b2-a1",
-            "expected": [
-              "b6-a5",
-              "b6-c5",
-              "b4-a5",
-              "b4-c5",
-              "b4-a3",
-              "b2-c1"
-            ]
-          }
-        ]
-      }
-    ],
-    "retestTwelve": {
-      "verified": true,
-      "rounds": [
-        {
-          "round": 1,
-          "first": "LFM3",
-          "second": "Cake",
-          "winner": "Cake",
-          "result": "human-won",
-          "plies": 86,
-          "aiColor": "white"
-        },
-        {
-          "round": 2,
-          "first": "Cake",
-          "second": "LFM3",
-          "winner": "LFM3",
-          "result": "ai-won",
-          "plies": 50,
-          "aiColor": "black"
-        },
-        {
-          "round": 3,
-          "first": "LFM3",
-          "second": "Cake",
-          "winner": "LFM3",
-          "result": "ai-won",
-          "plies": 127,
-          "aiColor": "white"
-        },
-        {
-          "round": 4,
-          "first": "Cake",
-          "second": "LFM3",
-          "winner": null,
-          "result": "draw",
-          "plies": 210,
-          "aiColor": "black"
-        },
-        {
-          "round": 5,
-          "first": "LFM3",
-          "second": "Cake",
-          "winner": null,
-          "result": "draw",
-          "plies": 148,
-          "aiColor": "white"
-        },
-        {
-          "round": 6,
-          "first": "Cake",
-          "second": "LFM3",
-          "winner": "LFM3",
-          "result": "ai-won",
-          "plies": 54,
-          "aiColor": "black"
-        },
-        {
-          "round": 7,
-          "first": "LFM3",
-          "second": "Cake",
-          "winner": null,
-          "result": "draw",
-          "plies": 131,
-          "aiColor": "white"
-        },
-        {
-          "round": 8,
-          "first": "Cake",
-          "second": "LFM3",
-          "winner": "Cake",
-          "result": "human-won",
-          "plies": 143,
-          "aiColor": "black"
-        },
-        {
-          "round": 9,
-          "first": "LFM3",
-          "second": "Cake",
-          "winner": "Cake",
-          "result": "human-won",
-          "plies": 68,
-          "aiColor": "white"
-        },
-        {
-          "round": 10,
-          "first": "Cake",
-          "second": "LFM3",
-          "winner": null,
-          "result": "draw",
-          "plies": 208,
-          "aiColor": "black"
-        },
-        {
-          "round": 11,
-          "first": "LFM3",
-          "second": "Cake",
-          "winner": "Cake",
-          "result": "human-won",
-          "plies": 100,
-          "aiColor": "white"
-        },
-        {
-          "round": 12,
-          "first": "Cake",
-          "second": "LFM3",
-          "winner": null,
-          "result": "draw",
-          "plies": 145,
-          "aiColor": "black"
-        }
-      ],
-      "players": {
-        "LFM3": {
-          "first": {
-            "games": 6,
-            "wins": 1,
-            "draws": 2,
-            "losses": 3,
-            "unresolved": 0,
-            "errors": 0
-          },
-          "second": {
-            "games": 6,
-            "wins": 2,
-            "draws": 3,
-            "losses": 1,
-            "unresolved": 0,
-            "errors": 0
-          }
-        },
-        "Cake": {
-          "first": {
-            "games": 6,
-            "wins": 1,
-            "draws": 3,
-            "losses": 2,
-            "unresolved": 0,
-            "errors": 0
-          },
-          "second": {
-            "games": 6,
-            "wins": 3,
-            "draws": 2,
-            "losses": 1,
-            "unresolved": 0,
-            "errors": 0
-          }
-        }
-      },
-      "firstMoverWins": 2,
-      "secondMoverWins": 5,
-      "draws": 5,
-      "promptsVerified": 656,
-      "cakeRepliesRequeried": 653,
-      "settings": {
-        "model": "LiquidAI/LFM3-1.7B-GGUF",
-        "prompt": "shared-v17",
-        "suite": "checkers-audited-v13",
-        "thinking": false,
-        "sampling": "model defaults",
-        "cakeDepth": 1,
-        "maxPlies": 240
-      },
-      "pilotExcluded": true
-    },
-    "newRoundCases": [
-      {
-        "id": "cake1-limit-double-jump-exposure",
-        "sourceRounds": [
-          4,
-          6,
-          8
-        ],
-        "badMove": "e7-f6",
-        "why": "Same checked return of -1, but gives away two pieces instead of one; old future-recapture bonus made it the sole recommendation.",
-        "correction": "Only when level/behind, quiet and nonpromoting choices with tied returns prefer lower immediate capture exposure."
-      },
-      {
-        "id": "cake1-keep-checked-lead-over-draw",
-        "sourceRound": 5,
-        "sourcePly": 77,
-        "badMove": "e3-f4",
-        "why": "Allowed an immediate repetition claim because every live continuation cost1, despite checked balance remaining positive.",
-        "preferred": [
-          "f2-e1",
-          "f2-g1"
-        ],
-        "correction": "Ahead draw avoidance permits a checked cost if a positive lead and live safe continuation remain."
-      }
-    ],
-    "liveScoreReporting": "Every strength-study progress update includes actual W-L-D, with per-game completion updates; self-play controls, errors and unfinished games are not counted as W/L/D.",
-    "coreFreezeSha256": {
-      "src/lib/shared-prompt.ts": "e8634824041c6c882b64fa59fb50d84c02bbe72bf6a06de6ee886f43f239aa4b",
-      "src/lib/move-outcomes.ts": "6fc57b552a0289c23796f2c82e2334480a423af73f01c5e15a12ece3a0d2adf1",
-      "src/lib/endgame-finishes.ts": "f964b6f83a6cf543824d5e21d84ad801caa7dfc4574e11afab1aee0b30fec962",
-      "bench/cases.ts": "d9ab6a088bc6595dea6555bb6933949a66994d170f3223f9aba9d1e790a37c43",
-      "bench/cake1-regressions.ts": "433215914c452ab03d18099f5944bb8b9270611c2a0567850d52e412365e82a8",
-      "bench/cake1-round-regressions.ts": "3e098f7e9ae383f93a3015ee335dfab28fd5acb4fb5d80b9e90c77f2bef05c54"
-    },
-    "currentFrozenOverall": {
-      "games": 12,
-      "wins": 3,
-      "losses": 4,
-      "draws": 5
-    },
-    "checks": {
-      "tests": 246,
-      "typecheck": "passed",
-      "lint": "passed",
-      "build": "passed",
-      "independentAudit": "passed"
+      "browserConsoleErrors": 0
     }
   }
 }

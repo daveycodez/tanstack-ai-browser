@@ -52,10 +52,12 @@ WebGL's total generation
 ceiling is 8,192 tokens; Prompt API's browser-managed final-output limit is recorded
 as `null`. These are different capabilities.
 
-Every model receives the same **shared-v98-prefer-safe-captures** system and user assembly, standard
+Every model receives the same **shared-v99-concise** system and user assembly, standard
 piece values and model-default sampling. Ownership is phrased as **you/opponent**;
 **light/dark** identifies piece color for either assignment. The model receives complete
-decoded piece lists and FEN audit data.
+decoded piece lists and FEN state metadata; full FEN remains in game/audit records.
+See [the v98/v99 compaction comparison](PROMPT-COMPACTION.md) and [latest aggregates](latest.json) for native token counts, unchanged-suite scores, and serial timings.
+
 The optional **WebGL temperature** control
 is a manual sampling diagnostic; it leaves the shared prompt and ordinary gameplay
 defaults unchanged. Native Prompt API retains browser sampling. There are no active profile, context,

@@ -14,8 +14,8 @@ it never automatically downloads files. Builds, prerendering and tests do not ca
 
 ## Cases and grading
 
-The current audited v10 suite contains 39 positions: 33 calibration cases (22 scored, 11 diagnostics)
-and 6 historical holdouts (5 scored, 1 diagnostic). At two repetitions that is 66 calibration trials or 12 held-out
+The current audited v13 suite contains 44 positions: 38 calibration cases (27 scored, 11 diagnostics)
+and 6 historical holdouts (5 scored, 1 diagnostic). At two repetitions that is 76 calibration trials or 12 held-out
 trials per model. One diagnostic has only a single legal move; those forced turns bypass
 the model and are excluded from model-strength pass counts and decision-time medians.
 
@@ -43,7 +43,7 @@ Original raw v1 reports remain intact; the audit explains the corrected grading.
 ## Shared production path
 
 The runner calls `chooseAiMove`, exactly as the game does, with instrumentation callbacks.
-The original baseline (`baseline-v1`) is preserved unchanged. The current `shared-v18`
+The original baseline (`baseline-v1`) is preserved unchanged. The current `shared-v19`
 contract uses descriptive actions such as `Jump king d2 over c3 to b4`. Every legal action
 remains in the enum; neither card order nor a hidden fallback selects a move for the model.
 
@@ -52,7 +52,13 @@ summary, and the system instruction to follow that shortlist. Board/history, eve
 legal action and its label/order, all other tactical facts, lookahead, schema, and
 sampling remain unchanged from `shared-v17`. Version 17 stays selectable for A/B
 comparisons. Earlier measured model scores describe their recorded prompt versions;
-no new model-strength result is claimed for version 18.
+version 18 remains the reproducible before comparison.
+
+`shared-v19` shortens instructions, conditional definitions, repeated warning clauses,
+and move-card descriptions. It preserves the complete board/history, legal labels/order,
+explicit net points and zeroes, exchange witness lines, and the existing outcome search.
+See [the compaction benchmark](PROMPT-COMPACTION.md) for native before/after token counts,
+tactical results and counterbalanced serial timing. No recommendations are reintroduced.
 
 Move outcomes enumerate the candidate, every legal Red reply (including complete
 multi-jumps), and each immediate Black response. Man=1 and king=2 are transparent rough

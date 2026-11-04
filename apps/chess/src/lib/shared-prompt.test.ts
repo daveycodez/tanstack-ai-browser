@@ -16,8 +16,8 @@ import {
   systemPromptFor,
   SHARED_SYSTEM_PROMPT,
   positiveSafetySummaries as rawSafetySummaries
-} from "./shared-prompt.ts"
-import type { SharedPromptInput } from "./shared-prompt.ts"
+} from "./shared-prompt-v98.ts"
+import type { SharedPromptInput } from "./shared-prompt-v98.ts"
 import { describeMoveChoice as moveChoiceLabel, moveChoiceLabel as modelMoveChoiceLabel } from "./move-choice.ts"
 
 // Preserve the independent historical fact assertions across label formatting.

@@ -564,7 +564,7 @@ test("the normal game that exceeded the former character guard preserves its boa
     prompt
       .split("\n")
       .filter((line) =>
-        /^[^|]+ \| [^|]+ \| AFTER:/.test(line)
+        choices.some(choice => line.startsWith(choice.label + " | "))
       )
       .map((line) => resolveActionLabel(moves, line.split(" | ")[0])),
     legalIds
@@ -662,7 +662,7 @@ test("the first observed missed bishop is a clean capture before the quiet pawn 
     moves,
     currentThreats: currentThreats(game)
   }).choices.find((choice) => choice.id === capture.id)
-  assert.ok(card?.outcome.includes("CAPTURES bishop (3)"))
+  assert.ok(card?.outcome.includes("CAPTURES bishop"))
 })
 
 test("two plies later capturing the bishop would leave the queen lost, so Qxa4 is a valid rescue", () => {
@@ -767,7 +767,7 @@ test("the latest observed Nxf5 permits both a direct recapture and a safe forcin
     moves,
     currentThreats: currentThreats(game)
   }).choices.find((choice) => choice.id === "c5f5")
-  assert.ok(card?.outcome.includes("CAPTURES knight (3)"))
+  assert.ok(card?.outcome.includes("CAPTURES knight"))
   const forcing = new Chess(game.fen)
   forcing.move({ from: "c5", to: "f2" })
   assert.equal(forcing.isCheck(), true)

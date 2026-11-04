@@ -1,6 +1,6 @@
 import assert from "node:assert/strict"
 import test from "node:test"
-import { buildMovePrompt, PROMPT_VERSIONS, SHARED_PROMPT_VERSION } from "./shared-prompt.ts"
+import { buildMovePrompt, PROMPT_VERSIONS, SHARED_PROMPT_VERSION } from "./shared-prompt-v16.ts"
 import { buildMovePrompt as buildV15 } from "./shared-prompt-v15.ts"
 import { CASES, gameForCase } from "../../bench/cases.ts"
 import { createEndgameTieRequest } from "./endgame-ties.ts"

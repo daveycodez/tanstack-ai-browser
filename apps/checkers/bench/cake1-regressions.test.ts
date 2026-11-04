@@ -42,7 +42,7 @@ test('ahead draw policy includes the opponent reply without excluding all other 
   assert.ok(!current.includes('g3-f2')); assert.ok(!current.includes('g3-f4')); assert.ok(current.length > 0)
   assert.ok(checkedPriorityChoices(game, moves, true, false).some(m => m.id === 'g3-f2'))
   const prompt = buildMovePrompt(game); assert.equal(prompt.choices.length, legalMoves(game.board, 'ai').length)
-  assert.match(prompt.choices.find(c => c.id === 'g3-f2')?.outcome ?? '', /Human can claim an immediate draw/)
+  assert.match(prompt.choices.find(c => c.id === 'g3-f2')?.outcome ?? '', /Human can claim a draw next/)
   const after = applyMove(game, 'g3-f2'); assert.ok(legalMoves(after.board, after.turn).some(m => applyMove(after, m.id).status === 'draw'))
 })
 
@@ -57,5 +57,5 @@ test('a capture line that blocks every surviving piece is a checked terminal los
   assert.equal(line.status, 'human-won'); assert.equal(line.board.filter(p => p?.side === 'ai').length, 2, 'loss is blockade, not zero material')
   assert.ok(!checkedPriorityChoices(game, annotateMoves(game)).some(m => m.id === 'e3-f2'))
   assert.deepEqual(checkedPriorityChoices(game, annotateMoves(game, undefined, true, false), true, true, false, false).map(m => m.id), ['e3-f2'], 'historical material-only behavior is retained for v15')
-  assert.match(buildMovePrompt(game).choices.find(c => c.id === 'e3-f2')?.outcome ?? '', /Human can force a terminal win/)
+  assert.match(buildMovePrompt(game).choices.find(c => c.id === 'e3-f2')?.outcome ?? '', /Human forces a win in checked lines/)
 })

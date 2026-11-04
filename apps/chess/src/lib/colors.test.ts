@@ -74,7 +74,7 @@ test("light AI receives its actual pieces, castles and player-relative history/o
   const game = play("black", ["e2e4", "e7e5"])
   const input = buildMoveAnalysis({ game, moveOrderSeed: "white-ai" })
   assert.match(input.systemPrompt, /^You control the light chess pieces\./)
-  assert.match(input.systemPrompt, /Negative net means you lose material/)
+  assert.match(input.systemPrompt, /negative means your loss/)
   assert.match(input.prompt, /Your pieces \(light\):\nKing: e1/)
   assert.match(input.prompt, /Opponent's pieces \(dark\):\nKing: e8/)
   assert.match(input.prompt, /You: e4 \(e2e4\)\nOpponent: e5 \(e7e5\)/)

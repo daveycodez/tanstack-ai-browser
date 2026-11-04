@@ -1,87 +1,39 @@
-import type { EndgameTieSolver } from "./endgame-ties.ts"
+import { buildMovePrompt as buildV16, PROMPT_VERSIONS as HISTORICAL_VERSIONS, SHARED_SYSTEM_PROMPT as SYSTEM_V16 } from "./shared-prompt-v16.ts"
+import type { PromptInput as V16Input, PromptVersion as HistoricalVersion } from "./shared-prompt-v16.ts"
 import { createEndgameTieRequest } from "./endgame-ties.ts"
+import type { EndgameTieSolver } from "./endgame-ties.ts"
 import { legalMoves } from "./mancala.ts"
 import type { Game } from "./mancala.ts"
-import {
-  buildMovePrompt as buildV15,
-  PROMPT_VERSIONS as HISTORICAL_VERSIONS
-} from "./shared-prompt-v15.ts"
-import type {
-  PromptInput as V15Input,
-  EngineAction as HistoricalAction,
-  EngineReport as HistoricalReport
-} from "./shared-prompt-v15.ts"
-export { analyzeMoves, checkedPriorityChoices } from "./shared-prompt-v15.ts"
-export type { MoveAnalysis } from "./shared-prompt-v15.ts"
+export { analyzeMoves, checkedPriorityChoices } from "./shared-prompt-v16.ts"
+export type { MoveAnalysis, EngineAction, EngineReport } from "./shared-prompt-v16.ts"
 
-export const SHARED_PROMPT_VERSION = "shared-v16" as const
-export const PROMPT_VERSIONS = [...HISTORICAL_VERSIONS, SHARED_PROMPT_VERSION] as const
-export type PromptVersion = (typeof PROMPT_VERSIONS)[number]
-// Historical versions retain their ranking fields; current reports omit them.
-export type EngineAction = Omit<HistoricalAction, "preferred"> & { preferred?: boolean }
-export type EngineReport = Omit<HistoricalReport, "actions" | "preferredActions" | "evaluationScope"> & {
-  actions: EngineAction[]
-  preferredActions?: string[]
-  evaluationScope?: string
-}
-export type PromptInput = Omit<V15Input, "version" | "report"> & {
-  version: PromptVersion
-  report?: EngineReport
-}
-
-export const SHARED_SYSTEM_PROMPT = [
-  "You control AI in Kalah. Human is the opponent. Choose one exact supplied legal action label by weighing its listed outcomes. Your goal is to secure the most seeds for AI. AI WIN is better than DRAW, and DRAW is better than AI LOSS.",
-  "Each action is an independent alternative. Captures, store gains and bonus sows are immediate effects, not guarantees of the final result. Bonus sows belong to the same complete turn. Bounded margins cover only the stated turn horizon; exact final scores and proved win/draw/loss outcomes assume best play by both sides. Incomplete analysis is unknown. Compare numeric margins only when their evaluation kind and horizon match. Keep each action's plan and opponent reply separate; do not mix branches."
-].join("\n\n")
-
-function outcomeOnly(text: string): string {
+export const PREVIOUS_PROMPT_VERSION = "shared-v16" as const
+export const CONCISE_PROMPT_VERSION = "shared-v17" as const
+export const SHARED_PROMPT_VERSION = CONCISE_PROMPT_VERSION
+export const PROMPT_VERSIONS = [...HISTORICAL_VERSIONS, CONCISE_PROMPT_VERSION] as const
+export type PromptVersion = typeof PROMPT_VERSIONS[number]
+export type PromptInput = Omit<V16Input, "version"> & { version: PromptVersion }
+export const CONCISE_SYSTEM_PROMPT = SYSTEM_V16
+  .replace("by weighing its listed outcomes", "by weighing its outcomes")
+  .replace("Your goal is to secure", "Secure")
+  .replace("Each action is an independent alternative.", "Actions are independent alternatives.")
+  .replace("not guarantees of the final result.", "not final guarantees.")
+  .replace("and proved win/draw/loss outcomes", "and proved outcomes")
+  .replace("when their evaluation kind", "when evaluation kind")
+  .replace("; do not mix branches.", ".")
+export const SHARED_SYSTEM_PROMPT = CONCISE_SYSTEM_PROMPT
+function concise(text: string): string {
   return text
-    .replace(/ \| (?:BEST|OTHER) \| /g, " | ")
-    .replace(/; final AI seeds below best(?: compared)? finish \d+/g, "")
-    .replace(" | TIE REVIEW: ", " | ")
+    .replaceAll("capture now ", "capture ")
+    .replaceAll("store gain now ", "store gain ")
+    .replace("KALAH. AI to move. Current stores:", "KALAH. AI to move. Stores:")
+    .replace("INDEPENDENT LEGAL AI ACTIONS:", "LEGAL AI ACTIONS:")
 }
-function neutralReport(source: HistoricalReport): EngineReport {
-  const report: EngineReport = {
-    ...source,
-    actions: source.actions.map(action => {
-      const next: EngineAction = { ...action, evaluation: { ...action.evaluation } }
-      delete next.preferred
-      delete next.evaluation.marginBelowBest
-      delete next.evaluation.aiSeedsBelowBest
-      return next
-    })
-  }
-  delete report.preferredActions
-  delete report.evaluationScope
-  return report
-}
-
-/** Keep the existing per-action analysis and output contract; the model weighs
- * outcomes without a selected action, preferred group, or comparative rank.
- */
-export function buildMovePrompt(
-  game: Game,
-  moves: readonly number[] = legalMoves(game.board, "ai"),
-  version: PromptVersion = SHARED_PROMPT_VERSION,
-  endgameSolver: EndgameTieSolver = createEndgameTieRequest().solve
-): PromptInput {
-  if (version !== SHARED_PROMPT_VERSION) return buildV15(game, moves, version, endgameSolver)
-  const base = buildV15(game, moves, undefined, endgameSolver)
-  const choices = base.choices.map(choice => ({ ...choice, outcome: outcomeOnly(choice.outcome) }))
-  const rows = new Map(base.choices.map((choice, index) => [choice.outcome, choices[index].outcome]))
-  const prompt = base.prompt.split("\n").flatMap(line => {
-    if (/^(?:RECOMMENDED AI ACTION|PREFERRED AI ACTION LABELS):/.test(line)) return []
-    if (line.startsWith("No recommendation was verified")) return ["Evaluation is incomplete; missing facts are unknown."]
-    if (line.startsWith("TIE REVIEW:")) return ["Some actions include deeper analysis. Each row states its own horizon; numeric margins from different horizons are not directly comparable."]
-    if (line.startsWith("ALL-ACTION ENDGAME REVIEW:")) return ["Every legal action has been evaluated through the final sweep under best play by both sides. Exact final seed scores are listed for each action."]
-    if (line.startsWith("FULL-GAME OUTCOME REVIEW:")) return ["Every legal action has a proved AI outcome under best play, through a terminal finish or a secured majority. No exact final seed scores are claimed for these outcome classes."]
-    return [rows.get(line) ?? line]
-  }).join("\n")
-  const input: PromptInput = {
-    ...base, version, systemPrompt: SHARED_SYSTEM_PROMPT, prompt, choices,
-    ...(base.report && { report: neutralReport(base.report) })
-  }
-  delete input.recommendedAction
-  delete input.priorityPits
-  return input
+/** Same v16 analysis/report/schema, with shorter model-visible wording only. */
+export function buildMovePrompt(game: Game, moves: readonly number[] = legalMoves(game.board, "ai"), version: PromptVersion = SHARED_PROMPT_VERSION, endgameSolver: EndgameTieSolver = createEndgameTieRequest().solve): PromptInput {
+  if (version !== CONCISE_PROMPT_VERSION) return buildV16(game, moves, version as HistoricalVersion, endgameSolver)
+  const base = buildV16(game, moves, PREVIOUS_PROMPT_VERSION, endgameSolver)
+  const rows = new Map<string, string>()
+  const choices = base.choices.map(choice => { const outcome = concise(choice.outcome); rows.set(choice.outcome, outcome); return { ...choice, outcome } })
+  return { ...base, version, systemPrompt: CONCISE_SYSTEM_PROMPT, choices, prompt: base.prompt.split("\n").map(line => rows.get(line) ?? concise(line)).join("\n") }
 }

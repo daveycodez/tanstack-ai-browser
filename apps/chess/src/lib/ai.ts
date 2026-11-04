@@ -25,9 +25,13 @@ import type {
   WebGlTextModel
 } from "@tanstack-ai-browser/webgl"
 
+import type { PromptVersion } from "./shared-prompt"
+
 export type { ModelStatus } from "@tanstack-ai-browser/webgl"
 
+
 export type AiMoveOptions = {
+  promptVersion?: PromptVersion
   /** Manual WebGL sampling diagnostic; gameplay retains model defaults. */
   webglTemperature?: number
   /** Manual diagnostic override; null omits the cap. Gameplay defaults to 512. */
@@ -104,6 +108,7 @@ export async function chooseAiMove(
   const opponent = resolveOpponent(game.opponent)
   const { prompt, choices, systemPrompt } = await analyzeMovePrompt({
     game,
+    ...(options?.promptVersion !== undefined && { promptVersion: options.promptVersion }),
     moveOrder: options?.moveOrder,
     moveOrderSeed: options?.moveOrderSeed
   }, signal)

@@ -3,13 +3,15 @@ import { chooseAiMove } from "../src/lib/ai.ts"
 import { applyMove, fromFen, newGame } from "../src/lib/chess.ts"
 import { isWebGlOpponent, opponentOption, resolveOpponent, usesEmulatedReasoning } from "../src/lib/opponents.ts"
 import type { OpponentModel } from "../src/lib/opponents.ts"
-import { SHARED_PROMPT_VERSION } from "../src/lib/shared-prompt.ts"
+import type { PromptVersion } from "../src/lib/shared-prompt.ts"
+import { isPromptVersion, SHARED_PROMPT_VERSION } from "../src/lib/shared-prompt.ts"
 import { benchmarkOrder } from "./order.ts"
 import { CASES } from "./cases.ts"
 import { CACHE_REPLAY_CASES } from "./cache-replay.ts"
 import type { BenchmarkReport, BenchmarkResult } from "./types.ts"
 declare const __CHESS_BENCH_REVISION__: string
 export type BenchmarkOptions = {
+  promptVersion?: PromptVersion
   model: OpponentModel
   thinking: boolean
   movePresentation?: "game" | "new-games" | "stress"
@@ -44,6 +46,7 @@ export async function runBenchmark(
     reasoningBudgetTokens !== 1024
   )
     throw new RangeError("Reasoning budget must be 512, 1024, or uncapped (null).")
+  if (options.promptVersion !== undefined && !isPromptVersion(options.promptVersion)) throw new Error("Unknown prompt version.")
   const moveOrderSeed = options.moveOrderSeed ?? "chess-benchmark-v1"
   const selected = options.caseIds ?? CASES.map((c) => c.id)
   const cases = [...CASES, ...CACHE_REPLAY_CASES].filter((c) => selected.includes(c.id))
@@ -87,7 +90,7 @@ export async function runBenchmark(
         ? "cache-replay-v1"
         : "audited-v10",
       outputContract: "san-risk-enum-v14",
-      promptVersion: SHARED_PROMPT_VERSION,
+      promptVersion: options.promptVersion ?? SHARED_PROMPT_VERSION,
       moveOrderSeed,
       sessionPolicy: "one thread per run; new-games uses one thread per repetition",
       movePresentation: options.movePresentation ?? "game",
@@ -159,6 +162,7 @@ export async function runBenchmark(
             result.thinkingChars += delta.length
           },
           {
+            promptVersion: options.promptVersion,
             reasoningBudgetTokens,
             webglTemperature: options.webglTemperature,
             disablePromptCache: options.disablePromptCache,
