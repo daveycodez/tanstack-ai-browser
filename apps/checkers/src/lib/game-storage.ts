@@ -1,6 +1,6 @@
 import { applyMove, newGame } from "./checkers.ts"
 import type { AiDecisionTrace, Game } from "./checkers.ts"
-import { attachMoveAnalysis, traceMatchesPosition } from "./turn-log.ts"
+import { attachMoveAnalysis, failedAiTurn, traceMatchesPosition } from "./turn-log.ts"
 import { resolveOpponent, sameOpponent } from "./opponents.ts"
 import type { OpponentSettings } from "./opponents.ts"
 
@@ -39,7 +39,18 @@ export function createGameStorage(db: IDBDatabase, refreshed: (changed: boolean)
     startNewGame: () => mutate(current => {const next={...makeGame(),opponent:resolveOpponent(current?.opponent)};return {result:next,next}}),
     setOpponent: (settings: OpponentSettings) => mutate(current => {
       if (!current) throw new Error("There is no current game.")
-      return { result: undefined, next: { ...current, opponent: resolveOpponent(settings), updatedAt: Date.now() } }
+      const opponent = resolveOpponent(settings)
+      const next = { ...current, opponent, updatedAt: Date.now() }
+      if (!sameOpponent(current.opponent, opponent)) {
+        next.aiRetryFailureId = failedAiTurn({ ...next, aiRetryFailureId: undefined })?.id
+      }
+      return { result: undefined, next }
+    }),
+    authorizeAiRetry: (sessionId: string, ply: number, failureId: string, expectedOpponent: OpponentSettings) => mutate(current => {
+      if (!current || current.sessionId !== sessionId || current.history.length !== ply || !sameOpponent(current.opponent, expectedOpponent)) return {result:false}
+      const failure = failedAiTurn(current)
+      if (!failure || failure.id !== failureId) return {result:false}
+      return {result:true,next:{...current,aiRetryFailureId:failureId,updatedAt:Date.now()}}
     }),
     commitMove: (sessionId: string, ply: number, moveId: string, expectedOpponent?: OpponentSettings, analysis?: AiDecisionTrace) => mutate(current => {
       if (!current || current.sessionId !== sessionId || current.history.length !== ply || current.status !== "playing" ||

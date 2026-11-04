@@ -68,6 +68,7 @@ export type Game = {
   initialBoard?: Board
   initialTurn?: Side
   aiFailures?: AiDecisionTrace[]
+  aiRetryFailureId?: string
   turn: Side
   status: GameStatus
   history: MoveRecord[]

@@ -5,7 +5,7 @@ import { createIndexedDB } from "@tanstack/react-db"
 import { createGameStorage } from "./game-storage.ts"
 import { legalMoves, newGame } from "./checkers.ts"
 import { resolveOpponent } from "./opponents.ts"
-import { createAiTrace, finishAiTrace } from "./turn-log.ts"
+import { createAiTrace, failedAiTurn, finishAiTrace } from "./turn-log.ts"
 
 async function tabs(makeGame = () => newGame("white")) {
   const factory = new IDBFactory()
@@ -147,5 +147,53 @@ test("a restart rejects a late first-move AI reply without replacing the new col
     assert.equal(saved?.humanColor, "white")
     assert.equal(saved?.turn, "human")
     assert.equal(saved?.history.length, 0)
+  } finally { close() }
+})
+
+
+test("failed turns survive reloads and simultaneous explicit retries authorize only one new failure", async () => {
+  const { a, b, close } = await tabs(() => newGame("black"))
+  try {
+    const game = await a.ensureGame(), opponent = resolveOpponent(game.opponent)
+    const first = finishAiTrace(createAiTrace(game, opponent, "model"), { error: new Error("not JSON") })
+    assert.equal(await a.recordAiFailure(game.sessionId, 0, first, opponent), true)
+    const reloaded = await b.ensureGame()
+    assert.equal(failedAiTurn(reloaded)?.id, first.id)
+    const replies = await Promise.all([
+      a.authorizeAiRetry(game.sessionId, 0, first.id, opponent),
+      b.authorizeAiRetry(game.sessionId, 0, first.id, opponent)
+    ])
+    assert.equal(replies.filter(Boolean).length, 1)
+    const retried = await b.currentGame(); assert.ok(retried)
+    assert.equal(failedAiTurn(retried), undefined)
+    assert.equal(retried.aiFailures?.length, 1, "retry preserves the failed-turn log")
+    const second = finishAiTrace(createAiTrace(retried, opponent, "model"), { error: new Error("still not JSON") })
+    await b.recordAiFailure(game.sessionId, 0, second, opponent)
+    const failed = await a.currentGame(); assert.ok(failed)
+    assert.equal(failedAiTurn(failed)?.id, second.id)
+    assert.equal(await a.authorizeAiRetry(game.sessionId, 0, first.id, opponent), false, "a stale click cannot acknowledge the new failure")
+    assert.equal((await b.ensureGame()).aiFailures?.length, 2)
+  } finally { close() }
+})
+
+test("retry authorization rejects changed games/settings and changing opponent deliberately reopens its old failure", async () => {
+  const { a, b, close } = await tabs(() => newGame("black"))
+  try {
+    const game = await a.ensureGame(), opponent = resolveOpponent(game.opponent)
+    const failure = finishAiTrace(createAiTrace(game, opponent, "model"), { error: "failed" })
+    await a.recordAiFailure(game.sessionId, 0, failure, opponent)
+    await b.setOpponent(opponent)
+    assert.equal(failedAiTurn((await a.currentGame())!)?.id, failure.id, "saving unchanged settings is not a retry")
+    const changed = { ...opponent, thinking: true }
+    await b.setOpponent(changed)
+    assert.equal(await a.authorizeAiRetry(game.sessionId, 0, failure.id, opponent), false)
+    assert.equal(failedAiTurn((await a.currentGame())!), undefined)
+    await b.setOpponent(opponent)
+    assert.equal(failedAiTurn((await a.currentGame())!), undefined, "an explicit switch back permits one fresh attempt")
+    const again = finishAiTrace(createAiTrace(game, opponent, "model"), { error: "failed again" })
+    await a.recordAiFailure(game.sessionId, 0, again, opponent)
+    const restart = await b.startNewGame()
+    assert.equal(await a.authorizeAiRetry(game.sessionId, 0, again.id, opponent), false)
+    assert.equal((await a.currentGame())?.sessionId, restart.sessionId)
   } finally { close() }
 })

@@ -154,7 +154,7 @@ export async function chooseAiMove(
       unloadModel()
       activeWebGlModel = undefined
     }
-    await loadPromptApiModel({ signal })
+    if (opponent.model === "prompt-api") await loadPromptApiModel({ signal })
   } else {
     await waitForModel(opponent.model, signal)
   }

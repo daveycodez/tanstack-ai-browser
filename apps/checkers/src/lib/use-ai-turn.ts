@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react"
 import { legalMoves } from "./checkers"
 import type { Game } from "./checkers"
-import { commitMove, currentGame, recordAiFailure } from "./db"
-import { createAiTrace, finishAiTrace } from "./turn-log"
+import { authorizeAiRetry, commitMove, currentGame, recordAiFailure } from "./db"
+import { createAiTrace, failedAiTurn, finishAiTrace } from "./turn-log"
 import { resolveOpponent, sameOpponent } from "./opponents"
 
 export type AiTurnState = {
@@ -15,7 +15,7 @@ const IDLE: AiTurnState = { phase: "idle" }
 
 export function useAiTurn(game: Game | undefined, busy: boolean) {
   const [result, setResult] = useState<{ key: string; state: AiTurnState }>()
-  const [attempt, setAttempt] = useState(0)
+  const [transientAttempt, setTransientAttempt] = useState(0)
   const [thoughts, setThoughts] = useState<{
     sessionId: string
     runKey: string
@@ -26,10 +26,13 @@ export function useAiTurn(game: Game | undefined, busy: boolean) {
   const turn = game?.turn
   const status = game?.status
   const { model, thinking } = resolveOpponent(game?.opponent)
-  const key = `${sessionId}:${ply}:${model}:${thinking}:${attempt}`
+  const failure = game ? failedAiTurn(game) : undefined
+  const failureId = failure?.id
+  const retryFailureId = game?.aiRetryFailureId
+  const key = `${sessionId}:${ply}:${model}:${thinking}:${retryFailureId ?? ""}:${transientAttempt}`
 
   useEffect(() => {
-    if (!game || turn !== "ai" || status !== "playing" || busy) {
+    if (!game || turn !== "ai" || status !== "playing" || busy || failureId) {
       return
     }
     const expected = game
@@ -61,6 +64,11 @@ export function useAiTurn(game: Game | undefined, busy: boolean) {
         !sameOpponent(active.opponent, expectedOpponent)
       )
         return
+      const persistedFailure = failedAiTurn(active)
+      if (persistedFailure) {
+        setState({ phase: "error", message: persistedFailure.error ?? "The opponent could not choose a move. Try again." })
+        return
+      }
       const moves = legalMoves(active.board, "ai")
       const trace = createAiTrace(active, expectedOpponent, moves.length === 1 ? "forced" : "model")
       try {
@@ -82,7 +90,7 @@ export function useAiTurn(game: Game | undefined, busy: boolean) {
         unsubscribe = loadingStore.subscribe(syncProgress)
         syncProgress()
         const move = await ai.chooseAiMove(
-          expected,
+          active,
           controller,
           (phase) => {
             if (controller.signal.aborted) return
@@ -131,17 +139,29 @@ export function useAiTurn(game: Game | undefined, busy: boolean) {
     }
     // A new position, explicit retry or completed write is the turn boundary.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sessionId, ply, turn, status, model, thinking, busy, attempt])
+  }, [sessionId, ply, turn, status, model, thinking, busy, failureId, retryFailureId, transientAttempt])
 
   const state =
     turn !== "ai" || status !== "playing" || busy
       ? IDLE
+      : failure
+        ? { phase: "error" as const, message: failure.error ?? "The opponent could not choose a move. Try again." }
       : result?.key === key
         ? result.state
         : { phase: "loading" as const, progress: 0 }
   return {
     state,
     thoughts: thoughts && thoughts.sessionId === sessionId ? thoughts.text : "",
-    retry: () => setAttempt((value) => value + 1)
+    retry: () => {
+      if (!game) return
+      if (!failure) {
+        // Storage/lock errors may happen before a model attempt can be recorded.
+        if (state.phase === "error") setTransientAttempt(value => value + 1)
+        return
+      }
+      void authorizeAiRetry(game.sessionId, game.history.length, failure.id, { model, thinking }).catch(error => {
+        setResult({ key, state: { phase: "error", message: error instanceof Error ? error.message : "Could not retry the opponent's turn." } })
+      })
+    }
   }
 }
