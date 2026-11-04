@@ -86,7 +86,7 @@ export async function runBenchmark(
       suiteVersion: cases.every(c => c.id.startsWith("cache-"))
         ? "cache-replay-v1"
         : "audited-v10",
-      outputContract: "human-action-enum-v3",
+      outputContract: "san-risk-enum-v14",
       promptVersion: SHARED_PROMPT_VERSION,
       moveOrderSeed,
       sessionPolicy: "one thread per run; new-games uses one thread per repetition",

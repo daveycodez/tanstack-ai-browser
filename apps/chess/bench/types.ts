@@ -74,6 +74,8 @@ export type BenchmarkReport = {
     orderPolicy: string
     movePresentation?: "game" | "new-games" | "stress"
     sessionPolicy?: string
+    /** Startup retries before a runtime received any benchmark command. */
+    runtimeRestarts?: number
     moveOrderSeed?: string
   }
   results: BenchmarkResult[]

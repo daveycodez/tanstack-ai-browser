@@ -14,7 +14,21 @@ export type RuntimeEvent =
   | { channel: typeof RUNTIME_CHANNEL; type: "error"; id: string; error: string }
 
 /** A private same-tab window owns each WebGL singleton; native Prompt API stays in the parent. */
-export function runBenchmarkInFrame(options: BenchmarkOptions): Promise<BenchmarkReport> {
+class RuntimeStartupError extends Error {}
+
+export async function runBenchmarkInFrame(options: BenchmarkOptions): Promise<BenchmarkReport> {
+  try {
+    return await runFrameOnce(options)
+  } catch (error) {
+    if (!(error instanceof RuntimeStartupError) || options.signal.aborted) throw error
+    options.onProgress?.("Restarting isolated runtime before inference…")
+    const report = await runFrameOnce(options)
+    report.config.runtimeRestarts = 1
+    return report
+  }
+}
+
+function runFrameOnce(options: BenchmarkOptions): Promise<BenchmarkReport> {
   options.signal.throwIfAborted()
   if (options.model === "prompt-api") throw new Error("Prompt API benchmarks run in the main page.")
   return new Promise((resolve, reject) => {
@@ -54,7 +68,7 @@ export function runBenchmarkInFrame(options: BenchmarkOptions): Promise<Benchmar
         else if (data.type === "error") finish(undefined, new Error(data.error))
       }
     }
-    const readyTimer = setTimeout(() => finish(undefined, new Error("The isolated benchmark runtime could not start.")), 30_000)
+    const readyTimer = setTimeout(() => finish(undefined, new RuntimeStartupError("The isolated benchmark runtime could not start.")), 30_000)
     signal.addEventListener("abort", abort, { once: true })
     window.addEventListener("message", message)
     document.body.append(frame)

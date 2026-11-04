@@ -32,7 +32,9 @@ reports. **Stop** cancels every run and preserves completed trials. Phones remai
 The WebGL models use isolated in-page runtimes because each window's adapter has
 one loaded-model slot. Prompt API stays in the main window. No inference starts
 on runtime-route load, and no game storage is opened. Parallel timings are marked
-diagnostic; measure latency separately with one model running.
+diagnostic; measure latency separately with one model running. An isolated runtime that
+fails to become ready may restart once before inference begins, recorded as
+`config.runtimeRestarts: 1`. Model errors and completed decisions are never retried.
 
 ## Controls and request contract
 
@@ -50,21 +52,23 @@ WebGL's total generation
 ceiling is 8,192 tokens; Prompt API's browser-managed final-output limit is recorded
 as `null`. These are different capabilities.
 
-Every model receives the same **shared-v60** system and user assembly, standard
+Every model receives the same **shared-v98-prefer-safe-captures** system and user assembly, standard
 piece values and model-default sampling. Ownership is phrased as **you/opponent**;
-**light/dark** identifies piece color for either assignment. The UI palette and chess
-rules retain their existing colors. The readable piece lists are supplemented by the
-exact position FEN; both describe the same current board. The optional **WebGL temperature** control
+**light/dark** identifies piece color for either assignment. The model receives complete
+decoded piece lists and FEN audit data.
+The optional **WebGL temperature** control
 is a manual sampling diagnostic; it leaves the shared prompt and ordinary gameplay
 defaults unchanged. Native Prompt API retains browser sampling. There are no active profile, context,
 queen-weight or per-model prompt switches. Guidance is phase-relevant: urgent
 positions omit soft generic coaching; quiet positions receive applicable opening,
 cover or king-coordination context. Actual promotion emergencies remain visible.
 
-The strict **`{ move }`** schema enumerates the exact readable action label of
-**every legal move**, preserving presentation order. Labels resolve exactly to UCI;
-SAN and UCI remain in the audit data. There is no loose parsing, engine-picked
-replacement, ranked shortlist or legal-move filter. Ordinary play uses a stable per-game seeded presentation order;
+The strict **`{ move }`** schema enumerates a short SAN-based choice label for
+**every legal move**, preserving presentation order. A `RISK -N` prefix exposes the worst
+already-computed negative exchange net. Warned moves remain selectable;
+there is no move filter or engine-picked replacement. Labels resolve exactly to UCI.
+Each option retains its English description and raw SAN for audit. King-mobility facts
+show legal destinations before and after the candidate move.  Ordinary play uses a stable per-game seeded presentation order;
 a sole legal choice needs no generation.
 
 ## Suite and grading

@@ -9,16 +9,16 @@ import type {
 } from "./chess.ts"
 import { describePosition } from "./ai-position.ts"
 import { buildCompactChoices } from "./prompt-options.ts"
-import { moveChoiceLabel } from "./move-choice.ts"
+import { describeMoveChoice, moveChoiceLabel } from "./move-choice.ts"
 
-export const SHARED_PROMPT_VERSION = "shared-v60"
+export const SHARED_PROMPT_VERSION = "shared-v98-prefer-safe-captures"
 
 // Construction vocabulary only; requests use the player-relative systemPromptFor().
 export const SHARED_SYSTEM_PROMPT = [
-  "Play chess as Black. Trust the supplied outcomes to choose one legal move; card order is not a ranking.",
+  "Play chess as Black. Use the decoded piece lists and computed outcomes. FEN is audit data, already decoded. Every listed move is legal; order is unranked.",
   "Take a listed CHECKMATE now. Otherwise stop White's mate or answer check, save or win a queen, then prefer safe material over castling/development.",
-  "BOARD NOW is current. AFTER describes only that Black move; never combine cards. CHECK checks White; Black-in-check describes now.",
-  "Negative net means Black loses material. Weigh recaptures and forcing follow-ups. Forcing gains can outweigh immediate captures; check alone cannot justify material loss. Protection is not immunity. Values: pawn 1, knight/bishop 3, rook 5, queen 9."
+  "BOARD NOW is current. NEXT MOVE OPTIONS are alternatives, not history; AFTER predicts only that move. CHECK attacks White's king; it is not checkmate. SAN labels: x captures, + check, # mate.",
+  "Negative net means Black loses material; captures, promotions and recaptures are already included. Do not add the captured value again. Weigh forcing follow-ups. Forcing gains can outweigh immediate captures; check alone cannot justify material loss. Protection is not immunity. Values: pawn 1, knight/bishop 3, rook 5, queen 9."
 ].join("\n\n")
 
 /** Color roles vary by game; the policy and model-independent instructions stay fixed. */
@@ -175,9 +175,8 @@ function kingMobilityContext(move: AnnotatedMove, side: Side, game: Game): strin
   const own = colorName(game, side)
   const enemy = colorName(game, side === "ai" ? "human" : "ai")
   const destinations = mobility.after.map(squareName).join(",") || "none"
-  const denied = mobility.deniedSquares.map(squareName).join(",") || "none"
   const facts = [
-    `${enemy} king legal destinations ${mobility.before.length}->${mobility.after.length} [${destinations}], denied [${denied}], other legal replies ${mobility.otherLegalReplyCount}`
+    `Chess: ${enemy} king legal destinations [${mobility.before.map(squareName).join(",") || "none"}]->[${destinations}] (${mobility.before.length}->${mobility.after.length}); other legal replies ${mobility.otherLegalReplyCount}`
   ]
   if (approaches && mobility.ownKingDistance)
     facts.push(
@@ -285,7 +284,7 @@ export function positiveSafetySummaries({
     facts.push("URGENT RESPONSE PRIORITY:")
     if (hasKingSafeChoices)
       facts.push(
-        `Choose one of the listed KING-SAFE moves: stop ${enemy}'s mate without sacrificing a queen or rook, ahead of checks, captures or development.`
+        "Choose a KING-SAFE move; within that set prefer a safe capture or forcing gain to a quiet move."
       )
     if (hasQueenRescueChoices)
       facts.push(
@@ -294,7 +293,7 @@ export function positiveSafetySummaries({
     if (hasMaterialSafeChoices)
       facts.push(
         tacticalFocus
-          ? "After king/queen safety, choose among MATERIAL-SAFE moves. Prefer captures or forcing gains over quiet moves or non-winning checks; avoid negative exchange nets."
+          ? "Within the king/queen-safe choices, prefer MATERIAL-SAFE captures or forcing gains to quiet moves or non-winning checks. Avoid negative exchange nets."
           : "After king/queen safety, choose a listed MATERIAL-SAFE move. Keep threatened pieces defended before castling or development."
       )
   }
@@ -435,7 +434,7 @@ export function buildSharedPrompt({
     let outcome = roleText(choice.outcome.replace(
       "WHITE CAN CHECKMATE NEXT TURN",
       "LOSS NEXT TURN: White mates Black"
-    ), game)
+    ).replace("MOVED PIECE CANNOT BE LEGALLY RECAPTURED NEXT TURN", "CAPTURER SAFE from immediate recapture"), game)
     const move = movesById.get(choice.id)
     if (!move) throw new Error("A legal card has no matching move.")
     if (
@@ -473,7 +472,7 @@ export function buildSharedPrompt({
       id: choice.id,
       notation: move.notation,
       label: moveChoiceLabel(move),
-      outcome: `${moveChoiceLabel(move)} | AFTER: ${outcome.slice(outcome.indexOf(" | ", choice.id.length + 3) + 3)}`
+      outcome: `${moveChoiceLabel(move)} | ${describeMoveChoice(move)} | AFTER: ${outcome.slice(outcome.indexOf(" | ", choice.id.length + 3) + 3)}`
     }
   })
   const board = describePosition(game)
@@ -601,7 +600,7 @@ export function buildSharedPrompt({
     `Legal castles now: ${castleIds}.`,
     "Recent 8 moves (oldest first):",
     ...(recent.length ? recent : ["none"]),
-    "ALL LEGAL CARDS:",
+    "NEXT MOVE OPTIONS:",
     ...choices.map((choice) => choice.outcome),
     ...(focusCastling
       ? [
@@ -619,7 +618,7 @@ export function buildSharedPrompt({
       : safeCaptures.length
         ? [
             "AVAILABLE IMMEDIATE OPPORTUNITIES:",
-            `Prefer captures with no immediate legal recapture of the moved piece: ${safeCaptures.map((move) => move.label).join("; ")}. Checked replies show no net material loss or ${enemy} mate in one.`
+            `Prefer safe captures (KING-SAFE and MATERIAL-SAFE): ${safeCaptures.map((move) => move.label).join("; ")}. Checked replies show no net material loss or ${enemy} mate in one.`
           ]
         : []),
   ].join("\n")

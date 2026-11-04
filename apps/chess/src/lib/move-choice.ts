@@ -15,8 +15,17 @@ type LabelMove = Pick<
   "id" | "piece" | "captured" | "path" | "captures" | "promotion" | "notation"
 >
 
-/** A literal action label: no check symbols, ranking, or safety assessment. */
-export function moveChoiceLabel(move: LabelMove): string {
+/** Keep every legal move selectable while exposing already-computed exchange losses. */
+export function moveChoiceLabel(move: AnnotatedMove): string {
+  if (move.outcome.checkmate || move.outcome.stalemate || move.outcome.drawReason)
+    return move.notation
+  const losses = move.outcome.replyMaterialLosses ?? move.outcome.replyMajorLosses ?? []
+  const net = losses.reduce((minimum, loss) => Math.min(minimum, loss.netMaterial), 0)
+  return net < 0 ? `RISK ${net}: ${move.notation}` : move.notation
+}
+
+/** Plain English move description, separate from model-choice warnings. */
+export function describeMoveChoice(move: LabelMove): string {
   const from = squareName(move.path[0]),
     to = squareName(move.path[1])
   let label = move.notation.startsWith("O-O")
