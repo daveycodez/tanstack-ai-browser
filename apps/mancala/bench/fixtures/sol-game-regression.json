@@ -1,0 +1,268 @@
+{
+  "moves": [
+    {
+      "move": 1,
+      "player": "GPT-6.1 Sol (Human)",
+      "pit": 3,
+      "seeds": 4,
+      "captured": 0,
+      "extraTurn": true
+    },
+    {
+      "move": 2,
+      "player": "GPT-6.1 Sol (Human)",
+      "pit": 6,
+      "seeds": 5,
+      "captured": 0,
+      "extraTurn": false
+    },
+    {
+      "move": 3,
+      "player": "LFM3-1.7B-GGUF",
+      "pit": 2,
+      "seeds": 5,
+      "captured": 0,
+      "extraTurn": true
+    },
+    {
+      "move": 4,
+      "player": "LFM3-1.7B-GGUF",
+      "pit": 1,
+      "seeds": 5,
+      "captured": 0,
+      "extraTurn": false
+    },
+    {
+      "move": 5,
+      "player": "GPT-6.1 Sol (Human)",
+      "pit": 4,
+      "seeds": 5,
+      "captured": 0,
+      "extraTurn": false
+    },
+    {
+      "move": 6,
+      "player": "LFM3-1.7B-GGUF",
+      "pit": 1,
+      "seeds": 1,
+      "captured": 0,
+      "extraTurn": false
+    },
+    {
+      "move": 7,
+      "player": "GPT-6.1 Sol (Human)",
+      "pit": 6,
+      "seeds": 1,
+      "captured": 0,
+      "extraTurn": true
+    },
+    {
+      "move": 8,
+      "player": "GPT-6.1 Sol (Human)",
+      "pit": 5,
+      "seeds": 6,
+      "captured": 0,
+      "extraTurn": false
+    },
+    {
+      "move": 9,
+      "player": "LFM3-1.7B-GGUF",
+      "pit": 2,
+      "seeds": 4,
+      "captured": 0,
+      "extraTurn": false
+    },
+    {
+      "move": 10,
+      "player": "GPT-6.1 Sol (Human)",
+      "pit": 6,
+      "seeds": 1,
+      "captured": 0,
+      "extraTurn": true
+    },
+    {
+      "move": 11,
+      "player": "GPT-6.1 Sol (Human)",
+      "pit": 2,
+      "seeds": 4,
+      "captured": 2,
+      "extraTurn": false
+    },
+    {
+      "move": 12,
+      "player": "LFM3-1.7B-GGUF",
+      "pit": 3,
+      "seeds": 9,
+      "captured": 0,
+      "extraTurn": false
+    },
+    {
+      "move": 13,
+      "player": "GPT-6.1 Sol (Human)",
+      "pit": 5,
+      "seeds": 2,
+      "captured": 0,
+      "extraTurn": true
+    },
+    {
+      "move": 14,
+      "player": "GPT-6.1 Sol (Human)",
+      "pit": 6,
+      "seeds": 1,
+      "captured": 0,
+      "extraTurn": true
+    },
+    {
+      "move": 15,
+      "player": "GPT-6.1 Sol (Human)",
+      "pit": 3,
+      "seeds": 2,
+      "captured": 0,
+      "extraTurn": false
+    },
+    {
+      "move": 16,
+      "player": "LFM3-1.7B-GGUF",
+      "pit": 6,
+      "seeds": 8,
+      "captured": 2,
+      "extraTurn": false
+    },
+    {
+      "move": 17,
+      "player": "GPT-6.1 Sol (Human)",
+      "pit": 5,
+      "seeds": 2,
+      "captured": 0,
+      "extraTurn": true
+    },
+    {
+      "move": 18,
+      "player": "GPT-6.1 Sol (Human)",
+      "pit": 6,
+      "seeds": 1,
+      "captured": 0,
+      "extraTurn": true
+    },
+    {
+      "move": 19,
+      "player": "GPT-6.1 Sol (Human)",
+      "pit": 1,
+      "seeds": 6,
+      "captured": 0,
+      "extraTurn": true
+    },
+    {
+      "move": 20,
+      "player": "GPT-6.1 Sol (Human)",
+      "pit": 6,
+      "seeds": 1,
+      "captured": 0,
+      "extraTurn": true
+    },
+    {
+      "move": 21,
+      "player": "GPT-6.1 Sol (Human)",
+      "pit": 2,
+      "seeds": 3,
+      "captured": 0,
+      "extraTurn": false
+    },
+    {
+      "move": 22,
+      "player": "LFM3-1.7B-GGUF",
+      "pit": 4,
+      "seeds": 10,
+      "captured": 2,
+      "extraTurn": false
+    },
+    {
+      "move": 23,
+      "player": "GPT-6.1 Sol (Human)",
+      "pit": 3,
+      "seeds": 4,
+      "captured": 0,
+      "extraTurn": true
+    },
+    {
+      "move": 24,
+      "player": "GPT-6.1 Sol (Human)",
+      "pit": 6,
+      "seeds": 1,
+      "captured": 0,
+      "extraTurn": true
+    },
+    {
+      "move": 25,
+      "player": "GPT-6.1 Sol (Human)",
+      "pit": 5,
+      "seeds": 4,
+      "captured": 0,
+      "extraTurn": false
+    },
+    {
+      "move": 26,
+      "player": "LFM3-1.7B-GGUF",
+      "pit": 2,
+      "seeds": 1,
+      "captured": 9,
+      "extraTurn": false
+    },
+    {
+      "move": 27,
+      "player": "GPT-6.1 Sol (Human)",
+      "pit": 6,
+      "seeds": 1,
+      "captured": 0,
+      "extraTurn": true
+    },
+    {
+      "move": 28,
+      "player": "GPT-6.1 Sol (Human)",
+      "pit": 2,
+      "seeds": 1,
+      "captured": 0,
+      "extraTurn": false
+    },
+    {
+      "move": 29,
+      "player": "LFM3-1.7B-GGUF",
+      "pit": 6,
+      "seeds": 1,
+      "captured": 0,
+      "extraTurn": true
+    },
+    {
+      "move": 30,
+      "player": "LFM3-1.7B-GGUF",
+      "pit": 5,
+      "seeds": 9,
+      "captured": 0,
+      "extraTurn": false
+    },
+    {
+      "move": 31,
+      "player": "GPT-6.1 Sol (Human)",
+      "pit": 6,
+      "seeds": 1,
+      "captured": 0,
+      "extraTurn": true
+    },
+    {
+      "move": 32,
+      "player": "GPT-6.1 Sol (Human)",
+      "pit": 5,
+      "seeds": 1,
+      "captured": 3,
+      "extraTurn": false
+    },
+    {
+      "move": 33,
+      "player": "LFM3-1.7B-GGUF",
+      "pit": 6,
+      "seeds": 1,
+      "captured": 0,
+      "extraTurn": false
+    }
+  ]
+}
