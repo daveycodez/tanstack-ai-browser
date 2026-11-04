@@ -6,11 +6,11 @@ import { attachMoveAnalysis, buildTurnLog, createAiTrace, finishAiTrace, snapsho
 
 const webgl = { model: "LiquidAI/LFM3-1.7B-GGUF" as const, thinking: false }
 const nano = { model: "prompt-api" as const, thinking: true }
-function aiTurn() { return applyMove(newGame(), legalMoves(newGame().board, "human")[0].id) }
+function aiTurn() { return applyMove(newGame("white"), legalMoves(newGame("white").board, "human")[0].id) }
 function cloneBoard(board: Board) { return board.map(piece => piece ? { ...piece } : null) }
 
 test("new games keep an independent original board and clear prior failures", () => {
-  const game = newGame()
+  const game = newGame("white")
   assert.deepEqual(game.initialBoard, game.board)
   assert.notEqual(game.initialBoard, game.board)
   assert.equal(game.initialTurn, "human")
@@ -123,7 +123,7 @@ test("legacy standard games reconstruct positions but do not invent missing AI p
 })
 
 test("recorded custom starts replay with their original side while unknown starts stay unavailable", () => {
-  const base = newGame()
+  const base = newGame("white")
   const board: Board = Array(64).fill(null)
   board[17] = { side: "ai", king: true }
   board[46] = { side: "human", king: true }
@@ -156,4 +156,18 @@ test("failed attempts retain real errors and facts without becoming committed mo
   assert.equal(failure.status, "error")
   assert.ok(failure.elapsedMs >= 0)
   assert.ok(failure.finishedAt)
+})
+
+
+test("black-player games replay from the white AI opening with persisted colors", () => {
+  let game = newGame("black")
+  game = applyMove(game, legalMoves(game.board, "ai")[0].id)
+  game = applyMove(game, legalMoves(game.board, "human")[0].id)
+  const report = buildTurnLog(game)
+  assert.equal(report.humanColor, "black")
+  assert.equal(report.opponentColor, "white")
+  assert.equal(report.initialPosition?.turn, "ai")
+  assert.equal(report.turns[0].side, "ai")
+  assert.equal(report.turns[1].side, "human")
+  assert.equal(report.replay.verified, true)
 })

@@ -2,6 +2,7 @@ import type { OpponentSettings } from "./opponents"
 import type { UsageInfo } from "@tanstack/ai"
 
 export type Side = "human" | "ai"
+export type PieceColor = "white" | "black"
 export type Piece = { side: Side; king: boolean }
 export type Board = (Piece | null)[]
 export type Move = {
@@ -62,6 +63,7 @@ export type Game = {
   id: "current"
   sessionId: string
   opponent?: OpponentSettings
+  humanColor?: PieceColor
   board: Board
   initialBoard?: Board
   initialTurn?: Side
@@ -104,7 +106,19 @@ function makeMove(path: number[], captures: number[], promotes: boolean): Move {
   }
 }
 
-export function newGame(): Game {
+/** Existing saves used the human-first setup; a missing assignment remains white. */
+export function colorForSide(game: Pick<Game, "humanColor">, side: Side): PieceColor {
+  const human = game.humanColor === "black" ? "black" : "white"
+  return side === "human" ? human : human === "white" ? "black" : "white"
+}
+
+/** One random bit gives each color exactly half the possible byte values. */
+export function randomHumanColor(): PieceColor {
+  return crypto.getRandomValues(new Uint8Array(1))[0] % 2 === 0 ? "white" : "black"
+}
+
+export function newGame(humanColor: PieceColor = randomHumanColor()): Game {
+  const first: Side = humanColor === "white" ? "human" : "ai"
   const board: Board = Array.from({ length: 64 }, (_, index) => {
     const r = row(index)
     if ((r + col(index)) % 2 === 0 || (r > 2 && r < 5)) return null
@@ -113,16 +127,17 @@ export function newGame(): Game {
   return {
     id: "current",
     sessionId: crypto.randomUUID(),
+    humanColor,
     board,
     initialBoard: cloneBoard(board),
-    initialTurn: "human",
+    initialTurn: first,
     aiFailures: [],
-    turn: "human",
+    turn: first,
     status: "playing",
     history: [],
     updatedAt: Date.now(),
     quietMoves: 0,
-    positions: [positionKey(board, "human")]
+    positions: [positionKey(board, first)]
   }
 }
 

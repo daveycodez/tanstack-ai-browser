@@ -3,11 +3,11 @@ import test from "node:test"
 import { IDBFactory } from "fake-indexeddb"
 import { createIndexedDB } from "@tanstack/react-db"
 import { createGameStorage } from "./game-storage.ts"
-import { legalMoves } from "./checkers.ts"
+import { legalMoves, newGame } from "./checkers.ts"
 import { resolveOpponent } from "./opponents.ts"
 import { createAiTrace, finishAiTrace } from "./turn-log.ts"
 
-async function tabs() {
+async function tabs(makeGame = () => newGame("white")) {
   const factory = new IDBFactory()
   const open = () => new Promise<IDBDatabase>((resolve,reject) => {
     const request=factory.open("checkers",1)
@@ -16,7 +16,7 @@ async function tabs() {
     request.onerror=()=>reject(request.error)
   })
   const a=await open(), b=await open()
-  return {a:createGameStorage(a),b:createGameStorage(b),close(){a.close();b.close()}}
+  return {a:createGameStorage(a, undefined, makeGame),b:createGameStorage(b, undefined, makeGame),close(){a.close();b.close()}}
 }
 
 test("independent connections accept only one conflicting opening move from a stale position",async()=>{
@@ -91,13 +91,61 @@ test("simultaneous failure logs deduplicate and failed transactions leave the ro
 test("upgrading preserves the saved row and closes older unconditional-writer connections",async()=>{
   const factory=new IDBFactory()
   const legacy=await createIndexedDB({name:"upgrade",version:1,stores:["games"],idbFactory:factory})
-  const old=createGameStorage(legacy.db),start=await old.ensureGame()
+  const old=createGameStorage(legacy.db, undefined, () => newGame("white")),start=await old.ensureGame()
   const upgraded=await createIndexedDB({name:"upgrade",version:2,stores:["games"],idbFactory:factory})
   try {
-    const modern=createGameStorage(upgraded.db)
+    const modern=createGameStorage(upgraded.db, undefined, () => newGame("white"))
     assert.equal((await modern.currentGame())?.sessionId,start.sessionId)
     await assert.rejects(old.commitMove(start.sessionId,0,"a3-b4"),error=>(error as Error).name==="InvalidStateError")
     assert.equal(await modern.commitMove(start.sessionId,0,"c3-d4"),true)
     assert.equal((await modern.currentGame())?.history[0].notation,"c3-d4")
   }finally{upgraded.close()}
+})
+
+
+test("color is assigned once across tabs and reloads, while each restart creates a fresh assignment", async () => {
+  let created = 0
+  const { a, b, close } = await tabs(() => newGame(++created % 2 ? "black" : "white"))
+  try {
+    const [first, same] = await Promise.all([a.ensureGame(), b.ensureGame()])
+    assert.equal(created, 1)
+    assert.equal(first.sessionId, same.sessionId)
+    assert.equal(first.humanColor, "black")
+    assert.equal(first.turn, "ai")
+    const opponent = resolveOpponent({ model: "LiquidAI/LFM3-1.7B-GGUF", thinking: false })
+    await a.setOpponent(opponent)
+    assert.equal((await b.ensureGame()).humanColor, "black")
+    assert.equal(created, 1)
+    const opening = legalMoves(first.board, "ai")[0].id
+    assert.equal(await a.commitMove(first.sessionId, 0, opening, opponent), true)
+    const resumed = await b.ensureGame()
+    assert.equal(resumed.humanColor, "black")
+    assert.equal(resumed.turn, "human")
+    assert.equal(created, 1)
+    const next = await a.startNewGame()
+    assert.equal(created, 2)
+    assert.equal(next.humanColor, "white")
+    assert.equal(next.turn, "human")
+    assert.deepEqual(next.opponent, opponent)
+    assert.equal((await b.currentGame())?.humanColor, "white")
+    assert.equal(await b.commitMove(first.sessionId, 1, legalMoves(resumed.board, "human")[0].id), false)
+  } finally { close() }
+})
+
+
+test("a restart rejects a late first-move AI reply without replacing the new color", async () => {
+  let created = 0
+  const { a, b, close } = await tabs(() => newGame(++created === 1 ? "black" : "white"))
+  try {
+    const opening = await a.ensureGame()
+    const move = legalMoves(opening.board, "ai")[0].id
+    const next = await b.startNewGame()
+    assert.equal(next.humanColor, "white")
+    assert.equal(await a.commitMove(opening.sessionId, 0, move, resolveOpponent(opening.opponent)), false)
+    const saved = await a.currentGame()
+    assert.equal(saved?.sessionId, next.sessionId)
+    assert.equal(saved?.humanColor, "white")
+    assert.equal(saved?.turn, "human")
+    assert.equal(saved?.history.length, 0)
+  } finally { close() }
 })

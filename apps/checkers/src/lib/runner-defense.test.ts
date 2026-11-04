@@ -15,7 +15,7 @@ function reported(ply: number) {
   return { fixture, game }
 }
 
-test("move 82 preserves the king-row guard and uses the other king", () => {
+test("move 82 preserves the guard preference while accepting an audited quiet alternative", () => {
   const { fixture, game } = reported(82)
   const moves = annotateMoves(game)
   assert.ok(moves.every(move => move.outcome.redTurnsChecked === 2))
@@ -24,7 +24,7 @@ test("move 82 preserves the king-row guard and uses the other king", () => {
   assert.ok(abandon && defend)
   assert.equal(abandon.outcome.worstNetAfterResponse, -1)
   assert.equal(defend.outcome.worstNetAfterResponse, 0)
-  assert.deepEqual(auditCase(fixture).expectedMoveIds, ["e1-f2"])
+  assert.deepEqual(new Set(auditCase(fixture).expectedMoveIds), new Set(["e1-f2", "b8-a7"]))
   const threat = abandon.outcome.redReplies.find(reply => reply.id === "b6-c7")
   assert.ok(threat)
   assert.equal(threat.netAfterBestResponse, -1)
@@ -68,16 +68,16 @@ test("a compensated promotion is not automatically graded as a failure", () => {
   assert.equal(compensated.outcome.worstNetAfterResponse, 0)
 })
 
-test("the promotion horizon is explicit and only expands for an uncrowned near-crown Red runner", () => {
+test("the legacy promotion horizon stays explicit while current trade follow-ups are separate", () => {
   const { game } = reported(82)
   const original = JSON.stringify(game)
-  assert.match(buildMovePrompt(game).prompt, /TWO Red turns and TWO Black responses/)
+  assert.match(buildMovePrompt(game, undefined, "shared-v14").prompt, /TWO Human turns and TWO AI responses/)
   assert.equal(JSON.stringify(game), original)
   const kingInstead = { ...game, board: game.board.map((piece, square) => square === 17 && piece ? { ...piece, king: true } : piece) }
-  assert.ok(annotateMoves(kingInstead).every(move => move.outcome.redTurnsChecked === 1))
+  assert.ok(annotateMoves(kingInstead, undefined, false).every(move => move.outcome.redTurnsChecked === 1))
   const openingFixture = CASES.find(item => item.id === "reported-exchange-move-6")
   assert.ok(openingFixture)
-  assert.ok(annotateMoves(gameForCase(openingFixture)).every(move => move.outcome.redTurnsChecked === 1))
+  assert.ok(annotateMoves(gameForCase(openingFixture), undefined, false).every(move => move.outcome.redTurnsChecked === 1))
 })
 
 test("a historic forced-capture holdout is not mislabeled safe after a later Red promotion", () => {

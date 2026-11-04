@@ -12,11 +12,11 @@ const find = (id: string) => {
 
 test("the frozen checkers suite independently audits every accepted set and separates holdouts", () => {
   const observations = auditSuite(CASES)
-  assert.equal(SUITE_VERSION, "checkers-audited-v10")
-  assert.equal(observations.length, 39)
-  assert.equal(observations.filter(item => item.partition === "calibration").length, 33)
+  assert.equal(SUITE_VERSION, "checkers-audited-v13")
+  assert.equal(observations.length, 44)
+  assert.equal(observations.filter(item => item.partition === "calibration").length, 38)
   assert.equal(observations.filter(item => item.partition === "holdout").length, 6)
-  assert.equal(observations.filter(item => item.expectedMoveIds !== null).length, 27)
+  assert.equal(observations.filter(item => item.expectedMoveIds !== null).length, 32)
   assert.equal(observations.filter(item => item.expectedMoveIds === null).length, 12)
   assert.equal(observations.filter(item => item.legalMoveIds.length === 1).length, 1)
 })
@@ -154,7 +154,7 @@ test("safe crowning remains a preference when every alternative is non-losing", 
   assert.equal(choices.find(choice => choice.id === "a5-b4")?.promotes, false)
 })
 
-test("the smaller-model capture, promotion-defense and forced-win misses remain genuine failures", () => {
+test("capture and forced-win misses remain failures while compensated promotion is accepted", () => {
   const capture = inspectChoices(gameForCase(find("capture-king-value")))
   assert.equal(capture.find(choice => choice.id === "a3xc5")?.worstNet, 1)
   assert.equal(capture.find(choice => choice.id === "e7xg5")?.worstNet, 3)
@@ -163,8 +163,24 @@ test("the smaller-model capture, promotion-defense and forced-win misses remain 
   assert.equal(defense.find(choice => choice.id === "g7-f6")?.worstNet, 0)
   assert.equal(defense.find(choice => choice.id === "a5-b4")?.permitsPromotion, true)
   assert.equal(defense.find(choice => choice.id === "g7-f6")?.permitsPromotion, false)
+  assert.deepEqual(new Set(auditCase(find("deny-red-promotion")).expectedMoveIds), new Set(["g7-f6", "a5-b4"]))
   const win = inspectChoices(gameForCase(find("force-next-turn-win-alternative")))
   assert.equal(win.find(choice => choice.id === "d8-c7")?.worstNet, -1)
   assert.equal(win.find(choice => choice.id === "d8-c7")?.forcesWin, false)
   assert.equal(win.find(choice => choice.id === "b8-a7")?.forcesWin, true)
+})
+
+
+test("engine-audited alternatives pass without accepting exposed kings or unrecouped promotions", () => {
+  const guard = auditCase(find("reported-runner-guard-82"))
+  assert.deepEqual(new Set(guard.expectedMoveIds), new Set(["e1-f2", "b8-a7"]))
+  assert.ok(!guard.expectedMoveIds?.includes("b8-c7"))
+  assert.ok(!guard.expectedMoveIds?.includes("e1-d2"))
+  const promote = auditCase(find("promotion-not-at-any-cost"))
+  assert.deepEqual(promote.expectedMoveIds, ["e5-f4"])
+  assert.equal(promote.choices.find(choice => choice.id === "e5-f4")?.worstPieceNet, 0)
+  assert.equal(promote.choices.find(choice => choice.id === "d2-c1")?.worstPieceNet, -1)
+  const compensate = auditCase(find("deny-red-promotion"))
+  assert.deepEqual(new Set(compensate.expectedMoveIds), new Set(["a5-b4", "g7-f6"]))
+  for (const id of ["d8-c7", "d8-e7", "e5-d4", "e5-f4", "a5-b6"]) assert.ok(!compensate.expectedMoveIds?.includes(id), id)
 })

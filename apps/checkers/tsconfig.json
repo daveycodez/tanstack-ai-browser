@@ -24,10 +24,10 @@
       "path": "../../packages/apfel"
     },
     {
-      "path": "../../packages/webgl"
+      "path": "../../packages/prompt-api"
     },
     {
-      "path": "../../packages/prompt-api"
+      "path": "../../packages/webgl"
     }
   ]
 }

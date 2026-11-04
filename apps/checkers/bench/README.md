@@ -43,7 +43,7 @@ Original raw v1 reports remain intact; the audit explains the corrected grading.
 ## Shared production path
 
 The runner calls `chooseAiMove`, exactly as the game does, with instrumentation callbacks.
-The original baseline (`baseline-v1`) is preserved unchanged. The current `shared-v12`
+The original baseline (`baseline-v1`) is preserved unchanged. The current `shared-v17`
 contract uses descriptive actions such as `Jump king d2 over c3 to b4`. Every legal action
 remains in the enum; neither card order nor a hidden fallback selects a move for the model.
 
@@ -239,3 +239,92 @@ same game AI path, native cancellation, model-default sampling, maxTokens 8192,
 and optional adapter-emulated working notes. Production builds omit the option;
 a stored development-only selection resolves to a normal supported opponent.
 No adapter or engine package code was changed.
+
+
+## Random player colors and white-first games (v13)
+
+Each new saved game draws one cryptographic random bit: human white or black,
+with white always opening. The assignment is persisted once per game; reloads,
+resume, model changes and later moves do not reroll it. Existing saves without a
+color field keep the original human-first assignment as white. The human's
+pieces stay at the bottom; role-relative movement, captures and crowning remain
+unchanged. Restart creates an independent assignment and preserves the opponent.
+
+The v13 prompt names AI and Human roles explicitly, provides their actual colors
+with the board, and keeps the white-first rule in the shared system prefix.
+This avoids equating Black with AI. Its opening sentence explicitly identifies
+the task as checkers and assigns the AI role. A paired control test on Apple’s
+draw-preference fixture rejected the previous generic sentence twice and
+accepted the explicit role sentence twice. It preserves every legal action, verified
+outcome and model setting; only role wording and color metadata differ from v12.
+The analysis worker forwards color metadata and full replay logs include colors.
+Historical prompt versions stay frozen. Recorded benchmark fixtures explicitly
+use human white, preserving their existing histories, positions and grades.
+
+
+## Mac same-tab parallel suite
+
+On non-touch Macs, `/bench` has a parallel dashboard. The default selection is
+the six models in the latest comparison, thinking off, both human colors, all
+39 positions and one worker per model. Models run concurrently, with their
+white and black phases in sequence; the worker count is configurable up to the
+position count.
+Native models run in the main window; WebGL uses the same storage-free runtime
+route pattern as Chess. Each context retains its model state across both color phases and its cases. The
+WebGL engine's existing per-worker serialization is preserved. No inference
+engine or adapter changes, token limits, sampling overrides or retries are added.
+
+The pool is explicitly started, validates message origin/source/run IDs, retains
+completed trials on cancellation and releases contexts when done. Mobile keeps
+the original sequential runner and game lock. Concurrent timings include resource
+contention and are not comparable with earlier sequential speed measurements.
+
+Color comparisons reuse the identical tactical positions, histories, legal-choice
+order and accepted sets as role-equivalent recolorings. They test color-invariant
+AI decisions; they do not assert that every recolored historical fixture is a
+reachable white-first standard opening. Actual white-first openings, persistence,
+resume and replay are tested separately through new games.
+
+
+## Cake-audited grading correction (suite v11, prompt v14)
+
+The suite retains 39 positions and 27 scored cases. A fresh Chrome run gives
+**Cake 27/27 and LFM3 GGUF 27/27** with thinking off and model-default sampling.
+
+- `reported-runner-guard-82` accepts `e1-f2` and the audited near-equal `b8-a7`.
+  Immediate captures of an exposed king or piece still fail.
+- `deny-red-promotion` accepts crown prevention `g7-f6` and compensated
+  `a5-b4 h6xf8 b4xd6`. A concession without compensation still fails.
+- `promotion-not-at-any-cost` now requires `e5-f4`, which avoids the double capture
+  before promoting. Immediate `d2-c1` leaves fewer surviving pieces and fails.
+
+Independent rules-based audit predicates derive these sets rather than hardcoding
+Cake's chosen IDs. Production v14 changes only the promotion recommendation in
+these 39 positions: compare surviving piece counts in existing checked exchange
+lines before preferring an immediate crown at equal exchange value. No extra
+search or model-specific instructions; all legal actions stay available. The
+system prompt shrinks from 1,795 to 1,761 characters. Historical v13 and earlier
+prompt behavior remains available unchanged. Older reports retain their versions.
+
+
+## Cake1 mistake-driven improvement
+
+See [the latest improvement report](CAKE1-IMPROVEMENT.md). Suite v12 adds exactly
+three scored replay cases (42 total, 30 scored); production v16 checks recapture
+follow-ups, short three-piece finishes, opponent draw claims, and terminal safety
+inside the already-checked branches. All legal cards and model sampling stay intact.
+LFM3/Nano score 30/30; Qwen 29/30 with one retained old promotion miss, all new cases
+passing. The fresh pilot was 1 win/1 draw/1 loss, but the frozen 12-round extension was
+0 wins/8 draws/4 losses. The one-in-three full-game target is not established.
+
+
+## Updated 12-round retest (v17 / suite v13)
+
+Two further real-game cases cover gratuitous multi-jump exposure at tied returns
+and avoiding a draw when a small checked cost still preserves a positive lead.
+No extra search depth or system-prompt text was added. The expanded suite is
+44 positions/32 scored; LFM3, Nano, Qwen and native Cake7 all passed 32/32.
+The new frozen 12-game batch was **3W–4L–5D**, versus 0W–4L–8D before.
+Starters alternated, six each; [the report](CAKE1-IMPROVEMENT.md) includes both
+players' first/second split. This is 25% observed wins, not a calibrated win rate.
+Live progress now reports W–L–D after each game, including later-round updates.

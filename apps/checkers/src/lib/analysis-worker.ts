@@ -46,7 +46,7 @@ export function analyzeMovePrompt(request: AnalysisRequest, signal: AbortSignal,
     // the actual position, draw history and move records, not those transcripts.
     const game = request.game
     const position: Game = {
-      id: game.id, sessionId: game.sessionId, board: game.board, turn: game.turn,
+      id: game.id, sessionId: game.sessionId, humanColor: game.humanColor, board: game.board, turn: game.turn,
       status: game.status, quietMoves: game.quietMoves, positions: game.positions,
       updatedAt: game.updatedAt,
       history: game.history.map(({ side, notation, path, captures, promoted }) => ({ side, notation, path, captures, promoted }))

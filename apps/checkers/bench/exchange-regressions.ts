@@ -6,11 +6,11 @@ export const EXCHANGE_REGRESSIONS: BenchmarkCase[] = [
   {
     id: "reported-exchange-move-6",
     label: "Reported game: finish the exchange before judging it",
-    description: "Avoid a material loss after mandatory captures settle; accept every nonlosing alternative, without claiming a positional best move.",
+    description: "Avoid a material loss after captures and the next quiet trade follow-up settle; accept every nonlosing alternative, without claiming a positional best move.",
     objective: "avoid-losing-exchange",
     partition: "calibration",
     history: gameHistory.slice(0, 5),
-    expectedMoveIds: ["b8-c7", "d8-c7", "e7-d6", "b6-a5", "b6-c5", "f6-g5", "h6-g5", "e5-d4"]
+    expectedMoveIds: ["b8-c7", "d8-c7", "e7-d6", "b6-a5", "f6-g5", "h6-g5", "e5-d4"]
   },
   {
     id: "reported-exchange-move-28",

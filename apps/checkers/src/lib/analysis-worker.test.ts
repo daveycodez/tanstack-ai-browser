@@ -27,7 +27,7 @@ class RecordingWorker extends EventTarget {
 test("memoized analysis matches all 44 pre-change annotations and complete prompts",()=>{
   assert.equal(fixtures.length,44)
   for(const record of fixtures){
-    assert.deepEqual(annotateMoves(record.game),record.annotations,record.id)
+    assert.deepEqual(annotateMoves(record.game,undefined,false),record.annotations,record.id)
     assert.deepEqual(buildMovePrompt(record.game,undefined,record.input.version),record.input,record.id)
   }
 })
@@ -74,10 +74,11 @@ test("success and worker errors release listeners; historical transcripts are no
   for(const mode of ["success","error","messageerror"]){
     const controller=new AbortController(),worker=new RecordingWorker()
     const trace={input:{prompt:"large transcript"}} as unknown as NonNullable<Game["history"][number]["analysis"]>
-    const game={...request.game,history:request.game.history.map(r=>({...r,analysis:trace})),aiFailures:[trace]}
+    const game={...request.game,humanColor:"black" as const,history:request.game.history.map(r=>({...r,analysis:trace})),aiFailures:[trace]}
     const pending=analyzeMovePrompt({...request,game},controller.signal,()=>worker)
     assert.ok(worker.posted[0].game.history.every(r=>r.analysis===undefined))
     assert.equal(worker.posted[0].game.aiFailures,undefined)
+    assert.equal(worker.posted[0].game.humanColor,"black")
     if(mode==="success"){worker.reply({input:slow.input});assert.deepEqual(await pending,slow.input)}
     else{worker.dispatchEvent(new Event(mode));await assert.rejects(pending,/analysis worker failed/)}
     controller.abort();assert.equal(worker.terminated,1)

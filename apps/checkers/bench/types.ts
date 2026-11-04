@@ -1,9 +1,9 @@
 import type { UsageInfo } from "@tanstack/ai"
-import type { Game, Side } from "../src/lib/checkers.ts"
+import type { Game, PieceColor, Side } from "../src/lib/checkers.ts"
 import type { OpponentModel } from "../src/lib/opponents.ts"
 import type { PromptVersion } from "../src/lib/shared-prompt.ts"
 
-export type Objective = "win-now" | "avoid-immediate-loss" | "best-safe-exchange" | "avoid-losing-exchange" | "best-runner-defense" | "minimize-checked-loss" | "safe-promotion" | "prevent-promotion" | "force-win-next-turn" | "force-next-capture" | "avoid-draw-ahead" | "take-draw-behind" | "diagnostic"
+export type Objective = "win-now" | "avoid-immediate-loss" | "best-safe-exchange" | "avoid-losing-exchange" | "best-runner-defense" | "avoid-immediate-capture" | "preserve-promotion-material" | "prevent-or-compensate-promotion" | "minimize-checked-loss" | "safe-promotion" | "prevent-promotion" | "force-win-next-turn" | "force-next-capture" | "avoid-draw-ahead" | "take-draw-behind" | "force-short-endgame-win" | "avoid-opponent-draw-ahead" | "limit-quiet-exposure" | "continue-checked-lead" | "diagnostic"
 export type BenchmarkCase = {
   id: string
   label: string
@@ -11,6 +11,7 @@ export type BenchmarkCase = {
   objective: Objective
   partition: "calibration" | "holdout"
   setup?: { black: string[]; red: string[]; turn?: Side; quietMoves?: number }
+  humanColor?: PieceColor
   history?: string[]
   expectedMoveIds: string[] | null
   signalMoveIds?: string[]
@@ -52,6 +53,7 @@ export type BenchmarkReport = {
     model: OpponentModel
     runtimeModel?: { id: string; name: string; browser: string | null }
     thinking: boolean
+    humanColor?: PieceColor | "both"
     reasoningMode: "off" | "native" | "emulated-working-notes"
     reasoningBudgetTokens: number
     maxOutputTokens: 8192 | null
