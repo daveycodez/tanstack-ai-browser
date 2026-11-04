@@ -203,10 +203,9 @@ export function MancalaBoard({
                 }
               >
                 <Seeds count={board[pit]} />
-                <span className="pit-count">{board[pit]}</span>
               </button>
-              <span className="pit-label" aria-hidden="true">
-                {pitName(pit)}
+              <span className="pit-label pit-count" aria-hidden="true">
+                {board[pit]}
               </span>
             </div>
           ))}

@@ -523,21 +523,12 @@ h2 {
   bottom: -18px;
 }
 .pit-count {
-  position: absolute;
-  bottom: 4%;
-  left: 50%;
-  transform: translateX(-50%);
-  display: grid;
-  place-items: center;
-  min-width: 17px;
-  height: 17px;
-  padding: 0 3px;
-  font-size: 10px;
+  font-size: 11px;
   line-height: 1;
   font-weight: 650;
-  background: color-mix(in srgb, var(--board-top) 80%, transparent);
-  border-radius: 50%;
-  z-index: 2;
+  font-variant-numeric: tabular-nums;
+  opacity: 1;
+  pointer-events: none;
 }
 .store {
   position: relative;
@@ -577,11 +568,11 @@ h2 {
 .seeds {
   --seed-width: 19%;
   position: absolute;
-  inset: 0 0 14%;
+  inset: 0;
   pointer-events: none;
 }
 .seeds-store {
-  inset: 14% 4% 18%;
+  inset: 14% 4%;
 }
 .seed {
   display: block;
@@ -1487,13 +1478,6 @@ h2 {
   }
   .pit-human .pit-label {
     bottom: -15px;
-  }
-  .pit-count {
-    font-size: 8px;
-    min-width: 13px;
-    height: 13px;
-    bottom: 1%;
-    padding: 0 2px;
   }
   .store-caption {
     font-size: 6px;
