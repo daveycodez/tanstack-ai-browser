@@ -1,0 +1,207 @@
+{
+  "schemaVersion": 1,
+  "reason": "Game2 controller appended nine records to game1 external decisions log and read game1 guidance paths/board metadata. Actual game2 guidance and raw answers remained correct.",
+  "method": "Replay actual paused19-move UI ledger from scheduled AI start; map nth Human ply to its exact game2 helper input. Correct only inputFile/actualBoard/gameNumber metadata, never answers, played pits or recorded move numbers.",
+  "gameNumber": 2,
+  "partialAtMove": 19,
+  "provisionalStores": {
+    "sol": 7,
+    "lfm": 15
+  },
+  "sourceHashesVerified": true,
+  "manifestSha256": "c67e775c274b0871fe169e500c3d6be1a1c282d7e33f9c6ad0c4c53b844d4a80",
+  "sourceSpilloverFile": "/private/tmp/sol-lfm3-matched-12/game-02/logger-spillover-original.json",
+  "sourceSpilloverRawSha256": "f25efcfe3f6f31f925f69251196d028db71b4df1ccb83b9f3b53d281a36726a8",
+  "sourcePausedLedgerFile": "/private/tmp/sol-lfm3-matched-12/game-02/logger-pause-partial.json",
+  "sourcePausedLedgerRawSha256": "500753519b14cbf448aea733a67cb0326b4f63ad3672a5f39ffd9ad4b71ab82a",
+  "sourceGame1CompletionRawSha256": "69d5bc35986d63f2501f206e0d7eb3c761e2ddaf519db9641e4c18520b41364f",
+  "preservedGame1EmbeddedDecisions": 28,
+  "originalSpilloverRecords": 37,
+  "recoveredRecords": 9,
+  "recoveredRawSha256": "50b4d52fb1925afccc9dddcc0f7f48351aff3265d47d0005ed700e0b10240e1b",
+  "allTreatmentInputsVerified": true,
+  "allActualAnswerMappingsVerified": true,
+  "originalProducerFilesRewritten": false,
+  "recoveryRows": [
+    {
+      "humanTurnOrdinal": 1,
+      "moveNumber": 2,
+      "originalArrayIndexZeroBased": 28,
+      "originalArrayIndexOneBased": 29,
+      "originalRowSha256": "49fc2186cce33a24275514013c838b1d74f0c820042e27eb71975f78cc12350d",
+      "correctedFields": [
+        "inputFile",
+        "actualBoard",
+        "gameNumber"
+      ],
+      "originalInputFile": "/private/tmp/sol-lfm3-matched-12/game-01/guidance/turn-01.json",
+      "authoritativeInputFile": "/private/tmp/sol-lfm3-matched-12/game-02/guidance/turn-01.json",
+      "guidanceRawSha256": "6820ab17e0430bf6295062dd1e7c546d79389d503a00c7ab6ce12f56f3d6216b",
+      "answerUnchanged": true,
+      "uiPitUnchanged": true,
+      "moveNumberUnchanged": true,
+      "fullInputVerified": true,
+      "actualBeforeBoardVerified": true
+    },
+    {
+      "humanTurnOrdinal": 2,
+      "moveNumber": 6,
+      "originalArrayIndexZeroBased": 29,
+      "originalArrayIndexOneBased": 30,
+      "originalRowSha256": "d085f1dc0086382134c7cf722377912c89e51d4d34daafeeee9b0974041479e4",
+      "correctedFields": [
+        "inputFile",
+        "actualBoard",
+        "gameNumber"
+      ],
+      "originalInputFile": "/private/tmp/sol-lfm3-matched-12/game-01/guidance/turn-02.json",
+      "authoritativeInputFile": "/private/tmp/sol-lfm3-matched-12/game-02/guidance/turn-02.json",
+      "guidanceRawSha256": "4aaee1c71384440d44298e32a7abcf050ee863c5a34529426ade418ceb5b19ca",
+      "answerUnchanged": true,
+      "uiPitUnchanged": true,
+      "moveNumberUnchanged": true,
+      "fullInputVerified": true,
+      "actualBeforeBoardVerified": true
+    },
+    {
+      "humanTurnOrdinal": 3,
+      "moveNumber": 7,
+      "originalArrayIndexZeroBased": 30,
+      "originalArrayIndexOneBased": 31,
+      "originalRowSha256": "9315601ae1ca7ae560b3816563b4523716b7b782e68eeec5a7b70ac45f7cf7b5",
+      "correctedFields": [
+        "inputFile",
+        "actualBoard",
+        "gameNumber"
+      ],
+      "originalInputFile": "/private/tmp/sol-lfm3-matched-12/game-01/guidance/turn-03.json",
+      "authoritativeInputFile": "/private/tmp/sol-lfm3-matched-12/game-02/guidance/turn-03.json",
+      "guidanceRawSha256": "69ed475d3ad93be6cd8aadfcb89afd31d1b98a6834414d7f2860ba3f7870939f",
+      "answerUnchanged": true,
+      "uiPitUnchanged": true,
+      "moveNumberUnchanged": true,
+      "fullInputVerified": true,
+      "actualBeforeBoardVerified": true
+    },
+    {
+      "humanTurnOrdinal": 4,
+      "moveNumber": 8,
+      "originalArrayIndexZeroBased": 31,
+      "originalArrayIndexOneBased": 32,
+      "originalRowSha256": "9929395a5b03d6c46a0020ae0ad3bd93224335d6d719e5a407e146b399fb593a",
+      "correctedFields": [
+        "inputFile",
+        "actualBoard",
+        "gameNumber"
+      ],
+      "originalInputFile": "/private/tmp/sol-lfm3-matched-12/game-01/guidance/turn-04.json",
+      "authoritativeInputFile": "/private/tmp/sol-lfm3-matched-12/game-02/guidance/turn-04.json",
+      "guidanceRawSha256": "82fda1c0c175ce1d76f9c3548f558862214bd298e2555cc1e200218a950679af",
+      "answerUnchanged": true,
+      "uiPitUnchanged": true,
+      "moveNumberUnchanged": true,
+      "fullInputVerified": true,
+      "actualBeforeBoardVerified": true
+    },
+    {
+      "humanTurnOrdinal": 5,
+      "moveNumber": 10,
+      "originalArrayIndexZeroBased": 32,
+      "originalArrayIndexOneBased": 33,
+      "originalRowSha256": "8145f94cd9127a61fb4eb41e59fcc05aa2d0cd5ce8651d72ffe7b674e3fb942a",
+      "correctedFields": [
+        "inputFile",
+        "actualBoard",
+        "gameNumber"
+      ],
+      "originalInputFile": "/private/tmp/sol-lfm3-matched-12/game-01/guidance/turn-05.json",
+      "authoritativeInputFile": "/private/tmp/sol-lfm3-matched-12/game-02/guidance/turn-05.json",
+      "guidanceRawSha256": "db5a9afd763738f11b8de581a44f920637450bb3f6ba1fbb047eab3752dad1bb",
+      "answerUnchanged": true,
+      "uiPitUnchanged": true,
+      "moveNumberUnchanged": true,
+      "fullInputVerified": true,
+      "actualBeforeBoardVerified": true
+    },
+    {
+      "humanTurnOrdinal": 6,
+      "moveNumber": 11,
+      "originalArrayIndexZeroBased": 33,
+      "originalArrayIndexOneBased": 34,
+      "originalRowSha256": "7726ea86175210452eff00eaa47049dedc4094dba2c00bcd59ffee60ddb3d987",
+      "correctedFields": [
+        "inputFile",
+        "actualBoard",
+        "gameNumber"
+      ],
+      "originalInputFile": "/private/tmp/sol-lfm3-matched-12/game-01/guidance/turn-06.json",
+      "authoritativeInputFile": "/private/tmp/sol-lfm3-matched-12/game-02/guidance/turn-06.json",
+      "guidanceRawSha256": "a1295e54f711f33f9902a9503dd5bc51b75d2dd9f30f713ca271f7166790f417",
+      "answerUnchanged": true,
+      "uiPitUnchanged": true,
+      "moveNumberUnchanged": true,
+      "fullInputVerified": true,
+      "actualBeforeBoardVerified": true
+    },
+    {
+      "humanTurnOrdinal": 7,
+      "moveNumber": 14,
+      "originalArrayIndexZeroBased": 34,
+      "originalArrayIndexOneBased": 35,
+      "originalRowSha256": "db6031b6048b4fe567edbe2bc1886ebc40c85c49a7b26da003f6451d51fae62b",
+      "correctedFields": [
+        "inputFile",
+        "actualBoard",
+        "gameNumber"
+      ],
+      "originalInputFile": "/private/tmp/sol-lfm3-matched-12/game-01/guidance/turn-07.json",
+      "authoritativeInputFile": "/private/tmp/sol-lfm3-matched-12/game-02/guidance/turn-07.json",
+      "guidanceRawSha256": "bd312148b38100410685b17f7647a868cf80e8bef89df6916d2e1c21382d0b14",
+      "answerUnchanged": true,
+      "uiPitUnchanged": true,
+      "moveNumberUnchanged": true,
+      "fullInputVerified": true,
+      "actualBeforeBoardVerified": true
+    },
+    {
+      "humanTurnOrdinal": 8,
+      "moveNumber": 15,
+      "originalArrayIndexZeroBased": 35,
+      "originalArrayIndexOneBased": 36,
+      "originalRowSha256": "20394349fc1a20737490878d8fc491098de289ccc489f70dc64e62ccad443081",
+      "correctedFields": [
+        "inputFile",
+        "actualBoard",
+        "gameNumber"
+      ],
+      "originalInputFile": "/private/tmp/sol-lfm3-matched-12/game-01/guidance/turn-08.json",
+      "authoritativeInputFile": "/private/tmp/sol-lfm3-matched-12/game-02/guidance/turn-08.json",
+      "guidanceRawSha256": "eb564f1baf3ddd4e452466c3c03e233e9a696a40b37e46612475fe2d850cf88c",
+      "answerUnchanged": true,
+      "uiPitUnchanged": true,
+      "moveNumberUnchanged": true,
+      "fullInputVerified": true,
+      "actualBeforeBoardVerified": true
+    },
+    {
+      "humanTurnOrdinal": 9,
+      "moveNumber": 18,
+      "originalArrayIndexZeroBased": 36,
+      "originalArrayIndexOneBased": 37,
+      "originalRowSha256": "833aa4f431aa0e94268c269c0f5092f45362e4eafc09df6e3ba0bfce3e5514fd",
+      "correctedFields": [
+        "inputFile",
+        "actualBoard",
+        "gameNumber"
+      ],
+      "originalInputFile": "/private/tmp/sol-lfm3-matched-12/game-01/guidance/turn-09.json",
+      "authoritativeInputFile": "/private/tmp/sol-lfm3-matched-12/game-02/guidance/turn-09.json",
+      "guidanceRawSha256": "def9626ee2b55ed3cb0bd0091b578d949fbac568edea99424ebd952e9ececb60",
+      "answerUnchanged": true,
+      "uiPitUnchanged": true,
+      "moveNumberUnchanged": true,
+      "fullInputVerified": true,
+      "actualBeforeBoardVerified": true
+    }
+  ]
+}

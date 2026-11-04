@@ -1,0 +1,398 @@
+{
+  "scope": "Reachable recorded positions; separate full-margin five-million-visit oracle; continuation replays; all six legal presentation orders under actual v14 and v15 source. Production outcome proof classifies W/D/L, not final scores.",
+  "fingerprint": "a35b78ae179d42e87bae6bbe2e2e2787a0d73bb46d165cf775220949dc4831b3",
+  "proofs": [
+    {
+      "caseId": "matched-win-over-three-seed-capture",
+      "game": 1,
+      "move": 24,
+      "sourceGameRawSha256": "69d5bc35986d63f2501f206e0d7eb3c761e2ddaf519db9641e4c18520b41364f",
+      "board": [
+        0,
+        0,
+        1,
+        9,
+        1,
+        1,
+        16,
+        0,
+        0,
+        1,
+        2,
+        9,
+        0,
+        8
+      ],
+      "actualChosenPit": 11,
+      "expectedPits": [
+        10
+      ],
+      "terminalValues": [
+        {
+          "pit": 9,
+          "value": -16
+        },
+        {
+          "pit": 10,
+          "value": 2
+        },
+        {
+          "pit": 11,
+          "value": -8
+        }
+      ],
+      "nodeOracleGlobalCap": 5000000,
+      "recordedInstrumentedNodeVisits": 1736008,
+      "fullScoreOracleVerified": true,
+      "recordedLinesReplayVerified": true,
+      "allSixOrdersVerified": [
+        {
+          "order": [
+            9,
+            10,
+            11
+          ],
+          "oldRecommendedPit": 11,
+          "currentRecommendedPit": 10,
+          "outcomeProofNodes": 159498,
+          "maxTableEntriesUsed": 75000,
+          "classes": [
+            {
+              "pit": 9,
+              "outcome": "human-win"
+            },
+            {
+              "pit": 10,
+              "outcome": "ai-win"
+            },
+            {
+              "pit": 11,
+              "outcome": "human-win"
+            }
+          ]
+        },
+        {
+          "order": [
+            9,
+            11,
+            10
+          ],
+          "oldRecommendedPit": 11,
+          "currentRecommendedPit": 10,
+          "outcomeProofNodes": 159486,
+          "maxTableEntriesUsed": 75000,
+          "classes": [
+            {
+              "pit": 9,
+              "outcome": "human-win"
+            },
+            {
+              "pit": 11,
+              "outcome": "human-win"
+            },
+            {
+              "pit": 10,
+              "outcome": "ai-win"
+            }
+          ]
+        },
+        {
+          "order": [
+            10,
+            9,
+            11
+          ],
+          "oldRecommendedPit": 11,
+          "currentRecommendedPit": 10,
+          "outcomeProofNodes": 159427,
+          "maxTableEntriesUsed": 75000,
+          "classes": [
+            {
+              "pit": 10,
+              "outcome": "ai-win"
+            },
+            {
+              "pit": 9,
+              "outcome": "human-win"
+            },
+            {
+              "pit": 11,
+              "outcome": "human-win"
+            }
+          ]
+        },
+        {
+          "order": [
+            10,
+            11,
+            9
+          ],
+          "oldRecommendedPit": 11,
+          "currentRecommendedPit": 10,
+          "outcomeProofNodes": 159427,
+          "maxTableEntriesUsed": 75000,
+          "classes": [
+            {
+              "pit": 10,
+              "outcome": "ai-win"
+            },
+            {
+              "pit": 11,
+              "outcome": "human-win"
+            },
+            {
+              "pit": 9,
+              "outcome": "human-win"
+            }
+          ]
+        },
+        {
+          "order": [
+            11,
+            9,
+            10
+          ],
+          "oldRecommendedPit": 11,
+          "currentRecommendedPit": 10,
+          "outcomeProofNodes": 159486,
+          "maxTableEntriesUsed": 75000,
+          "classes": [
+            {
+              "pit": 11,
+              "outcome": "human-win"
+            },
+            {
+              "pit": 9,
+              "outcome": "human-win"
+            },
+            {
+              "pit": 10,
+              "outcome": "ai-win"
+            }
+          ]
+        },
+        {
+          "order": [
+            11,
+            10,
+            9
+          ],
+          "oldRecommendedPit": 11,
+          "currentRecommendedPit": 10,
+          "outcomeProofNodes": 159415,
+          "maxTableEntriesUsed": 75000,
+          "classes": [
+            {
+              "pit": 11,
+              "outcome": "human-win"
+            },
+            {
+              "pit": 10,
+              "outcome": "ai-win"
+            },
+            {
+              "pit": 9,
+              "outcome": "human-win"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "caseId": "matched-win-over-draw-and-capture",
+      "game": 7,
+      "move": 27,
+      "sourceGameRawSha256": "a9586731e782647820a437a5769e713f30a470526f6204b5c24be122c943b03e",
+      "board": [
+        0,
+        0,
+        1,
+        9,
+        0,
+        1,
+        17,
+        0,
+        0,
+        1,
+        1,
+        10,
+        0,
+        8
+      ],
+      "actualChosenPit": 11,
+      "expectedPits": [
+        10
+      ],
+      "terminalValues": [
+        {
+          "pit": 9,
+          "value": 0
+        },
+        {
+          "pit": 10,
+          "value": 2
+        },
+        {
+          "pit": 11,
+          "value": -6
+        }
+      ],
+      "nodeOracleGlobalCap": 5000000,
+      "recordedInstrumentedNodeVisits": 4395292,
+      "fullScoreOracleVerified": true,
+      "recordedLinesReplayVerified": true,
+      "allSixOrdersVerified": [
+        {
+          "order": [
+            9,
+            10,
+            11
+          ],
+          "oldRecommendedPit": 11,
+          "currentRecommendedPit": 10,
+          "outcomeProofNodes": 389093,
+          "maxTableEntriesUsed": 75000,
+          "classes": [
+            {
+              "pit": 9,
+              "outcome": "draw"
+            },
+            {
+              "pit": 10,
+              "outcome": "ai-win"
+            },
+            {
+              "pit": 11,
+              "outcome": "human-win"
+            }
+          ]
+        },
+        {
+          "order": [
+            9,
+            11,
+            10
+          ],
+          "oldRecommendedPit": 11,
+          "currentRecommendedPit": 10,
+          "outcomeProofNodes": 385402,
+          "maxTableEntriesUsed": 75000,
+          "classes": [
+            {
+              "pit": 9,
+              "outcome": "draw"
+            },
+            {
+              "pit": 11,
+              "outcome": "human-win"
+            },
+            {
+              "pit": 10,
+              "outcome": "ai-win"
+            }
+          ]
+        },
+        {
+          "order": [
+            10,
+            9,
+            11
+          ],
+          "oldRecommendedPit": 11,
+          "currentRecommendedPit": 10,
+          "outcomeProofNodes": 389692,
+          "maxTableEntriesUsed": 75000,
+          "classes": [
+            {
+              "pit": 10,
+              "outcome": "ai-win"
+            },
+            {
+              "pit": 9,
+              "outcome": "draw"
+            },
+            {
+              "pit": 11,
+              "outcome": "human-win"
+            }
+          ]
+        },
+        {
+          "order": [
+            10,
+            11,
+            9
+          ],
+          "oldRecommendedPit": 11,
+          "currentRecommendedPit": 10,
+          "outcomeProofNodes": 388495,
+          "maxTableEntriesUsed": 75000,
+          "classes": [
+            {
+              "pit": 10,
+              "outcome": "ai-win"
+            },
+            {
+              "pit": 11,
+              "outcome": "human-win"
+            },
+            {
+              "pit": 9,
+              "outcome": "draw"
+            }
+          ]
+        },
+        {
+          "order": [
+            11,
+            9,
+            10
+          ],
+          "oldRecommendedPit": 11,
+          "currentRecommendedPit": 10,
+          "outcomeProofNodes": 388439,
+          "maxTableEntriesUsed": 75000,
+          "classes": [
+            {
+              "pit": 11,
+              "outcome": "human-win"
+            },
+            {
+              "pit": 9,
+              "outcome": "draw"
+            },
+            {
+              "pit": 10,
+              "outcome": "ai-win"
+            }
+          ]
+        },
+        {
+          "order": [
+            11,
+            10,
+            9
+          ],
+          "oldRecommendedPit": 11,
+          "currentRecommendedPit": 10,
+          "outcomeProofNodes": 392130,
+          "maxTableEntriesUsed": 75000,
+          "classes": [
+            {
+              "pit": 11,
+              "outcome": "human-win"
+            },
+            {
+              "pit": 10,
+              "outcome": "ai-win"
+            },
+            {
+              "pit": 9,
+              "outcome": "draw"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -14,8 +14,8 @@ function getCase(id: string) {
 
 test("every frozen objective matches an exhaustive complete-turn audit", () => {
   const audit = auditSuite()
-  assert.equal(audit.cases, 21)
-  assert.equal(audit.scored, 18)
+  assert.equal(audit.cases, 23)
+  assert.equal(audit.scored, 20)
   assert.equal(audit.holdout, 3)
   assert.equal(new Set(CASES.map((item) => item.category)).size, 6)
 })
@@ -148,4 +148,47 @@ test("the new draw-to-loss regression accepts only the independently proved draw
     { pit: 10, value: -2 }
   ])
   assert.deepEqual(expectedForCase(fixture), [7])
+})
+
+test("both matched-run win-to-loss regressions replay from their actual openings and retain independent full-terminal grades", () => {
+  const proofs = JSON.parse(
+    readFileSync(
+      new URL(
+        "./fixtures/outcome-proof-2026-11-03/candidate-proofs.json",
+        import.meta.url
+      ),
+      "utf8"
+    )
+  ) as {
+    game: number
+    move: number
+    before: number[]
+    chosenPit: number
+    expectedPits: number[]
+    values: { pit: number; value: number }[]
+    opening: { side: "human" | "ai"; pit: number }[]
+  }[]
+  const ids = [
+    "matched-win-over-three-seed-capture",
+    "matched-win-over-draw-and-capture"
+  ]
+  assert.equal(proofs.length, 2)
+  for (const [i, proof] of proofs.entries()) {
+    const fixture = getCase(ids[i])
+    let game = createGame()
+    assert.equal(proof.opening.length, proof.move - 1)
+    for (const move of proof.opening) {
+      assert.equal(game.turn, move.side)
+      game = applyMove(game, move.pit)
+    }
+    assert.equal(game.turn, "ai")
+    assert.deepEqual(game.board, proof.before)
+    assert.deepEqual(game.board, fixture.board)
+    assert.deepEqual(objectiveValues(fixture), proof.values)
+    assert.deepEqual(expectedForCase(fixture), [10])
+    assert.equal(proof.values.find((v) => v.pit === 10)?.value, 2)
+    assert.ok(
+      (proof.values.find((v) => v.pit === proof.chosenPit)?.value ?? 0) < 0
+    )
+  }
 })

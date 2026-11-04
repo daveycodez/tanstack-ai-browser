@@ -1,0 +1,16 @@
+{
+  "strictSummaryRawSha256": "d004f0279d26345b5fed5808ab25c30a171452b05aa3e91658fab160b5125fac",
+  "producerFinalSummaryRawSha256": "0e330d0c20e2d26565704e3bc8583aa1ab97ff24c4e0785586bd95fa31bbf2d4",
+  "originalManifestRawSha256": "c67e775c274b0871fe169e500c3d6be1a1c282d7e33f9c6ad0c4c53b844d4a80",
+  "strictVerificationBeforePostExperimentEdits": true,
+  "currentV14SourceMatchedAtStartAndFinish": true,
+  "fullHumanInputsRebuilt": 260,
+  "separatePilotInputsRebuilt": 5,
+  "cachedInputRebuilds": 0,
+  "replayedStudyMoves": 504,
+  "completedGames": 12,
+  "proofImages": 12,
+  "eachModelPlayedFirst": 6,
+  "eachModelPlayedSecond": 6,
+  "scope": "Strict full verification under original current v14; later historical-mode reports may correctly show a newer current default. Producer summary is retained for comparison; statistics derive from actual game ledgers."
+}

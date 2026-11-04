@@ -1,7 +1,7 @@
 import assert from "node:assert/strict"
 import test from "node:test"
 import { createGame, legalMoves } from "./mancala.ts"
-import { buildMovePrompt } from "./shared-prompt.ts"
+import { buildMovePrompt } from "./shared-prompt-v14.ts"
 import { CASES, gameForCase } from "../../bench/cases.ts"
 const position = (board: number[]) => ({
   ...createGame(),
@@ -37,7 +37,9 @@ test("a unique shallow preference cannot conceal a proved draw in another legal 
   assert.equal(current.prompt.match(/RECOMMENDED AI ACTION:/g)?.length, 1)
 })
 test("small-endgame proof preserves the old nineteen scoped objectives and every legal label", () => {
-  for (const fixture of CASES.filter((c) => !c.id.startsWith("sol-match-"))) {
+  for (const fixture of CASES.filter(
+    (c) => !c.id.startsWith("sol-match-") && !c.id.startsWith("matched-")
+  )) {
     const game = gameForCase(fixture),
       current = buildMovePrompt(game)
     const old = buildMovePrompt(game, undefined, "shared-v13")

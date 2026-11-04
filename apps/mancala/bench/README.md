@@ -32,8 +32,8 @@ between trials; cached usage is reported only when the provider supplies it.
 
 ## Frozen suite and independent audit
 
-`mancala-tactics-v5` has **21 frozen 48-seed boards**: 18 calibration positions
-(15 scored, 3 neutral diagnostics), plus 3 scored holdouts. They cover bonus
+`mancala-tactics-v6` has **23 frozen 48-seed boards**: 20 calibration positions
+(17 scored, 3 neutral diagnostics), plus 3 scored holdouts. They cover bonus
 chains, empty-pit captures, replies to captures, skipping the opponent's store,
 final sweeps, draws, and multiple equivalent winning choices. Two added steal-defense regressions are replayed from legal opening histories
 in tests. The remaining constructed boards are teaching positions; historical
@@ -43,7 +43,11 @@ original Sol game. All 19 v3 boards, their accepted actions and their objective
 semantics remain unchanged. V5 adds only `sol-match-save-forced-draw`, replayed to move 32
 of the first v13 diagnostic game; its all-root terminal proof accepts drawing
 internal pit 7 over losing pits 8 and 10. All earlier cases retain their accepted
-actions.
+actions. V6 adds only `matched-win-over-three-seed-capture` and
+`matched-win-over-draw-and-capture`, two independently terminal-proved WIN-to-LOSS
+positions from the matched-guidance games. All 21 earlier accepted answer sets
+remain unchanged. Both new cases accept only internal index 10 / displayed AI
+pit 4 under the original five-million-visit full-margin grader.
 
 Four scoped objectives are graded:
 
@@ -57,8 +61,9 @@ Four scoped objectives are graded:
   Human bonus turns. Terminal wins/losses dominate nonterminal store margins;
   terminal draws score zero. The terminal score is `sign(margin)*1000+margin`.
   Every tied best initial action is accepted.
-- **Best final margin:** the disputed capture-versus-bonus fixture and the two
-  Sol-game move-26 / v13-game move-32 fixtures are solved through terminal play by a separate
+- **Best final margin:** the disputed capture-versus-bonus fixture, the two
+  Sol-game move-26 / v13-game move-32 fixtures and the two new matched-game
+  winning-defense positions are solved through terminal play by a separate
   full-board/store oracle. Accept every
   action tied for the best final AI-minus-Human margin. A node-limit exhaustion
   throws rather than assigning a partial grade. Pit 5 proves 30–18; pit 6 proves
@@ -69,7 +74,7 @@ Four scoped objectives are graded:
   real drawing defense: displayed pit 1 forces 24–24; pits 2 and 4 lose 23–25.
 
 `reference.ts` exhaustively enumerates each complete turn for these small boards.
-It is separate from production's four-turn baseline, tie review and all-action endgame comparison, while sharing the
+It is separate from production's four-turn baseline, tie review, final-score comparison and exact outcome-class protection, while sharing the
 tested rules engine. The full-turn reply objective checks only AI's own turn
 and one Human reply; the collection objective ignores later defense. A deeper
 production preference can therefore miss a narrow benchmark objective without
@@ -90,8 +95,8 @@ or proof of overall playing strength. Actual LFM3-only results are archived in [
 
 ## Current/baseline and Mac parallel runs
 
-The **Prompt** selector runs the current all-action-endgame `shared-v14` context or the
-frozen `shared-v1` through `shared-v13` historical variants through the same model, case set,
+The **Prompt** selector runs the current outcome-protected `shared-v15` context or the
+frozen `shared-v1` through `shared-v14` historical variants through the same model, case set,
 reasoning settings and paired order policy. The chosen version is saved in each
 report. Use identical settings for an A/B comparison, then check holdouts without
 changing the frozen prompt.
@@ -199,3 +204,52 @@ Final verification passed 123 automated tests, typecheck, lint, benchmark audit
 and the production static build. The artifact verifier rebuilt all 262 archived
 model inputs and replayed all three completed fresh games against the unchanged
 frozen source. The original loss and stopped v13 diagnostics remain preserved.
+
+
+## Matched guidance and current v15 / suite v6
+
+The [twelve-game equal-guidance study](fixtures/equal-guidance-2026-11-03/README.md)
+finished under unchanged v14: **Sol 4 wins, LFM3 3 wins, 5 draws**, six starts per
+model. Its 504 moves and 260 Human guidance records are verified and retained.
+The earlier LFM3 3–0 result had different guidance treatment and remains a
+separate sample. Neither is a same-board provider-only benchmark.
+
+The [outcome-proof refinement](fixtures/outcome-proof-2026-11-03/README.md) adds
+two new genuine winning alternatives missed after v14's exact-score cap was
+exhausted. An exact win/draw/loss proof with capped visits now classifies all legal
+roots and changes context only for a strictly better outcome class. It does not
+claim exact final seeds or replace the generated model answer. Existing 21-case
+model-facing fields and accepted answers remain unchanged.
+
+For the requested full goal runs, evaluate **LFM3 first, Nano second, Qwen last**
+using the same shared, model-agnostic guidance. All 23 positions stay in the run:
+20 graded objectives and 3 neutral diagnostics. With two repetitions, require
+**40/40 objective passes and 46/46 legal replies**; the diagnostics are not
+silently counted as proved optimal decisions. Preserve failed runs and use
+thinking only for separately labeled diagnostics. After any shared wording or
+context change, rerun earlier models. Actual scores are recorded only after
+full report capture and verification, including exact cross-model equality of
+system/user text and ordered legal choice enums.
+
+Current production checks passed 141 tests, typecheck, lint, benchmark audit
+and the static build. These checks remain separate from real model inference
+and do not by themselves establish the full model-run goals.
+
+
+Verified actual v15 goal runs completed in **LFM3 → Nano → Qwen** order, thinking
+off, with identical shared input for every case/repetition:
+
+| Model | All positions covered | Graded passes | Legal replies |
+| --- | --- | --- | --- |
+| LFM3 GGUF | 23 × 2 | **40/40** | **46/46** |
+| Chrome Prompt API / Nano | 23 × 2 | **40/40** | **46/46** |
+| Qwen GGUF | 23 × 2 | **40/40** | **46/46** |
+
+The six neutral observations in each run remain ungraded. Exact system/user
+text, ordered legal schema choices and complete deterministic input agree
+across all 46 case/repetition keys for every model. Both new LFM3 cases also
+passed 4/4 rotated repeats versus retained v14 baselines of 0/4. Seven complete
+reports retain 154 real trials, including those failed baselines. No further
+tuning or thinking diagnostic was needed. See the [full source/proof archive](fixtures/outcome-proof-2026-11-03/README.md)
+for raw reports, source freezes, independent final-margin values and verification.
+These tactical results are separate from the frozen-v14 twelve-game sample.

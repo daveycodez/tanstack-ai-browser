@@ -30,7 +30,7 @@ availability and development-only Apple opponent match Checkers. Models are
 loaded only for an AI turn or an explicitly started benchmark; there is no cloud
 inference or heuristic replacement of an invalid model answer.
 
-`shared-prompt.ts` uses `shared-v14` whole-turn context. The worker checks four
+`shared-prompt.ts` uses `shared-v15` whole-turn context. The worker checks four
 completed turns per alternative (AI, Human, AI response, Human), including every
 bonus sow, captures and final sweeps. If the node limit prevents that horizon,
 all alternatives retry at the same three- or two-turn horizon. An unfinished
@@ -139,7 +139,7 @@ and falls back to unchanged v13 context when the all-action comparison is
 incomplete. It does not narrow the legal schema or replace the model's answer.
 Suite v5 adds only the independently proved draw-preservation board, bringing
 the suite to 21 boards; the original 19 and the v4 addition keep their accepted
-actions. Versions v1–v14 remain selectable. The archive separates the stopped
+actions. Historical versions v1–v14 remain selectable. The archive separates the stopped
 v13 diagnostics from the restarted, frozen-v14 three-game validation.
 
 With thinking off, LFM3, Qwen GGUF and the browser Prompt API each measured
@@ -155,14 +155,50 @@ That first win does not isolate a
 causal v14 advantage over v13. The two regression proofs and their model reruns
 supply separate evidence for the context fixes.
 
+The separate [equal-guidance twelve-game study](bench/fixtures/equal-guidance-2026-11-03/README.md)
+then gave GPT-6.1 Sol high the full production context through a verified role
+rotation. All twelve games used frozen v14 and alternated starters: **Sol four
+wins, LFM3 three wins, five draws**. Sol played first 3W/1L/2D and second
+1W/2L/3D; LFM3 played first 2W/1L/3D and second 1W/3L/2D. All 504 moves and
+260 Human inputs were verified. This aided, balanced-order sample is separate
+from the earlier asymmetric 3–0 games and is not a model-only strength ranking.
+
+Post-study review found two new genuine WIN-to-LOSS positions: in game 1 move
+24 (also game 3), the played capture loses 20–28 while quiet pit 4 wins 25–23
+under best replies; in game 7 move 27, the played capture loses 21–27 while pit
+4 wins 25–23. Game 7 actually finished LFM3 22–Sol 26; the proof values describe
+optimal counterplay, not a rewritten game score. Both boards are newly added
+calibration cases, taking suite v6 to **23 positions** with the original 21
+accepted answer sets unchanged.
+
+V15 adds a generic all-legal-action win/draw/loss proof when at most 24 pit seeds
+remain and earlier context has not already established a strongest outcome.
+It uses terminal or secured-majority leaves, a global one-million-visit cap and
+a 75,000-entry table. It overrides the v14 recommendation only after a complete
+comparison proves a strictly better class. It does not invent exact final
+scores from an outcome-only proof. Incomplete searches and already-best choices
+retain old model-facing context; regression tests preserve that context exactly
+on all 21 earlier positions. Every legal label remains available to the actual
+model. [Proofs and actual model reruns](bench/fixtures/outcome-proof-2026-11-03/README.md)
+keep this post-study improvement distinct from the frozen twelve-game result.
+
+Actual shared-v15 goal runs then completed in **LFM3 → Nano → Qwen** order,
+all thinking off: each covered all 23 positions with **40/40 graded passes and
+46/46 legal responses** at two repetitions. The three neutral diagnostics stay
+ungraded. LFM3's four-repeat checks of each new board improved from **0/4 under
+frozen v14 to 4/4 under v15**, with the failed baselines retained. All 46
+case/repetition inputs match across the three models in system/user text,
+ordered legal enums and the complete deterministic input. No failure required
+further tuning or a model-specific guidance branch.
+
 The Prompt API requires a supporting browser; WebGL models require the existing
 WebGL runtime's browser/GPU capabilities. Model downloads can be substantial.
 See [bench/README.md](bench/README.md) for scoring limits and repeatable runs.
-Final verification passed 123 automated tests, typecheck, lint, benchmark audit
-and the production static build, with the frozen source unchanged. Automated
+Current v15 verification passed 141 automated tests, typecheck, lint, benchmark
+audit and the production static build. Automated
 tests verify the rules, context, worker, runner, persistence and audio. Benchmark
 scores cover their stated tactical objectives; the archived game ledgers supply
-the separate three-game observations, without an overall strength estimate.
+the separate three-game and twelve-game observations, without an overall strength estimate.
 
 ## Storage and build
 

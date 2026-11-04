@@ -3,7 +3,7 @@ import type { Game } from "../src/lib/mancala.ts"
 import type { OpponentSettings } from "../src/lib/opponents.ts"
 import type { BenchmarkCase } from "./types.ts"
 
-export const SUITE_VERSION = "mancala-tactics-v5"
+export const SUITE_VERSION = "mancala-tactics-v6"
 
 /** Frozen 48-seed teaching boards; the two bonus-steal regressions are replayed from real legal openings in tests. */
 export const CASES: BenchmarkCase[] = [
@@ -204,6 +204,28 @@ export const CASES: BenchmarkCase[] = [
       "Move 32 from the v13 Sol match: the unique four-turn preference loses 23–25, while unloading pit 1 guarantees 24–24. Solve every legal alternative, even without a shallow tie.",
     board: [2, 0, 3, 0, 1, 0, 17, 3, 1, 0, 1, 0, 0, 20],
     expectedPits: [7]
+  },
+  {
+    id: "matched-win-over-three-seed-capture",
+    label: "Preserve the win over a three-seed capture",
+    category: "defense",
+    partition: "calibration",
+    objective: "best-final-margin",
+    description:
+      "Matched games 1 and 3, move 24: pit 4 forces a 25–23 win; the tempting pit 5 capture loses 20–28 under best play. Exact outcome proof must override the exhausted margin search's losing fallback.",
+    board: [0, 0, 1, 9, 1, 1, 16, 0, 0, 1, 2, 9, 0, 8],
+    expectedPits: [10]
+  },
+  {
+    id: "matched-win-over-draw-and-capture",
+    label: "Choose the win over a draw or capture",
+    category: "endgame",
+    partition: "calibration",
+    objective: "best-final-margin",
+    description:
+      "Matched game 7, move 27: quiet pit 4 forces 25–23; pit 3 draws 24–24 and pit 5's capture loses 21–27 under best play. Preserve the winning class before optimizing a final-score margin.",
+    board: [0, 0, 1, 9, 0, 1, 17, 0, 0, 1, 1, 10, 0, 8],
+    expectedPits: [10]
   },
   {
     id: "holdout-bonus",

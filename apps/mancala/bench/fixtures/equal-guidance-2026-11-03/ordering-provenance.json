@@ -1,0 +1,7 @@
+{
+  "analysisSourceCommit": "3dc6daa1625191529738777b240a99901e491644",
+  "file": "src/lib/move-order.ts",
+  "sha256": "bb82628df5039e7572d78d5cf91f8fcd5cf510ca0fca9c4c2d3e08056f80766a",
+  "matchesCommittedBytes": true,
+  "scope": "Additional ordering-policy pin; original manifest is preserved unchanged."
+}

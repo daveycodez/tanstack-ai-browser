@@ -1,132 +1,180 @@
 import { legalMoves } from "./mancala.ts"
 import type { Game } from "./mancala.ts"
-import { solveEndgameTies } from "./endgame-ties.ts"
-import type { EndgameTieResult } from "./endgame-ties.ts"
 import {
-  buildMovePrompt as buildV13,
-  PROMPT_VERSIONS as HISTORICAL_VERSIONS,
-  SHARED_SYSTEM_PROMPT as V13_SYSTEM
-} from "./shared-prompt-v13.ts"
+  buildMovePrompt as buildV14,
+  PROMPT_VERSIONS as HISTORICAL_VERSIONS
+} from "./shared-prompt-v14.ts"
 import type {
-  PromptInput as V13Input,
-  EngineAction
-} from "./shared-prompt-v13.ts"
-export { analyzeMoves, checkedPriorityChoices } from "./shared-prompt-v13.ts"
-export type {
-  MoveAnalysis,
-  EngineReport,
-  EngineAction
-} from "./shared-prompt-v13.ts"
-export const SHARED_PROMPT_VERSION = "shared-v14" as const
+  PromptInput as V14Input,
+  EngineAction as HistoricalAction,
+  EngineReport as HistoricalReport
+} from "./shared-prompt-v14.ts"
+import { solveGameOutcomes } from "./outcome-proof.ts"
+import type { GameOutcome } from "./outcome-proof.ts"
+export { analyzeMoves, checkedPriorityChoices } from "./shared-prompt-v14.ts"
+export type { MoveAnalysis } from "./shared-prompt-v14.ts"
+
+export const SHARED_PROMPT_VERSION = "shared-v15" as const
 export const PROMPT_VERSIONS = [
   ...HISTORICAL_VERSIONS,
   SHARED_PROMPT_VERSION
 ] as const
 export type PromptVersion = (typeof PROMPT_VERSIONS)[number]
-export type PromptInput = Omit<V13Input, "version"> & {
-  version: PromptVersion
-  finalComparison?: EndgameTieResult
+export type EngineAction = HistoricalAction & {
+  outcomeProof?: {
+    kind: "FULL_GAME_OUTCOME"
+    outcome: GameOutcome
+    basis: "terminal-or-secured-majority"
+  }
 }
-export const SHARED_SYSTEM_PROMPT =
-  V13_SYSTEM +
-  "\n\nWhen an ALL-ACTION ENDGAME REVIEW is present, it compares every legal action through the final sweep under best play by both sides. It replaces the shallow preference, even if that preference was unique. Preserve an available draw over a proved defeat. Among equal outcomes maximize final AI seeds and final margin. Follow the updated BEST group and final recommendation; an immediate capture or bonus cannot override a worse proved finish."
-/** A unique shallow preference can still hide a drawing alternative. */
+export type EngineReport = Omit<HistoricalReport, "actions"> & {
+  actions: EngineAction[]
+  evaluationScope?: "Earlier evaluations retain their original scope as diagnostics; outcomeProof alone ranks these actions."
+}
+export type PromptInput = Omit<V14Input, "version" | "report"> & {
+  version: PromptVersion
+  report?: EngineReport
+  outcomeComparison?: ReturnType<typeof solveGameOutcomes>
+}
+
+/** Used only when a complete proof strictly improves the previous recommendation. */
+export const SHARED_SYSTEM_PROMPT = [
+  "You control AI in Kalah. Choose an exact supplied legal action label. The full-game outcome report proves the result for AI under best play by both sides, through a terminal finish or a secured majority of more than 24 seeds.",
+  "WIN is better than DRAW, and DRAW is better than DEFEAT. BEST marks every action in the strongest proved outcome class. Follow RECOMMENDED AI ACTION, a representative of that class. Captures, immediate store gains and bonus sows cannot justify a worse proved outcome. Actions in the same class have not been ranked by exact final seed scores.",
+  "The earlier bounded recommendation has been replaced by these full-game outcome classes. Do not reuse its illustrative plans, opponent capture exposure, or short-horizon margins to contradict the proof. All legal alternatives remain listed for validation. Return only JSON with key pit and the complete recommended action label."
+].join("\n\n")
+const rank = (outcome: GameOutcome) =>
+  outcome === "ai-win" ? 1 : outcome === "human-win" ? -1 : 0
+const resultForAI = (outcome: GameOutcome): EngineAction["resultForAI"] =>
+  outcome === "ai-win" ? "WIN" : outcome === "human-win" ? "LOSS" : "DRAW"
+const rowFor = (action: EngineAction) => {
+  const result =
+    action.resultForAI === "WIN"
+      ? "PROVED WIN FOR YOU"
+      : action.resultForAI === "DRAW"
+        ? "PROVED DRAW FOR YOU"
+        : "PROVED DEFEAT FOR YOU"
+  return `${action.label} | ${action.preferred ? "BEST" : "OTHER"} | ${result} | capture now ${action.now.capture}; store gain now ${action.now.storeGain}; bonus ${action.now.bonus ? "yes" : "no"}`
+}
+
+/** Preserve v14 model strings unless an all-action proof establishes a strictly
+ * better win/draw/loss class. This advises the model; it never replaces its answer.
+ */
 export function buildMovePrompt(
   game: Game,
   moves: readonly number[] = legalMoves(game.board, "ai"),
   version: PromptVersion = SHARED_PROMPT_VERSION
 ): PromptInput {
-  if (version !== SHARED_PROMPT_VERSION) return buildV13(game, moves, version)
-  const base = buildV13(game, moves)
-  const immediateWin = base.analysis.some((a) => a.immediateStatus === "ai-won")
-  if (
-    immediateWin ||
-    moves.length < 2 ||
-    moves.length !== legalMoves(game.board, "ai").length
+  if (version !== SHARED_PROMPT_VERSION) return buildV14(game, moves, version)
+  const base = buildV14(game, moves)
+  const recommended = base.report?.actions.find(
+    (action) => action.label === base.recommendedAction
   )
-    return { ...base, version, systemPrompt: SHARED_SYSTEM_PROMPT }
-  const finalComparison = solveEndgameTies(game, moves, {
-    maxRemainingSeeds: 24
-  })
-  if (!finalComparison.complete)
-    return {
-      ...base,
-      version,
-      systemPrompt: SHARED_SYSTEM_PROMPT,
-      finalComparison
-    }
+  if (
+    moves.length < 2 ||
+    moves.length !== legalMoves(game.board, "ai").length ||
+    base.analysis.some((action) => action.immediateStatus === "ai-won") ||
+    base.finalComparison?.complete ||
+    recommended?.resultForAI === "WIN" ||
+    48 - game.board[6] - game.board[13] > 24
+  )
+    return { ...base, version }
+
+  const outcomeComparison = solveGameOutcomes(game, moves)
+  const unchanged: PromptInput = { ...base, version, outcomeComparison }
+  if (!outcomeComparison.complete) return unchanged
+  const recommendedPit = base.choices.find(
+    (choice) => choice.label === base.recommendedAction
+  )?.id
+  const currentProof = outcomeComparison.moves.find(
+    (move) => move.pit === recommendedPit
+  )
+  const bestClass = Math.max(
+    ...outcomeComparison.moves.map((move) => rank(move.outcome))
+  )
+  if (currentProof && rank(currentProof.outcome) === bestClass) return unchanged
   if (!base.report)
     throw new Error(
-      "A current endgame comparison needs the original action facts."
+      "A full-game outcome review needs the original immediate action facts."
     )
-  const bestPits = new Set(finalComparison.bestPits)
-  const bestMargin = Math.max(
-    ...finalComparison.moves.map((m) => m.finalMargin)
+
+  const bestPits = new Set(outcomeComparison.bestPits)
+  const proved = new Map(
+    outcomeComparison.moves.map((move) => [move.pit, move.outcome])
   )
-  const bestStore = Math.max(...finalComparison.moves.map((m) => m.aiStore))
-  const exacts = new Map(finalComparison.moves.map((m) => [m.pit, m]))
-  const actions = base.report.actions.map((action, i): EngineAction => {
-    const pit = base.choices[i].id
-    const exact = exacts.get(pit)
-    if (!exact)
+  const actions: EngineAction[] = base.choices.map((choice) => {
+    const previous = base.report?.actions.find(
+      (action) => action.label === choice.label
+    )
+    const outcome = proved.get(choice.id)
+    if (!previous || !outcome)
       throw new Error(
-        "An all-action comparison must finish every legal action."
+        "A full-game outcome review must include every legal action and its immediate facts."
       )
     return {
-      label: action.label,
-      preferred: bestPits.has(pit),
-      now: action.now,
-      resultForAI:
-        exact.finalMargin > 0 ? "WIN" : exact.finalMargin < 0 ? "LOSS" : "DRAW",
-      evaluation: {
-        kind: "EXACT_ENDGAME",
-        marginForAI: exact.finalMargin,
-        finalStores: { AI: exact.aiStore, opponent: exact.humanStore },
-        marginBelowBest: bestMargin - exact.finalMargin,
-        aiSeedsBelowBest: bestStore - exact.aiStore,
-        ownTurnPits: exact.bestAiTurn.map((p) => p - 6)
+      label: previous.label,
+      preferred: bestPits.has(choice.id),
+      resultForAI: resultForAI(outcome),
+      now: previous.now,
+      evaluation: previous.evaluation,
+      outcomeProof: {
+        kind: "FULL_GAME_OUTCOME",
+        outcome,
+        basis: "terminal-or-secured-majority"
       }
     }
   })
-  const preferred = actions.filter((a) => a.preferred)
-  const terminalDraw = preferred.every((a) => a.resultForAI === "DRAW")
-    ? preferred.find((a) => a.now.endsGame)?.label
-    : undefined
-  const recommendedAction = terminalDraw ?? preferred[0].label
-  const choices = base.choices.map((choice, i) => {
-    const a = actions[i],
-      e = a.evaluation
-    const result =
-      a.resultForAI === "WIN"
-        ? "PROVED WIN FOR YOU"
-        : a.resultForAI === "DRAW"
-          ? "PROVED DRAW FOR YOU"
-          : "PROVED DEFEAT FOR YOU"
-    return {
-      ...choice,
-      outcome: `${a.label} | ${a.preferred ? "BEST" : "OTHER"} | ${result} | exact final AI ${e.finalStores?.AI}, opponent ${e.finalStores?.opponent}, AI margin ${e.marginForAI}; final AI seeds below best finish ${e.aiSeedsBelowBest} | capture now ${a.now.capture}; store gain now ${a.now.storeGain}; bonus ${a.now.bonus ? "yes" : "no"}`
-    }
-  })
-  const report = {
+  const terminalDraw =
+    bestClass === 0
+      ? actions.find((action) => action.preferred && action.now.endsGame)?.label
+      : undefined
+  const previousPreferredPit = base.priorityPits?.find((pit) =>
+    bestPits.has(pit)
+  )
+  const previousPreferredLabel = base.choices.find(
+    (choice) => choice.id === previousPreferredPit
+  )?.label
+  const recommendedAction =
+    terminalDraw ??
+    previousPreferredLabel ??
+    actions.find((action) => action.preferred)?.label
+  if (!recommendedAction)
+    throw new Error(
+      "A completed full-game proof needs a preferred legal action."
+    )
+  const preferredActions = [
+    recommendedAction,
+    ...actions
+      .filter(
+        (action) => action.preferred && action.label !== recommendedAction
+      )
+      .map((action) => action.label)
+  ]
+  const report: EngineReport = {
     ...base.report,
     actions,
-    preferredActions: preferred.map((a) => a.label)
+    preferredActions,
+    evaluationScope:
+      "Earlier evaluations retain their original scope as diagnostics; outcomeProof alone ranks these actions."
   }
+  const choices = base.choices.map((choice, i) => ({
+    ...choice,
+    outcome: rowFor(actions[i])
+  }))
   return {
     ...base,
     version,
+    outcomeComparison,
     systemPrompt: SHARED_SYSTEM_PROMPT,
-    finalComparison,
-    endgame: finalComparison,
     report,
     choices,
-    priorityPits: moves.filter((p) => bestPits.has(p)),
+    priorityPits: moves.filter((pit) => bestPits.has(pit)),
     recommendedAction,
     prompt: [
       `KALAH. AI to move. Current stores: AI ${report.stores.AI}; opponent ${report.stores.opponent}.`,
-      "ALL-ACTION ENDGAME REVIEW: Every legal action has been solved through the final sweep. These final results replace earlier bounded preferences, including unique shallow preferences. BEST marks the strongest final AI score under best play by both sides.",
+      "FULL-GAME OUTCOME REVIEW: Every legal action has a proved AI outcome under best play, through a terminal finish or a secured majority. WIN beats DRAW; DRAW beats DEFEAT. These classes replace the earlier recommendation. No exact final seed scores are claimed.",
       "INDEPENDENT LEGAL AI ACTIONS:",
-      ...choices.map((c) => c.outcome),
+      ...choices.map((choice) => choice.outcome),
       `RECOMMENDED AI ACTION: ${JSON.stringify(recommendedAction)}`
     ].join("\n")
   }

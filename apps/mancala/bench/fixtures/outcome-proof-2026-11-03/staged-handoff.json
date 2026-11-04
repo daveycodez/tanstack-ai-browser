@@ -1,0 +1,39 @@
+{
+  "api": {
+    "solveGameOutcomes": "Complete exact WIN/DRAW/LOSS proof across every legal root; no scores or margins; global1m visits; FIFO TT max75000.",
+    "buildMovePrompt": "Current shared-v15; historical1..14 delegate byte-for-byte; outcomeComparison metadata optional; model-facing override only on strictly improved proved class."
+  },
+  "sourceHashes": {
+    "outcome-proof.ts": "1d38c08e3dab56ad655437f398120dd13c4dd32c45691ddda8126cd56111066d",
+    "outcome-proof.test.ts": "0213e8929aa28a6e6006b91ab017f93417e625c736045377c9b1addefba23554",
+    "shared-prompt-v15.ts": "d69bad38b4c0a52e86e70241cf97647e0ce57a5dc3e4bb7dca7a2372de7c884a",
+    "shared-prompt-v15.test.ts": "7f6795e7e9b884dc4a61a3857b54cde3f7daf6e0be3b5fa4595998ea49426a82"
+  },
+  "frozenV14Hash": "b7190673bdbaad20b7ad65dea2ac49add5edaf226c000b820cb4ef4187128030",
+  "tests": [
+    {
+      "command": "node --experimental-strip-types --test /private/tmp/mancala-v15-staging/outcome-proof.test.ts",
+      "passed": 8,
+      "failed": 0
+    },
+    {
+      "command": "node --experimental-strip-types --test /private/tmp/mancala-v15-staging/shared-prompt-v15.test.ts",
+      "passed": 6,
+      "failed": 0
+    }
+  ],
+  "copyAfterGO": {
+    "outcome-proof.ts": "apps/mancala/src/lib/outcome-proof.ts",
+    "outcome-proof.test.ts": "apps/mancala/src/lib/outcome-proof.test.ts",
+    "shared-prompt-v15.ts": "apps/mancala/src/lib/shared-prompt.ts",
+    "shared-prompt-v15.test.ts": "apps/mancala/src/lib/shared-prompt-v15.test.ts"
+  },
+  "adaptations": [
+    "Copy frozen current shared-prompt.ts byte-for-byte to shared-prompt-v14.ts before overwriting currentmain.",
+    "In staged renderer, replace every absolute frozen-main import/export path with ./shared-prompt-v14.ts.",
+    "In staged v15 test, replace absolute frozen-main path with ./shared-prompt-v14.ts, ./shared-prompt-v15.ts with ./shared-prompt.ts, and absolute bench/cases.ts path with ../../bench/cases.ts.",
+    "Do not copy staged mancala.ts; it is an unchanged canonical copy used only for TMP relative imports.",
+    "The test embeds the two boards loaded from candidate-proofs.json and the frozen old21 IDs; no TMP artifacts are runtime test dependencies."
+  ],
+  "preservation": "No repository source/UI/bench files modified, no browser/Nx/build/inference actions. Awaiting parent GO after all12games."
+}

@@ -1,0 +1,577 @@
+{
+  "method": "Staged solver only, reading frozen21-case baseline recommendations and judge scratch classes; strict improvement policy; no production imports.",
+  "summary": {
+    "cases": 21,
+    "complete": 17,
+    "wouldChange": [],
+    "judgeDisagreements": [],
+    "maxNodes": 975287,
+    "maxTableEntriesUsed": 75000
+  },
+  "rows": [
+    {
+      "id": "bonus-steal-defense",
+      "complete": false,
+      "reason": "too-many-seeds",
+      "nodes": 0,
+      "maxTableEntriesUsed": 0,
+      "moves": [],
+      "baseRecommendedPit": 10,
+      "wouldChange": false,
+      "agreesWithJudgeScratch": true
+    },
+    {
+      "id": "safe-capture-over-exposure",
+      "complete": false,
+      "reason": "too-many-seeds",
+      "nodes": 0,
+      "maxTableEntriesUsed": 0,
+      "moves": [],
+      "baseRecommendedPit": 7,
+      "wouldChange": false,
+      "agreesWithJudgeScratch": true
+    },
+    {
+      "id": "opening",
+      "complete": false,
+      "reason": "too-many-seeds",
+      "nodes": 0,
+      "maxTableEntriesUsed": 0,
+      "moves": [],
+      "baseRecommendedPit": 12,
+      "wouldChange": false,
+      "agreesWithJudgeScratch": true
+    },
+    {
+      "id": "bonus-followthrough",
+      "complete": true,
+      "reason": "solved",
+      "nodes": 372049,
+      "maxTableEntriesUsed": 75000,
+      "moves": [
+        {
+          "pit": 7,
+          "outcome": "human-win"
+        },
+        {
+          "pit": 8,
+          "outcome": "draw"
+        },
+        {
+          "pit": 9,
+          "outcome": "human-win"
+        },
+        {
+          "pit": 10,
+          "outcome": "human-win"
+        },
+        {
+          "pit": 11,
+          "outcome": "ai-win"
+        },
+        {
+          "pit": 12,
+          "outcome": "ai-win"
+        }
+      ],
+      "baseRecommendedPit": 11,
+      "wouldChange": false,
+      "agreesWithJudgeScratch": true
+    },
+    {
+      "id": "capture-or-bonus",
+      "complete": true,
+      "reason": "solved",
+      "nodes": 473368,
+      "maxTableEntriesUsed": 75000,
+      "moves": [
+        {
+          "pit": 7,
+          "outcome": "ai-win"
+        },
+        {
+          "pit": 8,
+          "outcome": "ai-win"
+        },
+        {
+          "pit": 10,
+          "outcome": "ai-win"
+        },
+        {
+          "pit": 11,
+          "outcome": "ai-win"
+        },
+        {
+          "pit": 12,
+          "outcome": "ai-win"
+        }
+      ],
+      "baseRecommendedPit": 11,
+      "wouldChange": false,
+      "agreesWithJudgeScratch": true
+    },
+    {
+      "id": "large-capture",
+      "complete": true,
+      "reason": "solved",
+      "nodes": 43444,
+      "maxTableEntriesUsed": 31233,
+      "moves": [
+        {
+          "pit": 8,
+          "outcome": "human-win"
+        },
+        {
+          "pit": 10,
+          "outcome": "human-win"
+        },
+        {
+          "pit": 11,
+          "outcome": "human-win"
+        },
+        {
+          "pit": 12,
+          "outcome": "human-win"
+        }
+      ],
+      "baseRecommendedPit": 8,
+      "wouldChange": false,
+      "agreesWithJudgeScratch": true
+    },
+    {
+      "id": "chain-into-capture",
+      "complete": true,
+      "reason": "solved",
+      "nodes": 38233,
+      "maxTableEntriesUsed": 28443,
+      "moves": [
+        {
+          "pit": 7,
+          "outcome": "human-win"
+        },
+        {
+          "pit": 8,
+          "outcome": "human-win"
+        },
+        {
+          "pit": 9,
+          "outcome": "ai-win"
+        },
+        {
+          "pit": 10,
+          "outcome": "ai-win"
+        },
+        {
+          "pit": 11,
+          "outcome": "ai-win"
+        }
+      ],
+      "baseRecommendedPit": 11,
+      "wouldChange": false,
+      "agreesWithJudgeScratch": true
+    },
+    {
+      "id": "avoid-big-recapture",
+      "complete": true,
+      "reason": "solved",
+      "nodes": 5500,
+      "maxTableEntriesUsed": 3778,
+      "moves": [
+        {
+          "pit": 7,
+          "outcome": "human-win"
+        },
+        {
+          "pit": 9,
+          "outcome": "human-win"
+        },
+        {
+          "pit": 10,
+          "outcome": "human-win"
+        },
+        {
+          "pit": 11,
+          "outcome": "human-win"
+        },
+        {
+          "pit": 12,
+          "outcome": "human-win"
+        }
+      ],
+      "baseRecommendedPit": 10,
+      "wouldChange": false,
+      "agreesWithJudgeScratch": true
+    },
+    {
+      "id": "compare-bonus-chains",
+      "complete": true,
+      "reason": "solved",
+      "nodes": 975287,
+      "maxTableEntriesUsed": 75000,
+      "moves": [
+        {
+          "pit": 7,
+          "outcome": "human-win"
+        },
+        {
+          "pit": 8,
+          "outcome": "human-win"
+        },
+        {
+          "pit": 10,
+          "outcome": "human-win"
+        },
+        {
+          "pit": 11,
+          "outcome": "draw"
+        },
+        {
+          "pit": 12,
+          "outcome": "human-win"
+        }
+      ],
+      "baseRecommendedPit": 11,
+      "wouldChange": false,
+      "agreesWithJudgeScratch": true
+    },
+    {
+      "id": "equal-captures",
+      "complete": true,
+      "reason": "solved",
+      "nodes": 74586,
+      "maxTableEntriesUsed": 52224,
+      "moves": [
+        {
+          "pit": 8,
+          "outcome": "human-win"
+        },
+        {
+          "pit": 9,
+          "outcome": "ai-win"
+        },
+        {
+          "pit": 10,
+          "outcome": "human-win"
+        },
+        {
+          "pit": 12,
+          "outcome": "human-win"
+        }
+      ],
+      "baseRecommendedPit": 9,
+      "wouldChange": false,
+      "agreesWithJudgeScratch": true
+    },
+    {
+      "id": "defend-while-sowing",
+      "complete": true,
+      "reason": "solved",
+      "nodes": 402466,
+      "maxTableEntriesUsed": 75000,
+      "moves": [
+        {
+          "pit": 7,
+          "outcome": "human-win"
+        },
+        {
+          "pit": 8,
+          "outcome": "human-win"
+        },
+        {
+          "pit": 10,
+          "outcome": "human-win"
+        },
+        {
+          "pit": 11,
+          "outcome": "human-win"
+        },
+        {
+          "pit": 12,
+          "outcome": "human-win"
+        }
+      ],
+      "baseRecommendedPit": 8,
+      "wouldChange": false,
+      "agreesWithJudgeScratch": true
+    },
+    {
+      "id": "long-lap",
+      "complete": false,
+      "reason": "too-many-seeds",
+      "nodes": 0,
+      "maxTableEntriesUsed": 0,
+      "moves": [],
+      "baseRecommendedPit": 12,
+      "wouldChange": false,
+      "agreesWithJudgeScratch": true
+    },
+    {
+      "id": "winning-sweep",
+      "complete": true,
+      "reason": "solved",
+      "nodes": 70,
+      "maxTableEntriesUsed": 45,
+      "moves": [
+        {
+          "pit": 7,
+          "outcome": "human-win"
+        },
+        {
+          "pit": 8,
+          "outcome": "ai-win"
+        },
+        {
+          "pit": 10,
+          "outcome": "human-win"
+        },
+        {
+          "pit": 11,
+          "outcome": "human-win"
+        },
+        {
+          "pit": 12,
+          "outcome": "ai-win"
+        }
+      ],
+      "baseRecommendedPit": 8,
+      "wouldChange": false,
+      "agreesWithJudgeScratch": true
+    },
+    {
+      "id": "save-the-draw",
+      "complete": true,
+      "reason": "solved",
+      "nodes": 27,
+      "maxTableEntriesUsed": 13,
+      "moves": [
+        {
+          "pit": 7,
+          "outcome": "draw"
+        },
+        {
+          "pit": 9,
+          "outcome": "human-win"
+        },
+        {
+          "pit": 10,
+          "outcome": "draw"
+        },
+        {
+          "pit": 12,
+          "outcome": "draw"
+        }
+      ],
+      "baseRecommendedPit": 7,
+      "wouldChange": false,
+      "agreesWithJudgeScratch": true
+    },
+    {
+      "id": "tied-wins",
+      "complete": true,
+      "reason": "solved",
+      "nodes": 4,
+      "maxTableEntriesUsed": 1,
+      "moves": [
+        {
+          "pit": 7,
+          "outcome": "ai-win"
+        },
+        {
+          "pit": 9,
+          "outcome": "ai-win"
+        },
+        {
+          "pit": 12,
+          "outcome": "ai-win"
+        }
+      ],
+      "baseRecommendedPit": 7,
+      "wouldChange": false,
+      "agreesWithJudgeScratch": true
+    },
+    {
+      "id": "empty-opposite",
+      "complete": true,
+      "reason": "solved",
+      "nodes": 23359,
+      "maxTableEntriesUsed": 16795,
+      "moves": [
+        {
+          "pit": 7,
+          "outcome": "ai-win"
+        },
+        {
+          "pit": 8,
+          "outcome": "ai-win"
+        },
+        {
+          "pit": 10,
+          "outcome": "human-win"
+        },
+        {
+          "pit": 11,
+          "outcome": "ai-win"
+        },
+        {
+          "pit": 12,
+          "outcome": "ai-win"
+        }
+      ],
+      "baseRecommendedPit": 12,
+      "wouldChange": false,
+      "agreesWithJudgeScratch": true
+    },
+    {
+      "id": "sol-match-preserve-margin",
+      "complete": true,
+      "reason": "solved",
+      "nodes": 42839,
+      "maxTableEntriesUsed": 29895,
+      "moves": [
+        {
+          "pit": 7,
+          "outcome": "human-win"
+        },
+        {
+          "pit": 8,
+          "outcome": "human-win"
+        },
+        {
+          "pit": 11,
+          "outcome": "human-win"
+        },
+        {
+          "pit": 12,
+          "outcome": "human-win"
+        }
+      ],
+      "baseRecommendedPit": 12,
+      "wouldChange": false,
+      "agreesWithJudgeScratch": true
+    },
+    {
+      "id": "sol-match-save-forced-draw",
+      "complete": true,
+      "reason": "solved",
+      "nodes": 405,
+      "maxTableEntriesUsed": 310,
+      "moves": [
+        {
+          "pit": 7,
+          "outcome": "draw"
+        },
+        {
+          "pit": 8,
+          "outcome": "human-win"
+        },
+        {
+          "pit": 10,
+          "outcome": "human-win"
+        }
+      ],
+      "baseRecommendedPit": 7,
+      "wouldChange": false,
+      "agreesWithJudgeScratch": true
+    },
+    {
+      "id": "holdout-bonus",
+      "complete": true,
+      "reason": "solved",
+      "nodes": 80900,
+      "maxTableEntriesUsed": 54452,
+      "moves": [
+        {
+          "pit": 7,
+          "outcome": "human-win"
+        },
+        {
+          "pit": 8,
+          "outcome": "human-win"
+        },
+        {
+          "pit": 9,
+          "outcome": "human-win"
+        },
+        {
+          "pit": 10,
+          "outcome": "ai-win"
+        },
+        {
+          "pit": 11,
+          "outcome": "human-win"
+        },
+        {
+          "pit": 12,
+          "outcome": "ai-win"
+        }
+      ],
+      "baseRecommendedPit": 12,
+      "wouldChange": false,
+      "agreesWithJudgeScratch": true
+    },
+    {
+      "id": "holdout-defense",
+      "complete": true,
+      "reason": "solved",
+      "nodes": 260072,
+      "maxTableEntriesUsed": 75000,
+      "moves": [
+        {
+          "pit": 7,
+          "outcome": "human-win"
+        },
+        {
+          "pit": 8,
+          "outcome": "ai-win"
+        },
+        {
+          "pit": 9,
+          "outcome": "ai-win"
+        },
+        {
+          "pit": 10,
+          "outcome": "human-win"
+        },
+        {
+          "pit": 11,
+          "outcome": "ai-win"
+        }
+      ],
+      "baseRecommendedPit": 11,
+      "wouldChange": false,
+      "agreesWithJudgeScratch": true
+    },
+    {
+      "id": "holdout-capture",
+      "complete": true,
+      "reason": "solved",
+      "nodes": 135003,
+      "maxTableEntriesUsed": 75000,
+      "moves": [
+        {
+          "pit": 8,
+          "outcome": "human-win"
+        },
+        {
+          "pit": 9,
+          "outcome": "human-win"
+        },
+        {
+          "pit": 10,
+          "outcome": "ai-win"
+        },
+        {
+          "pit": 11,
+          "outcome": "ai-win"
+        },
+        {
+          "pit": 12,
+          "outcome": "ai-win"
+        }
+      ],
+      "baseRecommendedPit": 11,
+      "wouldChange": false,
+      "agreesWithJudgeScratch": true
+    }
+  ]
+}

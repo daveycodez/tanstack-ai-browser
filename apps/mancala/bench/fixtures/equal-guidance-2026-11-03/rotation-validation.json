@@ -1,0 +1,7 @@
+{
+  "rotationVerified": true,
+  "transitions": 325,
+  "sourceCommit": "3dc6daa1625191529738777b240a99901e491644",
+  "guidanceHelperSha256": "4044f2866f479d1de41217398796ea78913d837b1ea710e593db5c8f49a8c36c",
+  "method": "Ran unchanged guidance helper --validate-rotation against the original game and previous three v14 games; capture, bonus, last-pit, turn, status and rotated board agree."
+}

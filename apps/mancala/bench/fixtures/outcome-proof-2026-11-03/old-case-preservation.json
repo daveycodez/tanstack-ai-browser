@@ -1,0 +1,13 @@
+{
+  "method": "Read-only TypeScript AST parse; each complete original CASES object node text from commit5b9d157 compared exactly against current source. Includes board, expected answers, labels, descriptions and objective fields.",
+  "baseCommit": "5b9d15769cfad51c08e79013cb5d9f711256ffb2",
+  "oldPositions": 21,
+  "newPositions": 23,
+  "allOriginalObjectTextsExactlyUnchanged": true,
+  "onlyAdded": [
+    "matched-win-over-three-seed-capture",
+    "matched-win-over-draw-and-capture"
+  ],
+  "oldSourceSha256": "fb33a3d516f83e6940993957e939529dab33965203062d7dd1b70dd4fd00e043",
+  "currentSourceSha256": "89afc60d47da61ea051e913df7ebd8841422c482ee974a2bda81d98f25f64180"
+}

@@ -1,0 +1,115 @@
+{
+  "schemaVersion": 1,
+  "study": "Matched production guidance with alternating starters",
+  "plannedGames": 12,
+  "humanModel": "GPT-6.1 Sol high",
+  "opponent": "LiquidAI/LFM3-1.7B-GGUF",
+  "opponentThinking": false,
+  "promptVersion": "shared-v14",
+  "analysisSourceCommit": "3dc6daa1625191529738777b240a99901e491644",
+  "appSourceCommit": "5b9d15769cfad51c08e79013cb5d9f711256ffb2",
+  "origin": "http://sol-vs-lfm3.localhost:3004/game",
+  "protocol": {
+    "guidance": "Full identical production system/position prompt and legal output schema, rotated seven board slots for Sol/Human; no independent oracle or extra search",
+    "ordering": "Both sides use orderMovesForGame with independent fixed-per-game sessions; Human session IDs committed to this schedule before play",
+    "starter": "Sol starts odd-numbered games; LFM3 starts even-numbered games",
+    "completion": "Play all12, preserve every result; draws separate; no prompt, sampling, or source changes during series",
+    "tabs": "One game tab, serial matches, no benchmark tabs",
+    "excludedPilot": "User expanded scope after an11-move matched-guidance pilot; partial board and allfive prompt inputs/answers retained separately"
+  },
+  "engineSha256": {
+    "src/lib/shared-prompt.ts": "b7190673bdbaad20b7ad65dea2ac49add5edaf226c000b820cb4ef4187128030",
+    "src/lib/shared-prompt-v12.ts": "bda465d4b008bbb7873e2b2350e9e589c843efe330fbe4538f372361825e79e2",
+    "src/lib/tie-refinement.ts": "df6e1570a66e706b4f141c2f9be5cc2734a4f613869cacbb3993ad37005d5025",
+    "src/lib/move-outcomes.ts": "22df02f4c4ac49ce1a7976b49a3ebaac9cca4868e47353b6f7248f466d0ebacb",
+    "src/lib/endgame-ties.ts": "685fae33efa08b4acafa86673faca2b08839fc7d0dc2212f1915a19333a000b0",
+    "src/lib/ai.ts": "efaf9857b5384a13b31767b9bea24dc00ca66d409e479a91c5ef13bc1ca1e32e",
+    "src/lib/mancala.ts": "9b2c780d2c784dbbe156572e59cfd2ff4ea82803426861e22a9daec6e6099e42",
+    "bench/cases.ts": "fb33a3d516f83e6940993957e939529dab33965203062d7dd1b70dd4fd00e043",
+    "bench/reference.ts": "fe3300b29e4cf2080ead1447f41dc03564c06dbe3fbb72efb62967926ce08d31",
+    "bench/endgame-reference.ts": "043bb1b0ec6ed051dff6b3a2508b235bafbe0c72e8d3076f24157f06b2c12407",
+    "src/lib/shared-prompt-v13.ts": "1642cf0d45dcf4dcac50cda130bfc7ab6b980d51032fe0678faf452c3e8bdb6e",
+    "src/components/benchmark.tsx": "01843eb7ecfcb32f830ba777f24991b3de74944a95caf0454505e01eb79ece7a"
+  },
+  "starterUiSha256": {
+    "src/lib/game-storage.ts": "1552acaeaf48485ad215dd31e634d350b245bf6cc3335c772e7e2bf7b70d7d1c",
+    "src/lib/db.tsx": "f6996623a42a742e2ee895f227e0df7d770ffa2e90943dd1779cd44328c5bdb0",
+    "src/routes/game.tsx": "73a13ed53055ff257dfa3d174d6974a8e7a96dcb986e70390c5585d18f089bb9",
+    "src/styles.css": "c180c2cde19cab48502de843069d81f85b279ed451df3180acafc416308a0372"
+  },
+  "guidanceHelperSha256": "4044f2866f479d1de41217398796ea78913d837b1ea710e593db5c8f49a8c36c",
+  "schedule": [
+    {
+      "game": 1,
+      "startingSide": "human",
+      "firstPlayer": "Sol",
+      "humanSessionId": "a5cffd29-f29b-46bd-9763-34c601076cca"
+    },
+    {
+      "game": 2,
+      "startingSide": "ai",
+      "firstPlayer": "LFM3",
+      "humanSessionId": "ec8d4928-e818-4bcc-8a22-4f18c65d101c"
+    },
+    {
+      "game": 3,
+      "startingSide": "human",
+      "firstPlayer": "Sol",
+      "humanSessionId": "3b321e1b-cb8b-4a47-bd76-588043e6a8ff"
+    },
+    {
+      "game": 4,
+      "startingSide": "ai",
+      "firstPlayer": "LFM3",
+      "humanSessionId": "37b686e6-aa45-4e80-96e4-4b2f549b463c"
+    },
+    {
+      "game": 5,
+      "startingSide": "human",
+      "firstPlayer": "Sol",
+      "humanSessionId": "ad7d582a-c6c8-44ba-bbd0-766280b7e1b2"
+    },
+    {
+      "game": 6,
+      "startingSide": "ai",
+      "firstPlayer": "LFM3",
+      "humanSessionId": "3bf7e5a8-923c-4bdd-9b41-9f7d1e201e08"
+    },
+    {
+      "game": 7,
+      "startingSide": "human",
+      "firstPlayer": "Sol",
+      "humanSessionId": "15b5ba6b-016c-48fe-8293-e33a9c5d391c"
+    },
+    {
+      "game": 8,
+      "startingSide": "ai",
+      "firstPlayer": "LFM3",
+      "humanSessionId": "3eab7296-207d-4a7d-9ae0-593e17423485"
+    },
+    {
+      "game": 9,
+      "startingSide": "human",
+      "firstPlayer": "Sol",
+      "humanSessionId": "2038a59d-ac42-4883-9fe2-106c5a6fb3e1"
+    },
+    {
+      "game": 10,
+      "startingSide": "ai",
+      "firstPlayer": "LFM3",
+      "humanSessionId": "f5753f99-a534-4bfe-a0a2-0a653cf781d4"
+    },
+    {
+      "game": 11,
+      "startingSide": "human",
+      "firstPlayer": "Sol",
+      "humanSessionId": "dd0e6238-300b-4444-a25d-9959e90e57b7"
+    },
+    {
+      "game": 12,
+      "startingSide": "ai",
+      "firstPlayer": "LFM3",
+      "humanSessionId": "99e39fe5-2dc0-495c-9052-92fd5db18af7"
+    }
+  ]
+}

@@ -1,0 +1,20 @@
+{
+  "promptVersion": "shared-v15",
+  "thinking": false,
+  "comparisons": [
+    {
+      "compared": "nano-v15-all-positions.json.gz",
+      "reference": "lfm3-v15-all-positions.json.gz",
+      "caseRepetitions": 46,
+      "completeInputUtf8BytesEqual": true,
+      "serialization": "Compact JSON without sorting object keys, preserving captured input field order."
+    },
+    {
+      "compared": "qwen-v15-all-positions.json.gz",
+      "reference": "lfm3-v15-all-positions.json.gz",
+      "caseRepetitions": 46,
+      "completeInputUtf8BytesEqual": true,
+      "serialization": "Compact JSON without sorting object keys, preserving captured input field order."
+    }
+  ]
+}
