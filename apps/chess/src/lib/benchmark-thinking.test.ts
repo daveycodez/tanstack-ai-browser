@@ -1,6 +1,7 @@
 import assert from "node:assert/strict"
 import { readFileSync } from "node:fs"
 import { test } from "node:test"
+import { runInNewContext } from "node:vm"
 import ts from "typescript"
 import { opponentOption, usesEmulatedReasoning } from "./opponents.ts"
 import type { OpponentModel, ThinkingSupport } from "./opponents.ts"
@@ -22,8 +23,8 @@ function visit(node: ts.Node) {
 visit(source)
 assert.ok(callback && displayedExpression && targetExpression)
 const javascript = (text: string) => ts.transpileModule(text, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None } }).outputText
-const displayed = new Function("support", "thinking", javascript(`return (${displayedExpression.getText(source)});`)) as (support: ThinkingSupport, thinking: boolean) => boolean
-const targets = new Function("development", javascript(`return (${targetExpression.getText(source).replace("import.meta.env?.DEV", "development")});`))(true) as OpponentModel[]
+const displayed = runInNewContext(javascript(`(support, thinking) => (${displayedExpression.getText(source)});`)) as (support: ThinkingSupport, thinking: boolean) => boolean
+const targets = Array.from(runInNewContext(javascript(`(${targetExpression.getText(source).replace("import.meta.env?.DEV", "development")});`), { development: true }) as OpponentModel[])
 
 const callbackJavaScript = javascript(callback.getText(source))
 
@@ -42,7 +43,7 @@ async function runCallback(rawThinking: boolean, effectiveThinking: boolean) {
     } }
   }
   const scope = {
-    controller, parallelMac: true, promptAvailable: true, repetitions: 1,
+    AbortController, controller, parallelMac: true, promptAvailable: true, repetitions: 1,
     selectedCases: [{ id: "opening-variety" }], thinking: rawThinking, effectiveThinking,
     disablePromptCache: false, movePresentation: "new-games", moveOrderSeed: "test",
     reasoningBudgetTokens: 512, webglTemperature: undefined, PARALLEL_MODELS: targets,
@@ -54,7 +55,7 @@ async function runCallback(rawThinking: boolean, effectiveThinking: boolean) {
     setViewedModel: noop, setBatchProgress: noop, setOtherGpuWorkload: noop,
     setError: noop, setRunning: noop, runBenchmark: runner, runBenchmarkInFrame: runner
   }
-  const start = new Function(...Object.keys(scope), `${callbackJavaScript}\nreturn startParallel;`)(...Object.values(scope)) as () => Promise<void>
+  const start = runInNewContext(`${callbackJavaScript}\nstartParallel;`, scope) as () => Promise<void>
   await start()
   assert.equal(controller.current, undefined)
   return { requests, initial }
