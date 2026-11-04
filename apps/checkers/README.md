@@ -91,6 +91,9 @@ The WebGL adapter uses schema-constrained decoding; schema and rules validation 
 before a reply can alter the board. Invalid replies show a manual retry control without automatically calling the model again. There is no heuristic fallback. A 120-second generation deadline excludes model
 loading. Leaving the route cancels the pending reply, and session/position guards reject
 stale replies after a restart. Same-origin tabs serialize AI turns with Web Locks.
+A failed turn stays blocked across tabs, busy-state changes, and reloads. An explicit
+Retry click atomically acknowledges that failure and permits one new attempt; a
+new failure blocks it again. Changing the opponent deliberately starts a fresh reply.
 
 ## Full turn log and manual benchmark
 
@@ -99,7 +102,8 @@ before/after boards and retains actual AI prompts, move-card outcomes, chosen/ra
 model settings, timings, usage, optional reasoning, and failed attempts. Forced moves are
 identified as having no model inference. Older saves are replayed when possible and
 missing historical AI diagnostics stay explicitly unavailable. Logs remain on-device;
-copying is an explicit user action.
+copying is an explicit user action. The full JSON report is built only when expanded
+or copied, and its text is mounted only while expanded.
 
 `/bench` is a separate manual benchmark page sharing the game's origin and model cache.
 Inference runs only when **Run benchmark** is pressed. The original coordinate prompt is

@@ -1,7 +1,7 @@
 import { applyMove, colorForSide, legalMoves, newGame, positionKey } from "./checkers.ts"
 import type { AiDecisionTrace, Board, Game, MoveRecord, PositionSnapshot } from "./checkers.ts"
 import type { OpponentSettings } from "./opponents"
-import { usesEmulatedReasoning } from "./opponents.ts"
+import { resolveOpponent, usesEmulatedReasoning } from "./opponents.ts"
 
 const cloneBoard = (board: Board): Board => board.map(piece => piece ? { ...piece } : null)
 const boardIdentity = (board: Board) => positionKey(board, "human")
@@ -45,6 +45,19 @@ export function traceMatchesPosition(game: Game, trace: AiDecisionTrace, opponen
     game.status === "playing" && trace.positionBefore.turn === game.turn &&
     boardIdentity(trace.positionBefore.board) === boardIdentity(game.board) &&
     (!opponent || (trace.model === opponent.model && trace.requestedThinking === opponent.thinking))
+}
+
+/** A retry acknowledges only the latest failure at this exact turn and settings. */
+export function failedAiTurn(game: Game): AiDecisionTrace | undefined {
+  const opponent = resolveOpponent(game.opponent)
+  const failures = game.aiFailures ?? []
+  for (let index = failures.length - 1; index >= 0; index--) {
+    const failure = failures[index]
+    if (failure.status === "error" && traceMatchesPosition(game, failure, opponent)) {
+      return failure.id === game.aiRetryFailureId ? undefined : failure
+    }
+  }
+  return undefined
 }
 
 export function attachMoveAnalysis(before: Game, after: Game, trace: AiDecisionTrace | undefined): Game {
