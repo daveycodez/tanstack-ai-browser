@@ -2,7 +2,7 @@ import assert from "node:assert/strict"
 import test from "node:test"
 import { createGame, legalMoves } from "./mancala.ts"
 import type { Game } from "./mancala.ts"
-import { buildMovePrompt, PROMPT_VERSIONS } from "./shared-prompt.ts"
+import { buildMovePrompt, PROMPT_VERSIONS } from "./shared-prompt-v15.ts"
 import {
   buildMovePrompt as buildV14,
   PROMPT_VERSIONS as HISTORICAL_VERSIONS

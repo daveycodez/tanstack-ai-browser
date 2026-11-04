@@ -34,7 +34,13 @@ requires a supporting browser; WebGL models require compatible browser/GPU
 features. There is no cloud inference or silent replacement of an invalid model
 answer with an engine choice.
 
-Current `shared-v15` supplies common, model-agnostic board guidance:
+Current `shared-v16` lists every legal move and its outcomes without selecting an
+action for the model. It removes recommended/preferred lists, BEST/OTHER markers,
+relative-to-best ranking fields and instructions to copy an engine recommendation.
+The model compares each move's outcomes itself; labels, order, lookahead, exact
+proofs, legal schema, sampling and generation settings are preserved from v15.
+
+The shared, model-agnostic analysis includes:
 
 - Four-complete-turn analysis includes every bonus sow, capture and final sweep.
   If the resource limit is reached, all alternatives use a shared lower horizon;
@@ -44,8 +50,8 @@ Current `shared-v15` supplies common, model-agnostic board guidance:
 - Unresolved ties can receive a deeper common-horizon review. Eligible endgames
   receive bounded exact final-margin comparisons.
 - An additional <=24-pit-seed proof can establish win/draw/loss with a shared
-  one-million-visit cap and a 75,000-entry table. It replaces the prior guidance
-  only for a strictly better proved outcome class. Incomplete searches are discarded.
+  one-million-visit cap and a 75,000-entry table. Completed proofs refine the listed
+  per-action outcomes; incomplete searches are discarded.
   Outcome-only proofs do not invent exact final seed totals.
 
 Analysis runs in a cancellable worker. Equivalent endgame searches share a
@@ -58,12 +64,11 @@ on the entire turn. Every legal label remains
 available to the language model, whose actual answer selects the move. Historical
 prompt versions remain source-selectable for A/B comparisons.
 
-All three current models measured 40/40 scored trials and 46/46 legal responses
+Under the historical v15 prompt, all three models measured 40/40 scored trials and 46/46 legal responses
 on the 23-position suite, with thinking off. Three positions are deliberately
 ungraded diagnostics. [Compact results](bench/RESULTS.md) also retain the two genuine
 win-to-loss regressions and the twelve-game equal-guidance starter breakdown.
-These measurements cover their declared objectives, not a general playing-strength
-ranking. Full historical captures stay local and are not committed as test data.
+These historical measurements do not establish v16 quality or general playing strength. Full historical captures stay local and are not committed as test data.
 
 ## Storage and build
 

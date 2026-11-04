@@ -447,9 +447,8 @@ export function BenchmarkView() {
                 setPromptVersion(event.target.value as PromptVersion)
               }
             >
-              <option value="shared-v15">
-                Current · proved game outcomes v15
-              </option>
+              <option value="shared-v16">Current · outcomes only v16</option>
+              <option value="shared-v15">Previous · recommended action v15</option>
               <option value="shared-v14">Full endgame review v14</option>
               <option value="shared-v13">Deeper tie review v13</option>
               <option value="shared-v12">Resolved preferred choice v12</option>

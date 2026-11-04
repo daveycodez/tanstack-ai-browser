@@ -42,15 +42,17 @@ pnpm nx run mancala:test
 
 ## Shared guidance
 
-Current `shared-v15` keeps the four-complete-turn baseline and existing endgame
+Current `shared-v16` presents outcomes without recommendations. It retains v15's
+four-complete-turn baseline and existing endgame
 comparisons. When an eligible <=24-pit-seed endgame remains unresolved, it can
 prove win/draw/loss for every legal action with a shared one-million-visit cap
-and a 75,000-entry full-board/store table. Only a completely proved, strictly
-better outcome class replaces the earlier recommendation. Exhausted comparisons
+and a 75,000-entry full-board/store table. Complete outcome proofs remain factual
+per-action input; the current prompt supplies no selected action, BEST/OTHER flags,
+preferred group, or relative-to-best ranking fields. Exhausted comparisons
 are discarded; an outcome proof does not invent final seed totals.
 
 Every legal action stays selectable. The actual generated model answer determines
-the move; no engine answer is silently substituted. Prompt versions v1–v15 remain
+the move; no engine answer is silently substituted. Prompt versions v1–v16 remain
 selectable for comparisons. Provider selection does not change the guidance for
 an identical board and action order.
 
@@ -67,7 +69,7 @@ analysis, warm caches and provider accounting also affect serial elapsed time.
 ## Results and artifact policy
 
 [RESULTS.md](RESULTS.md) records the compact measured results; [latest.json](latest.json)
-contains aggregate machine-readable values. Current v15 measured 40/40 scored
+contains aggregate machine-readable values. Historical v15 measured 40/40 scored
 trials and 46/46 legal moves for each of LFM3, Nano and Qwen, thinking off, with
 identical supplied inputs for matching trials.
 
