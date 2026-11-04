@@ -22,6 +22,9 @@ The default address is <http://127.0.0.1:3004>:
 The board is horizontal on desktop and vertical at phone widths (480px or below).
 On phones, your pits are on the right and your store is at the top. Reduced-motion
 preferences skip seed-flight playback; muting cancels scheduled sound effects.
+The whole selected handful travels together from pit to pit, dropping one seed
+at each stop. Captures and final sweeps animate every transferred seed into its
+store along low, smoothly eased paths with staggered arrivals.
 
 ## Local AI
 

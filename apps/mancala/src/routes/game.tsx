@@ -207,7 +207,7 @@ function PlayView({
             interactive={humanTurn && !busy && !finished}
             lastPit={last?.pit}
             activePit={animation.activePit}
-            flight={animation.flight}
+            flights={animation.flights}
           />
           <div className="player-strip player-strip-human">
             <span className="player-token" aria-hidden="true">

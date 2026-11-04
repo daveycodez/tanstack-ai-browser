@@ -1,18 +1,20 @@
 import { useEffect, useRef, useState } from "react"
 import type { Board, Game } from "./mancala"
-import type { SeedFlight } from "../components/board"
+import { planSowingAnimation } from "./sowing-animation"
+import type { SeedFlight } from "./sowing-animation"
 import { playSound } from "./sounds"
 type Frame = {
   key: string
   board: Board
   activePit?: number
-  flight?: SeedFlight
+  flights: readonly SeedFlight[]
   caption: string
 }
 export function useSowing(game: Game, onSettled: () => void) {
   const [frame, setFrame] = useState<Frame>(() => ({
     key: `${game.sessionId}:${game.history.length}`,
     board: game.board,
+    flights: [],
     caption: ""
   }))
   const seen = useRef(game.history.length)
@@ -39,57 +41,18 @@ export function useSowing(game: Game, onSettled: () => void) {
     ).matches
     const caption = `${record.side === "human" ? "You" : "Your opponent"} sowed ${record.seeds} seeds from pit ${record.pit < 6 ? record.pit + 1 : record.pit - 6}.`
     const animate = async () => {
-      if (!reduced) {
-        const board = record.boardBefore.slice()
-        board[record.pit] = 0
+      const frames = planSowingAnimation(record, { reducedMotion: reduced })
+      for (const step of frames) {
+        if (cancelled) return
         setFrame({
           key,
-          board: board.slice(),
-          activePit: record.pit,
-          caption: `Picking up ${record.seeds} seeds…`
+          board: step.board,
+          flights: step.flights,
+          activePit: step.activePit,
+          caption: step.caption
         })
-        await wait(160)
-        let from = record.pit
-        for (let i = 0; i < record.drops.length; i++) {
-          if (cancelled) return
-          const to = record.drops[i]
-          setFrame({
-            key,
-            board: board.slice(),
-            activePit: to,
-            flight: {
-              from,
-              to,
-              serial: i,
-              duration: Math.max(65, 145 - record.seeds * 2)
-            },
-            caption: `Sowing seed ${i + 1} of ${record.seeds}…`
-          })
-          await wait(Math.max(65, 145 - record.seeds * 2))
-          if (cancelled) return
-          board[to]++
-          playSound("drop")
-          setFrame({
-            key,
-            board: board.slice(),
-            activePit: to,
-            caption: `Sowing seed ${i + 1} of ${record.seeds}…`
-          })
-          await wait(55)
-          from = to
-        }
-        if (cancelled) return
-        if (record.captured || record.finished) {
-          setFrame({
-            key,
-            board: board.slice(),
-            activePit: record.drops.at(-1),
-            caption: record.captured
-              ? `Capturing ${record.captured} seeds!`
-              : "Gathering the remaining seeds…"
-          })
-          await wait(450)
-        }
+        if (step.dropSound) playSound("drop")
+        if (step.duration > 0) await wait(step.duration)
       }
       if (cancelled) return
       if (record.finished)
@@ -103,10 +66,14 @@ export function useSowing(game: Game, onSettled: () => void) {
       else if (record.captured) playSound("capture")
       else if (record.extraTurn) playSound("bonus")
       else if (reduced) playSound("drop")
-      setFrame({ key, board: game.board, caption })
+      setFrame({ key, board: game.board, flights: [], caption })
       settled.current()
     }
-    void animate()
+    void animate().catch(() => {
+      if (cancelled) return
+      setFrame({ key, board: game.board, flights: [], caption })
+      settled.current()
+    })
     return () => {
       cancelled = true
       clearTimeout(timer)
@@ -116,5 +83,5 @@ export function useSowing(game: Game, onSettled: () => void) {
   }, [key])
   return frame.key === key
     ? frame
-    : { key, board: frame.board, caption: "Picking up seeds…" }
+    : { key, board: frame.board, flights: [], caption: "Picking up seeds…" }
 }

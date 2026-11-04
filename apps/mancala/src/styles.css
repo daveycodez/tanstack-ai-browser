@@ -575,6 +575,7 @@ h2 {
   z-index: 2;
 }
 .seeds {
+  --seed-width: 19%;
   position: absolute;
   inset: 0 0 14%;
   pointer-events: none;
@@ -585,7 +586,7 @@ h2 {
 .seed {
   display: block;
   position: absolute;
-  width: 19%;
+  width: var(--seed-width, 19%);
   aspect-ratio: 0.72;
   border-radius: 55% 40% 48% 45%;
   background: radial-gradient(
@@ -656,37 +657,31 @@ h2 {
   display: none !important;
 }
 .flying-seed {
-  --current-from-x: var(--from-x);
-  --current-from-y: var(--from-y);
-  --current-to-x: var(--to-x);
-  --current-to-y: var(--to-y);
   position: absolute;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
+  inset: 0;
   pointer-events: none;
   z-index: 5;
 }
 .flying-seed > .seed {
-  width: 2%;
-  left: var(--current-from-x);
-  top: var(--current-from-y);
-  animation: sow-seed var(--flight-duration, 110ms) ease-in-out both;
+  width: var(--from-size);
+  left: 0;
+  top: 0;
+  offset-path: var(--flight-path);
+  offset-anchor: center;
+  offset-rotate: 0deg;
+  animation: sow-seed var(--flight-duration) cubic-bezier(0.3, 0, 0.2, 1)
+    var(--flight-delay, 0ms) both;
 }
 @keyframes sow-seed {
   0% {
-    left: var(--current-from-x);
-    top: var(--current-from-y);
-    transform: translate(-50%, -50%) scale(1);
-  }
-  50% {
-    transform: translate(-50%, -80%) scale(1.25);
+    offset-distance: 0%;
+    width: var(--from-size);
+    transform: rotate(var(--from-angle));
   }
   100% {
-    left: var(--current-to-x);
-    top: var(--current-to-y);
-    transform: translate(-50%, -50%) scale(1);
+    offset-distance: 100%;
+    width: var(--to-size);
+    transform: rotate(var(--to-angle));
   }
 }
 .game-shell .app-header {
@@ -1513,8 +1508,8 @@ h2 {
       inset 1px 5px 9px -2px var(--pit-shadow),
       0 0 0 1px var(--store-gold);
   }
-  .seed {
-    width: 22%;
+  .seeds {
+    --seed-width: 22%;
   }
   .board-inlay {
     font-size: 7px;
@@ -2065,10 +2060,8 @@ h2 {
     padding: 0 13px 0 0;
   }
   .game-shell .seeds-store {
+    --seed-width: 9%;
     inset: 0 22%;
-  }
-  .game-shell .seeds-store .seed {
-    width: 9%;
   }
   .game-shell .board-inlay {
     transform: translate(-50%, -50%) rotate(-90deg);
@@ -2084,15 +2077,6 @@ h2 {
   .game-shell .board-direction svg {
     transform: rotate(-90deg);
     width: 20px;
-  }
-  .game-shell .flying-seed {
-    --current-from-x: var(--mobile-from-x);
-    --current-from-y: var(--mobile-from-y);
-    --current-to-x: var(--mobile-to-x);
-    --current-to-y: var(--mobile-to-y);
-  }
-  .game-shell .flying-seed > .seed {
-    width: 4%;
   }
   .game-shell .player-strip-ai {
     margin-bottom: 16px;
