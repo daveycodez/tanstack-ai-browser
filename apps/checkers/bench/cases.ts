@@ -1,14 +1,18 @@
 import type { BenchmarkCase } from "./types.ts"
+import { CAKE1_ROUND_REGRESSIONS } from "./cake1-round-regressions.ts"
+import { CAKE1_REGRESSIONS } from "./cake1-regressions.ts"
 import { RUNNER_REGRESSIONS } from "./runner-regressions.ts"
 import { EXCHANGE_REGRESSIONS } from "./exchange-regressions.ts"
 import { DEFENSIVE_REGRESSIONS } from "./defensive-regressions.ts"
 export { gameForCase } from "./fixtures.ts"
 
-export const SUITE_VERSION = "checkers-audited-v11"
+export const SUITE_VERSION = "checkers-audited-v13"
 
 /** Frozen constructed teaching positions and legal histories, not expert engine judgments. */
 export const CASES: BenchmarkCase[] = [
   ...EXCHANGE_REGRESSIONS,
+  ...CAKE1_REGRESSIONS,
+  ...CAKE1_ROUND_REGRESSIONS,
   ...RUNNER_REGRESSIONS,
   {
     "id": "win-full-chain",

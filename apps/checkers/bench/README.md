@@ -43,7 +43,7 @@ Original raw v1 reports remain intact; the audit explains the corrected grading.
 ## Shared production path
 
 The runner calls `chooseAiMove`, exactly as the game does, with instrumentation callbacks.
-The original baseline (`baseline-v1`) is preserved unchanged. The current `shared-v14`
+The original baseline (`baseline-v1`) is preserved unchanged. The current `shared-v17`
 contract uses descriptive actions such as `Jump king d2 over c3 to b4`. Every legal action
 remains in the enum; neither card order nor a hidden fallback selects a move for the model.
 
@@ -305,3 +305,26 @@ lines before preferring an immediate crown at equal exchange value. No extra
 search or model-specific instructions; all legal actions stay available. The
 system prompt shrinks from 1,795 to 1,761 characters. Historical v13 and earlier
 prompt behavior remains available unchanged. Older reports retain their versions.
+
+
+## Cake1 mistake-driven improvement
+
+See [the latest improvement report](CAKE1-IMPROVEMENT.md). Suite v12 adds exactly
+three scored replay cases (42 total, 30 scored); production v16 checks recapture
+follow-ups, short three-piece finishes, opponent draw claims, and terminal safety
+inside the already-checked branches. All legal cards and model sampling stay intact.
+LFM3/Nano score 30/30; Qwen 29/30 with one retained old promotion miss, all new cases
+passing. The fresh pilot was 1 win/1 draw/1 loss, but the frozen 12-round extension was
+0 wins/8 draws/4 losses. The one-in-three full-game target is not established.
+
+
+## Updated 12-round retest (v17 / suite v13)
+
+Two further real-game cases cover gratuitous multi-jump exposure at tied returns
+and avoiding a draw when a small checked cost still preserves a positive lead.
+No extra search depth or system-prompt text was added. The expanded suite is
+44 positions/32 scored; LFM3, Nano, Qwen and native Cake7 all passed 32/32.
+The new frozen 12-game batch was **3W–4L–5D**, versus 0W–4L–8D before.
+Starters alternated, six each; [the report](CAKE1-IMPROVEMENT.md) includes both
+players' first/second split. This is 25% observed wins, not a calibrated win rate.
+Live progress now reports W–L–D after each game, including later-round updates.

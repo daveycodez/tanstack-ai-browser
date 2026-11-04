@@ -66,7 +66,7 @@ for (const fixture of CASES) {
         sameIds(reply.aiWinningReplies, expected.aiWins)
         assert.deepEqual(reply.captures, red.captures.map(square => ({ square, king: after.board[square]?.king, value: after.board[square]?.king ? 2 : 1 })))
         const redGame = applyMove(after, red.id)
-        const responses = redGame.status === "playing" ? legalMoves(redGame.board, "ai").map(response => ({ id: response.id, net: responseBalance(applyMove(redGame, response.id), game.board) - balance(game.board) })) : []
+        const responses = redGame.status === "playing" ? legalMoves(redGame.board, "ai").map(response => ({ id: response.id, net: responseBalance(applyMove(redGame, response.id), game.board, balance, red.captures.length > 0 && response.captures.length > 0) - balance(game.board) })) : []
         sameIds(reply.bestResponseIds, responses.filter(response => response.net === expected.net).map(response => response.id))
       }
       const startingPiece = game.board[move.path[0]]
@@ -112,6 +112,16 @@ test("accepted tactical objectives can be recovered from the annotated facts wit
     }
     if (fixture.objective === "safe-promotion") accepted = moves.filter(move => safe(move) && move.promotes && !move.outcome.moverCanBeCaptured && move.outcome.worstNetAfterResponse >= 0).map(move => move.id)
     if (fixture.objective === "prevent-promotion") accepted = moves.filter(move => safe(move) && move.outcome.redPromotionReplies === 0 && move.outcome.worstNetAfterResponse >= 0).map(move => move.id)
+    if (fixture.objective === "limit-quiet-exposure") {
+      const quiet = moves.filter(move => safe(move) && !move.promotes && move.captures.length === 0)
+      const net = Math.max(...quiet.map(move => move.outcome.worstNetAfterResponse))
+      const tied = quiet.filter(move => move.outcome.worstNetAfterResponse === net)
+      const exposure = Math.min(...tied.map(move => move.outcome.maxRedCaptureValue))
+      accepted = tied.filter(move => move.outcome.maxRedCaptureValue === exposure).map(move => move.id)
+    }
+    if (fixture.objective === "continue-checked-lead") accepted = moves.filter(move => safe(move) && move.outcome.status === "playing" && materialBalance(game.board) + move.outcome.worstNetAfterResponse > 0 && !move.outcome.redReplies.some(reply => reply.status === "draw")).map(move => move.id)
+    if (fixture.objective === "force-short-endgame-win") accepted = moves.filter(move => move.outcome.forcesWinWithinFourTurns).map(move => move.id)
+    if (fixture.objective === "avoid-opponent-draw-ahead") accepted = moves.filter(move => safe(move) && move.outcome.status === "playing" && move.outcome.worstNetAfterResponse >= 0 && !move.outcome.redReplies.some(reply => reply.status === "draw")).map(move => move.id)
     if (fixture.objective === "force-win-next-turn") accepted = moves.filter(move => move.outcome.forcesWinNextTurn).map(move => move.id)
     if (fixture.objective === "force-next-capture") {
       const candidates = moves.filter(move => move.outcome.status === "playing" && !move.outcome.allowsRedWin && move.outcome.redReplies.length > 0 && move.outcome.redReplies.every(reply => reply.status === "playing" && reply.nextCaptureValue > 0))

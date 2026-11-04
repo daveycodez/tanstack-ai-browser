@@ -27,7 +27,7 @@ class RecordingWorker extends EventTarget {
 test("memoized analysis matches all 44 pre-change annotations and complete prompts",()=>{
   assert.equal(fixtures.length,44)
   for(const record of fixtures){
-    assert.deepEqual(annotateMoves(record.game),record.annotations,record.id)
+    assert.deepEqual(annotateMoves(record.game,undefined,false),record.annotations,record.id)
     assert.deepEqual(buildMovePrompt(record.game,undefined,record.input.version),record.input,record.id)
   }
 })

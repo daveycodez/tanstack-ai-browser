@@ -1,7 +1,10 @@
+import { shortEndgameWins } from "./endgame-finishes.ts"
 import { createMoveSearch, legalMoves, positionKey, squareName } from "./checkers.ts"
 import type { Board, Game, Move, Piece, Side } from "./checkers.ts"
 
-export const OUTCOME_VERSION = "runner-replies-v4"
+export const OUTCOME_VERSION = "checked-replies-v6"
+export const TRADE_OUTCOME_VERSION = "trade-replies-v5"
+export const LEGACY_OUTCOME_VERSION = "runner-replies-v4"
 export const pieceValue = (piece: Piece) => piece.king ? 2 : 1
 export const material = (board: Board, side: Side) => board.reduce((total, piece) => total + (piece?.side === side ? pieceValue(piece) : 0), 0)
 export const materialBalance = (board: Board) => material(board, "ai") - material(board, "human")
@@ -12,6 +15,7 @@ const count = (board: Board, side: Side) => ({ men: board.filter(piece => piece?
 export type CapturedPiece = { square: number; king: boolean; value: number }
 export type ReplyOutcome = {
   id: string
+  canAvoidCheckedLoss?: boolean
   captures: CapturedPiece[]
   promotes: boolean
   status: Game["status"]
@@ -25,6 +29,10 @@ export type ReplyOutcome = {
 }
 export type MoveOutcome = {
   status: Game["status"]
+  tradeFollowUpChecked?: boolean
+  forcesWinWithinFourTurns?: boolean
+  allowsOpponentDraw?: boolean
+  allowsCheckedLoss?: boolean
   captured: CapturedPiece[]
   capturedValue: number
   promoted: boolean
@@ -75,7 +83,7 @@ function distanceToRed(board: Board, square: number) {
   return red.length ? Math.min(...red.map(index => Math.max(Math.abs(Math.floor(index / 8) - Math.floor(square / 8)), Math.abs(index % 8 - square % 8)))) : 0
 }
 
-type CaptureSettlement = { balance: number; line: string[] }
+type CaptureSettlement = { balance: number; line: string[]; canAvoidHumanWin: boolean }
 type Search = ReturnType<typeof createMoveSearch> & {
   captures: Map<string, CaptureSettlement>
   responses: Map<string, CaptureSettlement>
@@ -83,62 +91,71 @@ type Search = ReturnType<typeof createMoveSearch> & {
 
 /** Continue compulsory captures only; every edge removes a piece, so no depth cap is needed. */
 function settleCaptures(game: Game, search: Search): CaptureSettlement {
-  if (game.status !== "playing") return { balance: materialBalance(game.board), line: [] }
+  if (game.status !== "playing") return { balance: materialBalance(game.board), line: [], canAvoidHumanWin: game.status !== "human-won" }
   const moves = search.moves(game.board, game.turn)
-  if (!moves[0]?.captures.length) return { balance: materialBalance(game.board), line: [] }
+  if (!moves[0]?.captures.length) return { balance: materialBalance(game.board), line: [], canAvoidHumanWin: true }
   // Piece count strictly decreases through this subtree: neither repetition nor the quiet clock
   // can end a later capture turn. Identical board/turn states have identical continuations.
   const key = positionKey(game.board, game.turn)
   const cached = search.captures.get(key)
   if (cached) return cached
   let best: CaptureSettlement | undefined
+  let canAvoidHumanWin = game.turn === "human"
   for (const move of moves) {
     const continuation = settleCaptures(search.apply(game, move.id), search)
+    canAvoidHumanWin = game.turn === "ai" ? canAvoidHumanWin || continuation.canAvoidHumanWin : canAvoidHumanWin && continuation.canAvoidHumanWin
     if (!best || (game.turn === "ai" ? continuation.balance > best.balance : continuation.balance < best.balance)) {
-      best = { balance: continuation.balance, line: [move.id, ...continuation.line] }
+      best = { balance: continuation.balance, line: [move.id, ...continuation.line], canAvoidHumanWin: continuation.canAvoidHumanWin }
     }
   }
   if (!best) throw new Error("A compulsory capture position has no legal capture.")
+  best.canAvoidHumanWin = canAvoidHumanWin
   search.captures.set(key, best)
   return best
 }
 
 /** A nearby runner needs its quiet approach checked as well as its immediate crown. */
 function checkRunnerResponse(game: Game, search: Search): CaptureSettlement {
-  if (game.status !== "playing") return { balance: materialBalance(game.board), line: [] }
+  if (game.status !== "playing") return { balance: materialBalance(game.board), line: [], canAvoidHumanWin: game.status !== "human-won" }
   // Quiet moves can draw: unlike capture-only settlement, the complete repetition
   // history and quiet clock are part of this cache key.
   const key = JSON.stringify([positionKey(game.board, game.turn), game.quietMoves, game.positions])
   const cached = search.responses.get(key)
   if (cached) return cached
   let worst: CaptureSettlement | undefined
+  let safeAgainstEveryReply = true
   for (const redMove of search.moves(game.board, "human")) {
     const red = search.apply(game, redMove.id)
-    let best: CaptureSettlement = { balance: materialBalance(red.board), line: [redMove.id] }
+    let best: CaptureSettlement = { balance: materialBalance(red.board), line: [redMove.id], canAvoidHumanWin: red.status !== "human-won" }
     if (red.status === "playing") {
       let responseBest: CaptureSettlement | undefined
+      let safeResponse = false
       for (const blackMove of search.moves(red.board, "ai")) {
         const settled = settleCaptures(search.apply(red, blackMove.id), search)
+        safeResponse ||= settled.canAvoidHumanWin
         if (!responseBest || settled.balance > responseBest.balance) {
-          responseBest = { balance: settled.balance, line: [redMove.id, blackMove.id, ...settled.line] }
+          responseBest = { balance: settled.balance, line: [redMove.id, blackMove.id, ...settled.line], canAvoidHumanWin: settled.canAvoidHumanWin }
         }
       }
       if (!responseBest) throw new Error("A playing position has no Black response.")
-      best = responseBest
+      best = { ...responseBest, canAvoidHumanWin: safeResponse }
     }
+    safeAgainstEveryReply &&= best.canAvoidHumanWin
     if (!worst || best.balance < worst.balance) worst = best
   }
   if (!worst) throw new Error("A playing position has no Red turn.")
+  worst.canAvoidHumanWin = safeAgainstEveryReply
   search.responses.set(key, worst)
   return worst
 }
 
 /** Check legal replies, one extra reply/response for nearby runners, then settle captures. */
-export function annotateMoves(game: Game, moves: readonly Move[] = legalMoves(game.board, "ai")): AnnotatedMove[] {
+export function annotateMoves(game: Game, moves: readonly Move[] = legalMoves(game.board, "ai"), checkTradeFollowUps = true, checkTerminalSafety = checkTradeFollowUps): AnnotatedMove[] {
   if (game.turn !== "ai" || game.status !== "playing") throw new Error("Outcomes require an active Black turn.")
   const beforeBalance = materialBalance(game.board)
   const search: Search = { ...createMoveSearch(), captures: new Map(), responses: new Map() }
   const redTurnsChecked = game.board.some((piece, square) => piece?.side === "human" && !piece.king && Math.floor(square / 8) <= 2) ? 2 : 1
+  const endgameWins = checkTradeFollowUps ? shortEndgameWins(game, moves) : new Set<string>()
   const lastOwn = [...game.history].reverse().find(record => record.side === "ai")
   return moves.map(move => {
     const piece = game.board[move.path[0]]
@@ -147,9 +164,11 @@ export function annotateMoves(game: Game, moves: readonly Move[] = legalMoves(ga
     const destination = move.path[move.path.length - 1]
     const captured = capturedPieces(game.board, move)
     const redKings = after.board.flatMap((piece, square) => piece?.side === "human" && piece.king ? [square] : [])
+    let tradeFollowUpChecked = false
     const replies: ReplyOutcome[] = after.status !== "playing" ? [] : search.moves(after.board, "human").map(reply => {
       const next = search.apply(after, reply.id)
       let best = materialBalance(next.board) - beforeBalance
+      let canAvoidCheckedLoss = next.status !== "human-won"
       let bestResponseIds: string[] = []
       let exchangeLine = [reply.id]
       const aiWinningReplies: string[] = []
@@ -157,6 +176,7 @@ export function annotateMoves(game: Game, moves: readonly Move[] = legalMoves(ga
       const capturableRedKings = new Set<number>()
       if (next.status === "playing") {
         best = -Infinity
+        canAvoidCheckedLoss = false
         for (const response of search.moves(next.board, "ai")) {
           const leaf = search.apply(next, response.id)
           nextCaptureValue = Math.max(nextCaptureValue, capturedPieces(next.board, response).reduce((total, piece) => total + piece.value, 0))
@@ -164,7 +184,10 @@ export function annotateMoves(game: Game, moves: readonly Move[] = legalMoves(ga
             const square = reply.path[0] === king ? reply.path[reply.path.length - 1] : king
             if (response.captures.includes(square)) capturableRedKings.add(king)
           }
-          const settled = redTurnsChecked === 2 ? checkRunnerResponse(leaf, search) : settleCaptures(leaf, search)
+          const trade = checkTradeFollowUps && reply.captures.length > 0 && response.captures.length > 0
+          if (trade) tradeFollowUpChecked = true
+          const settled = redTurnsChecked === 2 || trade ? checkRunnerResponse(leaf, search) : settleCaptures(leaf, search)
+          canAvoidCheckedLoss ||= settled.canAvoidHumanWin
           const net = settled.balance - beforeBalance
           if (net > best) { best = net; bestResponseIds = [response.id]; exchangeLine = [reply.id, response.id, ...settled.line] }
           else if (net === best) bestResponseIds.push(response.id)
@@ -172,7 +195,7 @@ export function annotateMoves(game: Game, moves: readonly Move[] = legalMoves(ga
         }
         if (!Number.isFinite(best)) throw new Error("A playing position has no legal response.")
       }
-      return { id: reply.id, captures: capturedPieces(after.board, reply), promotes: reply.promotes, status: next.status, takesMover: reply.captures.includes(destination), netAfterBestResponse: best, bestResponseIds, exchangeLine, aiWinningReplies, nextCaptureValue, capturableRedKings: [...capturableRedKings] }
+      return { id: reply.id, ...(checkTerminalSafety && { canAvoidCheckedLoss }), captures: capturedPieces(after.board, reply), promotes: reply.promotes, status: next.status, takesMover: reply.captures.includes(destination), netAfterBestResponse: best, bestResponseIds, exchangeLine, aiWinningReplies, nextCaptureValue, capturableRedKings: [...capturableRedKings] }
     })
     const immediateGain = materialBalance(after.board) - beforeBalance
     const worst = replies.length ? Math.min(...replies.map(reply => reply.netAfterBestResponse)) : immediateGain
@@ -184,7 +207,9 @@ export function annotateMoves(game: Game, moves: readonly Move[] = legalMoves(ga
       promoted: move.promotes,
       black: count(after.board, "ai"), red: count(after.board, "human"),
       materialAfter: materialBalance(after.board), immediateGain,
-      redReplies: replies, redTurnsChecked,
+      redReplies: replies, redTurnsChecked: tradeFollowUpChecked ? 2 : redTurnsChecked,
+      ...(checkTerminalSafety && { allowsCheckedLoss: replies.some(reply => reply.canAvoidCheckedLoss === false) }),
+      ...(checkTradeFollowUps && { tradeFollowUpChecked, forcesWinWithinFourTurns: endgameWins.has(move.id), allowsOpponentDraw: replies.some(reply => reply.status === "draw") }),
       redMovablePieces: new Set(replies.map(reply => reply.id.split(/[x-]/)[0])).size,
       captureFreeRedReplies: replies.filter(reply => reply.nextCaptureValue === 0).length,
       minNextCaptureValue: replies.length ? Math.min(...replies.map(reply => reply.nextCaptureValue)) : 0,
@@ -220,6 +245,9 @@ export function describeMove(move: AnnotatedMove): string {
 
   if (facts.allowsRedWin) parts.push(`RED CAN WIN NEXT: ${facts.redReplies.filter(reply => reply.status === "human-won").map(reply => reply.id).join(", ")}`)
   else parts.push("No immediate Red win")
+  if (facts.allowsCheckedLoss && !facts.allowsRedWin) parts.push("Red can force a terminal win within the checked replies")
+  if (facts.allowsOpponentDraw) parts.push("Red can claim an immediate draw")
+  if (facts.forcesWinWithinFourTurns && !facts.forcesWinNextTurn) parts.push("Verified win within four Black turns against every Red defense")
   if (facts.forcesWinNextTurn) parts.push("Black can win on its next turn after EVERY legal Red reply")
   if (facts.maxRedCaptureCount) {
     parts.push(`Red's legal jump chains: maximum ${facts.maxRedCaptureCount} Black pieces; maximum ${facts.maxRedCaptureValue} points${facts.moverCanBeCaptured ? "; the moved piece is exposed" : "; another Black piece is exposed"}`)

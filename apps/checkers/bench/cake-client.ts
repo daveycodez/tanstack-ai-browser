@@ -28,13 +28,14 @@ export async function cakeMetadata(signal?: AbortSignal): Promise<CakeMetadata> 
   if (!response.ok) throw new Error('Start the local Cake benchmark bridge before this comparison.')
   return response.json() as Promise<CakeMetadata>
 }
-export async function chooseCakeMove(game: Game, signal: AbortSignal): Promise<CakeResult> {
+export async function chooseCakeMove(game: Game, signal: AbortSignal, depth = CAKE_DEPTH): Promise<CakeResult> {
   signal.throwIfAborted()
-  const response = await fetch(`${CAKE_URL}/move`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify([...cakePosition(game.board, game.turn), CAKE_DEPTH, game.positions.slice(-11, -1).map(key => { const [turn, text] = key.split(':'); return cakePosition([...text].map(piece => piece === '.' ? null : { side: piece.toLowerCase() === 'h' ? 'human' : 'ai', king: piece === piece.toUpperCase() }), turn === 'human' ? 'human' : 'ai') })]), signal })
+  if (!Number.isSafeInteger(depth) || depth < 1 || depth > 25 || depth % 2 !== 1) throw new Error("Cake benchmark depth must be an odd integer from 1 through 25.")
+  const response = await fetch(`${CAKE_URL}/move`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify([...cakePosition(game.board, game.turn), depth, game.positions.slice(-11, -1).map(key => { const [turn, text] = key.split(':'); return cakePosition([...text].map(piece => piece === '.' ? null : { side: piece.toLowerCase() === 'h' ? 'human' : 'ai', king: piece === piece.toUpperCase() }), turn === 'human' ? 'human' : 'ai') })]), signal })
   const result = await response.json() as { error?: string; successor: number[]; legalSuccessors: number[][]; aborted?: boolean } & Omit<CakeResult, 'moveId'>
   signal.throwIfAborted()
   if (!response.ok || result.error || result.aborted) throw new Error(result.error ?? 'Cake search failed.')
-  if (!Number.isInteger(result.completedDepth) || result.completedDepth < 1 || result.completedDepth > CAKE_DEPTH) throw new Error('Cake reported an invalid completed search depth.')
+  if (!Number.isInteger(result.completedDepth) || result.completedDepth < 1 || result.completedDepth > depth) throw new Error('Cake reported an invalid completed search depth.')
   return { moveId: matchCakeMove(game, result), score: result.score, requestedDepth: result.requestedDepth, completedDepth: result.completedDepth, nodes: result.nodes, cpuSeconds: result.cpuSeconds, provenance: result.provenance }
 }
 

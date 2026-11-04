@@ -18,12 +18,24 @@ function BehaviorRuntime() {
       if (event.origin !== origin || event.source !== window.parent || ![BEHAVIOR_CHANNEL, STANDARD_CHANNEL].includes(event.data?.channel)) return
       const data = event.data
       if (data.type === "cancel") { if (active?.id === data.id) active.controller.abort(); return }
-      if (data.type !== "run" || active) return
+      if ((data.type !== "run" && data.type !== "sweep") || active) return
       if (data.model === "prompt-api" || data.model === "apple-foundationmodel") { send({ channel: BEHAVIOR_CHANNEL, type: "error", id: data.id, error: "Native model studies use the main window." }); return }
       const controller = new AbortController(); active = { id: data.id, controller }
       if (data.channel === STANDARD_CHANNEL) {
         const sendStandard = (message: StandardEvent) => window.parent.postMessage(message, origin)
-        void runStandardStudy({ model: data.model, signal: controller.signal, onProgress: message => sendStandard({ channel: STANDARD_CHANNEL, type: "progress", id: data.id, message }) }).then(report => sendStandard({ channel: STANDARD_CHANNEL, type: "complete", id: data.id, report }), error => sendStandard({ channel: STANDARD_CHANNEL, type: "error", id: data.id, error: error instanceof Error ? error.message : String(error) })).finally(unloadModel)
+        if (data.type === "sweep") {
+          void (async () => {
+            const reports = []
+            for (const depth of data.depths) {
+              controller.signal.throwIfAborted()
+              const report = await runStandardStudy({ model: data.model, cakeDepth: depth, matchesOnly: true, maxPlies: data.maxPlies, signal: controller.signal, onProgress: message => sendStandard({ channel: STANDARD_CHANNEL, type: "progress", id: data.id, message: `Cake depth ${depth}: ${message}` }) })
+              reports.push(report); sendStandard({ channel: STANDARD_CHANNEL, type: "depth", id: data.id, report })
+            }
+            sendStandard({ channel: STANDARD_CHANNEL, type: "sweep-complete", id: data.id, reports })
+          })().catch(error => sendStandard({ channel: STANDARD_CHANNEL, type: "error", id: data.id, error: error instanceof Error ? error.message : String(error) })).finally(unloadModel)
+          return
+        }
+        void runStandardStudy({ matchPlan: data.matchPlan, cakeDepth: data.cakeDepth, matchesOnly: data.matchesOnly, maxPlies: data.maxPlies, model: data.model, signal: controller.signal, onProgress: message => sendStandard({ channel: STANDARD_CHANNEL, type: "progress", id: data.id, message }) }).then(report => sendStandard({ channel: STANDARD_CHANNEL, type: "complete", id: data.id, report }), error => sendStandard({ channel: STANDARD_CHANNEL, type: "error", id: data.id, error: error instanceof Error ? error.message : String(error) })).finally(unloadModel)
         return
       }
       void runBehaviorStudy({ model: data.model, signal: controller.signal, onProgress: message => send({ channel: BEHAVIOR_CHANNEL, type: "progress", id: data.id, message }) }).then(report => send({ channel: BEHAVIOR_CHANNEL, type: "complete", id: data.id, report }), error => send({ channel: BEHAVIOR_CHANNEL, type: "error", id: data.id, error: error instanceof Error ? error.message : String(error) })).finally(unloadModel)

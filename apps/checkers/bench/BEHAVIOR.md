@@ -119,3 +119,59 @@ and evaluation. Raw runs, full prompts and review explanations live outside Git.
 Keep only the compact latest quality/standard-engine summaries in `latest.json`.
 Use **Standard comparison JSON** to export a live run, or import/paste a saved
 report to replay it without starting inference.
+
+
+## Native Cake difficulty sweep
+
+**Run Cake depth sweep** tests LFM3 at its production model defaults, thinking off,
+against native Cake depths 1/3/5/7. The execution order is 1/7/3/5; this is a
+strength study with no latency comparison. Each depth uses the same two
+presentation seeds and both colors, white always first: four games per depth.
+It skips the tactical suite, self-play controls and per-move quality audits.
+The explicit 240-ply horizon is reported as unresolved if reached. There are no
+opening books, tablebases, injected mistakes, model temperature overrides or
+changes to the game's prompts. Cake's normal evaluation, capture extensions and
+stock early exits remain enabled.
+
+The browser runner retains one model document/worker across requested depths and
+streams completed depth reports to the parent. Interrupted batches can be saved
+and pasted back; rerunning resumes missing depths. After all four depths finish,
+Run starts a fresh sweep. One document-initialization failure occurred outside
+games in the measured run; depth1's four completed games were retained, and depths
+7/3/5 resumed in a single persistent runtime. No game was discarded or rerolled.
+
+| Cake depth | LFM3 wins | Draws | LFM3 losses | Unresolved/errors |
+| --- | ---: | ---: | ---: | ---: |
+| 1 | 0 | 2 | 2 | 0 |
+| 3 | 0 | 0 | 4 | 0 |
+| 5 | 0 | 0 | 4 | 0 |
+| 7 | 0 | 0 | 4 | 0 |
+
+All 16 games ended under the actual rules. Both draws were threefold repetitions,
+at 67 and 140 plies; no draw was manufactured from the horizon. This small sample
+found no winning depth for LFM3. It does not prove a later win impossible, and
+native depth1 is not a calibrated beginner setting: the learned evaluation and
+capture extensions still apply.
+
+No usable human rating or population win-rate calibration was found for this
+specific source build and depth configuration. CheckerBoard's own documentation
+warns that Cake remains strong at low levels, but does not provide a human
+percentile table. Engine results cannot establish how many humans LFM3 beats.
+Keep the compact latest sweep in `latest.json`; full traces stay outside Git.
+
+
+## Latest round-driven improvement
+
+The latest v17/suite v13 retest is 3W–4L–5D in 12 fresh games, alternating starters
+six each. LFM3's first-player split is 1W–3L–2D; second is 2W–1L–3D. Cake's
+first split is 1W–2L–3D; second is 3W–1L–2D. The prior frozen v16 batch was
+0W–4L–8D. No sampler or opponent settings changed. Two further replay cases
+make tied quiet choices limit exposure while level/behind, and allow a small
+checked cost to preserve a lead instead of conceding repetition. The system
+prompt is unchanged and no search depth was added. All models/Cake7 passed
+32/32 scored tactics. See [the current report](CAKE1-IMPROVEMENT.md).
+
+Strength-study progress strings now carry the live W–L–D score on every ply
+after each game; errors/stopped/capped outcomes are separated from W/L/D, and
+self-play controls do not inflate the count. Full blind-style runs keep scores
+hidden until the ordinary identity-reveal step.
