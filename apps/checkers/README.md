@@ -1,6 +1,6 @@
 # Checkers
 
-A responsive, local-first checkers game built with TanStack Start and React. Play red
+A responsive, local-first checkers game built with TanStack Start and React. Play either color
 against a local model through this monorepo's WebGL or Prompt API adapters and TanStack AI.
 No hosted model or API key is needed.
 
@@ -22,13 +22,15 @@ The home menu offers **Start game** and, while a game is active, **Resume game**
 Starting over confirms before replacing the current game. `/game` restores the
 current game or creates one when no saved game exists. There is only one saved game,
 keyed as `current` in a TanStack DB IndexedDB Collection in the `checkers` database.
-Board, turn, move history, kings and results survive reloads. Browser storage is
+Each new game randomly assigns White or Black with equal probability; White always
+moves first, so the opponent opens some games. Board, turn, move history, kings and
+results survive reloads. Browser storage is
 opened after hydration so both routes can render safely on the server.
 
 American-style rules include compulsory captures, full multi-jumps, forward-only men,
 short-range kings, promotion ending the turn, blocked-position wins, threefold draws,
 and draws after 40 moves each without a capture or advancing an uncrowned piece.
-Select a red piece, then a highlighted destination. Continue highlighted jumps to
+Select one of your pieces, then a highlighted destination. Continue highlighted jumps to
 complete a capture. Arrow keys navigate the board; Enter selects; Escape cancels selection.
 
 ## Motion and sound
@@ -89,6 +91,9 @@ The WebGL adapter uses schema-constrained decoding; schema and rules validation 
 before a reply can alter the board. Invalid replies show a manual retry control without automatically calling the model again. There is no heuristic fallback. A 120-second generation deadline excludes model
 loading. Leaving the route cancels the pending reply, and session/position guards reject
 stale replies after a restart. Same-origin tabs serialize AI turns with Web Locks.
+A failed turn stays blocked across tabs, busy-state changes, and reloads. An explicit
+Retry click atomically acknowledges that failure and permits one new attempt; a
+new failure blocks it again. Changing the opponent deliberately starts a fresh reply.
 
 ## Full turn log and manual benchmark
 
@@ -97,7 +102,8 @@ before/after boards and retains actual AI prompts, move-card outcomes, chosen/ra
 model settings, timings, usage, optional reasoning, and failed attempts. Forced moves are
 identified as having no model inference. Older saves are replayed when possible and
 missing historical AI diagnostics stay explicitly unavailable. Logs remain on-device;
-copying is an explicit user action.
+copying is an explicit user action. The full JSON report is built only when expanded
+or copied, and its text is mounted only while expanded.
 
 `/bench` is a separate manual benchmark page sharing the game's origin and model cache.
 Inference runs only when **Run benchmark** is pressed. The original coordinate prompt is

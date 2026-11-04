@@ -1,3 +1,5 @@
+import { HumanStyleBenchmark } from "./human-style-benchmark"
+import { BehaviorBenchmark } from "./behavior-benchmark"
 import { ParallelBenchmark } from "./parallel-benchmark"
 import { canRunParallelBench } from "../../bench/parallel"
 import { Link } from "@tanstack/react-router"
@@ -99,6 +101,8 @@ export function BenchmarkView() {
   const ready = useSyncExternalStore(subscribeHydration, () => true, () => false)
   const [running, setRunning] = useState(false)
   const [parallelRunning, setParallelRunning] = useState(false)
+  const [behaviorRunning, setBehaviorRunning] = useState(false)
+  const [standardRunning, setStandardRunning] = useState(false)
   const [results, setResults] = useState<BenchmarkResult[]>([])
   const [report, setReport] = useState<BenchmarkReport>()
   const [runConfig, setRunConfig] = useState<Record<string, unknown>>()
@@ -142,7 +146,7 @@ export function BenchmarkView() {
 
   async function start(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    if (!ready || parallelRunning || controller.current || !event.currentTarget.reportValidity() || !selectedCases.length) return
+    if (!ready || standardRunning || behaviorRunning || parallelRunning || controller.current || !event.currentTarget.reportValidity() || !selectedCases.length) return
     const active = new AbortController()
     controller.current = active
     const config = { model, thinking: effectiveThinking, reasoningMode: !effectiveThinking ? "off" : usesEmulatedReasoning(model) ? "emulated-working-notes" : "native", reasoningBudgetTokens, repetitions, promptVersion, orderPolicy, suiteVersion: SUITE_VERSION, caseIds: selectedCases.map(testCase => testCase.id), maxOutputTokens: model === "prompt-api" ? null : 8192, sampling: "model defaults" }
@@ -174,7 +178,7 @@ export function BenchmarkView() {
 
   async function startComparison(event: FormEvent<HTMLFormElement> | undefined, quality = true, cache = true) {
     event?.preventDefault()
-    if (!ready || parallelRunning || controller.current) return
+    if (!ready || standardRunning || behaviorRunning || parallelRunning || controller.current) return
     const active = new AbortController()
     controller.current = active
     setRunning(true)
@@ -205,9 +209,11 @@ export function BenchmarkView() {
       <div><Link className="bench-back" to="/">Checkers</Link><h1>AI move benchmark</h1><p>One shared prompt, the same legal choices and board facts. Compare local models on clear, bounded checkers decisions.</p></div>
       <span className="bench-manual">Manual benchmark</span>
     </header>
-    {ready && canRunParallelBench(navigator.platform, navigator.maxTouchPoints) && <ParallelBenchmark options={[...DEV_OPPONENTS, ...(promptApiAvailable ? [opponentOption("prompt-api")] : []), ...WEBGL_OPPONENTS]} promptVersion={promptVersion} disabled={running} onRunningChange={setParallelRunning} />}
+    {ready && canRunParallelBench(navigator.platform, navigator.maxTouchPoints) && <ParallelBenchmark options={[...DEV_OPPONENTS, ...(promptApiAvailable ? [opponentOption("prompt-api")] : []), ...WEBGL_OPPONENTS]} promptVersion={promptVersion} disabled={running || standardRunning || behaviorRunning} onRunningChange={setParallelRunning} />}
+    {ready && canRunParallelBench(navigator.platform, navigator.maxTouchPoints) && <HumanStyleBenchmark options={[...DEV_OPPONENTS, ...(promptApiAvailable ? [opponentOption("prompt-api")] : []), ...WEBGL_OPPONENTS]} disabled={running || parallelRunning || behaviorRunning} onRunningChange={setStandardRunning} />}
+    {ready && canRunParallelBench(navigator.platform, navigator.maxTouchPoints) && <details><summary>Sampling and small-reference diagnostics</summary><BehaviorBenchmark options={[...DEV_OPPONENTS, ...(promptApiAvailable ? [opponentOption("prompt-api")] : []), ...WEBGL_OPPONENTS]} disabled={running || parallelRunning || standardRunning} onRunningChange={setBehaviorRunning} /></details>}
     <form className="bench-controls" onSubmit={event => { void start(event) }}>
-      <fieldset disabled={running || parallelRunning || !ready}>
+      <fieldset disabled={running || standardRunning || behaviorRunning || parallelRunning || !ready}>
         <legend>Run settings</legend>
         <div className="bench-control-grid">
           <label>Opponent model<select aria-label="Opponent model" value={model} onChange={event => { setModel(event.currentTarget.value as OpponentModel); setThinking(false) }}>
@@ -226,16 +232,16 @@ export function BenchmarkView() {
           <label>Reasoning budget<input aria-label="Reasoning budget" type="number" min={0} step={1} required value={reasoningBudgetTokens} disabled={running || !effectiveThinking} onChange={event => setReasoningBudgetTokens(Number(event.currentTarget.value))} /></label>
         </div>
       </fieldset>
-      <div className="bench-run-row"><button className="bench-button bench-button-primary" type="submit" disabled={running || parallelRunning || !ready || !selectedCases.length}>Run benchmark</button><button className="bench-button" type="button" disabled={!running} onClick={() => { controller.current?.abort(); setStatus("Stopping the active trial…") }}>Stop</button><span>{running ? "Running selected configuration" : `${selectedCases.length} positions × ${repetitions || 0} repetitions = ${planned} trials`}</span></div>
+      <div className="bench-run-row"><button className="bench-button bench-button-primary" type="submit" disabled={running || standardRunning || behaviorRunning || parallelRunning || !ready || !selectedCases.length}>Run benchmark</button><button className="bench-button" type="button" disabled={!running} onClick={() => { controller.current?.abort(); setStatus("Stopping the active trial…") }}>Stop</button><span>{running ? "Running selected configuration" : `${selectedCases.length} positions × ${repetitions || 0} repetitions = ${planned} trials`}</span></div>
       <p className="bench-note">Runs through the game’s AI path. No saved-game changes, hosted API, automatic retry, or result download. Forced moves are reported separately from model decisions. Sampling uses model defaults.</p>
       <p className="bench-note">Thinking is native on supported WebGL models. Prompt API working notes are an explicit, emulated extra pass. Keep them off for the baseline comparison.</p>
     </form>
     <form className="bench-controls" style={{ marginTop: 24 }} onSubmit={event => { void startComparison(event) }}>
-      <fieldset disabled={running || parallelRunning || !ready}><legend>Prompt cache and quality comparison</legend><div className="bench-control-grid">
+      <fieldset disabled={running || standardRunning || behaviorRunning || parallelRunning || !ready}><legend>Prompt cache and quality comparison</legend><div className="bench-control-grid">
         <label>Comparison model<select aria-label="Comparison model" value={comparisonModel} onChange={event => setComparisonModel(event.currentTarget.value as CacheComparisonModel)}><option value="LiquidAI/LFM3-1.7B-GGUF">LFM3-1.7B-GGUF</option>{promptApiAvailable && <option value="prompt-api">{opponentOption("prompt-api").label}</option>}</select></label>
         <label>Production-order controls<span className="bench-check-row"><input aria-label="Include production ordering" type="checkbox" checked={productionOrder} onChange={event => setProductionOrder(event.currentTarget.checked)} />Both prompt versions</span></label>
       </div></fieldset>
-      <div className="bench-run-row"><button className="bench-button bench-button-primary" type="submit" disabled={running || parallelRunning || !ready}>Run comparison</button><button className="bench-button" type="button" disabled={running || parallelRunning || !ready} onClick={() => { void startComparison(undefined, true, false) }}>Run quality comparison only</button><button className="bench-button" type="button" disabled={running || parallelRunning || !ready} onClick={() => { void startComparison(undefined, false) }}>Run cache replay only</button><button className="bench-button" type="button" disabled={!running} onClick={() => { controller.current?.abort(); setStatus("Stopping the active trial…") }}>Stop comparison</button><span>{CASES.length} frozen cases × {productionOrder ? 4 : 2} quality passes + 28 cache trials</span></div>
+      <div className="bench-run-row"><button className="bench-button bench-button-primary" type="submit" disabled={running || standardRunning || behaviorRunning || parallelRunning || !ready}>Run comparison</button><button className="bench-button" type="button" disabled={running || standardRunning || behaviorRunning || parallelRunning || !ready} onClick={() => { void startComparison(undefined, true, false) }}>Run quality comparison only</button><button className="bench-button" type="button" disabled={running || standardRunning || behaviorRunning || parallelRunning || !ready} onClick={() => { void startComparison(undefined, false) }}>Run cache replay only</button><button className="bench-button" type="button" disabled={!running} onClick={() => { controller.current?.abort(); setStatus("Stopping the active trial…") }}>Stop comparison</button><span>{CASES.length} frozen cases × {productionOrder ? 4 : 2} quality passes + 28 cache trials</span></div>
       <p className="bench-note">Compare {PREVIOUS_PROMPT_VERSION} and {SHARED_PROMPT_VERSION} on identical paired legal orders, then optionally check both versions with the same production ordering. Replays send the first seven non-forced AI decisions from the recorded game twice each. Quality comparison only skips the cache replay. Cache replay only skips all quality passes and performs just those 28 cache trials. No saved-game access or engine cache flags; reasoning stays off, standard prompt caching uses long retention, and final output remains 8,192 tokens on WebGL or browser-managed on Prompt API.</p>
     </form>
     <div className="bench-status" role="status" aria-live="polite">{status}</div>

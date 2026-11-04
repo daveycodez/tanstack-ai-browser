@@ -10,7 +10,8 @@
     "deploy": "wrangler deploy",
     "deploy-dry-run": "wrangler deploy --dry-run",
     "test": "node --experimental-strip-types --test src/lib/*.test.ts bench/*.test.ts",
-    "bench-audit": "node --experimental-strip-types bench/audit.ts"
+    "bench-audit": "node --experimental-strip-types bench/audit.ts",
+    "bench-cake": "node bench/cake-server.mjs"
   },
   "dependencies": {
     "@tanstack-ai-browser/apfel": "workspace:*",

@@ -1,8 +1,8 @@
-# Checkers fixture audit: checkers-audited-v6
+# Checkers fixture audit: checkers-audited-v13
 
-The frozen suite has **37 positions: 31 calibration and six historical holdouts**. There are
-27 scored tactical/policy objectives (22 calibration, five holdout), nine ungraded
-observations (eight calibration, one historical holdout), and one ungraded forced-move check. The forced move has
+The frozen suite has **44 positions: 38 calibration and six historical holdouts**. There are
+32 scored tactical/policy objectives (27 calibration, five holdout), 11 ungraded
+observations (ten calibration, one historical holdout), and one ungraded forced-move check. The forced move has
 only one legal turn and requires no model inference; it is not evidence of playing
 strength. Freeze the shared prompt before evaluating holdouts. If held-out results
 inform a later prompt change, treat those positions as calibration thereafter.
@@ -218,3 +218,76 @@ No pass condition requires fewer enemy replies, moving a king closer, never retr
 or stopping promotion regardless of cost. Those coarse geometric rules can contradict
 actual captures. The reported examples instead exercise exact legal consequences,
 including a guard capture of both a runner and its supporting king.
+
+
+## v11: external-engine counterexamples
+
+Cake's three v10 disagreements were checked at native depths 7, 9, 11, 13 and 15,
+with concrete continuations under the actual application rules. V11 corrects the
+objectives rather than forcing Cake to imitate a shorter teaching heuristic.
+
+- **Avoid immediate capture:** runner-guard case accepts every quiet alternative
+  with no immediate opponent win or capture: `e1-f2`, `b8-a7`. Keeping the guard
+  remains a useful signal, but releasing it is not automatically a decisive loss.
+- **Prevent or compensate promotion:** accept replies with nonnegative checked
+  exchange, or a promotion followed by a legal capture that retains a positive
+  checked material balance. This accepts `g7-f6` and `a5-b4`; the latter forces
+  `h6xf8 b4xd6`. Other unrecouped or exposed-king moves remain rejected.
+- **Preserve promotion material:** among nonlosing checked exchanges, maximize
+  surviving piece balance using a separately enumerated capture-settled tree.
+  `e5-f4` preserves all three pieces initially and can promote on the following
+  turn. `d2-c1 d6xf4xh6 c1xa3` leaves one king against a king and a pawn; it no
+  longer passes merely for crowning immediately.
+
+The count stays 27 scored cases. Fresh Cake and LFM3 GGUF runs both scored 27/27.
+The earlier version-specific grading notes below/above are historical; their
+narrow promotion predicates do not define v11. No engine-specific exceptions or
+Cake dependency are used by the audit or production prompt.
+
+
+## v12: three real-game Cake1 regressions
+
+`cake1-regressions.ts` records compact legal histories from the fresh calibration,
+including the AI-White first-player assignment required by those games. Histories
+retain the actual repetition counts; there are no synthetic draw-counter fixtures.
+
+- **Recapture bait:** after each capture/recapture, independently examine a second
+  opponent/AI pair before exhaustive compulsory-capture settlement. This catches
+  `h6-g5 b4xd6 c7xe5 g3-f4 e5xg3 h2xf4xh6` as a loss instead of an even trade.
+- **Short finish:** in one/two AI pieces versus one opponent piece, independently
+  prove terminal victory within four own turns against every legal defense.
+  Draws and opponent wins defeat the proof. This is a tiny exact tactic, not a
+  general deep search or tablebase. The recorded `e3-d4` finish is the sole proof.
+- **Opponent draw claim:** while ahead, accept every nonlosing playing continuation
+  that gives neither side an immediate draw when such continuations exist.
+  The recorded `g3-f2` hands the opponent the actual third repetition.
+
+The longer trade check also disproves old `reported-exchange-move-6` allowance
+`b6-c5`; it is removed by the independent predicate. Supported `d6-c5` remains
+accepted in move 28. Terminal win/loss safety is separately propagated through
+branches already visited, so a material-preferred king capture cannot outrank
+avoiding a proven blockade loss. This safety check adds no search depth.
+
+The scored count is 30; all new cases have independently derived accepted sets.
+The failed v15 validation and v16 expanded-game results remain in the latest
+report; tactical scores are not represented as full-game strength or win rates.
+
+
+## v13: two repeated 12-round failures
+
+`cake1-round-regressions.ts` adds two fully replayed histories from the frozen v16
+12-game batch. The independent predicates accept every qualifying alternative:
+
+- **Limit quiet exposure:** in a level/behind quiet, nonpromoting position, maximize
+  checked net then minimize the opponent's immediate capture value among those
+  ties. This avoids `e7-f6` offering two pieces instead of one at the same net−1.
+  It is a contextual casual preference, not a universal optimal-play theorem.
+- **Continue a checked lead:** while ahead, reject immediate draw concessions when
+  a live continuation retains a positive checked material balance. Here the small
+  cost 1 still leaves a lead; `f2-e1` and `f2-g1` pass. This avoids treating every
+  checked cost as a reason to accept repetition.
+
+The latest totals are 44 positions/32 scored. No old expectations were relaxed.
+Native Cake7 and all three tested local models passed 32/32. The ordinary-start
+full-game retest was 3 wins/4 losses/5 draws; tactical scores remain separate from
+game win rates. Historical v16 inputs remain reproducible byte for byte.

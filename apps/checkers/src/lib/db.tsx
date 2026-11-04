@@ -121,6 +121,7 @@ export const startNewGame = async () => (await openGames()).store.startNewGame()
 export const setOpponent = async (...args: Parameters<Storage["store"]["setOpponent"]>) => (await openGames()).store.setOpponent(...args)
 export const currentGame = async () => (await openGames()).store.currentGame()
 export const commitMove = async (...args: Parameters<Storage["store"]["commitMove"]>) => (await openGames()).store.commitMove(...args)
+export const authorizeAiRetry = async (...args: Parameters<Storage["store"]["authorizeAiRetry"]>) => (await openGames()).store.authorizeAiRetry(...args)
 export const recordAiFailure = async (...args: Parameters<Storage["store"]["recordAiFailure"]>) => (await openGames()).store.recordAiFailure(...args)
 
 if (import.meta.hot) import.meta.hot.accept(() => window.location.reload())

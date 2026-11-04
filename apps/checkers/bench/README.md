@@ -43,7 +43,7 @@ Original raw v1 reports remain intact; the audit explains the corrected grading.
 ## Shared production path
 
 The runner calls `chooseAiMove`, exactly as the game does, with instrumentation callbacks.
-The original baseline (`baseline-v1`) is preserved unchanged. The current `shared-v13`
+The original baseline (`baseline-v1`) is preserved unchanged. The current `shared-v17`
 contract uses descriptive actions such as `Jump king d2 over c3 to b4`. Every legal action
 remains in the enum; neither card order nor a hidden fallback selects a move for the model.
 
@@ -284,3 +284,47 @@ order and accepted sets as role-equivalent recolorings. They test color-invarian
 AI decisions; they do not assert that every recolored historical fixture is a
 reachable white-first standard opening. Actual white-first openings, persistence,
 resume and replay are tested separately through new games.
+
+
+## Cake-audited grading correction (suite v11, prompt v14)
+
+The suite retains 39 positions and 27 scored cases. A fresh Chrome run gives
+**Cake 27/27 and LFM3 GGUF 27/27** with thinking off and model-default sampling.
+
+- `reported-runner-guard-82` accepts `e1-f2` and the audited near-equal `b8-a7`.
+  Immediate captures of an exposed king or piece still fail.
+- `deny-red-promotion` accepts crown prevention `g7-f6` and compensated
+  `a5-b4 h6xf8 b4xd6`. A concession without compensation still fails.
+- `promotion-not-at-any-cost` now requires `e5-f4`, which avoids the double capture
+  before promoting. Immediate `d2-c1` leaves fewer surviving pieces and fails.
+
+Independent rules-based audit predicates derive these sets rather than hardcoding
+Cake's chosen IDs. Production v14 changes only the promotion recommendation in
+these 39 positions: compare surviving piece counts in existing checked exchange
+lines before preferring an immediate crown at equal exchange value. No extra
+search or model-specific instructions; all legal actions stay available. The
+system prompt shrinks from 1,795 to 1,761 characters. Historical v13 and earlier
+prompt behavior remains available unchanged. Older reports retain their versions.
+
+
+## Cake1 mistake-driven improvement
+
+See [the latest improvement report](CAKE1-IMPROVEMENT.md). Suite v12 adds exactly
+three scored replay cases (42 total, 30 scored); production v16 checks recapture
+follow-ups, short three-piece finishes, opponent draw claims, and terminal safety
+inside the already-checked branches. All legal cards and model sampling stay intact.
+LFM3/Nano score 30/30; Qwen 29/30 with one retained old promotion miss, all new cases
+passing. The fresh pilot was 1 win/1 draw/1 loss, but the frozen 12-round extension was
+0 wins/8 draws/4 losses. The one-in-three full-game target is not established.
+
+
+## Updated 12-round retest (v17 / suite v13)
+
+Two further real-game cases cover gratuitous multi-jump exposure at tied returns
+and avoiding a draw when a small checked cost still preserves a positive lead.
+No extra search depth or system-prompt text was added. The expanded suite is
+44 positions/32 scored; LFM3, Nano, Qwen and native Cake7 all passed 32/32.
+The new frozen 12-game batch was **3W–4L–5D**, versus 0W–4L–8D before.
+Starters alternated, six each; [the report](CAKE1-IMPROVEMENT.md) includes both
+players' first/second split. This is 25% observed wins, not a calibrated win rate.
+Live progress now reports W–L–D after each game, including later-round updates.

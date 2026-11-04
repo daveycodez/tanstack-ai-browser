@@ -36,7 +36,7 @@ export const Route = createRootRoute({
 
 function RootContent() {
   const pathname = useLocation({ select: location => location.pathname })
-  if (["/bench", "/bench/", "/bench-runtime", "/bench-runtime/"].includes(pathname)) return <Outlet />
+  if (["/bench", "/bench/", "/bench-runtime", "/bench-runtime/", "/behavior-runtime", "/behavior-runtime/"].includes(pathname)) return <Outlet />
   return <GameStorageProvider><Outlet /></GameStorageProvider>
 }
 
