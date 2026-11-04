@@ -157,7 +157,7 @@ test("Apple initialization is independent of LanguageModel and Prompt API remain
   } finally { restoreWindow(); restoreModel() }
 })
 
-type Node = { type: string; props: Record<string, unknown> }
+type Node = { type: string | ((props: Record<string, unknown>) => unknown); props: Record<string, unknown> }
 function elements(value: unknown): Node[] {
   if (Array.isArray(value)) return value.flatMap(elements)
   if (!value || typeof value !== "object" || !("type" in value)) return []
@@ -198,4 +198,73 @@ test("full log is constructed only on expand/copy, unmounts when closed, and cli
     const restoreClipboard = replaceGlobal("navigator", {})
     try { await copy(tree); tree = render(); assert(elements(tree).some(n => n.type === "pre")); assert.equal(focused, 1); assert.equal(selected, 1) } finally { restoreClipboard() }
   } finally { c.host.dispose(); restore(); restoreDocument(); restoreWindow() }
+})
+
+test("collapsed benchmark trials render only summaries and use React's shallow memoization", async () => {
+  const outfile = join(temporary, "trial-ssr.cjs")
+  await build({ stdin: { loader: "tsx", resolveDir: fileURLToPath(new URL("..", import.meta.url)), contents: `
+    import {Trial} from './components/benchmark-trial.tsx';
+    import {createElement} from 'react';
+    import {renderToStaticMarkup} from 'react-dom/server';
+    export {Trial};
+    export const render=rows=>renderToStaticMarkup(createElement('div',null,rows.map(result=>createElement(Trial,{key:result.trial,result}))));
+  ` }, outfile, bundle: true, format: "cjs", platform: "node", jsx: "automatic", logLevel: "error" })
+  const actual = require(outfile)
+  assert.equal(actual.Trial.$$typeof, Symbol.for("react.memo"))
+  assert.equal(actual.Trial.compare, null, "immutable result objects use normal shallow prop comparison")
+  const rows = Array.from({ length: 76 }, (_, trial) => ({
+    trial, label: "Trial summary", repetition: 1, partition: "calibration", moveId: "b6-a5", inference: true, passed: true, seconds: 1,
+    get position() { throw new Error("Collapsed trial read the full board") },
+    get choices() { throw new Error("Collapsed trial built outcome cards") },
+    get prompt() { throw new Error("Collapsed trial read prompt text") },
+    toJSON() { throw new Error("Collapsed trial serialized its full JSON") }
+  }))
+  const html = actual.render(rows)
+  assert.equal((html.match(/<summary>/g) ?? []).length, rows.length)
+  assert.equal((html.match(/<pre/g) ?? []).length, 0)
+  assert(!html.includes("bench-trial-body")); assert(!html.includes("bench-choice-list"))
+  assert.equal((html.match(/bench-grade-pass/g) ?? []).length, rows.length)
+})
+
+test("benchmark trial bodies and nested JSON/outcomes mount only when individually opened", async () => {
+  const c = { host: new HookHost() }
+  const m = await bundle("../components/benchmark-trial.tsx", c, {
+    react: react + "export const memo=x=>x;",
+    "react/jsx-runtime": `export const jsx=(type,props)=>({type,props});export const jsxs=jsx;`
+  })
+  let jsonCalls = 0, choiceReads = 0
+  const result = {
+    trial: 1, repetition: 1, caseId: "lazy-trial", label: "Lazy trial", partition: "calibration", objective: "Keep a safe move",
+    position: newGame("white"), moveId: "b6-a5", expectedMoveIds: ["b6-a5"], legal: true, inference: true, passed: true, signal: null, seconds: 1,
+    prompt: "prompt ".repeat(4000), systemPrompt: "System prompt", reasoningText: "Reasoning text", rawAnswer: '{"move":"b6-a5"}',
+    get choices() { choiceReads++; return [{ id: "b6-a5", label: "Safe move", outcome: "A complete outcome card" }] },
+    toJSON() { jsonCalls++; return { caseId: this.caseId, prompt: this.prompt, rawAnswer: this.rawAnswer } }
+  }
+  const trialHost = c.host
+  const renderTrial = () => { c.host = trialHost; return c.host.render(() => m.Trial({ result })) }
+  const toggle = (tree: unknown, open: boolean) => (elements(tree).find(n => n.type === "details")!.props.onToggle as (e: unknown) => void)({ currentTarget: { open } })
+  type Component = { type: (props: Record<string, unknown>) => unknown; props: Record<string, unknown> }
+  try {
+    let tree = renderTrial(); assert.equal(jsonCalls, 0); assert.equal(choiceReads, 0)
+    toggle(tree, true); tree = renderTrial()
+    const body = elements(tree).find(n => typeof n.type === "function") as unknown as Component
+    assert.ok(body)
+    const contents = body.type(body.props)
+    assert.equal(jsonCalls, 0); assert.equal(choiceReads, 0)
+    const nodes = elements(contents)
+    const jsonDetail = nodes.find(n => n.props.title === "Complete trial JSON") as unknown as Component
+    const jsonHost = new HookHost()
+    const renderJson = () => { c.host = jsonHost; return c.host.render(() => jsonDetail.type(jsonDetail.props)) }
+    let detail = renderJson(); assert.equal(jsonCalls, 0); assert(!elements(detail).some(n => n.type === "pre"))
+    toggle(detail, true); detail = renderJson(); assert.equal(jsonCalls, 1)
+    const text = elements(detail).find(n => n.type === "pre")!.props.children as string
+    assert.deepEqual(JSON.parse(text), { caseId: result.caseId, prompt: result.prompt, rawAnswer: result.rawAnswer })
+    toggle(detail, false); detail = renderJson(); assert.equal(jsonCalls, 1); assert(!elements(detail).some(n => n.type === "pre"))
+    const choices = nodes.find(n => n.props.title === "Every legal move and its outcome") as unknown as Component
+    const choicesHost = new HookHost()
+    const renderChoices = () => { c.host = choicesHost; return c.host.render(() => choices.type(choices.props)) }
+    let list = renderChoices(); assert.equal(choiceReads, 0)
+    toggle(list, true); list = renderChoices(); assert.equal(choiceReads, 1); assert.equal(elements(list).filter(n => n.type === "article").length, 1)
+    toggle(tree, false); tree = renderTrial(); assert(!elements(tree).some(n => typeof n.type === "function"))
+  } finally { trialHost.dispose() }
 })
