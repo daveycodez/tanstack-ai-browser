@@ -108,7 +108,7 @@ type RunReasoning = { enabled: boolean; supported: boolean; mode: ReasoningMode 
 const EMPTY_REPORT = { results: [] }
 const subscribePlatform = () => () => undefined
 const macSnapshot = () => typeof navigator !== "undefined" && /Mac/.test(navigator.platform) && navigator.maxTouchPoints === 0
-const PARALLEL_MODELS = ["prompt-api", "LiquidAI/LFM3-1.7B-GGUF", "unsloth/Qwen3.5-2B-GGUF"] as const
+const PARALLEL_MODELS = ["prompt-api", ...(import.meta.env?.DEV === true ? ["apple-foundationmodel" as const] : []), "LiquidAI/LFM3-1.7B-GGUF", "unsloth/Qwen3.5-2B-GGUF"] as const
 type BatchModel = typeof PARALLEL_MODELS[number]
 type BatchSlot = {
   model: BatchModel
@@ -495,7 +495,7 @@ export function BenchmarkView() {
     for (const target of PARALLEL_MODELS) initial[target] = {
       model: target, config: { ...common, model: target }, results: [],
       reasoning: { enabled: thinking, supported: true,
-        mode: !thinking ? "off" : target === "prompt-api" ? "emulated-working-notes" : "native" }
+        mode: !thinking ? "off" : usesEmulatedReasoning(target) ? "emulated-working-notes" : "native" }
     }
     setBatch(initial)
     setViewedModel("unsloth/Qwen3.5-2B-GGUF")
@@ -725,7 +725,7 @@ export function BenchmarkView() {
           </button>
           {parallelMac && (
             <button className="button" type="button" disabled={running || !promptAvailable} onClick={() => void startParallel()}>
-              Run all three (Mac parallel)
+              Run all {PARALLEL_MODELS.length === 4 ? "four" : "three"} (Mac parallel)
             </button>
           )}
           <button

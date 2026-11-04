@@ -3,7 +3,7 @@ import { test } from "node:test"
 import { annotatedLegalMoves, applyMove, colorForSide, fromFen, legalMoves, newGame, randomHumanColor, toPgn } from "./chess.ts"
 import { buildMoveAnalysis } from "./move-analysis.ts"
 import { describePosition } from "./ai-position.ts"
-import { SHARED_SYSTEM_PROMPT, systemPromptFor } from "./shared-prompt.ts"
+import { systemPromptFor } from "./shared-prompt.ts"
 import type { MoveContextOptions } from "./chess.ts"
 
 const context: MoveContextOptions = { relationships: true, support: true, mobility: true, castling: true, kingCover: true, promotionReplies: true, kingMobility: true, safety: true }
@@ -70,17 +70,17 @@ test("all annotated outcomes retain physical facts when ownership swaps, includi
   }
 })
 
-test("White AI receives actual White pieces, White castling and matching system/history/outcome colors", () => {
+test("light AI receives its actual pieces, castles and player-relative history/outcomes", () => {
   const game = play("black", ["e2e4", "e7e5"])
   const input = buildMoveAnalysis({ game, moveOrderSeed: "white-ai" })
-  assert.match(input.systemPrompt, /^Play White\./)
-  assert.match(input.systemPrompt, /Negative net means White loses material/)
-  assert.match(input.prompt, /White pieces:\nKing: e1/)
-  assert.match(input.prompt, /Black pieces:\nKing: e8/)
-  assert.match(input.prompt, /White: e4 \(e2e4\)\nBlack: e5 \(e7e5\)/)
-  assert.match(input.prompt, /White in check: no/)
-  assert.match(input.prompt, /Black capture possibilities/)
-  assert.equal(systemPromptFor(newGame("white")), SHARED_SYSTEM_PROMPT)
+  assert.match(input.systemPrompt, /^You control the light chess pieces\./)
+  assert.match(input.systemPrompt, /Negative net means you lose material/)
+  assert.match(input.prompt, /Your pieces \(light\):\nKing: e1/)
+  assert.match(input.prompt, /Opponent's pieces \(dark\):\nKing: e8/)
+  assert.match(input.prompt, /You: e4 \(e2e4\)\nOpponent: e5 \(e7e5\)/)
+  assert.match(input.prompt, /Your king in check: no/)
+  assert.match(input.prompt, /opponent's capture possibilities/)
+  assert.match(systemPromptFor(newGame("white")), /^You control the dark chess pieces\./)
   const castle = fromFen("r3k2r/8/8/8/8/8/8/R3K2R w KQkq - 0 1", "black")
   const choices = buildMoveAnalysis({ game: castle }).choices
   assert.ok(choices.find(move => move.id === "e1g1")?.outcome.includes("CASTLES kingside"))
@@ -93,7 +93,7 @@ test("White AI receives actual White pieces, White castling and matching system/
 test("White AI mate cards and warnings describe actual colors without changing legal action labels", () => {
   const game = fromFen("rnbqkbnr/ppppp2p/5p2/6p1/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 0 2", "black")
   const input = buildMoveAnalysis({ game })
-  assert.match(input.prompt, /White can WIN THIS TURN/)
+  assert.match(input.prompt, /You can WIN THIS TURN/)
   assert.ok(input.choices.find(choice => choice.id === "d1h5")?.outcome.includes("CHECKMATE: wins now"))
   assert.deepEqual(new Set(input.choices.map(choice => choice.id)), new Set(legalMoves(game).map(move => move.id)))
 })

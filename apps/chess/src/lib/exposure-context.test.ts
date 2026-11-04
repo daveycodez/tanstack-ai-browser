@@ -589,7 +589,7 @@ test("the normal game that exceeded the former character guard preserves its boa
     .slice(-8)
     .map(
       (move) =>
-        `${move.side === "human" ? "White" : "Black"}: ${move.notation} (${move.id})`
+        `${move.side === "human" ? "Opponent" : "You"}: ${move.notation} (${move.id})`
     )
   assert.ok(prompt.includes(recent.join("\n")))
   assert.equal(JSON.stringify(game), before)

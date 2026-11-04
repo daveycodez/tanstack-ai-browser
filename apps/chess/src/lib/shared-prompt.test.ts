@@ -11,13 +11,46 @@ import {
   squareName
 } from "./chess.ts"
 import {
-  buildSharedPrompt,
+  buildSharedPrompt as buildPlayerPrompt,
   SHARED_PROMPT_VERSION,
+  systemPromptFor,
   SHARED_SYSTEM_PROMPT,
   positiveSafetySummaries
 } from "./shared-prompt.ts"
 import type { SharedPromptInput } from "./shared-prompt.ts"
 import { moveChoiceLabel } from "./move-choice.ts"
+
+// Existing factual assertions use the original color vocabulary and decoded board.
+// Reverse actor wording and omit the duplicate FEN line for those snapshots;
+// numeric facts, squares, actions and order are untouched. Raw ownership and the
+// exact FEN are tested separately below.
+function buildSharedPrompt(input: SharedPromptInput) {
+  const result = buildPlayerPrompt(input)
+  const own = input.game.humanColor === "black" ? "White" : "Black"
+  const enemy = own === "Black" ? "White" : "Black"
+  const legacyNames = (value: string) => {
+    let text = value.replace(/^Position FEN: .*\n/gm, "")
+      .replace(/Your pieces \((?:dark|light)\):/g, `${own} pieces:`)
+      .replace(/Opponent's pieces \((?:dark|light)\):/g, `${enemy} pieces:`)
+      .replaceAll("Your king in check:", `${own} in check:`)
+      .replaceAll("None of your non-king pieces are threatened.", `No threatened ${own} non-king pieces.`)
+      .replaceAll("your opponent's", `${enemy}'s`)
+      .replaceAll("no capture for you", `no ${own} capture`)
+      .replaceAll("opponent moves next", `${enemy} moves next`)
+      .replaceAll("You can ", `${own} can `)
+      .replaceAll("You also threaten ", `${own} also threatens `)
+      .replaceAll("you lose ", `${own} loses `)
+      .replaceAll("you are ", `${own} is `)
+    for (const noun of ["king", "queen", "rook", "bishop", "knight", "pawn", "piece", "move", "capture", "non-king"])
+      text = text.replaceAll(`your ${noun}`, `${own} ${noun}`).replaceAll(`opponent's ${noun}`, `${enemy} ${noun}`)
+    return text.replaceAll("opponent's moves next", `${enemy} moves next`)
+      .replace(/\bopponent\b/g, enemy).replace(/\byou\b/g, own)
+      .replace(/\bOPPONENT\b/g, enemy.toUpperCase()).replace(/\bYOU\b/g, own.toUpperCase())
+      .replace(/^You:/gm, `${own}:`).replace(/^Opponent:/gm, `${enemy}:`)
+      .replace(`restrict the ${enemy}'s king`, "restrict the enemy king").replace(`restrict the ${enemy} king`, "restrict the enemy king")
+  }
+  return { ...result, prompt: legacyNames(result.prompt), choices: result.choices.map(choice => ({ ...choice, outcome: legacyNames(choice.outcome) })) }
+}
 
 // Exact pre-footer facts and cards recorded before opportunity summaries generalized.
 const recorded = [
@@ -369,7 +402,7 @@ test("shared prompt has no model or reasoning options and ignores opponent model
   >
   const forbidden: Record<ForbiddenKeys, never> = {}
   assert.deepEqual(forbidden, {})
-  assert.equal(SHARED_PROMPT_VERSION, "shared-v47")
+  assert.equal(SHARED_PROMPT_VERSION, "shared-v60")
   const input = fixtureInput(recorded[0])
   const before = buildSharedPrompt(input)
   for (const model of ["prompt-api", "LiquidAI/LFM3-1.7B-GGUF", "unsloth/Qwen3.5-2B-GGUF"] as const) {
@@ -1130,7 +1163,7 @@ test("the concise shared system role carries card interpretation and material gu
   assert.equal(SHARED_SYSTEM_PROMPT.split("Protection is not immunity.").length, 2)
   assert.match(
     SHARED_SYSTEM_PROMPT,
-    /Play Black\. Trust the supplied outcomes to choose one legal move/
+    /Play chess as Black\. Trust the supplied outcomes to choose one legal move/
   )
   assert.match(
     SHARED_SYSTEM_PROMPT,
@@ -1251,7 +1284,7 @@ test("shared priorities allow forcing material-winning checks without treating a
   const result = buildSharedPrompt(input)
   assert.match(
     SHARED_SYSTEM_PROMPT,
-    /Play Black\. Trust the supplied outcomes to choose one legal move/
+    /Play chess as Black\. Trust the supplied outcomes to choose one legal move/
   )
   assert.match(
     SHARED_SYSTEM_PROMPT,
@@ -2081,4 +2114,31 @@ test("mate-versus-stalemate reminder is present only when both terminal outcomes
   assert.match(buildSharedPrompt(terminal).prompt, /Choose a win; avoid STALEMATE \(draw\)\./)
   const quiet = fullInput(newGame("white"))
   assert.doesNotMatch(buildSharedPrompt(quiet).prompt, /Choose a win; avoid STALEMATE/)
+})
+
+test("actual model inputs use you/opponent ownership and light/dark for both assignments", () => {
+  for (const humanColor of ["white", "black"] as const) {
+    const ids = humanColor === "white" ? ["e2e4"] : ["e2e4", "e7e5"]
+    const game = ids.reduce(applyMove, newGame(humanColor))
+    const input = fullInput(game)
+    const result = buildPlayerPrompt(input)
+    assert.equal(result.systemPrompt, systemPromptFor(game))
+    assert.ok(result.prompt.includes(`Position FEN: ${game.fen}\n`))
+    const ownTone = humanColor === "white" ? "dark" : "light"
+    const otherTone = ownTone === "dark" ? "light" : "dark"
+    const ownKing = ownTone === "dark" ? "e8" : "e1"
+    const otherKing = ownKing === "e8" ? "e1" : "e8"
+    assert.ok(result.systemPrompt.startsWith(`You control the ${ownTone} chess pieces.`))
+    assert.ok(result.prompt.includes(`Your pieces (${ownTone}):\nKing: ${ownKing}`))
+    assert.ok(result.prompt.includes(`Opponent's pieces (${otherTone}):\nKing: ${otherKing}`))
+    assert.doesNotMatch(result.systemPrompt + result.prompt, /\b(?:black|white)\b/i)
+    assert.doesNotMatch(result.systemPrompt + result.prompt, /that your|no your|opponent's moves next/)
+    assert.deepEqual(result.choices.map(choice => choice.id), input.moves.map(move => move.id))
+    for (const choice of result.choices) assert.ok(result.prompt.includes(choice.outcome))
+    const recent = game.history.slice(-8).map(move => `${move.side === "ai" ? "You" : "Opponent"}: ${move.notation} (${move.id})`)
+    assert.ok(result.prompt.includes(recent.join("\n")))
+    for (const model of ["prompt-api", "apple-foundationmodel", "LiquidAI/LFM3-1.7B-GGUF", "unsloth/Qwen3.5-2B-GGUF"] as const)
+      for (const thinking of [false, true])
+        assert.deepEqual(buildPlayerPrompt({ ...input, game: { ...game, opponent: { model, thinking } } }), result)
+  }
 })

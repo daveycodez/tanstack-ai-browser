@@ -24,7 +24,8 @@ is used.
 ## Mac parallel evaluation
 
 On Mac desktops, **Run all three (Mac parallel)** runs Nano, LFM3 GGUF and Qwen GGUF
-concurrently in this one tab. All models receive the same positions, seeds and
+concurrently in this one tab. Development builds include Apfel as a fourth model
+and label the button **Run all four (Mac parallel)**. All models receive the same positions, seeds and
 prompt. Select a result card to inspect one model; **Full batch JSON** prints all
 reports. **Stop** cancels every run and preserves completed trials. Phones remain serial.
 
@@ -49,8 +50,11 @@ WebGL's total generation
 ceiling is 8,192 tokens; Prompt API's browser-managed final-output limit is recorded
 as `null`. These are different capabilities.
 
-Every model receives the same **shared-v47** system and user assembly, standard
-piece values and model-default sampling. The optional **WebGL temperature** control
+Every model receives the same **shared-v60** system and user assembly, standard
+piece values and model-default sampling. Ownership is phrased as **you/opponent**;
+**light/dark** identifies piece color for either assignment. The UI palette and chess
+rules retain their existing colors. The readable piece lists are supplemented by the
+exact position FEN; both describe the same current board. The optional **WebGL temperature** control
 is a manual sampling diagnostic; it leaves the shared prompt and ordinary gameplay
 defaults unchanged. Native Prompt API retains browser sampling. There are no active profile, context,
 queen-weight or per-model prompt switches. Guidance is phase-relevant: urgent

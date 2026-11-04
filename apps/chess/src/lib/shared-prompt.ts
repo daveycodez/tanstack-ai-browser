@@ -11,10 +11,11 @@ import { describePosition } from "./ai-position.ts"
 import { buildCompactChoices } from "./prompt-options.ts"
 import { moveChoiceLabel } from "./move-choice.ts"
 
-export const SHARED_PROMPT_VERSION = "shared-v47"
+export const SHARED_PROMPT_VERSION = "shared-v60"
 
+// Construction vocabulary only; requests use the player-relative systemPromptFor().
 export const SHARED_SYSTEM_PROMPT = [
-  "Play Black. Trust the supplied outcomes to choose one legal move; card order is not a ranking.",
+  "Play chess as Black. Trust the supplied outcomes to choose one legal move; card order is not a ranking.",
   "Take a listed CHECKMATE now. Otherwise stop White's mate or answer check, save or win a queen, then prefer safe material over castling/development.",
   "BOARD NOW is current. AFTER describes only that Black move; never combine cards. CHECK checks White; Black-in-check describes now.",
   "Negative net means Black loses material. Weigh recaptures and forcing follow-ups. Forcing gains can outweigh immediate captures; check alone cannot justify material loss. Protection is not immunity. Values: pawn 1, knight/bishop 3, rook 5, queen 9."
@@ -26,7 +27,36 @@ function roleText(text: string, game: Pick<Game, "humanColor">): string {
   const colors: Record<string, string> = { Black: "White", White: "Black", BLACK: "WHITE", WHITE: "BLACK" }
   return text.replace(/\b(?:Black|White|BLACK|WHITE)\b/g, word => colors[word])
 }
-export const systemPromptFor = (game: Pick<Game, "humanColor">): string => roleText(SHARED_SYSTEM_PROMPT, game)
+/** Name ownership from the model's perspective without changing board coordinates. */
+function playerNames(text: string, game: Pick<Game, "humanColor">): string {
+  const own = game.humanColor === "black" ? "White" : "Black"
+  const enemy = own === "Black" ? "White" : "Black"
+  const tone = own === "Black" ? "dark" : "light"
+  const otherTone = enemy === "Black" ? "dark" : "light"
+  let result = text
+    .replace(`Play chess as ${own}.`, `You control the ${tone} chess pieces.`)
+    .replace(`${own} pieces:`, `Your pieces (${tone}):`)
+    .replace(`${enemy} pieces:`, `Opponent's pieces (${otherTone}):`)
+    .replaceAll(`${own} in check:`, "Your king in check:")
+    .replaceAll(`${own}-in-check`, "Your king-in-check")
+    .replaceAll(`No threatened ${own} non-king pieces.`, "None of your non-king pieces are threatened.")
+    .replaceAll(`${own} can `, "You can ")
+    .replaceAll(`${own} also threatens `, "You also threaten ")
+    .replaceAll(`${own} loses `, "you lose ")
+    .replaceAll(`${own} is `, "you are ")
+    .replaceAll(`${enemy}'s`, "your opponent's")
+  for (const noun of ["king", "queen", "rook", "bishop", "knight", "pawn", "piece", "move", "capture", "non-king"])
+    result = result.replaceAll(`${own} ${noun}`, `your ${noun}`).replaceAll(`${enemy} ${noun}`, `opponent's ${noun}`)
+  return result.replaceAll("that your move", "your move")
+    .replaceAll("opponent's moves next", "opponent moves next")
+    .replaceAll("no your capture", "no capture for you")
+    .replaceAll("enemy king", "opponent's king").replaceAll(own, "you").replaceAll(enemy, "opponent")
+    .replaceAll(own.toUpperCase(), "YOU").replaceAll(enemy.toUpperCase(), "OPPONENT")
+    .replace(/^you:/gm, "You:").replace(/^opponent:/gm, "Opponent:")
+}
+
+export const systemPromptFor = (game: Pick<Game, "humanColor">): string =>
+  playerNames(roleText(SHARED_SYSTEM_PROMPT, game), game)
 
 export type SharedPromptInput = {
   game: Game
@@ -564,6 +594,7 @@ export function buildSharedPrompt({
         ]
       : []),
     ...board,
+    `Position FEN: ${game.fen}`,
     `${own} in check: ${game.inCheck ? "yes" : "no"}.`,
     `${enemy} capture possibilities on the unchanged board:`,
     ...(threats.length ? threats : [`No threatened ${own} non-king pieces.`]),
@@ -592,5 +623,9 @@ export function buildSharedPrompt({
           ]
         : []),
   ].join("\n")
-  return { prompt, choices, systemPrompt: systemPromptFor(game) }
+  return {
+    prompt: playerNames(prompt, game),
+    choices: choices.map(choice => ({ ...choice, outcome: playerNames(choice.outcome, game) })),
+    systemPrompt: systemPromptFor(game)
+  }
 }
