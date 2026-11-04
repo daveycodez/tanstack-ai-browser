@@ -44,12 +44,12 @@ WebGL weights download on first use and cache in the browser. Loading, processin
 optional thinking, and errors are visible. The game never silently uses a cloud AI.
 
 Every model receives the same system instruction and user prompt. The user prompt
-contains the decoded current pieces and squares, side/check status, available
+contains FEN audit data, the decoded current pieces and squares, side/check status, available
 castles, the last eight individual moves, and every legal move with concise outcome
 facts. FEN, full history, castling rights, en passant, and counters remain authoritative
 inside the rules engine; the model does not have to decode FEN.
 
-The active **shared-v46** prompt makes context relevant to the position. Tactical
+The shared prompt makes context relevant to the position. Tactical
 positions retain concrete dangers and opportunities without generic opening or
 endgame coaching. Quiet positions receive early-development advice, actual
 pawn-cover context, or simplified king-coordination facts when relevant.

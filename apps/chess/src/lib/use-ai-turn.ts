@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react"
-import { legalMoves } from "./chess"
+import { positionLegalMoves } from "./chess"
 import type { Game } from "./chess"
 import { commitMove, currentGame } from "./db"
 import { resolveOpponent, sameOpponent } from "./opponents"
@@ -62,7 +62,7 @@ export function useAiTurn(game: Game | undefined, busy: boolean) {
         !sameOpponent(active.opponent, expectedOpponent)
       )
         return
-      const moves = legalMoves(active)
+      const moves = positionLegalMoves(active)
       if (moves.length === 1) {
         await commitMove(
           expected.sessionId,

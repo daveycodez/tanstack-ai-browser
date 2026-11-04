@@ -9,7 +9,7 @@
     "preview": "vite preview --port 3003",
     "deploy": "wrangler deploy",
     "deploy-dry-run": "wrangler deploy --dry-run",
-    "test": "node --experimental-strip-types --test src/lib/chess.test.ts src/lib/ai-position.test.ts src/lib/ai-move.test.ts src/lib/move-order.test.ts src/lib/move-outcomes.test.ts src/lib/ai-outcomes.test.ts src/lib/prompt-options.test.ts src/lib/shared-prompt.test.ts src/lib/move-output.test.ts src/lib/exposure-context.test.ts src/lib/game-audio.test.ts src/lib/game-storage.test.ts src/lib/analysis-worker.test.ts src/lib/colors.test.ts src/lib/opponents.test.ts",
+    "test": "node --experimental-strip-types --test src/lib/chess.test.ts src/lib/ai-position.test.ts src/lib/ai-move.test.ts src/lib/move-order.test.ts src/lib/move-outcomes.test.ts src/lib/ai-outcomes.test.ts src/lib/prompt-options.test.ts src/lib/shared-prompt.test.ts src/lib/move-output.test.ts src/lib/exposure-context.test.ts src/lib/game-audio.test.ts src/lib/game-storage.test.ts src/lib/analysis-worker.test.ts src/lib/colors.test.ts src/lib/opponents.test.ts src/lib/benchmark-thinking.test.ts",
     "bench": "vite dev --port 3003 --host 127.0.0.1",
     "bench-check": "tsc --noEmit --project bench/tsconfig.json",
     "bench-audit": "node --experimental-strip-types bench/audit.ts"

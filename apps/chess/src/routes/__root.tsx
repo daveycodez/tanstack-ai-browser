@@ -21,7 +21,7 @@ export const Route = createRootRoute({
       {
         name: "description",
         content:
-          "An unhurried game of chess against an AI that runs on your device. Play white, choose your local opponent, and pick up where you left off."
+          "An unhurried game of chess against an AI that runs on your device. Play either side, choose your local opponent, and pick up where you left off."
       }
     ],
     links: [{ rel: "stylesheet", href: appCss }]

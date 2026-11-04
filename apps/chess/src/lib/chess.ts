@@ -321,6 +321,15 @@ export function legalMoves(game: Game): Move[] {
   return restore(game).moves({ verbose: true }).map(describe)
 }
 
+/** Read-only moves for the current snapshot, without replaying history.
+ * Game status still suppresses history-dependent draws. Commits and analysis
+ * retain restore() so saved-history validation and adjudication are unchanged.
+ */
+export function positionLegalMoves(game: Game): Move[] {
+  if (game.status !== "playing") return []
+  return new Chess(game.fen).moves({ verbose: true }).map(describe)
+}
+
 /** Empty adjacent destinations attacked after the current king vacates its square.
  * Geometric attacks include pinned defenders, as required for king safety.
  * Works after checkmate, when the normal legal-move list is empty.

@@ -4,6 +4,7 @@ import {
   applyMove,
   fromFen,
   legalMoves,
+  positionLegalMoves,
   newGame,
   squareName,
   toPgn,
@@ -207,6 +208,7 @@ test("PGN preserves legal SAN and custom starting positions", () => {
   assert.match(toPgn(applyMove(custom, "e1c1")), /\[FEN /)
   const corrupted = { ...game, fen: newGame("white").fen }
   assert.throws(() => legalMoves(corrupted), /does not match/)
+  assert.throws(() => applyMove(corrupted, "e2e4"), /does not match/)
 })
 
 
@@ -225,4 +227,46 @@ test("king safety includes a pinned enemy knight's attacks", () => {
 test("danger calculation excludes safe destinations and sees a rook ray behind the old king square", () => {
   const game = fromFen("k3r3/8/8/8/8/8/4K3/8 w - - 0 1")
   assert.deepEqual(unsafeKingDestinations(game).map(squareName).sort(), ["e1", "e3"])
+})
+
+
+test("current-position enumeration preserves ordered special moves and does not mutate the game", () => {
+  const fixtures = [
+    sequence(newGame("white"), ["e2e4", "e7e5", "g1f3", "b8c6"]),
+    fromFen("r3k2r/8/8/8/8/8/8/R3K2R w KQkq - 0 1"),
+    fromFen("r3k2r/8/8/8/8/8/8/R3K2R b KQkq - 0 1"),
+    fromFen("7k/8/8/3pP3/8/8/8/7K w - d6 0 1"),
+    fromFen("k3r3/8/8/3pP3/8/8/8/4K3 w - d6 0 1"),
+    fromFen("1r5k/P7/8/8/8/8/8/7K w - - 0 1")
+  ]
+  for (const game of fixtures) {
+    const before = JSON.stringify(game)
+    assert.deepEqual(positionLegalMoves(game), legalMoves(game))
+    assert.equal(JSON.stringify(game), before)
+  }
+  for (const [game, ids] of [
+    [fixtures[1], ["e1g1", "e1c1"]],
+    [fixtures[2], ["e8g8", "e8c8"]]
+  ] as const) for (const id of ids) assert.ok(positionLegalMoves(game).some(move => move.id === id))
+  const ep = positionLegalMoves(fixtures[3]).find(move => move.id === "e5d6")
+  assert.ok(ep)
+  assert.deepEqual(ep.captures, [index("d5")])
+  assert.equal(positionLegalMoves(fixtures[4]).some(move => move.id === "e5d6"), false)
+  const promotions = new Set(positionLegalMoves(fixtures[5]).map(move => move.id))
+  for (const piece of ["q", "r", "b", "n"]) {
+    assert.ok(promotions.has(`a7a8${piece}`))
+    assert.ok(promotions.has(`a7b8${piece}`))
+  }
+})
+
+test("current-position enumeration respects terminal history draws while adjudication retains history", () => {
+  const repeated = sequence(newGame("white"), ["g1f3", "g8f6", "f3g1", "f6g8", "g1f3", "g8f6", "f3g1", "f6g8"])
+  assert.equal(repeated.drawReason, "Threefold repetition")
+  const clock = applyMove(fromFen("7k/8/8/8/8/8/R7/7K w - - 99 1"), "a2a3")
+  assert.equal(clock.drawReason, "Fifty-move rule")
+  for (const game of [repeated, clock, fromFen("7k/8/8/8/8/8/8/7K w - - 0 1")]) {
+    assert.equal(game.status, "draw")
+    assert.deepEqual(positionLegalMoves(game), [])
+  }
+  assert.throws(() => applyMove(repeated, "e2e4"), /already over/)
 })

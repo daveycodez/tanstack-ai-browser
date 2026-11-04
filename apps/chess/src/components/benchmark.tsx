@@ -487,15 +487,15 @@ export function BenchmarkView() {
     const active = new AbortController()
     controller.current = active
     const common = {
-      thinking, repetitions, disablePromptCache,
+      thinking: effectiveThinking, repetitions, disablePromptCache,
       otherGpuWorkload: true, movePresentation, moveOrderSeed,
       reasoningBudgetTokens, webglTemperature, caseIds: selectedCases.map(item => item.id)
     }
     const initial: BatchState = {}
     for (const target of PARALLEL_MODELS) initial[target] = {
       model: target, config: { ...common, model: target }, results: [],
-      reasoning: { enabled: thinking, supported: true,
-        mode: !thinking ? "off" : usesEmulatedReasoning(target) ? "emulated-working-notes" : "native" }
+      reasoning: { enabled: common.thinking, supported: true,
+        mode: !common.thinking ? "off" : usesEmulatedReasoning(target) ? "emulated-working-notes" : "native" }
     }
     setBatch(initial)
     setViewedModel("unsloth/Qwen3.5-2B-GGUF")

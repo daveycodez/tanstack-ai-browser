@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react"
 import type { KeyboardEvent } from "react"
-import { colorForSide, colorName, legalMoves, squareName, unsafeKingDestinations } from "../lib/chess"
+import { colorForSide, colorName, positionLegalMoves, squareName, unsafeKingDestinations } from "../lib/chess"
 import type { Game, Move, PieceColor, PieceType, Side } from "../lib/chess"
 import { resolveOpponent } from "../lib/opponents"
 import type { OpponentSettings } from "../lib/opponents"
@@ -136,7 +136,7 @@ export function GameView({
   const board = useRef<HTMLDivElement>(null)
   const motionLayer = useRef<HTMLDivElement>(null)
   useBoardMotion(game, flipped, board, motionLayer)
-  const moves = useMemo(() => legalMoves(game), [game])
+  const moves = useMemo(() => positionLegalMoves(game), [game])
   const unsafeKingSquares = useMemo(() =>
     game.inCheck && (game.status === "human-won" || game.status === "ai-won")
       ? unsafeKingDestinations(game)
