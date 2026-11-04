@@ -45,8 +45,13 @@ Current `shared-v15` supplies common, model-agnostic board guidance:
   only for a strictly better proved outcome class. Incomplete searches are discarded.
   Outcome-only proofs do not invent exact final seed totals.
 
-Analysis runs in a cancellable worker. The separate phases have their own budgets;
-the outcome-proof cap is not a cap on the entire turn. Every legal label remains
+Analysis runs in a cancellable worker. Equivalent endgame searches share a
+four-entry result memo within one prompt build, including deterministic exhausted
+results. Eligibility is checked before reuse; positions, ordered actions and
+resource limits must match. Results retain their original logical visit counts
+for report compatibility, and no cache survives the request.
+The separate phases have their own budgets; the outcome-proof cap is not a cap
+on the entire turn. Every legal label remains
 available to the language model, whose actual answer selects the move. Historical
 prompt versions remain source-selectable for A/B comparisons.
 

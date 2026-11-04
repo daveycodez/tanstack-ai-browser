@@ -1,3 +1,5 @@
+import type { EndgameTieSolver } from "./endgame-ties.ts"
+import { createEndgameTieRequest } from "./endgame-ties.ts"
 import { legalMoves } from "./mancala.ts"
 import type { Game } from "./mancala.ts"
 import {
@@ -27,7 +29,8 @@ export const SHARED_SYSTEM_PROMPT =
 export function buildMovePrompt(
   game: Game,
   moves: readonly number[] = legalMoves(game.board, "ai"),
-  version: PromptVersion = SHARED_PROMPT_VERSION
+  version: PromptVersion = SHARED_PROMPT_VERSION,
+  endgameSolver: EndgameTieSolver = createEndgameTieRequest().solve
 ): PromptInput {
   if (version !== SHARED_PROMPT_VERSION) {
     if (
@@ -38,10 +41,10 @@ export function buildMovePrompt(
       version === "shared-v5" ||
       version === "shared-v6"
     )
-      return buildV6(game, moves, version)
+      return buildV6(game, moves, version, endgameSolver)
     throw new Error("Unsupported prompt version.")
   }
-  const base = buildV6(game, moves, "shared-v6")
+  const base = buildV6(game, moves, "shared-v6", endgameSolver)
   const endgame = base.endgame
   if (!endgame?.complete)
     return { ...base, version, systemPrompt: SHARED_SYSTEM_PROMPT }

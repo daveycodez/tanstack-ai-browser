@@ -21,9 +21,65 @@ export type EndgameTieResult = {
   reason:
     "solved" | "single-choice" | "too-many-seeds" | "not-playing" | "node-limit"
   remainingSeeds: number
+  /** Logical visits for this solve, retained when its result is reused. */
   nodes: number
   moves: EndgameTieMove[]
   bestPits: number[]
+}
+
+export type EndgameTieSolver = (
+  game: Game,
+  candidates: readonly number[],
+  options?: EndgameTieOptions
+) => EndgameTieResult
+
+type RequestMemo = {
+  lookup: (key: string) => EndgameTieResult | undefined
+  remember: (key: string, result: EndgameTieResult) => void
+}
+const MAX_REQUEST_RESULTS = 4
+const copyResult = (result: EndgameTieResult): EndgameTieResult => ({
+  ...result,
+  moves: result.moves.map((move) => ({
+    ...move,
+    principalLine: move.principalLine.map((action) => ({ ...action })),
+    bestAiTurn: [...move.bestAiTurn]
+  })),
+  bestPits: [...result.bestPits]
+})
+
+/** One synchronous prompt build owns this small result cache. No search table,
+ * position or result is retained globally. Eligible thresholds share work only
+ * after the solver validates them; original logical visit counts are preserved.
+ */
+export function createEndgameTieRequest() {
+  const results = new Map<string, EndgameTieResult>()
+  let searches = 0,
+    hits = 0
+  const memo: RequestMemo = {
+    lookup(key) {
+      const result = results.get(key)
+      if (result) {
+        hits++
+        return copyResult(result)
+      }
+      searches++
+      return undefined
+    },
+    remember(key, result) {
+      if (results.size === MAX_REQUEST_RESULTS && !results.has(key)) {
+        const oldest = results.keys().next().value
+        if (oldest !== undefined) results.delete(oldest)
+      }
+      results.set(key, copyResult(result))
+    }
+  }
+  const solve: EndgameTieSolver = (game, candidates, options = {}) =>
+    runEndgameSearch(game, candidates, options, memo)
+  return {
+    solve,
+    stats: () => ({ searches, hits, entries: results.size })
+  }
 }
 
 type Entry = { score: number; flag: "exact" | "lower" | "upper"; pit: number }
@@ -55,6 +111,15 @@ export function solveEndgameTies(
   game: Game,
   candidates: readonly number[],
   options: EndgameTieOptions = {}
+): EndgameTieResult {
+  return runEndgameSearch(game, candidates, options)
+}
+
+function runEndgameSearch(
+  game: Game,
+  candidates: readonly number[],
+  options: EndgameTieOptions,
+  memo?: RequestMemo
 ): EndgameTieResult {
   const maxRemainingSeeds = options.maxRemainingSeeds ?? 22
   const maxNodes = options.maxNodes ?? 1_000_000
@@ -106,6 +171,26 @@ export function solveEndgameTies(
   }
   if (candidates.length <= 1) return incomplete("single-choice")
   if (remainingSeeds > maxRemainingSeeds) return incomplete("too-many-seeds")
+
+  // The threshold only controls eligibility. Once qualified, 22 and 24 (for
+  // example) execute identical work with the same position, order and limits.
+  const requestKey = memo
+    ? JSON.stringify([
+        game.board,
+        game.turn,
+        game.status,
+        candidates,
+        maxNodes,
+        maxTableEntries
+      ])
+    : undefined
+  const previous =
+    requestKey === undefined ? undefined : memo?.lookup(requestKey)
+  if (previous) return previous
+  const rememberResult = (result: EndgameTieResult) => {
+    if (requestKey !== undefined) memo?.remember(requestKey, result)
+    return result
+  }
 
   const table = new Map<string, Entry>()
   const insertionOrder: string[] = []
@@ -237,7 +322,7 @@ export function solveEndgameTies(
       })
     }
     const best = Math.max(...moves.map((move) => move.finalMargin))
-    return {
+    return rememberResult({
       complete: true,
       reason: "solved",
       remainingSeeds,
@@ -246,9 +331,10 @@ export function solveEndgameTies(
       bestPits: moves
         .filter((move) => move.finalMargin === best)
         .map((move) => move.pit)
-    }
+    })
   } catch (error) {
-    if (error instanceof NodeLimit) return incomplete("node-limit")
+    if (error instanceof NodeLimit)
+      return rememberResult(incomplete("node-limit"))
     throw error
   }
 }

@@ -1,3 +1,5 @@
+import type { EndgameTieSolver } from "./endgame-ties.ts"
+import { createEndgameTieRequest } from "./endgame-ties.ts"
 import { legalMoves } from "./mancala.ts"
 import type { Game } from "./mancala.ts"
 import {
@@ -102,10 +104,12 @@ function reviewedRow(a: EngineAction) {
 export function buildMovePrompt(
   game: Game,
   moves: readonly number[] = legalMoves(game.board, "ai"),
-  version: PromptVersion = SHARED_PROMPT_VERSION
+  version: PromptVersion = SHARED_PROMPT_VERSION,
+  endgameSolver: EndgameTieSolver = createEndgameTieRequest().solve
 ): PromptInput {
-  if (version !== SHARED_PROMPT_VERSION) return buildV12(game, moves, version)
-  const base = buildV12(game, moves)
+  if (version !== SHARED_PROMPT_VERSION)
+    return buildV12(game, moves, version, endgameSolver)
+  const base = buildV12(game, moves, undefined, endgameSolver)
   const priorities = base.priorityPits ?? []
   const tactical = base.analysis.flatMap((a) =>
     a.tactical ? [a.tactical] : []
@@ -123,7 +127,8 @@ export function buildMovePrompt(
     return { ...base, version, systemPrompt: SHARED_SYSTEM_PROMPT }
   const baseTurns = tactical[0]?.completeTurnsChecked ?? 0
   const tieRefinement = refineTiedChoices(game, priorities, baseTurns, {
-    baseline: tactical
+    baseline: tactical,
+    endgameSolver
   })
   if (tieRefinement.kind === "unchanged")
     return {

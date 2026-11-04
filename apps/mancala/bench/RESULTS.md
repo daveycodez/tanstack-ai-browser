@@ -53,6 +53,15 @@ seeds differed. This is an aided-play sample, not a model-only strength ranking.
 The earlier LFM3 3–0 run used unassisted Sol and is a separate sample. Neither game
 study measures the later v15 change directly.
 
+## CPU prompt-analysis optimization
+
+On the review reproduction, request-local endgame result reuse removed one
+repeated million-node search. Three local Node comparisons measured median
+analysis time of 1,844ms uncached versus 1,339ms with reuse (about 27% lower).
+All 23 current prompts and every historical version on that board retained
+identical complete serialized output. These measurements exclude inference and
+physical-device performance; raw timing captures remain local artifacts.
+
 ## Keeping the repository small
 
 Only the summaries and test-required fixtures are committed. Full run transcripts,

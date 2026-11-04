@@ -1,6 +1,7 @@
+import type { EndgameTieSolver } from "./endgame-ties.ts"
 import { legalMoves } from "./mancala.ts"
 import type { Game } from "./mancala.ts"
-import { solveEndgameTies } from "./endgame-ties.ts"
+import { createEndgameTieRequest } from "./endgame-ties.ts"
 import type { EndgameTieResult } from "./endgame-ties.ts"
 import {
   buildMovePrompt as buildV13,
@@ -34,10 +35,12 @@ export const SHARED_SYSTEM_PROMPT =
 export function buildMovePrompt(
   game: Game,
   moves: readonly number[] = legalMoves(game.board, "ai"),
-  version: PromptVersion = SHARED_PROMPT_VERSION
+  version: PromptVersion = SHARED_PROMPT_VERSION,
+  endgameSolver: EndgameTieSolver = createEndgameTieRequest().solve
 ): PromptInput {
-  if (version !== SHARED_PROMPT_VERSION) return buildV13(game, moves, version)
-  const base = buildV13(game, moves)
+  if (version !== SHARED_PROMPT_VERSION)
+    return buildV13(game, moves, version, endgameSolver)
+  const base = buildV13(game, moves, undefined, endgameSolver)
   const immediateWin = base.analysis.some((a) => a.immediateStatus === "ai-won")
   if (
     immediateWin ||
@@ -45,7 +48,7 @@ export function buildMovePrompt(
     moves.length !== legalMoves(game.board, "ai").length
   )
     return { ...base, version, systemPrompt: SHARED_SYSTEM_PROMPT }
-  const finalComparison = solveEndgameTies(game, moves, {
+  const finalComparison = endgameSolver(game, moves, {
     maxRemainingSeeds: 24
   })
   if (!finalComparison.complete)

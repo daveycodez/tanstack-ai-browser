@@ -1,13 +1,14 @@
 import { legalMoves } from "./mancala.ts"
 import type { Game } from "./mancala.ts"
 import { solveEndgameTies } from "./endgame-ties.ts"
-import type { EndgameTieResult } from "./endgame-ties.ts"
+import type { EndgameTieResult, EndgameTieSolver } from "./endgame-ties.ts"
 import { analyzeTacticalMoves } from "./move-outcomes.ts"
 import type { TacticalMoveOutcome } from "./move-outcomes.ts"
 
 export type TieRefinementOptions = {
   /** Every legal root from the current position, at the common baseline horizon. */
   baseline: readonly TacticalMoveOutcome[]
+  endgameSolver?: EndgameTieSolver
   maxEndgameNodes?: number
   maxNodesPerMove?: number
   maxSafetyNodes?: number
@@ -46,7 +47,8 @@ export type TieRefinementResult =
 /** Refine a real shared-score tie, never introduce a root outside that group.
  * Supplied baseline work is not repeated or included in nodes. Each attempted
  * deeper horizon retains the historical per-root budget; nodes includes every
- * attempt, handoff-safety work, and any unsuccessful terminal search.
+ * attempt, handoff-safety work, and any unsuccessful terminal search. Reused
+ * terminal results retain their original logical visits for report compatibility.
  * A fallback can complete an odd number of turns. That is a bounded preview,
  * not a claim that both sides have taken the same number of turns or a final score.
  */
@@ -115,12 +117,16 @@ export function refineTiedChoices(
   )
     return unchanged("not-tied")
 
-  const endgame = solveEndgameTies(game, candidates, {
-    maxRemainingSeeds: 24,
-    ...(options.maxEndgameNodes === undefined
-      ? {}
-      : { maxNodes: options.maxEndgameNodes })
-  })
+  const endgame = (options.endgameSolver ?? solveEndgameTies)(
+    game,
+    candidates,
+    {
+      maxRemainingSeeds: 24,
+      ...(options.maxEndgameNodes === undefined
+        ? {}
+        : { maxNodes: options.maxEndgameNodes })
+    }
+  )
   if (endgame.complete)
     return {
       kind: "exact",

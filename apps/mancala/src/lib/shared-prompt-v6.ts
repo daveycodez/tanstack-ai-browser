@@ -1,3 +1,4 @@
+import type { EndgameTieSolver } from "./endgame-ties.ts"
 import { legalMoves } from "./mancala.ts"
 import type { Game } from "./mancala.ts"
 import {
@@ -5,7 +6,7 @@ import {
   SHARED_SYSTEM_PROMPT as V5_SYSTEM
 } from "./shared-prompt-v5.ts"
 import type { PromptInput as V5Input } from "./shared-prompt-v5.ts"
-import { solveEndgameTies } from "./endgame-ties.ts"
+import { createEndgameTieRequest } from "./endgame-ties.ts"
 import type { EndgameTieResult } from "./endgame-ties.ts"
 export { analyzeMoves, checkedPriorityChoices } from "./shared-prompt-v5.ts"
 export type { MoveAnalysis } from "./shared-prompt-v5.ts"
@@ -32,7 +33,8 @@ export const SHARED_SYSTEM_PROMPT = V5_SYSTEM.replace(
 export function buildMovePrompt(
   game: Game,
   moves: readonly number[] = legalMoves(game.board, "ai"),
-  version: PromptVersion = SHARED_PROMPT_VERSION
+  version: PromptVersion = SHARED_PROMPT_VERSION,
+  endgameSolver: EndgameTieSolver = createEndgameTieRequest().solve
 ): PromptInput {
   if (version !== SHARED_PROMPT_VERSION) {
     if (
@@ -51,7 +53,7 @@ export function buildMovePrompt(
   )
   const endgame = immediateWin
     ? undefined
-    : solveEndgameTies(game, base.priorityPits ?? [])
+    : endgameSolver(game, base.priorityPits ?? [])
   if (!endgame?.complete)
     return {
       ...base,
