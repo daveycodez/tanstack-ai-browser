@@ -17,7 +17,7 @@ import { useSowing } from "../lib/use-sowing"
 import { usePromptApiAvailable } from "../lib/use-prompt-api"
 import { opponentOption, resolveOpponent } from "../lib/opponents"
 import type { OpponentSettings } from "../lib/opponents"
-import type { Game } from "../lib/mancala"
+import type { Game, Side } from "../lib/mancala"
 import { playSound, unlockAudio } from "../lib/sounds"
 export const Route = createFileRoute("/game")({
   component: GamePage,
@@ -67,6 +67,7 @@ function PlayView({
   const [error, setError] = useState<string>()
   const [rules, setRules] = useState(false)
   const [confirm, setConfirm] = useState(false)
+  const [firstPlayer, setFirstPlayer] = useState<Side>("human")
   const [thinkingOpen, setThinkingOpen] = useState(false)
   const busy = writing || settled !== position
   const ai = useAiTurn(game, busy)
@@ -138,11 +139,15 @@ function PlayView({
       setWriting(false)
     }
   }
+  function openNewGame() {
+    setFirstPlayer("human")
+    setConfirm(true)
+  }
   async function restart() {
     setWriting(true)
     setError(undefined)
     try {
-      await startNewGame()
+      await startNewGame(firstPlayer)
       playSound("start")
       setConfirm(false)
     } catch {
@@ -159,11 +164,7 @@ function PlayView({
           How to play
         </button>
         <span className="header-divider" />
-        <button
-          className="text-button"
-          disabled={busy}
-          onClick={() => (finished ? void restart() : setConfirm(true))}
-        >
+        <button className="text-button" disabled={busy} onClick={openNewGame}>
           New game
         </button>
       </Header>
@@ -247,7 +248,8 @@ function PlayView({
               </div>
               <button
                 className="button button-primary"
-                onClick={() => void restart()}
+                disabled={writing}
+                onClick={openNewGame}
               >
                 Play again
               </button>
@@ -408,14 +410,45 @@ function PlayView({
       <Footer />
       {rules && <Rules onClose={() => setRules(false)} />}
       {confirm && (
-        <Dialog title="A fresh handful?" onClose={() => setConfirm(false)}>
+        <Dialog
+          title="A fresh handful?"
+          onClose={() => {
+            if (!writing) setConfirm(false)
+          }}
+        >
           <p>
             Your current game will be replaced. Your opponent choice stays the
             same.
           </p>
+          <fieldset className="starting-player-fieldset" disabled={writing}>
+            <legend>Who goes first?</legend>
+            <div className="starting-player-options">
+              <label className="starting-player-choice">
+                <input
+                  type="radio"
+                  name="first-player"
+                  value="human"
+                  checked={firstPlayer === "human"}
+                  onChange={() => setFirstPlayer("human")}
+                />
+                <span>You</span>
+              </label>
+              <label className="starting-player-choice">
+                <input
+                  type="radio"
+                  name="first-player"
+                  value="ai"
+                  checked={firstPlayer === "ai"}
+                  onChange={() => setFirstPlayer("ai")}
+                />
+                <span>Your opponent</span>
+              </label>
+            </div>
+          </fieldset>
           <div className="dialog-actions">
             <button
               className="button button-secondary"
+              disabled={writing}
               onClick={() => setConfirm(false)}
             >
               Keep playing

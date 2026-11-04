@@ -1,5 +1,5 @@
 import { applyMove, createGame } from "./mancala.ts"
-import type { Game } from "./mancala.ts"
+import type { Game, Side } from "./mancala.ts"
 import { resolveOpponent, sameOpponent } from "./opponents.ts"
 import type { OpponentSettings } from "./opponents.ts"
 
@@ -61,10 +61,13 @@ export function createGameStorage(
         const next = createGame()
         return { result: next, next }
       }),
-    startNewGame: () =>
+    startNewGame: (firstPlayer: Side = "human") =>
       mutate((current) => {
+        if (firstPlayer !== "human" && firstPlayer !== "ai")
+          throw new Error("Choose You or Your opponent as the first player.")
         const next = {
           ...createGame(),
+          turn: firstPlayer,
           opponent: resolveOpponent(current?.opponent)
         }
         return { result: next, next }

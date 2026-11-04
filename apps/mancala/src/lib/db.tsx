@@ -161,7 +161,9 @@ export function useCurrentGame() {
 
 // Every mutation uses the same authoritative IndexedDB transaction path.
 export const ensureGame = async () => (await openGames()).store.ensureGame()
-export const startNewGame = async () => (await openGames()).store.startNewGame()
+export const startNewGame = async (
+  ...args: Parameters<Storage["store"]["startNewGame"]>
+) => (await openGames()).store.startNewGame(...args)
 export const setOpponent = async (
   ...args: Parameters<Storage["store"]["setOpponent"]>
 ) => (await openGames()).store.setOpponent(...args)

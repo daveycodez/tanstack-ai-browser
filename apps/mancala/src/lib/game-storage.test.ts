@@ -31,6 +31,7 @@ test("concurrent first visits create one durable session shared by independent c
   try {
     const [first, second] = await Promise.all([a.ensureGame(), b.ensureGame()])
     assert.equal(first.sessionId, second.sessionId)
+    assert.equal(first.turn, "human")
     assert.equal((await a.currentGame())?.sessionId, first.sessionId)
     assert.deepEqual(await a.currentGame(), await b.currentGame())
     assert.ok((await a.currentGame())?.storageVersion)
@@ -171,6 +172,90 @@ test("refresh callbacks run after the write is durable and report stale actions 
       1
     )
     assert.deepEqual(durableSnapshots[1], durableSnapshots[2])
+  } finally {
+    close()
+  }
+})
+
+test("an opponent-first restart is durable, preserves the selected model, and rejects the previous session's reply", async () => {
+  const { a, b, close } = await tabs()
+  try {
+    const previous = await a.ensureGame()
+    const opponent = resolveOpponent({ model: "prompt-api", thinking: true })
+    await a.setOpponent(opponent)
+    await a.commitMove(previous.sessionId, 0, 0)
+    const oldPosition = await b.currentGame()
+    assert.ok(oldPosition)
+    assert.equal(oldPosition.turn, "ai")
+    const oldReply = legalMoves(oldPosition.board, "ai")[0]
+
+    const fresh = await b.startNewGame("ai")
+    assert.notEqual(fresh.sessionId, previous.sessionId)
+    assert.equal(fresh.turn, "ai")
+    assert.equal(fresh.status, "playing")
+    assert.deepEqual(fresh.history, [])
+    assert.deepEqual(fresh.opponent, opponent)
+    assert.deepEqual(fresh.board, [4, 4, 4, 4, 4, 4, 0, 4, 4, 4, 4, 4, 4, 0])
+    assert.equal(
+      fresh.board.reduce((sum, seeds) => sum + seeds, 0),
+      48
+    )
+    const durable = await a.currentGame()
+    assert.equal(durable?.sessionId, fresh.sessionId)
+    assert.equal(durable?.turn, "ai")
+    assert.deepEqual(durable?.opponent, opponent)
+    assert.deepEqual(durable?.history, [])
+    assert.deepEqual(await a.currentGame(), await b.currentGame())
+    assert.equal(
+      await a.commitMove(previous.sessionId, 1, oldReply, opponent),
+      false
+    )
+
+    // AI's third pit reaches its own store on the opening board.
+    assert.ok(legalMoves(fresh.board, "ai").includes(9))
+    assert.equal(await a.commitMove(fresh.sessionId, 0, 9, opponent), true)
+    const played = await b.currentGame()
+    assert.equal(played?.history.length, 1)
+    assert.equal(played?.history[0].side, "ai")
+    assert.equal(played?.history[0].pit, 9)
+    assert.equal(played?.history[0].extraTurn, true)
+    assert.equal(played?.turn, "ai")
+    assert.equal((await b.ensureGame()).history.length, 1)
+    assert.equal(await b.commitMove(fresh.sessionId, 0, 10, opponent), false)
+  } finally {
+    close()
+  }
+})
+
+test("a default restart still starts with You after an opponent-first game", async () => {
+  const { a, b, close } = await tabs()
+  try {
+    const opponentFirst = await a.startNewGame("ai")
+    assert.equal(opponentFirst.turn, "ai")
+    const restarted = await b.startNewGame()
+    assert.notEqual(restarted.sessionId, opponentFirst.sessionId)
+    assert.equal(restarted.turn, "human")
+    assert.equal(restarted.status, "playing")
+    assert.deepEqual(restarted.history, [])
+    assert.deepEqual(restarted.board, opponentFirst.board)
+    assert.deepEqual(restarted.opponent, opponentFirst.opponent)
+    assert.equal((await a.currentGame())?.turn, "human")
+  } finally {
+    close()
+  }
+})
+
+test("invalid first-player values abort without changing the saved game or storage version", async () => {
+  const { a, b, close } = await tabs()
+  try {
+    const game = await a.ensureGame()
+    await a.commitMove(game.sessionId, 0, 0)
+    const before = await b.currentGame()
+    assert.ok(before?.storageVersion)
+    for (const firstPlayer of ["computer", "AI", "", null, 0]) {
+      await assert.rejects(a.startNewGame(firstPlayer as never), /first player/)
+      assert.deepEqual(await b.currentGame(), before)
+    }
   } finally {
     close()
   }
