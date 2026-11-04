@@ -21,10 +21,13 @@
   "exclude": ["src/**/*.test.ts"],
   "references": [
     {
-      "path": "../../packages/webgl"
+      "path": "../../packages/apfel"
     },
     {
       "path": "../../packages/prompt-api"
+    },
+    {
+      "path": "../../packages/webgl"
     }
   ]
 }

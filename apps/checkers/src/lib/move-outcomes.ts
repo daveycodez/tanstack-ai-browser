@@ -268,4 +268,3 @@ export function describeMove(move: AnnotatedMove): string {
   if (facts.repetitionCount > 1) parts.push(`Resulting position has occurred ${facts.repetitionCount} times; third occurrence draws`)
   return `${move.label} | ${parts.join("; ")}.`
 }
-

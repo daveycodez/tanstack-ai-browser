@@ -1,6 +1,6 @@
 # Checkers
 
-A responsive, local-first checkers game built with TanStack Start and React. Play red
+A responsive, local-first checkers game built with TanStack Start and React. Play either color
 against a local model through this monorepo's WebGL or Prompt API adapters and TanStack AI.
 No hosted model or API key is needed.
 
@@ -22,13 +22,15 @@ The home menu offers **Start game** and, while a game is active, **Resume game**
 Starting over confirms before replacing the current game. `/game` restores the
 current game or creates one when no saved game exists. There is only one saved game,
 keyed as `current` in a TanStack DB IndexedDB Collection in the `checkers` database.
-Board, turn, move history, kings and results survive reloads. Browser storage is
+Each new game randomly assigns White or Black with equal probability; White always
+moves first, so the opponent opens some games. Board, turn, move history, kings and
+results survive reloads. Browser storage is
 opened after hydration so both routes can render safely on the server.
 
 American-style rules include compulsory captures, full multi-jumps, forward-only men,
 short-range kings, promotion ending the turn, blocked-position wins, threefold draws,
 and draws after 40 moves each without a capture or advancing an uncrowned piece.
-Select a red piece, then a highlighted destination. Continue highlighted jumps to
+Select one of your pieces, then a highlighted destination. Continue highlighted jumps to
 complete a capture. Arrow keys navigate the board; Enter selects; Escape cancels selection.
 
 ## Motion and sound

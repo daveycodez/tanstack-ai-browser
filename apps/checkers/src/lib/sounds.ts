@@ -304,4 +304,3 @@ export function scheduleGameSound(kind: GameSound, delaySeconds = 0): () => void
   const cue = startCue(kind, delaySeconds)
   return () => { if (cue) cancelSources(cue) }
 }
-
