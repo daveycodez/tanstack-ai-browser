@@ -3,9 +3,9 @@ import type { Game, Move } from "./checkers.ts"
 import { annotateMoves, describeMove, materialBalance, OUTCOME_VERSION, LEGACY_OUTCOME_VERSION, TRADE_OUTCOME_VERSION } from "./move-outcomes.ts"
 import type { AnnotatedMove } from "./move-outcomes.ts"
 
-export const SHARED_PROMPT_VERSION = "shared-v17" as const
-export const PREVIOUS_PROMPT_VERSION = "shared-v16" as const
-export const PROMPT_VERSIONS = ["baseline-v1", "shared-v6", "shared-v7", "shared-v8", "shared-v9", "shared-v10", "shared-v11", "shared-v12", "shared-v13", "shared-v14", "shared-v15", "shared-v16", "shared-v17"] as const
+export const SHARED_PROMPT_VERSION = "shared-v18" as const
+export const PREVIOUS_PROMPT_VERSION = "shared-v17" as const
+export const PROMPT_VERSIONS = ["baseline-v1", "shared-v6", "shared-v7", "shared-v8", "shared-v9", "shared-v10", "shared-v11", "shared-v12", "shared-v13", "shared-v14", "shared-v15", "shared-v16", "shared-v17", "shared-v18"] as const
 export type PromptVersion = typeof PROMPT_VERSIONS[number]
 export const isPromptVersion = (value: string): value is PromptVersion => PROMPT_VERSIONS.some(version => version === value)
 export const SHARED_SYSTEM_PROMPT = "Choose one legal Black action using the verified checkers outcomes. Win now or force a win; otherwise prevent Red's immediate win. Prefer higher nonnegative checked material gains. Take free captures and crown a man now before ordinary quiet development when safe. Prevent free Red promotions when no better exchange exists. Avoid a draw when ahead; prefer an available draw when behind unless a listed win exists. When no tactic decides, favor safe quiet progress: advance men or use kings together to restrict safe escapes. Avoid needless reversals; a retreat can still be necessary. Each card is a separate alternative. Card order is not a recommendation."
@@ -123,6 +123,17 @@ export function checkedPriorityChoices(game: Game, moves: readonly AnnotatedMove
 }
 
 export function buildSharedPrompt(game: Game, annotated: readonly AnnotatedMove[], version: Exclude<PromptVersion, "baseline-v1"> = SHARED_PROMPT_VERSION): PromptInput {
+  if (version === "shared-v18") {
+    const previous = buildSharedPrompt(game, annotated, "shared-v17")
+    const unmarked = (text: string) => text.replaceAll(" | RECOMMENDED; ", " | ")
+    return {
+      ...previous,
+      version,
+      systemPrompt: previous.systemPrompt.split("\n").filter(line => line !== PRIORITY_INSTRUCTION).join("\n"),
+      prompt: unmarked(previous.prompt.split("\n").filter(line => !line.startsWith("CHECKED PRIORITY CHOICES:")).join("\n")),
+      choices: previous.choices.map(choice => ({ ...choice, outcome: unmarked(choice.outcome) }))
+    }
+  }
   if (version === "shared-v14" || version === "shared-v15" || version === "shared-v16" || version === "shared-v17") {
     const previous = buildSharedPrompt(game, annotated, version === "shared-v17" ? "shared-v16" : version === "shared-v16" ? "shared-v15" : version === "shared-v15" ? "shared-v14" : "shared-v13")
     const priority = checkedPriorityChoices(game, annotated, true, version !== "shared-v14", version === "shared-v16" || version === "shared-v17", version === "shared-v17")
@@ -224,5 +235,5 @@ export function buildSharedPrompt(game: Game, annotated: readonly AnnotatedMove[
 }
 
 export function buildMovePrompt(game: Game, moves: readonly Move[] = legalMoves(game.board, "ai"), version: PromptVersion = SHARED_PROMPT_VERSION): PromptInput {
-  return version === "baseline-v1" ? buildBaselinePrompt(game, moves) : buildSharedPrompt(game, annotateMoves(game, moves, version === "shared-v15" || version === "shared-v16" || version === "shared-v17", version === "shared-v16" || version === "shared-v17"), version)
+  return version === "baseline-v1" ? buildBaselinePrompt(game, moves) : buildSharedPrompt(game, annotateMoves(game, moves, version === "shared-v15" || version === "shared-v16" || version === "shared-v17" || version === "shared-v18", version === "shared-v16" || version === "shared-v17" || version === "shared-v18"), version)
 }

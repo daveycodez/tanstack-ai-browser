@@ -17,7 +17,7 @@ test('the repeated opening error avoids extra exposed material only after checke
   assert.deepEqual(checkedPriorityChoices(state, moves, true, true, true, false).map(m => m.id), ['e7-f6'])
   assert.ok(!auditCase(fixture).expectedMoveIds?.includes('e7-f6'))
   assert.equal(buildMovePrompt(state).choices.length, moves.length)
-  assert.equal(buildMovePrompt(state).systemPrompt, buildMovePrompt(state, undefined, 'shared-v16').systemPrompt)
+  assert.equal(buildMovePrompt(state, undefined, 'shared-v17').systemPrompt, buildMovePrompt(state, undefined, 'shared-v16').systemPrompt)
 })
 test('ahead draw avoidance permits a checked cost only if a positive lead remains', () => {
   const { fixture, state } = game('cake1-keep-checked-lead-over-draw'), moves = annotateMoves(state)

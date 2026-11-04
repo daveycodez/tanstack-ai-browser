@@ -194,14 +194,14 @@ test("compact v8 retains every board, history, horizon, legal card and position 
 
 
 test("benchmark validation accepts every historical and candidate prompt version", () => {
-  for (const version of ["baseline-v1", "shared-v6", "shared-v7", "shared-v8", "shared-v9", "shared-v10", "shared-v11", "shared-v12", "shared-v13", "shared-v14", "shared-v15", "shared-v16", "shared-v17"]) assert.equal(isPromptVersion(version), true)
-  for (const version of ["", "shared-v18", "unknown"]) assert.equal(isPromptVersion(version), false)
+  for (const version of ["baseline-v1", "shared-v6", "shared-v7", "shared-v8", "shared-v9", "shared-v10", "shared-v11", "shared-v12", "shared-v13", "shared-v14", "shared-v15", "shared-v16", "shared-v17", "shared-v18"]) assert.equal(isPromptVersion(version), true)
+  for (const version of ["", "shared-v19", "unknown"]) assert.equal(isPromptVersion(version), false)
 })
 
 
 test("v9 keeps the smallest-loss fallback conditional and preserves every existing dynamic input", () => {
-  assert.equal(PREVIOUS_PROMPT_VERSION, "shared-v16")
-  assert.equal(SHARED_PROMPT_VERSION, "shared-v17")
+  assert.equal(PREVIOUS_PROMPT_VERSION, "shared-v17")
+  assert.equal(SHARED_PROMPT_VERSION, "shared-v18")
   assert.equal(SHARED_V9_SYSTEM_PROMPT.replace(` ${SMALLEST_LOSS_INSTRUCTION}`, ""), SHARED_V8_SYSTEM_PROMPT)
   for (const fixture of CASES) {
     const game = gameForCase(fixture), moves = legalMoves(game.board, "ai")
@@ -340,4 +340,30 @@ test("v14 prefers preserving pieces over a promotion that concedes a double capt
   assert.doesNotMatch(after.prompt, /^CROWN A PIECE NOW/m)
   assert.match(before.prompt, /^CROWN A PIECE NOW/m)
   assert.ok(after.systemPrompt.length <= before.systemPrompt.length)
+})
+
+
+test("v18 removes only recommendation markup/instructions and preserves v17 analysis, legal choices and ordering", () => {
+  const stripTags = (text: string) => text.replaceAll(" | RECOMMENDED; ", " | ")
+  let markedPositions = 0
+  for (const fixture of CASES) for (const humanColor of ["white", "black"] as const) {
+    const game = { ...gameForCase(fixture), humanColor }
+    const moves = legalMoves(game.board, "ai")
+    if (humanColor === "black") moves.reverse()
+    const original = structuredClone(game)
+    const before = buildMovePrompt(game, moves, "shared-v17")
+    const after = buildMovePrompt(game, moves)
+    if (before.prompt.includes("RECOMMENDED;")) markedPositions++
+    assert.equal(after.version, "shared-v18")
+    assert.doesNotMatch(after.systemPrompt + after.prompt + JSON.stringify(after.choices), /RECOMMENDED|CHECKED PRIORITY CHOICES/)
+    assert.equal(after.systemPrompt, before.systemPrompt.split("\n").filter(line => !line.startsWith("Choose from CHECKED PRIORITY CHOICES")).join("\n"), fixture.id)
+    assert.equal(after.prompt, stripTags(before.prompt.split("\n").filter(line => !line.startsWith("CHECKED PRIORITY CHOICES:")).join("\n")), fixture.id)
+    assert.deepEqual(after.choices, before.choices.map(choice => ({ ...choice, outcome: stripTags(choice.outcome) })), fixture.id)
+    assert.deepEqual(after.choices.map(choice => choice.id), moves.map(move => move.id))
+    assert.deepEqual(after.choices.map(choice => choice.label), before.choices.map(choice => choice.label))
+    assert.equal(after.outcomeVersion, before.outcomeVersion)
+    assert.deepEqual(game, original)
+    assert.deepEqual(buildMovePrompt(game, moves, "shared-v17"), before, "the previous version remains reproducible")
+  }
+  assert.ok(markedPositions > 0, "exercise positions with an actual old shortlist")
 })

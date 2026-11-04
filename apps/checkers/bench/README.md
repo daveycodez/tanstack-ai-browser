@@ -43,9 +43,16 @@ Original raw v1 reports remain intact; the audit explains the corrected grading.
 ## Shared production path
 
 The runner calls `chooseAiMove`, exactly as the game does, with instrumentation callbacks.
-The original baseline (`baseline-v1`) is preserved unchanged. The current `shared-v17`
+The original baseline (`baseline-v1`) is preserved unchanged. The current `shared-v18`
 contract uses descriptive actions such as `Jump king d2 over c3 to b4`. Every legal action
 remains in the enum; neither card order nor a hidden fallback selects a move for the model.
+
+`shared-v18` removes the `RECOMMENDED` card markers, the `CHECKED PRIORITY CHOICES`
+summary, and the system instruction to follow that shortlist. Board/history, every
+legal action and its label/order, all other tactical facts, lookahead, schema, and
+sampling remain unchanged from `shared-v17`. Version 17 stays selectable for A/B
+comparisons. Earlier measured model scores describe their recorded prompt versions;
+no new model-strength result is claimed for version 18.
 
 Move outcomes enumerate the candidate, every legal Red reply (including complete
 multi-jumps), and each immediate Black response. Man=1 and king=2 are transparent rough
@@ -200,7 +207,7 @@ rerunning inference; such entries explicitly record that provenance.
 
 ## Inline recommendations (v11)
 
-The production prompt repeats `RECOMMENDED` beside actions already identified by
+Historical `shared-v11` repeats `RECOMMENDED` beside actions already identified by
 CHECKED PRIORITY CHOICES. This marks existing bounded-policy advice where the
 model reads each card; no action is removed, reordered, automatically selected,
 or given a different output label. The policy, outcome search, generation

@@ -83,6 +83,9 @@ Each prompt includes the current
 board and the last five moves from both players, oldest first. One shared prompt is used
 for every model. Its descriptive action-label enum contains every legal complete turn;
 the model chooses the label and the rules validate its exact existing move ID.
+The current prompt provides the per-move analysis without recommended-action tags,
+a preferred-move shortlist, or an instruction to follow one. The prior prompt remains
+available in the benchmark for comparison; lookahead and legal choices are unchanged.
 Move cards include captures, safe crowning, complete opponent jump chains, terminal
 wins/draws, and a bounded reply/response material check (man 1, king 2). Quiet king cards
 also show actual escape coverage and next-turn capture opportunities. These are factual
