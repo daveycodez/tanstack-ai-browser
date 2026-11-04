@@ -1,0 +1,80 @@
+import { useEffect, useRef, useState } from 'react'
+import type { OpponentModel, OpponentOption } from '../lib/opponents'
+import { runStandardStudy } from '../../bench/standard-study'
+import type { StandardStudyReport } from '../../bench/standard-study'
+import { runStandardInFrame, runStandardSweepInFrame } from '../../bench/run-standard-in-frame'
+import { summarizeBlindStyleReviews } from '../../bench/behavior-style'
+import type { BlindStyleRatings, BlindStyleReview } from '../../bench/behavior-style'
+
+type SavedReport = StandardStudyReport & { automatedAssessment?: { qualification: string; summary: { opponents: Record<string, { score100: number; preferences: number }> } } }
+type Card = StandardStudyReport['blindPairs'][number]['public']['A']
+const dimensions = ['coherentPlans', 'plausibleChoices', 'interestingVariety', 'avoidsAimlessRepetition'] as const
+const labels = { coherentPlans: 'Coherent plans', plausibleChoices: 'Plausible choices', interestingVariety: 'Interesting variety', avoidsAimlessRepetition: 'Avoids aimless repetition' }
+const neutral = (): BlindStyleRatings => ({ coherentPlans: 3, plausibleChoices: 3, interestingVariety: 3, avoidsAimlessRepetition: 3 })
+function BlindGame({ card, name }: { card: Card; name: string }) {
+  const [ply, setPly] = useState(0)
+  const board = card.initialBoard.map(piece => piece ? { ...piece } : null)
+  for (const move of card.moves.slice(0, ply)) {
+    const path = move.move.split(/[-x]/).map(square => (8 - Number(square[1])) * 8 + square.charCodeAt(0) - 97)
+    const piece = board[path[0]]; board[path[0]] = null
+    for (let i = 1; i < path.length; i++) {
+      const from = path[i - 1], to = path[i]
+      if (Math.abs(Math.floor(from / 8) - Math.floor(to / 8)) === 2) board[(from + to) / 2] = null
+    }
+    const destination = path.at(-1)
+    if (piece && destination !== undefined) board[destination] = { ...piece, king: piece.king || Math.floor(destination / 8) === 0 || Math.floor(destination / 8) === 7 }
+  }
+  return <div style={{ flex: '1 1 260px', maxWidth: 380 }}><h3>Opponent {name}</h3><p>Review the {card.opponentColor} opponent. Ending: {ply === card.moves.length ? card.ending === 'capped' ? 'review window ended' : card.ending : 'hidden until final move'}.</p><svg viewBox="0 0 8 8" role="img" aria-label={`Opponent ${name}, board after ply ${ply}`} style={{ width: '100%', maxWidth: 300 }}>{board.map((piece, index) => <g key={index}><rect x={index % 8} y={Math.floor(index / 8)} width={1} height={1} fill={(Math.floor(index / 8) + index % 8) % 2 ? '#a8b6c5' : '#e7edf2'} />{piece && <><ellipse cx={index % 8 + .5} cy={Math.floor(index / 8) + .5} rx={.36} ry={.34} fill={piece.color === 'white' ? '#dd6961' : '#344964'} />{piece.king && <text x={index % 8 + .5} y={Math.floor(index / 8) + .62} textAnchor="middle" fill="white" fontSize=".4">♛</text>}</>}</g>)}</svg><label>Move {ply}/{card.moves.length}<input aria-label={`Opponent ${name} replay`} type="range" min={0} max={card.moves.length} value={ply} onChange={event => setPly(Number(event.currentTarget.value))} style={{ width: '100%' }} /></label><p>{ply ? `${card.moves[ply - 1].color}: ${card.moves[ply - 1].move}` : `${card.initialColor} moves first`}</p><details><summary>Full move log</summary><p style={{ maxHeight: 160, overflow: 'auto' }}>{card.moves.map(move => `${move.ply}. ${move.move}`).join(' ')}</p></details></div>
+}
+export function HumanStyleBenchmark({ options, disabled, onRunningChange }: { options: OpponentOption[]; disabled: boolean; onRunningChange: (value: boolean) => void }) {
+  const [model, setModel] = useState<OpponentModel>('LiquidAI/LFM3-1.7B-GGUF'), [running, setRunning] = useState(false), [status, setStatus] = useState('Compare our opponent with the existing Cake checkers engine.'), [report, setReport] = useState<SavedReport>(), [showJson, setShowJson] = useState(false), [reveal, setReveal] = useState(false)
+  const [pairIndex, setPairIndex] = useState(0), [ratingsA, setRatingsA] = useState(neutral), [ratingsB, setRatingsB] = useState(neutral), [preferred, setPreferred] = useState<BlindStyleReview['preferred']>('uncertain'), [strengthComparable, setComparable] = useState<BlindStyleReview['strengthComparable']>('uncertain'), [reviews, setReviews] = useState<BlindStyleReview[]>([]), [pastedReport, setPastedReport] = useState(''), [sweepReports, setSweepReports] = useState<StandardStudyReport[]>([])
+  const controller = useRef<AbortController | undefined>(undefined), reviewer = useRef(crypto.randomUUID())
+  useEffect(() => () => controller.current?.abort(), [])
+  async function start() {
+    if (controller.current || disabled) return
+    const active = new AbortController(); controller.current = active; setRunning(true); onRunningChange(true); setSweepReports([]); setReport(undefined); setReviews([]); setPairIndex(0); setReveal(false); setShowJson(false)
+    try { setReport(await (model === 'prompt-api' || model === 'apple-foundationmodel' ? runStandardStudy : runStandardInFrame)({ model, signal: active.signal, onProgress: setStatus })); setStatus('Comparison complete. Review anonymous A/B games before revealing identities.') }
+    catch (error) { setStatus(active.signal.aborted ? 'Comparison stopped.' : error instanceof Error ? error.message : String(error)) }
+    finally { controller.current = undefined; setRunning(false); onRunningChange(false) }
+  }
+  async function sweep() {
+    if (controller.current || disabled) return
+    const previous = sweepReports.filter(report => report.model === model && report.matchesOnly && !report.partial)
+    const collected = previous.length === 4 ? [] : [...previous]
+    const depths = [1, 7, 3, 5].filter(depth => !collected.some(report => report.searchDepth === depth))
+    const active = new AbortController(); controller.current = active; setRunning(true); onRunningChange(true); setReport(undefined); setSweepReports(collected); setShowJson(false); setReveal(false)
+    const onDepth = (report: StandardStudyReport) => { collected.push(report); setSweepReports([...collected]) }
+    try {
+      if (model === 'prompt-api' || model === 'apple-foundationmodel') {
+        for (const depth of depths) {
+          active.signal.throwIfAborted()
+          onDepth(await runStandardStudy({ model, cakeDepth: depth, matchesOnly: true, maxPlies: 240, signal: active.signal, onProgress: message => setStatus(`Cake depth ${depth}: ${message}`) }))
+        }
+      } else await runStandardSweepInFrame({ model, depths, maxPlies: 240, signal: active.signal, onProgress: setStatus, onDepth })
+      setStatus('Depth sweep complete. Four games per depth; unresolved games and errors are reported separately. Human skill levels are not calibrated.')
+    } catch (error) { setStatus(active.signal.aborted ? 'Depth sweep stopped; completed depth results retained.' : error instanceof Error ? error.message : String(error)) }
+    finally { controller.current = undefined; setRunning(false); onRunningChange(false) }
+  }
+  async function loadSaved(file?: File, text?: string) {
+    if ((!file && !text) || running) return
+    try {
+      const value = JSON.parse(text ?? (file ? await file.text() : '')), saved = value.report ?? value
+      if (Array.isArray(value.reports) && value.reports.length && value.reports.every((item: StandardStudyReport) => item.protocol === 'existing-engine-human-style-v1' && item.matchesOnly && [1, 3, 5, 7].includes(item.searchDepth))) { setSweepReports(value.reports); setReport(undefined); setModel(value.reports[0].model); setShowJson(false); setStatus('Saved depth results loaded. Run the sweep to resume missing depths.'); return }
+      if (saved.protocol !== 'existing-engine-human-style-v1' || !Array.isArray(saved.blindPairs) || !Array.isArray(saved.traces) || !saved.skill || !options.some(option => option.id === saved.model)) throw new Error('This is not a supported standard-engine comparison report.')
+      setReport(saved); setSweepReports([]); setModel(saved.model); setReviews([]); setPairIndex(0); setReveal(false); setShowJson(false); setStatus('Saved comparison loaded. Anonymous review is ready; no inference was started.')
+    } catch (error) { setStatus(error instanceof Error ? error.message : String(error)) }
+  }
+  const pair = report?.blindPairs[pairIndex]
+  const human = report ? summarizeBlindStyleReviews(reviews, report.blindPairs.map(pair => pair.privateKey)) : undefined
+  const submit = () => {
+    if (!pair || reveal || reviews.some(review => review.pairId === pair.public.pairId)) return
+    setReviews(previous => [...previous, { pairId: pair.public.pairId, reviewerId: reviewer.current, preferred, A: ratingsA, B: ratingsB, expertise: 'casual', confidence: 'medium', strengthComparable }])
+    setPairIndex(previous => previous + 1); setRatingsA(neutral()); setRatingsB(neutral()); setPreferred('uncertain'); setComparable('uncertain')
+  }
+  return <section className="bench-controls" aria-label="Human-like play comparison"><h2>Which opponent feels more human?</h2><p>Our production AI versus Cake, an existing non-LLM English-checkers engine. Four matches against Cake plus four Cake self-play controls, both colors, up to 120 plies. Skill and human-style ratings stay separate.</p><p>Start the loopback engine bridge with <code>pnpm nx run checkers:bench-cake</code> after building the pinned Cake benchmark binary. No game or adapter settings change.</p><label>Our opponent<select aria-label="Human-style model" disabled={running || disabled} value={model} onChange={event => setModel(event.currentTarget.value as OpponentModel)}>{options.filter(option => option.thinking !== 'required').map(option => <option key={option.id} value={option.id}>{option.label}</option>)}</select></label><label>Load a saved comparison<input aria-label="Load saved standard comparison" type="file" accept="application/json,.json" disabled={running || disabled} onChange={event => { void loadSaved(event.currentTarget.files?.[0]) }} /></label><details><summary>Paste a saved comparison</summary><textarea aria-label="Paste standard comparison JSON" value={pastedReport} onChange={event => setPastedReport(event.currentTarget.value)} rows={3} style={{ width: '100%' }} /><button type="button" disabled={running || disabled || !pastedReport} onClick={() => { void loadSaved(undefined, pastedReport) }}>Load pasted comparison</button></details><div className="bench-actions"><button type="button" disabled={running || disabled} onClick={() => { void start() }}>Compare with Cake</button><button type="button" disabled={running || disabled} onClick={() => { void sweep() }}>Run Cake depth sweep</button><button type="button" disabled={!running} onClick={() => controller.current?.abort()}>Stop human-style comparison</button><button type="button" disabled={(!report && !sweepReports.length) || running} onClick={() => { setShowJson(value => !value); if (!showJson) setReveal(true) }}>Standard comparison JSON · ends blind review</button></div><p role="status">{status}</p>
+    {sweepReports.length > 0 && <><p>Model defaults, thinking off. Two seeds per color at Cake depths 1/3/5/7, no book or tablebases. Match horizon 240 plies; depth order 1/7/3/5. These are engine match results, not human percentiles.</p><table aria-label="Cake difficulty results"><thead><tr><th>Cake depth</th><th>Games</th><th>Our wins</th><th>Draws</th><th>Our losses</th><th>Unresolved</th><th>Errors</th></tr></thead><tbody>{[...sweepReports].sort((a, b) => a.searchDepth - b.searchDepth).map(item => { const games = item.skill.matches; return <tr key={item.searchDepth}><td>{item.searchDepth}</td><td>{games.length}</td><td>{games.filter(game => game.result === 'ai-won').length}</td><td>{games.filter(game => game.result === 'draw').length}</td><td>{games.filter(game => game.result === 'human-won').length}</td><td>{games.filter(game => game.result === 'capped').length}</td><td>{games.filter(game => game.result === 'error' || game.result === 'stopped').length}</td></tr> })}</tbody></table>{showJson && <pre id="cake-difficulty-json">{JSON.stringify({ reports: sweepReports }, null, 2)}</pre>}</>}
+
+    {report && <><p>{report.partial ? 'Incomplete run; inspect errors before drawing conclusions.' : 'Run complete.'} Human-like score: {reviews.length ? `${reviews.length} blinded game pairs rated below` : 'not rated yet'}. Automatic variety is not a human-likeness score.</p>{pair && !reveal && <div><h3>Blind review {pairIndex + 1}/{report.blindPairs.length}</h3><p>Same starting position and conventional opponent. Equal replay windows of up to {report.blindReviewPlies} plies hide match outcomes. Review both games; rate the marked opponent, independently of whether it won.</p><div style={{ display: 'flex', flexWrap: 'wrap', gap: 24 }}><BlindGame key={`${pair.public.pairId}-A`} name="A" card={pair.public.A} /><BlindGame key={`${pair.public.pairId}-B`} name="B" card={pair.public.B} /></div>{dimensions.map(dimension => <div key={dimension}><span>{labels[dimension]}</span>{(['A', 'B'] as const).map(name => <label key={name} style={{ marginLeft: 12 }}>{name}<select aria-label={`${name} ${labels[dimension]}`} value={(name === 'A' ? ratingsA : ratingsB)[dimension]} onChange={event => (name === 'A' ? setRatingsA : setRatingsB)(previous => ({ ...previous, [dimension]: Number(event.currentTarget.value) }))}>{[1, 2, 3, 4, 5].map(value => <option key={value}>{value}</option>)}</select></label>)}</div>)}<label>Which feels more human?<select value={preferred} onChange={event => setPreferred(event.currentTarget.value as typeof preferred)}><option value="uncertain">Uncertain</option><option>A</option><option>B</option><option value="tie">Tie</option></select></label><label>Was playing strength comparable?<select value={strengthComparable} onChange={event => setComparable(event.currentTarget.value as typeof strengthComparable)}><option value="uncertain">Uncertain</option><option value="yes">Yes</option><option value="no">No</option></select></label><button type="button" onClick={submit}>Save blind rating and next pair</button></div>}<button type="button" onClick={() => setReveal(true)}>Reveal identities and skill results · ends blind review</button>{reveal && <><table aria-label="Standard engine skill"><thead><tr><th>Opponent</th><th>Existing suite agreement</th><th>Automated style rubric</th><th>Human-style rating</th></tr></thead><tbody>{([{ name: report.model, skill: report.skill.model }, { name: 'Cake', skill: report.skill.cake }]).map(item => { const ratings = human?.opponents[item.name]; const mean = ratings ? Object.values(ratings.mean).reduce((a, b) => a + b, 0) / 4 : undefined; return <tr key={item.name}><td>{item.name}</td><td>{item.skill.passed}/{item.skill.total}</td><td>{report.automatedAssessment?.summary.opponents[item.name] ? `${report.automatedAssessment.summary.opponents[item.name].score100.toFixed(1)}/100` : 'Not reviewed'}</td><td>{mean === undefined ? 'Not rated' : `${((mean - 1) * 25).toFixed(1)}/100 · your subjective rating`}</td></tr> })}</tbody></table>{report.automatedAssessment && <p>{report.automatedAssessment.qualification}</p>}<p>Actual matches: {report.skill.matches.map(match => `${match.aiColor}: ${match.result === 'human-won' ? 'Cake won' : match.result === 'ai-won' ? 'our AI won' : match.result} (${match.plies} plies)`).join('; ')}. Capped means unresolved. Cake uses native depth {report.searchDepth}, without opening book or tablebases.</p><pre style={{ maxHeight: 240, overflow: 'auto' }}>{JSON.stringify(report.profiles.map(item => ({ policy: item.policy, repetition: item.profile.repetition, continuity: item.profile.continuity, quality: item.profile.quality, activity: item.profile.activity })), null, 2)}</pre></>}{showJson && <pre id="standard-comparison-json">{JSON.stringify({ report, reviews, humanRatings: human }, null, 2)}</pre>}</>}
+  </section>
+}

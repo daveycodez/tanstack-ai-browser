@@ -1,0 +1,124 @@
+{
+  "schemaVersion": 1,
+  "recordedDate": "2026-11-03",
+  "promptVersion": "shared-v15",
+  "suiteVersion": "mancala-tactics-v6",
+  "positions": 23,
+  "gradedPositions": 20,
+  "neutralDiagnostics": 3,
+  "models": [
+    {
+      "model": "LiquidAI/LFM3-1.7B-GGUF",
+      "thinking": false,
+      "repetitions": 2,
+      "positions": 23,
+      "scored": 40,
+      "passed": 40,
+      "legal": 46,
+      "trials": 46
+    },
+    {
+      "model": "prompt-api",
+      "thinking": false,
+      "repetitions": 2,
+      "positions": 23,
+      "scored": 40,
+      "passed": 40,
+      "legal": 46,
+      "trials": 46
+    },
+    {
+      "model": "unsloth/Qwen3.5-2B-GGUF",
+      "thinking": false,
+      "repetitions": 2,
+      "positions": 23,
+      "scored": 40,
+      "passed": 40,
+      "legal": 46,
+      "trials": 46
+    }
+  ],
+  "sharedInputsVerified": true,
+  "regressions": [
+    {
+      "caseId": "matched-win-over-three-seed-capture",
+      "v14": {
+        "passed": 0,
+        "trials": 4
+      },
+      "v15": {
+        "passed": 4,
+        "trials": 4
+      }
+    },
+    {
+      "caseId": "matched-win-over-draw-and-capture",
+      "v14": {
+        "passed": 0,
+        "trials": 4
+      },
+      "v15": {
+        "passed": 4,
+        "trials": 4
+      }
+    }
+  ],
+  "matchedGuidanceStudy": {
+    "promptVersion": "shared-v14",
+    "games": 12,
+    "startsPerModel": 6,
+    "overall": {
+      "sol": {
+        "planned": 12,
+        "played": 12,
+        "wins": 4,
+        "losses": 3,
+        "draws": 5
+      },
+      "lfm": {
+        "planned": 12,
+        "played": 12,
+        "wins": 3,
+        "losses": 4,
+        "draws": 5
+      }
+    },
+    "byModelAndOrder": {
+      "sol": {
+        "first": {
+          "planned": 6,
+          "played": 6,
+          "wins": 3,
+          "losses": 1,
+          "draws": 2
+        },
+        "second": {
+          "planned": 6,
+          "played": 6,
+          "wins": 1,
+          "losses": 2,
+          "draws": 3
+        }
+      },
+      "lfm": {
+        "first": {
+          "planned": 6,
+          "played": 6,
+          "wins": 2,
+          "losses": 1,
+          "draws": 3
+        },
+        "second": {
+          "planned": 6,
+          "played": 6,
+          "wins": 1,
+          "losses": 3,
+          "draws": 2
+        }
+      }
+    },
+    "movesVerified": 504,
+    "humanInputsVerified": 260
+  },
+  "scope": "Observed local-browser runs; summaries are not raw transcripts or an Elo estimate. Large captures are local artifacts."
+}

@@ -150,17 +150,16 @@ function ChatModelSelector() {
   const level = effortFor(model, effort)
   // Models by provider, each a section; a provider this device offers no
   // model of is left out.
-  const sections = PROVIDERS.map((provider) => ({
-    ...provider,
-    detail: backends[provider.id],
-    // Alphabetical by name (the repo name, as written), ignoring case.
-    models: models
-      .filter((m) => m.adapter.name === provider.id)
-      .sort((a, b) => {
-        const [x, y] = [a.name.toLowerCase(), b.name.toLowerCase()]
-        return x < y ? -1 : x > y ? 1 : 0
-      })
-  })).filter((section) => section.models.length > 0)
+  const sections = [...PROVIDERS]
+    .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }))
+    .map((provider) => ({
+      ...provider,
+      detail: backends[provider.id],
+      models: models
+        .filter((m) => m.adapter.name === provider.id)
+        .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }))
+    }))
+    .filter((section) => section.models.length > 0)
   // Counts picks, so a slow Apple check can't undo a newer choice.
   const lastPick = useRef(0)
   // The Apple model while its check runs, so the checkmark moves right away.

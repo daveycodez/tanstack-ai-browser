@@ -1,0 +1,49 @@
+<!doctype html><meta charset="utf-8"><title>Checkers review verification</title>
+<style>body{font:16px system-ui;background:#18202e;color:#eef1f5;max-width:1000px;margin:40px auto;padding:24px}button{padding:14px 20px;margin:8px;border-radius:10px;border:0;background:#d6ad70;color:#18202e;font:inherit}pre{white-space:pre-wrap;background:#233044;padding:20px;border-radius:12px}iframe{width:45%;height:50px;border:1px solid #607083;margin:8px}</style>
+<h1>Checkers review verification</h1><div id="controls"><button id="storage">Run storage concurrency</button><button id="analysis">Run analysis responsiveness</button></div><pre id="status">Ready</pre><pre id="storage-result"></pre><pre id="analysis-result"></pre><div id="frames"></div>
+<script type="module">
+import {createIndexedDB} from '@tanstack/react-db';
+import {makeStorage} from '/src/lib/db.tsx';
+import {analyzeMovePrompt} from '/src/lib/analysis-worker.ts';
+import {legalMoves} from '/src/lib/checkers.ts';
+const status=document.querySelector('#status'),qs=new URLSearchParams(location.search),child=qs.get('child');
+const assert=(value,message)=>{if(!value)throw Error(message)};
+if(child){
+ document.querySelector('#controls').remove();status.textContent='Opening independent tab '+child;
+ const db=await createIndexedDB({name:qs.get('db'),version:2,stores:['games']});const state=makeStorage(db);await state.games.preload();status.textContent='Independent tab '+child+' ready';
+ addEventListener('message',async event=>{if(event.origin!==location.origin||event.source!==parent||!event.data?.request)return;const {request,method,args=[]}=event.data;try{let result;if(method==='view')result=state.games.get('current');else if(method==='close'){db.close();result=true}else if(['ensureGame','startNewGame','commitMove','setOpponent','currentGame'].includes(method))result=await state.store[method](...args);else throw Error('Unknown action');parent.postMessage({reply:request,result},location.origin)}catch(error){parent.postMessage({reply:request,error:error.message},location.origin)}});
+ parent.postMessage({ready:child},location.origin);
+}else{
+ const pending=new Map(),ready=new Map();let sequence=0;
+ addEventListener('message',event=>{if(event.origin!==location.origin)return;const data=event.data;if(data.ready){ready.get(data.ready)?.();return}if(data.reply){const p=pending.get(data.reply);pending.delete(data.reply);if(data.error)p?.reject(Error(data.error));else p?.resolve(data.result)}});
+ const call=(frame,method,...args)=>new Promise((resolve,reject)=>{const request=++sequence;pending.set(request,{resolve,reject});frame.contentWindow.postMessage({request,method,args},location.origin)});
+ const waitView=async(frame,predicate)=>{for(let i=0;i<100;i++){const view=await call(frame,'view');if(predicate(view))return view;await new Promise(resolve=>setTimeout(resolve,10))}throw Error('Reactive view did not converge')};
+ document.querySelector('#storage').onclick=async()=>{status.textContent='Running native IndexedDB across independent frames…';try{
+ const name='checkers-review-'+crypto.randomUUID();const frames=[];
+ for(const label of ['a','b']){const frame=document.createElement('iframe');const loaded=new Promise(resolve=>ready.set(label,resolve));frame.src=location.pathname+'?child='+label+'&db='+encodeURIComponent(name);document.querySelector('#frames').append(frame);await loaded;frames.push(frame)}
+ const [a,b]=frames;const start=await call(a,'ensureGame');const same=await call(b,'ensureGame');assert(start.sessionId===same.sessionId,'ensure race changed session');
+ const accepted=await Promise.all([call(a,'commitMove',start.sessionId,0,'a3-b4'),call(b,'commitMove',start.sessionId,0,'c3-d4')]);assert(accepted.filter(Boolean).length===1,'two conflicting moves accepted');
+ const current=await call(a,'currentGame');assert(current.history.length===1,'accepted move overwritten');
+ await waitView(a,g=>g?.history.length===1);await waitView(b,g=>g?.storageVersion===current.storageVersion);
+ const opponent={model:'LiquidAI/LFM3-1.7B-GGUF',thinking:false};const aiMove=legalMoves(current.board,'ai')[0].id;
+ const restart=await call(a,'startNewGame');assert(await call(b,'commitMove',current.sessionId,1,aiMove,opponent)===false,'late reply replaced restart');
+ const changed={...opponent,thinking:true};const [moved]=await Promise.all([call(a,'commitMove',restart.sessionId,0,'a3-b4'),call(b,'setOpponent',changed)]);assert(moved,'opening rejected');
+ const final=await call(b,'currentGame');assert(final.history.length===1&&final.opponent.thinking,'opponent edit overwrote move');
+ const late=await call(a,'commitMove',final.sessionId,1,legalMoves(final.board,'ai')[0].id,opponent);assert(late===false,'old opponent reply accepted');
+ await waitView(a,g=>g?.storageVersion===final.storageVersion);await waitView(b,g=>g?.storageVersion===final.storageVersion);
+ document.querySelector('#storage-result').textContent=JSON.stringify({pass:true,conflictingMoves:accepted,retainedPly:current.history.length,restartRejectsLateReply:true,opponentMergePreservedMove:true,oldOpponentReplyRejected:true,bothReactiveViewsConverged:true},null,2);
+ for(const frame of frames){await call(frame,'close');frame.remove()}indexedDB.deleteDatabase(name);status.textContent='Storage verification passed.';
+ }catch(error){status.textContent='FAILED';document.querySelector('#storage-result').textContent=error.stack}};
+ document.querySelector('#analysis').onclick=async()=>{status.textContent='Running real analysis worker…';try{
+ const response=await fetch('/bench/fixtures/analysis-native.json');const record=await response.json();
+ const longTasks=[];const observer=new PerformanceObserver(list=>{for(const entry of list.getEntries())longTasks.push(entry.duration)});observer.observe({type:'longtask',buffered:false});
+ let ticks=0,maxGap=0,last=performance.now();const timer=setInterval(()=>{const now=performance.now();maxGap=Math.max(maxGap,now-last);last=now;ticks++},4);
+ const started=performance.now();const input=await analyzeMovePrompt({game:record.game,moves:legalMoves(record.game.board,'ai'),version:'shared-v9'},new AbortController().signal);const elapsed=performance.now()-started;clearInterval(timer);
+ const warmMs=[];for(let i=0;i<3;i++){const warmStart=performance.now();const warmInput=await analyzeMovePrompt({game:record.game,moves:legalMoves(record.game.board,'ai'),version:'shared-v9'},new AbortController().signal);warmMs.push(performance.now()-warmStart);assert(JSON.stringify(warmInput)===JSON.stringify(record.input),'warm worker prompt differs')}
+ for(const entry of observer.takeRecords())longTasks.push(entry.duration);observer.disconnect();
+ assert(JSON.stringify(input)===JSON.stringify(record.input),'worker prompt differs from baseline');assert(ticks>0,'main thread heartbeat blocked');
+ const cancel=new AbortController();const before=performance.now();const pending=analyzeMovePrompt({game:record.game,moves:legalMoves(record.game.board,'ai'),version:'shared-v9'},cancel.signal);setTimeout(()=>cancel.abort(),25);let aborted=false;try{await pending}catch(error){aborted=error.name==='AbortError'}assert(aborted,'cancellation did not reject');
+ document.querySelector('#analysis-result').textContent=JSON.stringify({pass:true,choices:input.choices.length,promptIdentical:true,elapsedMs:elapsed,warmWorkerMs:warmMs,mainThreadLongTasksMs:longTasks,mainThreadHeartbeatTicks:ticks,maxHeartbeatGapMs:maxGap,cancelled:true,cancellationMs:performance.now()-before},null,2);status.textContent='Analysis verification passed.';
+ }catch(error){status.textContent='FAILED';document.querySelector('#analysis-result').textContent=error.stack}};
+}
+</script>

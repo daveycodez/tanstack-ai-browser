@@ -1,0 +1,39 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Generic adapter cache benchmark</title><style>body{font:15px system-ui;color:#243346;background:#f6f8fa;max-width:1100px;margin:30px auto;padding:0 20px}select,button{font:inherit;padding:10px;margin:6px}pre{font:11px/1.5 monospace;white-space:pre-wrap}td,th{padding:9px;text-align:left;border-bottom:1px solid #ccc}table{width:100%;border-collapse:collapse}</style></head><body><h1>Generic adapter cache benchmark</h1><p>Independent structured tasks, changing schemas and growing conversations. Model-default sampling; thinking off. No saved-game changes.</p><label>Runtime<select id="runtime"><option value="webgl">WebGL LFM3 GGUF</option><option value="tjs">Transformers.js LFM2.5 350M</option><option value="prompt">Prompt API</option><option value="apfel">Apfel</option></select></label><label>Implementation<select id="profile"><option value="baseline">Before</option><option value="current">After</option></select></label><label>Workload<select id="workload"><option value="all">All</option><option value="short">Short independent</option><option value="long">Long independent</option><option value="chat">Growing conversation</option><option value="changing-chat">Growing conversation, changing schema</option><option value="long-changing-chat">Long history, changing schema</option></select></label><label>Cache policy<select id="cachePolicy"><option value="automatic">Automatic</option><option value="none">None (supported runtimes)</option></select></label><button id="run">Run benchmark</button><button id="stop" disabled>Stop</button><p id="status" role="status">Ready.</p><table><thead><tr><th>Case</th><th>Correct</th><th>Input</th><th>Cached</th><th>Prompt ms</th><th>First token ms</th><th>Total ms</th></tr></thead><tbody id="rows"></tbody></table><details><summary>Full report</summary><pre id="report"></pre></details><script type="module">
+import {chat} from '@tanstack/ai';
+import {cacheCases} from __CASES_URL__;
+const root=__ROOT_URL__,rows=document.querySelector('#rows'),out=document.querySelector('#report'),status=document.querySelector('#status'),run=document.querySelector('#run'),stop=document.querySelector('#stop');
+let controller;
+const logger={request:()=>{},errors:()=>{},provider:()=>{},warn:()=>{}};
+stop.onclick=()=>controller?.abort(new Error('Stopped'));
+run.onclick=async()=>{
+ const runtime=document.querySelector('#runtime').value,profile=document.querySelector('#profile').value,workload=document.querySelector('#workload').value,cachePolicy=document.querySelector('#cachePolicy').value;
+ const report={schemaVersion:1,startedAt:new Date().toISOString(),runtime,profile,workload,settings:{sampling:'model defaults',reasoning:'off',promptCache:cachePolicy,maxTokens:'model default',contextLength:'model default'},results:[],error:null};
+ run.disabled=true;stop.disabled=false;rows.textContent='';out.textContent=JSON.stringify(report,null,2);controller=new AbortController();let unload=()=>{};
+ try {
+  let adapter;
+  if(runtime==='webgl'||runtime==='tjs'){
+   const path=profile==='baseline'?`packages/${runtime==='webgl'?'webgl':'transformers-js'}/.cache-qa-baseline/index.ts`:`packages/${runtime==='webgl'?'webgl':'transformers-js'}/src/index.ts`;
+   const mod=await import(/* @vite-ignore */root+path);
+   unload=mod.unloadModel;
+   const model=runtime==='webgl'?'LiquidAI/LFM3-1.7B-GGUF':'LiquidAI/LFM2.5-350M-ONNX';
+   status.textContent='Loading '+model+'…';await mod.loadModel(model);controller.signal.throwIfAborted();
+   adapter=runtime==='webgl'?mod.webglText(model):mod.transformersJsText(model);
+  }else if(runtime==='prompt'){
+   const mod=await import(/* @vite-ignore */root+'packages/prompt-api/src/index.ts');mod.destroyPromptApiSessions();unload=mod.destroyPromptApiSessions;adapter=mod.promptApiText();
+  }else{
+   const mod=await import(/* @vite-ignore */root+'packages/apfel/src/index.ts');adapter=mod.apfelText('apple-foundationmodel');
+  }
+  const cases=cacheCases().filter(c=>workload==='all'||c.group===workload);
+  for(const test of cases){
+   controller.signal.throwIfAborted();status.textContent='Running '+test.id;
+   let usage,raw;const wrapped=Object.create(adapter);wrapped.structuredOutput=async options=>{const result=await adapter.structuredOutput(options);usage=result.usage;raw=result.rawText;return result};
+   const began=performance.now();let data,error;
+   try{data=await chat({adapter:wrapped,threadId:'generic-cache-'+test.group,systemPrompts:[test.system],messages:test.messages,outputSchema:test.schema,reasoning:'off',stream:false,promptCache:cachePolicy==='none'?'none':undefined,abortController:controller})}catch(e){error=String(e)}
+   const details=usage?.providerUsageDetails??{};
+   const result={caseId:test.id,group:test.group,correct:data?.route===test.expected,data,expected:test.expected,error,raw,usage,totalMs:performance.now()-began,input:test};report.results.push(result);
+   const tr=document.createElement('tr');for(const value of [test.id,result.correct?'PASS':error?'ERROR':'MISS',usage?.promptTokens??'—',usage?.promptTokensDetails?.cachedTokens??(runtime==='apfel'?'not reported':0),details.promptMs?.toFixed(1)??'—',details.firstTokenMs?.toFixed(1)??'—',result.totalMs.toFixed(1)]){const td=document.createElement('td');td.textContent=String(value);tr.append(td)}rows.append(tr);out.textContent=JSON.stringify(report,null,2);
+  }
+  status.textContent=`Complete: ${report.results.filter(r=>r.correct).length}/${report.results.length} correct.`;
+ }catch(error){report.error=String(error);status.textContent='Failed: '+error.message}finally{unload();report.finishedAt=new Date().toISOString();out.textContent=JSON.stringify(report,null,2);run.disabled=false;stop.disabled=true;}
+};
+</script></body></html>

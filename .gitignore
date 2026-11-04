@@ -49,3 +49,18 @@ Thumbs.db
 .nx/self-healing
 .nx/migrate-runs
 *.tsbuildinfo
+
+# Benchmark runs are local artifacts, not repository history.
+**/bench/**/*.json
+**/bench/**/*.jsonl
+**/bench/**/*.gz
+**/bench/**/*.log
+**/bench/**/*.png
+**/bench/**/*.jpg
+**/bench/**/*.jpeg
+**/bench/**/*.bin
+**/bench/**/*.f32
+**/bench/**/*.csv
+**/bench/**/*.txt
+!**/bench/latest.json
+!**/bench/fixtures/**

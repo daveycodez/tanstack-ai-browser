@@ -135,13 +135,27 @@ export function createThinkingSplitter({
         buffer = buffer.slice(end + CLOSE.length)
         state = "answer"
       } else {
-        // A close in the answer is dropped: a model told not to think
-        // sometimes still thinks a little and closes it, and what it wrote
-        // has already streamed as the answer.
-        buffer = buffer.split(CLOSE).join("")
-        const keep = partialTag(buffer, CLOSE)
-        pieces.push(...answer(buffer.slice(0, buffer.length - keep)))
-        buffer = buffer.slice(buffer.length - keep)
+        if (!answered) {
+          // A budgeted model may reopen thinking and immediately be closed again.
+          // Strip only complete empty blocks before the first visible answer.
+          const lead = buffer.trimStart()
+          if ((lead.length < OPEN.length && OPEN.startsWith(lead)) || (lead.length < CLOSE.length && CLOSE.startsWith(lead))) return pieces
+          if (lead.startsWith(CLOSE)) {
+            buffer = lead.slice(CLOSE.length)
+            continue
+          }
+          if (lead.startsWith(OPEN)) {
+            const afterOpen = lead.slice(OPEN.length).trimStart()
+            if (afterOpen.length < CLOSE.length && CLOSE.startsWith(afterOpen)) return pieces
+            if (afterOpen.startsWith(CLOSE)) {
+              buffer = afterOpen.slice(CLOSE.length)
+              continue
+            }
+          }
+        }
+        // Once answer text starts, marker-shaped content is literal data.
+        pieces.push(...answer(buffer))
+        buffer = ""
         return pieces
       }
     }
@@ -158,4 +172,12 @@ export function createThinkingSplitter({
   }
 
   return { push, flush }
+}
+
+/** Constrained generation has one reasoning phase; markers inside JSON strings are data. */
+export function structuredAnswer(text: string, markers: ThinkingMarkers = THINK_TAGS): string {
+  const raw = text.trimStart()
+  if (!raw.startsWith(markers.open)) return raw.trim()
+  const close = raw.indexOf(markers.close, markers.open.length)
+  return close < 0 ? "" : raw.slice(close + markers.close.length).trim()
 }

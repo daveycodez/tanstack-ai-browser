@@ -1,3 +1,4 @@
+import { chooseGuidedTool, addGuidedUsage, validateStructuredValue } from "@tanstack-ai-browser/structured-output"
 /**
  * A TanStack AI text adapter for Transformers.js models that run in the
  * browser, on WebGPU in a Web Worker. Hand it to `chat()` like any hosted
@@ -36,7 +37,7 @@ import type {
 } from "./protocol.js"
 import {
   createThinkingSplitter,
-  splitThinking,
+  structuredAnswer,
   THINKING_MARKERS
 } from "./thinking.js"
 import {
@@ -86,7 +87,9 @@ export type TransformersJsTextConfigFor<TModel extends string> =
  * model's) or the defaults (any other), and the most tokens to generate.
  */
 export type TransformersJsTextProviderOptions = Partial<Sampling> & {
-  /** Most tokens to generate: 4,096 by default, 1,024 with reasoning off. */
+  /** Maximum generated tokens, thinking included; otherwise the remaining model context. */
+  maxTokens?: number
+  /** Legacy alias for maxTokens. */
   max_new_tokens?: number
 }
 
@@ -103,6 +106,9 @@ export type TransformersJsProviderUsageDetails = {
   decodeMs?: number
   /** Tokens generated after the first one, over `decodeMs`. */
   decodeTokens?: number
+  thinkingTokens?: number
+  thinkingBudgetTokens?: number
+  thinkingBudgetExhausted?: boolean
 }
 
 /**
@@ -115,7 +121,7 @@ type ResolveReasoning<TModel extends string> =
     ? TransformersJsModelReasoningByName[TModel]
     : TModel extends TransformersJsListedModel
       ? never
-      : { levels: "off" | "high"; budget: false }
+      : { levels: "off" | "high"; budget: true }
 
 /** Sampling for a model this package doesn't list. */
 const DEFAULT_SAMPLING: Sampling = {
@@ -129,11 +135,42 @@ const DEFAULT_SAMPLING: Sampling = {
  * model that reasons, left out when the request doesn't ask (the template's
  * default applies), false for a model that doesn't reason.
  */
-function enableThinking(request: ReasoningRequest | undefined, model: string) {
+function thinkingOptions(request: ReasoningRequest | undefined, model: string) {
+  const budget = request?.budgetTokens
+  if (budget !== undefined && (!Number.isSafeInteger(budget) || budget < 0))
+    throw new RangeError("reasoning.budgetTokens must be a nonnegative safe integer.")
   const reasoning = modelReasoning(model)
-  if (!reasoning) return false
+  if (!reasoning) return { thinking: false }
   const value = resolveReasoning(request, reasoning)?.value
-  return value === undefined ? undefined : value === "true"
+  const mandatory = "levels" in reasoning && !Object.prototype.hasOwnProperty.call(reasoning.levels, "off")
+  const thinking = value === undefined ? (mandatory ? true : undefined) : value === "true"
+  return { thinking, ...(budget !== undefined && thinking !== false && { thinkingBudgetTokens: budget }) }
+}
+
+function outputTokens(options: TransformersJsTextProviderOptions | undefined) {
+  const limit = options?.maxTokens ?? options?.max_new_tokens
+  if (limit !== undefined && (!Number.isSafeInteger(limit) || limit < 0))
+    throw new RangeError("maxTokens must be a nonnegative safe integer.")
+  return limit
+}
+
+/** Cancel the caller's wait without discarding an in-progress model download. */
+function waitForModel(model: string, dtype: WeightsDtype, contextLength: number | undefined, signal: AbortSignal | undefined): Promise<void> {
+  signal?.throwIfAborted()
+  const loading = loadModel(model, dtype, contextLength)
+  if (!signal) return loading
+  return new Promise((resolve, reject) => {
+    const aborted = () => reject(signal.reason)
+    signal.addEventListener("abort", aborted, { once: true })
+    loading.then(() => {
+      signal.removeEventListener("abort", aborted)
+      if (signal.aborted) reject(signal.reason)
+      else resolve()
+    }, error => {
+      signal.removeEventListener("abort", aborted)
+      reject(error)
+    })
+  })
 }
 
 type MetadataByModality = {
@@ -272,6 +309,9 @@ function usageOf(stats: RunTimings): TokenUsage {
   usage.providerUsageDetails = {
     ...(stats.firstTokenMs !== null && { firstTokenMs: stats.firstTokenMs }),
     ...(stats.promptMs !== null && { promptMs: stats.promptMs }),
+    ...(stats.thinkingTokens !== undefined && { thinkingTokens: stats.thinkingTokens }),
+    ...(stats.thinkingBudgetTokens !== undefined && { thinkingBudgetTokens: stats.thinkingBudgetTokens }),
+    ...(stats.thinkingBudgetExhausted !== undefined && { thinkingBudgetExhausted: stats.thinkingBudgetExhausted }),
     ...(stats.firstTokenMs !== null && {
       decodeMs: stats.decodeMs,
       decodeTokens: Math.max(stats.outputTokens - 1, 0)
@@ -352,7 +392,8 @@ export class TransformersJsTextAdapter<
       undefined
     const model = this.model
     const sampling = this.sampling(options.modelOptions)
-    const thinking = enableThinking(options.reasoning, model)
+    const thinking = thinkingOptions(options.reasoning, model)
+    const maxTokens = outputTokens(options.modelOptions)
     const timestamp = () => Date.now()
 
     yield {
@@ -363,9 +404,42 @@ export class TransformersJsTextAdapter<
       timestamp: timestamp(),
       ...(options.parentRunId && { parentRunId: options.parentRunId })
     }
+    if (options.tools?.length && (options.toolChoice === "required" || typeof options.toolChoice === "object")) {
+      try {
+        const { call, usage } = await chooseGuidedTool(options, (outputSchema, instruction) =>
+          this.structuredOutput({
+            chatOptions: { ...options, systemPrompts: [...normalizeSystemPrompts(options.systemPrompts), { content: instruction }] },
+            outputSchema
+          })
+        )
+        if (signal?.aborted) return
+        if (call) {
+          const toolCallId = nextId("tool")
+          const args = JSON.stringify(call.args)
+          yield { type: EventType.TOOL_CALL_START, toolCallId, toolCallName: call.name, parentMessageId: messageId, index: 0, model, timestamp: timestamp() }
+          yield { type: EventType.TOOL_CALL_ARGS, toolCallId, delta: args, args, model, timestamp: timestamp() }
+          yield { type: EventType.TOOL_CALL_END, toolCallId, toolCallName: call.name, args, input: call.args, model, timestamp: timestamp() }
+          yield { type: EventType.RUN_FINISHED, runId, threadId, model, timestamp: timestamp(), finishReason: "tool_calls", ...(usage && { usage }) }
+        } else {
+          for await (const chunk of this.chatStream({ ...options, runId, tools: [], toolChoice: "none" })) {
+            if (chunk.type === EventType.RUN_STARTED) continue
+            if (chunk.type === EventType.RUN_FINISHED) {
+              const reported = Array.isArray(chunk.usage) ? chunk.usage[0] : chunk.usage
+              yield { ...chunk, usage: addGuidedUsage(usage, reported) }
+            } else yield chunk
+          }
+        }
+      } catch (error) {
+        if (signal?.aborted) return
+        const message = errorText(error)
+        yield { type: EventType.RUN_ERROR, model, timestamp: timestamp(), message, error: { message } }
+      }
+      return
+    }
     try {
-      await loadModel(model, this.dtype, this.contextLength)
+      await waitForModel(model, this.dtype, this.contextLength, signal)
     } catch (error) {
+      if (signal?.aborted) return
       yield {
         type: EventType.RUN_ERROR,
         model,
@@ -383,7 +457,7 @@ export class TransformersJsTextAdapter<
       ...(system ? [{ role: "system" as const, content: system }] : []),
       ...toChatTurns(options.messages, this.toolFormat)
     ]
-    const tools = toToolSpecs(options.tools)
+    const tools = options.toolChoice === "none" ? [] : toToolSpecs(options.tools)
 
     // Thinking streams as reasoning events, then the answer as text up to
     // any tool-call markup, which is held back and parsed at the end.
@@ -474,28 +548,61 @@ export class TransformersJsTextAdapter<
       id: callId,
       chat,
       tools,
-      thinking,
+      ...(options.promptCache?.retention === "none" && { cachePrompt: false }),
+      ...thinking,
       sampling,
-      maxTokens: options.modelOptions?.max_new_tokens,
+      maxTokens,
       contextLength: this.contextLength,
       thinkingOpen: THINKING_MARKERS[this.toolFormat].open,
+      thinkingClose: THINKING_MARKERS[this.toolFormat].close,
       signal
     })
     let next = await stream.next()
-    while (!next.done) {
-      addPieces(thinkingSplitter.push(next.value))
-      yield* events.splice(0)
-      next = await stream.next()
+    try {
+      while (!next.done) {
+        addPieces(thinkingSplitter.push(next.value))
+        yield* events.splice(0)
+        next = await stream.next()
+      }
+    } finally {
+      if (!next.done) await stream.return({})
     }
     const { failure, stats } = next.value
     addPieces(thinkingSplitter.flush())
     endReasoning()
     const { text: rest, markup } = toolSplitter.flush()
     addText(rest)
-    const parsed = markup ? parseToolCalls(markup) : []
-    // Markup that isn't any tool call is shown as the text it is.
-    if (markup && parsed.length === 0) addText(markup)
+    const parsed = markup && options.tools?.length && options.toolChoice !== "none" ? parseToolCalls(markup) : []
+    const nativeTools = !!options.tools?.length && options.toolChoice !== "none"
+    if (markup && parsed.length === 0 && !nativeTools) addText(markup)
     yield* events.splice(0)
+    let usage = stats ? usageOf(stats) : undefined
+    try {
+      if (failure) throw new Error(failure)
+      if (markup && nativeTools && parsed.length === 0) throw new Error("The model returned malformed tool-call markup.")
+      for (const call of parsed) {
+        signal?.throwIfAborted()
+        const tool = options.tools?.find(tool => tool.name === call.name)
+        if (!tool) throw new Error(`The model requested an undeclared tool: ${call.name}`)
+        const schema = tool.inputSchema ?? { type: "object", properties: {}, additionalProperties: false }
+        if (!await validateStructuredValue(schema, call.args)) {
+          const repair = await this.structuredOutput({
+            chatOptions: { ...options, systemPrompts: [...normalizeSystemPrompts(options.systemPrompts), { content: `Return the correct arguments for the selected tool ${call.name}. ${tool.description}. Draft arguments to correct: ${JSON.stringify(call.args)}` }] },
+            outputSchema: schema as Record<string, unknown>
+          })
+          signal?.throwIfAborted()
+          if (!repair.data || typeof repair.data !== "object" || Array.isArray(repair.data) || !await validateStructuredValue(schema, repair.data)) throw new Error(`Invalid arguments for tool: ${call.name}`)
+          call.args = repair.data as Record<string, unknown>
+          usage = addGuidedUsage(usage, repair.usage)
+        }
+      }
+    } catch (error) {
+      if (textStarted) yield { type: EventType.TEXT_MESSAGE_END, messageId, model, timestamp: timestamp() }
+      if (signal?.aborted) return
+      const message = errorText(error)
+      yield { type: EventType.RUN_ERROR, model, timestamp: timestamp(), message, error: { message } }
+      return
+    }
 
     for (const [index, call] of parsed.entries()) {
       const toolCallId = nextId("tool")
@@ -552,20 +659,23 @@ export class TransformersJsTextAdapter<
       model,
       timestamp: timestamp(),
       finishReason: parsed.length > 0 ? "tool_calls" : "stop",
-      ...(stats && { usage: usageOf(stats) })
+      ...(usage && { usage })
     }
   }
 
   /**
-   * A JSON answer for `chat({ outputSchema })`: the model is asked for JSON
-   * matching the schema and its answer parsed. Small models follow schemas
-   * loosely; `chat()` validates the result.
+   * A schema-constrained JSON answer through the public logits-processor
+   * hook. `chat()` additionally validates the completed result.
    */
   async structuredOutput(
     options: StructuredOutputOptions<TransformersJsTextProviderOptions>
   ): Promise<StructuredOutputResult<unknown>> {
     const { chatOptions, outputSchema } = options
-    await loadModel(this.model, this.dtype, this.contextLength)
+    const signal = chatOptions.abortController?.signal ?? (chatOptions.request as RequestInit | undefined)?.signal ?? undefined
+    const thinking = thinkingOptions(chatOptions.reasoning, this.model)
+    const maxTokens = outputTokens(chatOptions.modelOptions)
+    await waitForModel(this.model, this.dtype, this.contextLength, signal)
+    signal?.throwIfAborted()
     const system = normalizeSystemPrompts(chatOptions.systemPrompts)
       .map((p) => p.content)
       .concat(
@@ -579,24 +689,31 @@ export class TransformersJsTextAdapter<
         ...toChatTurns(chatOptions.messages, this.toolFormat)
       ],
       tools: [],
-      thinking: enableThinking(chatOptions.reasoning, this.model),
+      ...(chatOptions.promptCache?.retention === "none" && { cachePrompt: false }),
+      ...thinking,
+      outputSchema,
       sampling: this.sampling(chatOptions.modelOptions),
-      maxTokens: chatOptions.modelOptions?.max_new_tokens,
+      maxTokens,
       contextLength: this.contextLength,
       thinkingOpen: THINKING_MARKERS[this.toolFormat].open,
-      signal: chatOptions.abortController?.signal
+      thinkingClose: THINKING_MARKERS[this.toolFormat].close,
+      signal: signal
     })
     let raw = ""
     let next = await stream.next()
-    while (!next.done) {
-      raw += next.value
-      next = await stream.next()
+    try {
+      while (!next.done) {
+        signal?.throwIfAborted()
+        raw += next.value
+        next = await stream.next()
+      }
+    } finally {
+      if (!next.done) await stream.return({})
     }
+    signal?.throwIfAborted()
     if (next.value.failure) throw new Error(next.value.failure)
-    const rawText = splitThinking(
-      raw,
-      THINKING_MARKERS[this.toolFormat]
-    ).answer.trim()
+    const rawText = structuredAnswer(raw, THINKING_MARKERS[this.toolFormat])
+    signal?.throwIfAborted()
     const json = rawText.replace(/^```(?:json)?\s*|\s*```$/g, "")
     try {
       return {
