@@ -1,3 +1,5 @@
+import { draftReasoning, promptReasoningOptions, withWorkingNotes } from "./reasoning.js"
+import type { PromptApiReasoning, PromptApiReasoningUsage } from "./reasoning.js"
 /**
  * A TanStack AI text adapter for the browser's built-in language model,
  * through the Prompt API (`LanguageModel`): Gemini Nano in Chrome,
@@ -43,7 +45,6 @@ import {
   parseArguments,
   parseDecision,
   supportsNativeTools,
-  toGuidedSchema,
   toLanguageModelTools,
   toolCallText,
   toolsPrompt
@@ -77,6 +78,10 @@ export type PromptApiTextConfig = {
    * generation. A specific `toolChoice` always does.
    */
   nativeTools?: boolean
+  /** Adapter-managed phases; high reasoning is an explicit two-pass emulation. */
+  onGenerationPhase?: (phase: "processing" | "generating") => void
+  /** Working-note deltas from emulated reasoning, not native hidden reasoning. */
+  onThinking?: (delta: string) => void
   /**
    * Called when a conversation outgrows the context window and the browser
    * drops its oldest turns (never the system prompt) to make room.
@@ -122,9 +127,15 @@ export type PromptApiProviderUsageDetails = {
   contextWindow?: number
   /** True when the browser dropped the oldest turns to make room during the call. */
   contextOverflow?: boolean
+  reasoningEmulated?: true
+  reasoningTokenMeasurement?: "context-usage"
+  reasoningBudgetEnforcement?: "best-effort"
+  thinkingTokens?: number
+  thinkingBudgetTokens?: number
+  thinkingBudgetExhausted?: boolean
+  reasoningMs?: number
 }
 
-type PromptApiReasoning = never
 
 type MetadataByModality = {
   text: unknown
@@ -193,8 +204,11 @@ function usageOf(
  * Tokens of what the model wrote, measured once it's done (so the count
  * never holds up the reply). The rest of the session is the prompt.
  */
-const replyTokens = (session: LanguageModelSession, text: string) =>
-  text ? session.measureContextUsage(text).catch(() => 0) : Promise.resolve(0)
+const replyTokens = (session: LanguageModelSession, text: string, signal?: AbortSignal) =>
+  text ? session.measureContextUsage(text, ...(signal ? [{ signal }] : [])).catch(() => {
+    signal?.throwIfAborted()
+    return 0
+  }) : Promise.resolve(0)
 
 /** A prompt's reply as text, from a session that may answer in pieces. */
 const textOf = (output: LanguageModelOutput) =>
@@ -272,12 +286,16 @@ export class PromptApiTextAdapter extends BaseTextAdapter<
   private readonly languages: ReadonlyArray<string>
   private readonly nativeTools: boolean
   private readonly onContextOverflow: PromptApiTextConfig["onContextOverflow"]
+  private readonly onGenerationPhase: PromptApiTextConfig["onGenerationPhase"]
+  private readonly onThinking: PromptApiTextConfig["onThinking"]
 
   constructor(config: PromptApiTextConfig = {}) {
     super({}, "built-in")
     this.languages = config.languages ?? DEFAULT_LANGUAGES
     this.nativeTools = config.nativeTools ?? true
     this.onContextOverflow = config.onContextOverflow
+    this.onGenerationPhase = config.onGenerationPhase
+    this.onThinking = config.onThinking
   }
 
   /**
@@ -324,8 +342,10 @@ export class PromptApiTextAdapter extends BaseTextAdapter<
       ...(tools.length > 0 && !native ? [toolsPrompt(tools)] : [])
     ].join("\n\n")
     const media = new Map<string, Promise<Blob>>()
+    const reasoningEnabled = promptReasoningOptions(options.reasoning).enabled
     const lease = await leaseSession({
-      threadId: options.threadId,
+      threadId: reasoningEnabled ? undefined : options.promptCache?.key ?? options.threadId,
+      ...(reasoningEnabled || options.promptCache?.retention === "none" ? { retain: false } : {}),
       system,
       prior,
       options: this.createOptions(options.modelOptions, {
@@ -427,6 +447,8 @@ export class PromptApiTextAdapter extends BaseTextAdapter<
         }
       ]
     }
+    const reasoning = promptReasoningOptions(options.reasoning)
+    this.onGenerationPhase?.("processing")
     const startedAt = performance.now()
 
     yield {
@@ -482,14 +504,44 @@ export class PromptApiTextAdapter extends BaseTextAdapter<
           return
         }
       }
-      const { lease, prior, inputMessages, input } = prepared
+      const { lease, prior, inputMessages } = prepared
+      let input = prepared.input
       const { session } = lease
+      let reasoningUsage: PromptApiReasoningUsage | undefined
       // Given back only once the call has ended well; freed otherwise (an
       // abort, an error, or the stream left unread).
       let released = false
       let sent = false
 
       try {
+        if (reasoning.enabled) {
+          this.onGenerationPhase?.("generating")
+          const draft = draftReasoning(session, input, signal, reasoning.budget)
+          let next = await draft.next()
+          let opened = false
+          const reasoningId = nextId("reasoning")
+          try {
+            while (!next.done) {
+              if (!opened) {
+                opened = true
+                yield { type: EventType.REASONING_START, messageId: reasoningId, model, timestamp: timestamp() }
+                yield { type: EventType.REASONING_MESSAGE_START, messageId: reasoningId, role: "reasoning", model, timestamp: timestamp() }
+              }
+              this.onThinking?.(next.value)
+              yield { type: EventType.REASONING_MESSAGE_CONTENT, messageId: reasoningId, delta: next.value, model, timestamp: timestamp() }
+              next = await draft.next()
+            }
+            reasoningUsage = next.value.usage
+            input = withWorkingNotes(input, next.value.notes) as Array<LanguageModelMessage>
+          } finally {
+            if (!next.done) await draft.return({ notes: "", usage: { reasoningEmulated: true, reasoningTokenMeasurement: "context-usage", reasoningBudgetEnforcement: "best-effort", thinkingTokens: 0, thinkingBudgetExhausted: false, reasoningMs: 0 } })
+          }
+          if (opened) {
+            yield { type: EventType.REASONING_MESSAGE_END, messageId: reasoningId, model, timestamp: timestamp() }
+            yield { type: EventType.REASONING_END, messageId: reasoningId, model, timestamp: timestamp() }
+          }
+        } else this.onGenerationPhase?.("generating")
+        signal?.throwIfAborted()
         const call =
           tools.length > 0 && !native
             ? await this.decideToolCall(session, input, tools, options, signal)
@@ -504,7 +556,9 @@ export class PromptApiTextAdapter extends BaseTextAdapter<
           )
           const decidedAt = performance.now()
           const toolCallId = nextId("tool")
-          const completionTokens = await replyTokens(session, callText)
+          const completionTokens = await replyTokens(session, callText, signal)
+          const measuredContext = session.contextUsage
+          const sessionDetails = this.sessionDetails(lease, threadId, logger)
           lease.release([
             ...prior,
             ...inputMessages,
@@ -520,12 +574,13 @@ export class PromptApiTextAdapter extends BaseTextAdapter<
             timestamp: timestamp(),
             finishReason: "tool_calls",
             usage: usageOf(
-              session.contextUsage - completionTokens,
+              measuredContext - completionTokens,
               completionTokens,
               lease.cachedTokens,
               {
+                ...reasoningUsage,
                 firstTokenMs: decidedAt - startedAt,
-                ...this.sessionDetails(lease, threadId, logger)
+                ...sessionDetails
               }
             )
           }
@@ -592,6 +647,8 @@ export class PromptApiTextAdapter extends BaseTextAdapter<
             .join("\n")
         )
         const reply = assistantMessage(text, calls, native)
+        const measuredContext = session.contextUsage
+        const sessionDetails = this.sessionDetails(lease, threadId, logger)
         lease.release([...prior, ...inputMessages, ...(reply ? [reply] : [])])
         released = true
         for (const [index, c] of calls.entries()) {
@@ -605,7 +662,7 @@ export class PromptApiTextAdapter extends BaseTextAdapter<
           timestamp: timestamp(),
           finishReason: calls.length > 0 ? "tool_calls" : "stop",
           usage: usageOf(
-            session.contextUsage - completionTokens,
+            measuredContext - completionTokens,
             completionTokens,
             lease.cachedTokens,
             {
@@ -615,7 +672,8 @@ export class PromptApiTextAdapter extends BaseTextAdapter<
                 decodeMs: last - first,
                 decodeTokens: Math.max(completionTokens - 1, 0)
               }),
-              ...this.sessionDetails(lease, threadId, logger)
+              ...reasoningUsage,
+              ...sessionDetails
             }
           )
         }
@@ -661,6 +719,9 @@ export class PromptApiTextAdapter extends BaseTextAdapter<
     let action: string | undefined
     if (typeof choice === "object" && names.includes(choice.name)) {
       action = choice.name
+    } else if (choice === "required" && tools.length === 1) {
+      // The only allowed route is already known; constrain its arguments directly.
+      action = names[0]
     } else {
       const raw = await promptCopy(session, input, signal, {
         responseConstraint: decisionSchema(names, choice === "required")
@@ -688,23 +749,28 @@ export class PromptApiTextAdapter extends BaseTextAdapter<
 
   /**
    * A JSON answer for `chat({ outputSchema })`, from guided generation:
-   * `responseConstraint` holds the model to the schema. A schema the
-   * browser can't enforce is tried again in the subset it can. `chat()`
+   * `responseConstraint` holds the model to the original schema. Unsupported
+   * schemas fail explicitly rather than silently dropping constraints. `chat()`
    * validates the result.
    */
   async structuredOutput(
     options: StructuredOutputOptions<PromptApiModelOptions>
   ): Promise<StructuredOutputResult<unknown>> {
     const { chatOptions, outputSchema } = options
-    const signal = chatOptions.abortController?.signal
+    const signal = chatOptions.abortController?.signal ?? (chatOptions.request as RequestInit | undefined)?.signal ?? undefined
+    signal?.throwIfAborted()
+    const reasoning = promptReasoningOptions(chatOptions.reasoning)
+    this.onGenerationPhase?.("processing")
     const conversation = toPromptMessages(chatOptions.messages, {
       nativeTools: false
     })
     const { prior, input: inputMessages } = splitAtLastReply(conversation)
     const media = new Map<string, Promise<Blob>>()
     const lease = await leaseSession({
-      // A session of its own, freed after.
-      threadId: undefined,
+      // Reuse the input prefix, keeping this answer on a disposable clone.
+      threadId: chatOptions.promptCache?.key ?? chatOptions.threadId,
+      isolated: true,
+      ...(chatOptions.promptCache?.retention === "none" ? { retain: false } : {}),
       system: normalizeSystemPrompts(chatOptions.systemPrompts)
         .map((p) => p.content)
         .join("\n\n"),
@@ -717,10 +783,28 @@ export class PromptApiTextAdapter extends BaseTextAdapter<
     })
     const { session } = lease
     try {
-      const input =
+      signal?.throwIfAborted()
+      let input =
         inputMessages.length > 0
           ? await toLanguageModelMessages(inputMessages, media)
           : "Answer."
+      let reasoningUsage: PromptApiReasoningUsage | undefined
+      if (reasoning.enabled) {
+        this.onGenerationPhase?.("generating")
+        const draft = draftReasoning(session, input, signal, reasoning.budget)
+        let next = await draft.next()
+        try {
+          while (!next.done) {
+            this.onThinking?.(next.value)
+            next = await draft.next()
+          }
+          reasoningUsage = next.value.usage
+          input = withWorkingNotes(input, next.value.notes)
+        } finally {
+          if (!next.done) await draft.return({ notes: "", usage: { reasoningEmulated: true, reasoningTokenMeasurement: "context-usage", reasoningBudgetEnforcement: "best-effort", thinkingTokens: 0, thinkingBudgetExhausted: false, reasoningMs: 0 } })
+        }
+      } else this.onGenerationPhase?.("generating")
+      signal?.throwIfAborted()
       const ask = async (schema: object) =>
         textOf(
           await session.prompt(input, { responseConstraint: schema, signal })
@@ -733,9 +817,11 @@ export class PromptApiTextAdapter extends BaseTextAdapter<
           error instanceof DOMException && error.name === "NotSupportedError"
         ))
           throw error
-        rawText = await ask(toGuidedSchema(outputSchema))
+        throw new Error("The browser cannot enforce the requested JSON Schema.", { cause: error })
       }
-      const completionTokens = await replyTokens(session, rawText)
+      signal?.throwIfAborted()
+      const completionTokens = await replyTokens(session, rawText, signal)
+      signal?.throwIfAborted()
       try {
         return {
           data: JSON.parse(rawText) as unknown,
@@ -744,10 +830,10 @@ export class PromptApiTextAdapter extends BaseTextAdapter<
           usage: usageOf(
             session.contextUsage - completionTokens,
             completionTokens,
-            0,
+            lease.cachedTokens,
             {
-              contextUsage: session.contextUsage,
-              contextWindow: session.contextWindow
+              ...this.sessionDetails(lease, chatOptions.threadId, chatOptions.logger),
+              ...reasoningUsage
             }
           )
         }
@@ -757,6 +843,7 @@ export class PromptApiTextAdapter extends BaseTextAdapter<
         )
       }
     } catch (error) {
+      signal?.throwIfAborted()
       if (error instanceof DOMException) throw new Error(promptErrorText(error))
       throw error
     } finally {

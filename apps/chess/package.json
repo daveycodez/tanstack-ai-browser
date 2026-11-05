@@ -1,0 +1,97 @@
+{
+  "name": "@tanstack-ai-browser/chess",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite dev --port 3003",
+    "generate-routes": "tsr generate",
+    "build": "vite build",
+    "preview": "vite preview --port 3003",
+    "deploy": "wrangler deploy",
+    "deploy-dry-run": "wrangler deploy --dry-run",
+    "test": "node --experimental-strip-types --test src/lib/chess.test.ts src/lib/ai-position.test.ts src/lib/ai-move.test.ts src/lib/move-order.test.ts src/lib/move-outcomes.test.ts src/lib/ai-outcomes.test.ts src/lib/prompt-options.test.ts src/lib/shared-prompt.test.ts src/lib/move-output.test.ts src/lib/exposure-context.test.ts src/lib/game-audio.test.ts src/lib/game-storage.test.ts src/lib/analysis-worker.test.ts src/lib/colors.test.ts src/lib/opponents.test.ts src/lib/benchmark-thinking.test.ts",
+    "bench": "vite dev --port 3003 --host 127.0.0.1",
+    "bench-check": "tsc --noEmit --project bench/tsconfig.json",
+    "bench-audit": "node --experimental-strip-types bench/audit.ts"
+  },
+  "dependencies": {
+    "@tanstack-ai-browser/apfel": "workspace:*",
+    "@tanstack-ai-browser/prompt-api": "workspace:*",
+    "@tanstack-ai-browser/webgl": "workspace:*",
+    "@tanstack/ai": "1.0.0",
+    "@tanstack/react-db": "1.0.0-rc.1",
+    "@tanstack/react-router": "1.170.46",
+    "@tanstack/react-start": "1.169.4",
+    "chess.js": "^1.4.0",
+    "next-themes": "0.4.6",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@cloudflare/vite-plugin": "^1.26.0",
+    "@tanstack/router-cli": "^1.132.0",
+    "@types/node": "^22.10.2",
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
+    "@vitejs/plugin-react": "^6.0.1",
+    "fake-indexeddb": "6.2.7",
+    "typescript": "^6.0.2",
+    "vite": "^8.0.0",
+    "wrangler": "^4.70.0"
+  },
+  "nx": {
+    "name": "chess",
+    "tags": [
+      "scope:web",
+      "type:app"
+    ],
+    "targets": {
+      "build": {
+        "cache": true,
+        "outputs": [
+          "{projectRoot}/dist",
+          "{projectRoot}/.wrangler/deploy"
+        ]
+      },
+      "generate-routes": {
+        "cache": true,
+        "outputs": [
+          "{projectRoot}/src/routeTree.gen.ts"
+        ]
+      },
+      "deploy": {
+        "dependsOn": [
+          "build"
+        ]
+      },
+      "deploy-dry-run": {
+        "dependsOn": [
+          "build"
+        ]
+      },
+      "typecheck": {
+        "command": "tsc --noEmit",
+        "options": {
+          "cwd": "{projectRoot}"
+        },
+        "dependsOn": [
+          "generate-routes"
+        ],
+        "cache": true,
+        "inputs": [
+          "default",
+          "^production",
+          {
+            "externalDependencies": [
+              "typescript"
+            ]
+          }
+        ]
+      },
+      "test": {
+        "cache": true
+      }
+    }
+  }
+}

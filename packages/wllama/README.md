@@ -77,6 +77,26 @@ LFM3 Web ([daveycodez/LFM3-1.7B-Web-GGUF](https://huggingface.co/daveycodez/LFM3
 
 **Usage** is in each call's `RUN_FINISHED` event, as with any TanStack AI adapter: `promptTokens`, `completionTokens`, `totalTokens`, and `promptTokensDetails.cachedTokens` for the start of the prompt llama.cpp reused from an earlier call. Timings are in `usage.providerUsageDetails` (`WllamaProviderUsageDetails`: `firstTokenMs`, `promptMs`, `decodeMs`, `decodeTokens`).
 
+**Prompt reuse:** use the standard TanStack AI option, for example
+`chat({ adapter, messages, threadId, promptCache: "none" })` or
+`promptCache: { retention: "short", key: "conversation-key" }`. No adapter-specific
+cache option is needed. Structured output passes its exact schema through native
+`response_format.json_schema`, separately from the conversation; schemas are not
+inserted into caller/system messages.
+
+`"none"` maps internally to llama.cpp's public `cache_prompt: false` and skips this
+wrapper's post-call `saveSlotState` persistence. Omitted, `"short"`, and `"long"`
+policies preserve native runtime defaults and introduce no TTL. The standard key has
+no advertised native slot/session equivalent, so the adapter does not invent one.
+Actual reuse comes from llama.cpp's `timings.cache_n`, forwarded as
+`promptTokensDetails.cachedTokens`; enabling caching alone does not prove a hit.
+
+This controls prompt reuse, not model-file downloads or the KV state needed during
+one generation. It does not delete existing state files or guarantee native eviction:
+model initialization can restore a compatible saved slot before the per-call policy
+is known. The native runtime controls whether that state is reused. Model/template
+changes, edited prefixes, and eviction can require fresh prompt processing.
+
 **Downloads:** `loadModel(model)` downloads and loads a model ahead of time, and `modelStatus(model)` is a store of its loading progress (with bytes downloaded and the total while it downloads).
 
 ## How it runs
@@ -115,3 +135,5 @@ wllamaText("LiquidAI/LFM2.5-350M-GGUF", {
 ```
 
 **Status:** early (0.x); the API may change. See the [repository README](https://github.com/daveycodez/tanstack-ai-browser#readme).
+
+Thinking-capable models accept `reasoning: { level: "high", budgetTokens: 512 }` through TanStack AI. The adapter forwards an explicit budget through wllama's public `reasoning_budget_tokens` option, alongside the template's thinking switch. Omitting the budget preserves the runtime default; `level: "off"` ignores a valid budget on models that support switching thinking off. Zero is forwarded unchanged. Negative, fractional, non-finite, and unsafe budgets fail before inference. No vendor patch is required for this mapping.

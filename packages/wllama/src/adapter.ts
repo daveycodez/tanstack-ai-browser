@@ -33,7 +33,7 @@ import {
   configureRuntime,
   contextError,
   loadedContext,
-  loadModel,
+  waitForModel,
   setContextLength,
   setKeepLoaded,
   streamChat
@@ -104,6 +104,7 @@ export type WllamaTextConfig = {
 /** Per-call `modelOptions`: sampling over the model card's, and the most tokens to generate. */
 export type WllamaTextProviderOptions = Partial<Sampling> & {
   /** Most tokens to generate. llama.cpp's default otherwise: up to the context limit. */
+  maxTokens?: number
   max_new_tokens?: number
 }
 
@@ -242,9 +243,25 @@ function thinkingKwargs(
   request: ReasoningRequest | undefined,
   model: WllamaTextModel
 ): Partial<ChatRequest> {
-  const value = resolveReasoning(request, modelMeta(model).reasoning)?.value
-  if (value === undefined) return {}
-  return { chat_template_kwargs: { enable_thinking: value === "true" } }
+  const budget = request?.budgetTokens
+  if (budget !== undefined && (!Number.isSafeInteger(budget) || budget < 0)) {
+    throw new RangeError("reasoning.budgetTokens must be a nonnegative safe integer.")
+  }
+  const capability = modelMeta(model).reasoning
+  const resolved = resolveReasoning(request, capability)
+  const value = resolved?.value
+  if (value === undefined) {
+    if (budget !== undefined) throw new Error(`${model} does not support a thinking token budget.`)
+    return {}
+  }
+  const thinking = value === "true"
+  if (budget !== undefined && thinking && (!capability || !capability.budget)) {
+    throw new Error(`${model} does not support a thinking token budget.`)
+  }
+  return {
+    chat_template_kwargs: { enable_thinking: thinking },
+    ...(thinking && budget !== undefined && { reasoning_budget_tokens: budget })
+  }
 }
 
 const errorText = (error: unknown) =>
@@ -303,18 +320,22 @@ export class WllamaTextAdapter<
   }
 
   /** Sampling and length for a call: `modelOptions` over the model card's. */
-  private settings(modelOptions: WllamaTextProviderOptions | undefined) {
-    const { max_new_tokens, ...sampling } = modelOptions ?? {}
+  private settings(modelOptions: WllamaTextProviderOptions | undefined, promptCache?: TextOptions["promptCache"]) {
+    const { maxTokens, max_new_tokens, ...sampling } = modelOptions ?? {}
+    const limit = maxTokens ?? max_new_tokens
+    if (limit !== undefined && (!Number.isSafeInteger(limit) || limit < 0)) throw new RangeError("maxTokens must be a nonnegative safe integer.")
     return {
       ...modelMeta(this.model).sampling,
       ...sampling,
-      ...(max_new_tokens !== undefined && { max_tokens: max_new_tokens })
+      ...(promptCache?.retention === "none" && { cache_prompt: false }),
+      ...(limit !== undefined && { max_tokens: limit })
     } as Partial<ChatRequest>
   }
 
   async *chatStream(
     options: TextOptions<WllamaTextProviderOptions>
   ): AsyncIterable<AdapterYieldChunk> {
+    const thinking = thinkingKwargs(options.reasoning, this.model)
     const runId = options.runId ?? nextId("run")
     const threadId = options.threadId
     const messageId = nextId("msg")
@@ -405,7 +426,7 @@ export class WllamaTextAdapter<
     }
 
     try {
-      const wllama = await loadModel(model).catch((error: unknown) => {
+      const wllama = await waitForModel(model, signal).catch((error: unknown) => {
         throw new Error(`Couldn't load ${model}: ${errorText(error)}`)
       })
       context = loadedContext(wllama)
@@ -416,8 +437,8 @@ export class WllamaTextAdapter<
         {
           messages: toMessages(options.systemPrompts, options.messages),
           ...(options.tools?.length && { tools: toTools(options.tools) }),
-          ...thinkingKwargs(options.reasoning, model),
-          ...this.settings(options.modelOptions)
+          ...this.settings(options.modelOptions, options.promptCache),
+          ...thinking
         },
         signal
       )
@@ -576,19 +597,25 @@ export class WllamaTextAdapter<
     options: StructuredOutputOptions<WllamaTextProviderOptions>
   ): Promise<StructuredOutputResult<unknown>> {
     const { chatOptions, outputSchema } = options
+    const signal = chatOptions.abortController?.signal ?? (chatOptions.request as RequestInit | undefined)?.signal ?? undefined
+    signal?.throwIfAborted()
     const response = await completeChat(
       this.model,
       {
         messages: toMessages(chatOptions.systemPrompts, chatOptions.messages),
+        ...this.settings(chatOptions.modelOptions, chatOptions.promptCache),
+        ...thinkingKwargs(chatOptions.reasoning, this.model),
         response_format: {
           type: "json_schema",
           json_schema: { name: "output", schema: outputSchema, strict: true }
-        },
-        ...thinkingKwargs(chatOptions.reasoning, this.model),
-        ...this.settings(chatOptions.modelOptions)
+        }
       },
-      chatOptions.abortController?.signal
+      signal
     )
+    signal?.throwIfAborted()
+    if (response.choices[0]?.finish_reason === "length") {
+      throw new Error("The model reached its output limit before structured generation completed.")
+    }
     const rawText = response.choices[0]?.message.content?.trim() ?? ""
     const timings = (response as { timings?: ResultTimings }).timings
     try {

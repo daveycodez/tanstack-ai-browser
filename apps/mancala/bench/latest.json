@@ -1,0 +1,178 @@
+{
+  "schemaVersion": 2,
+  "experiment": "mancala prompt compaction",
+  "date": "2026-11-04",
+  "baseRevision": "aedca34",
+  "before": "shared-v16",
+  "after": "shared-v17",
+  "config": {
+    "thinking": false,
+    "sampling": "model defaults",
+    "cases": 23,
+    "repetitionsPerOrderCycle": 2,
+    "independentQualityCycles": 2,
+    "qualityOrder": "even cases before/after; odd cases after/before; identical action orders",
+    "qualityTimingComparable": false
+  },
+  "quality": [
+    {
+      "model": "LiquidAI/LFM3-1.7B-GGUF",
+      "before": {
+        "trials": 92,
+        "inferred": 92,
+        "legal": 92,
+        "scored": 80,
+        "passed": 55,
+        "meanInputTokens": 540.6521739130435
+      },
+      "after": {
+        "trials": 92,
+        "inferred": 92,
+        "legal": 92,
+        "scored": 80,
+        "passed": 54,
+        "meanInputTokens": 508.2608695652174
+      },
+      "inputReductionPercent": 5.991154000804189,
+      "runIds": []
+    },
+    {
+      "model": "prompt-api",
+      "before": {
+        "trials": 92,
+        "inferred": 92,
+        "legal": 92,
+        "scored": 80,
+        "passed": 65,
+        "meanInputTokens": 537.3913043478261
+      },
+      "after": {
+        "trials": 92,
+        "inferred": 92,
+        "legal": 92,
+        "scored": 80,
+        "passed": 65,
+        "meanInputTokens": 504
+      },
+      "inputReductionPercent": 6.213592233009713,
+      "runIds": []
+    },
+    {
+      "model": "unsloth/Qwen3.5-2B-GGUF",
+      "before": {
+        "trials": 92,
+        "inferred": 92,
+        "legal": 92,
+        "scored": 80,
+        "passed": 38,
+        "meanInputTokens": 546.4347826086956
+      },
+      "after": {
+        "trials": 92,
+        "inferred": 92,
+        "legal": 92,
+        "scored": 80,
+        "passed": 38,
+        "meanInputTokens": 511.04347826086956
+      },
+      "inputReductionPercent": 6.476766390833855,
+      "runIds": []
+    }
+  ],
+  "serialReplay": {
+    "model": "LiquidAI/LFM3-1.7B-GGUF",
+    "positions": 7,
+    "sequence": "first seven non-forced suite positions, not a continuous game",
+    "order": [
+      "shared-v16",
+      "shared-v17",
+      "shared-v17",
+      "shared-v16"
+    ],
+    "warmupCallsExcluded": 18,
+    "recordedCalls": 56,
+    "before": {
+      "meanInputTokens": 584,
+      "groups": {
+        "changed-position": {
+          "samples": 12,
+          "medianTotalMs": 711.25,
+          "meanTotalMs": 718.6499999860922,
+          "medianPromptMs": 153.44999998807907
+        },
+        "exact-repeat": {
+          "samples": 14,
+          "medianTotalMs": 388.0,
+          "meanTotalMs": 529.1071428741727,
+          "medianPromptMs": 4.099999904632568
+        },
+        "first-position": {
+          "samples": 2,
+          "medianTotalMs": 239.0999999642372,
+          "meanTotalMs": 239.0999999642372,
+          "medianPromptMs": 4.199999988079071
+        }
+      }
+    },
+    "after": {
+      "meanInputTokens": 550.4285714285714,
+      "groups": {
+        "changed-position": {
+          "samples": 12,
+          "medianTotalMs": 691.3499999642372,
+          "meanTotalMs": 712.9166666467985,
+          "medianPromptMs": 142.79999995231628
+        },
+        "exact-repeat": {
+          "samples": 14,
+          "medianTotalMs": 396.14999997615814,
+          "meanTotalMs": 533.4285714115415,
+          "medianPromptMs": 4.100000023841858
+        },
+        "first-position": {
+          "samples": 2,
+          "medianTotalMs": 242.5,
+          "meanTotalMs": 242.5,
+          "medianPromptMs": 3.949999988079071
+        }
+      }
+    },
+    "inputReductionPercent": 5.748532289628172,
+    "changedPositionMedianReductionPercent": 2.797891041935019
+  },
+  "sourceSha256": {
+    "apps/mancala/src/lib/shared-prompt.ts": "66a39071afe0e0d87f05bcacf88083e78c71e56ac7c59916bb6be408cf7dcec9",
+    "apps/mancala/src/lib/shared-prompt-v16.ts": "fcd238d602a98321105eb49ab861439c9aa0a0105a077c644bb5784ec0dc8d54",
+    "apps/mancala/src/lib/ai.ts": "efaf9857b5384a13b31767b9bea24dc00ca66d409e479a91c5ef13bc1ca1e32e",
+    "apps/mancala/bench/runner.ts": "69529100308bfe48c837159bd4ad6f23fc6d407ac361248bfa951f3a20a64f7b",
+    "apps/mancala/bench/prompt-comparison.ts": "0e81b7dbfce1c5be82eeb90f05121b9cb27d43c7c1bea575f9d0949f371a977e"
+  },
+  "notes": [
+    "One provider-independent prompt; every original legal label/order and all numeric outcome facts are preserved.",
+    "Case expectations, analysis algorithms, model selection, sampling, generation limits and adapters are unchanged.",
+    "Quality timings are concurrent and excluded from latency claims. Serial timing is warm and counterbalanced, not cold model loading or mobile performance.",
+    "Previously exposed holdouts are compatibility checks, not fresh unseen tests.",
+    "Raw reports, rejected candidate wordings and screenshots remain local artifacts.",
+    "Larger matrix/prose cuts were rejected for tactical regressions. The accepted version preserves the original per-action terminology.",
+    "Across two unchanged-source cycles LFM3 scored one fewer pass out of 80; Nano and Qwen matched their aggregate baselines. This is not a claim of exact behavioral equivalence."
+  ],
+  "validation": {
+    "tests": 159,
+    "typecheck": "passed",
+    "lint": "passed with warnings",
+    "productionBuild": "passed",
+    "benchmarkAudit": "passed",
+    "recordedInputsReproduced": 552,
+    "defaultGameSmoke": {
+      "passed": true,
+      "model": "LiquidAI/LFM3-1.7B-GGUF",
+      "codeDefault": "shared-v17",
+      "humanAction": "pit 1",
+      "opponentActions": [
+        "pit 3 (bonus)",
+        "pit 6"
+      ],
+      "browserConsoleErrors": 0
+    }
+  }
+}

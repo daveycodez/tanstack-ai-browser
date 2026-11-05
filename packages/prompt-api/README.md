@@ -28,7 +28,7 @@ The Prompt API is in desktop Chrome and Edge (tested in Chrome 156, where web pa
 - `promptApiModel()` says which model this browser provides: `{ id: "gemini-nano", name: "Gemini Nano", browser: "Chrome" }`, `{ id: "phi-4-mini", name: "Phi-4-mini", browser: "Edge" }`, or `"unknown"` for other browsers. The API itself doesn't say; the browser's brand does.
 - `promptApiContextWindow()` gives the tokens a session holds (9,216 for Gemini Nano in Chrome 156).
 
-`languages` (`["en"]` by default) tells the model which languages to expect in and out; Chrome's model takes `en`, `es`, `ja`, `de` and `fr`, and checks its safety filters for the output language. The model doesn't reason, so `chat({ reasoning })` is a type error with this adapter. `modelOptions.samplingMode` picks a sampling preset (`"most-predictable"` to `"most-creative"`); Chrome takes it on web pages only in its Sampling Parameters origin trial. `temperature` and `topK` work in extensions only.
+`languages` (`["en"]` by default) tells the model which languages to expect in and out; Chrome's model takes `en`, `es`, `ja`, `de` and `fr`, and checks its safety filters for the output language. `reasoning: "high"` opts into adapter-emulated working notes before the final pass; omitted or `"off"` uses the ordinary single-pass flow. See the emulated reasoning details below. `modelOptions.samplingMode` picks a sampling preset (`"most-predictable"` to `"most-creative"`); Chrome takes it on web pages only in its Sampling Parameters origin trial. `temperature` and `topK` work in extensions only.
 
 ## Images and audio
 
@@ -43,15 +43,44 @@ The Prompt API spec has tool use: the session writes tool calls, the page runs t
 Without it, tools go through guided generation (`responseConstraint` holds a reply to a JSON Schema), in two short constrained calls on copies of the session (`clone()`) before anything else:
 
 1. The decision: `{"action": "answer"}` or the name of a tool.
-2. For a tool, its arguments, held to the tool's input schema (in the subset guided generation enforces: types, properties, required, items, enum, const, descriptions).
+2. For a tool, its arguments, held to the tool's original input schema. If the browser cannot enforce that schema, the request fails explicitly.
 
 An answer then streams from the session unconstrained, with Markdown. Asked to write tool calls as text instead, Gemini Nano made up an answer about current events rather than search; with the decision constrained it picked right in 10 of 10 test prompts. A step costs about 0.3 seconds for the decision, plus 0.2 to 2 seconds to write a tool's arguments. The model sees past calls as `{"tool", "arguments"}` JSON and results as `Result of <tool>:` messages. `toolChoice` works: `"none"` skips the decision, `"required"` leaves answering out, and a named tool skips straight to its arguments (both always use guided generation).
 
-`chat({ outputSchema })` uses guided generation too, with the schema as given and, if the browser can't enforce it, in the subset above.
+`chat({ outputSchema })` uses native constrained generation with the schema as given. Unsupported schemas fail explicitly.
 
 ## Sessions
 
 Each thread keeps one session, which holds the conversation the model has read. When the next request extends it (a follow-up, or the step after a tool call), only the new messages are read; anything else (an edited message, another system prompt, tools or options, an image in a text-only thread) starts a new session, and the adapter's logger says why. Only the system prompt is an initial prompt; the conversation is appended after it, so when a thread outgrows the context the browser drops its oldest turns (never the system prompt), and a new session leaves out the oldest turns that don't fit. When the browser drops turns, `RUN_FINISHED`'s `usage.providerUsageDetails.contextOverflow` is `true` and `promptApiText({ onContextOverflow })` is called. A single message too long for the model fails with an error that says so.
+
+Structured output (`chat({ outputSchema })`) keeps a separate input-prefix session
+and generates on a disposable clone. It reuses matching system instructions, options,
+and compatible history; without a `threadId`, matching system/options bases are reused
+for stateless calls too. Generated JSON and optional working notes never enter that
+base. Changing a schema does not require a new base: the original schema is still
+passed to each constrained prompt unchanged. Structured bases and chat/tool sessions
+share the existing four-session cache bound but have separate identities, so finalizing
+JSON cannot replace a tool conversation. Only base preparation is serialized for calls
+sharing a structured prefix; their clones can generate independently. Cancellation,
+failed generation and unsupported schemas destroy the clone without discarding its
+healthy base. `destroyPromptApiSessions()` frees retained structured bases too, and
+structured-output usage reports the prefix reused in `promptTokensDetails.cachedTokens`.
+This count excludes new input and newly appended history; it is not a guarantee that
+all prompt tokens or the generated output were cached.
+
+The standard `chat({ promptCache })` option controls managed reuse in both streaming
+and structured-output paths. `promptCache: 'none'` uses a fresh per-request session,
+reports no managed cached tokens, and destroys that session when the call completes,
+fails, or is cancelled; it also disables anonymous structured bases. This does not
+unload browser model weights or prevent the inference cache needed inside a single
+generation. `promptCache.key` selects the cache identity instead of `threadId`, while
+AG-UI run correlation still uses the caller's original thread. Reuse additionally
+requires matching instructions/options and compatible supplied history. `short` and
+`long` use the existing bounded, opportunistic session cache; this adapter does not
+promise provider retention durations or add a TTL. Direct adapter calls that omit
+`promptCache` retain their existing behavior. Emulated-reasoning streaming calls
+remain ephemeral regardless of a supplied cache key, so working notes cannot leak
+into retained conversational state.
 
 An aborted or failed call frees its session, and the next request starts again from the messages. Aborting a request never destroys the session a thread keeps, and a kept session the browser destroyed is replaced on the next request. `destroyPromptApiSessions()` frees every kept session.
 
@@ -60,3 +89,14 @@ An aborted or failed call frees its session, and the next request starts again f
 Each call's token counts are in `RUN_FINISHED`'s `usage`: `promptTokens` (the session's whole context), `completionTokens`, and `promptTokensDetails.cachedTokens` for what a reused session had already read. The reply is measured once it's done, so counting never holds up the first token; the counts are close, not exact (the Prompt API counts whole messages). Timings are in `usage.providerUsageDetails` (`PromptApiProviderUsageDetails`: `firstTokenMs`, `promptMs`, `decodeMs`, `decodeTokens`, `contextUsage`, `contextWindow`, `contextOverflow`). With Gemini Nano in Chrome on an M3 Ultra: about 55 to 60 tokens/s, the first token 70 ms after a short prompt (0.3 s with tools, for the decision), and prompts read at 700 to 1,700 tokens/s.
 
 **Status:** early (0.0.x); the API may change, and so does the Prompt API. See the [repository README](https://github.com/daveycodez/tanstack-ai-browser#readme).
+
+
+### Opt-in emulated reasoning
+
+`reasoning: "high"` (or `{ level: "high", budgetTokens: 512 }`) enables an adapter-owned two-pass flow. An isolated draft produces short working notes, then the final pass uses those notes while retaining the browser's native JSON Schema constraint or tool handling. `reasoning: "off"` and an omitted option preserve the ordinary one-pass behavior.
+
+This is **emulation**, not access to native hidden model reasoning or a browser thinking-effort control. The adapter measures draft text through a separate clone's `measureContextUsage`, subtracting the empty-message overhead. An explicit budget bounds the retained/passed note text using that context measurement; streaming chunks may already have generated additional text before cancellation. The adapter aborts only its draft stream at the budget and leaves the caller's signal and final pass active. No fallback thinking budget is imposed when the caller omits one.
+
+Config callbacks `onThinking(delta)` and `onGenerationPhase(phase)` expose working notes and adapter-managed phases. Streaming also emits normal AGUI reasoning events. Usage marks `reasoningEmulated: true`, `reasoningTokenMeasurement: "context-usage"`, and `reasoningBudgetEnforcement: "best-effort"`; `thinkingTokens` is a context-measured estimate, not a native generated-token count.
+
+Opt-in calls use disposable sessions so working notes never enter retained conversation history. This trades retained-prefix reuse for isolation. Draft, counter, and final sessions are destroyed after the call. Sampling and the model's settings are unchanged.

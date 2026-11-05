@@ -1,0 +1,195 @@
+{
+  "schemaVersion": 3,
+  "experiment": "Checkers prompt compaction",
+  "date": "2026-11-04",
+  "baseRevision": "aedca34",
+  "suiteVersion": "checkers-audited-v13",
+  "outcomeVersion": "checked-replies-v6",
+  "before": "shared-v18",
+  "after": "shared-v19",
+  "execution": "Chrome on Mac; three isolated model runtimes for quality; LFM3 alone for timing",
+  "config": {
+    "thinking": false,
+    "sampling": "model defaults",
+    "qualityCases": 44,
+    "repetitions": 2,
+    "humanColor": "white",
+    "qualityOrder": "even cases before/after; odd cases after/before; identical seeded action orders",
+    "promptCache": "long"
+  },
+  "quality": [
+    {
+      "model": "LiquidAI/LFM3-1.7B-GGUF",
+      "before": {
+        "trials": 88,
+        "inferred": 86,
+        "legal": 88,
+        "scored": 64,
+        "passed": 59,
+        "meanInputTokens": 1257.6046511627908
+      },
+      "after": {
+        "trials": 88,
+        "inferred": 86,
+        "legal": 88,
+        "scored": 64,
+        "passed": 59,
+        "meanInputTokens": 881
+      },
+      "inputReductionPercent": 29.946187843260542,
+      "runIds": [
+        "33d02eb4-4cd4-4a61-8e7b-2d70d3e5d412",
+        "cc7755ee-3ddb-4455-9c84-3e5daa1fd296",
+        "bdc07d18-9609-4cf6-b469-b39ada63cc5f",
+        "7cad93d6-1ab9-424b-9fdc-ce0af064f04d"
+      ]
+    },
+    {
+      "model": "prompt-api",
+      "before": {
+        "trials": 88,
+        "inferred": 86,
+        "legal": 88,
+        "scored": 64,
+        "passed": 59,
+        "meanInputTokens": 1232.8372093023256
+      },
+      "after": {
+        "trials": 88,
+        "inferred": 86,
+        "legal": 88,
+        "scored": 64,
+        "passed": 59,
+        "meanInputTokens": 871.6744186046511
+      },
+      "inputReductionPercent": 29.295253904776285,
+      "runIds": [
+        "031ca4da-62b1-404d-a8b8-4e4fc6b8eb0f",
+        "3b4ed0fb-4f68-4289-8896-47704b319c0f",
+        "1939b079-6256-475b-9474-43a0b34ac8df",
+        "47701d28-5623-46f6-aec0-d4406f1fe015"
+      ]
+    },
+    {
+      "model": "unsloth/Qwen3.5-2B-GGUF",
+      "before": {
+        "trials": 88,
+        "inferred": 86,
+        "legal": 88,
+        "scored": 64,
+        "passed": 52,
+        "meanInputTokens": 1238.7209302325582
+      },
+      "after": {
+        "trials": 88,
+        "inferred": 86,
+        "legal": 88,
+        "scored": 64,
+        "passed": 57,
+        "meanInputTokens": 875.9302325581396
+      },
+      "inputReductionPercent": 29.287524640946216,
+      "runIds": [
+        "814e9473-0a36-4ed7-9bf8-c22b464523f6",
+        "343401e9-b621-474d-8645-b96061338501",
+        "c5204c40-3072-41d6-9cd6-315b25ec69db",
+        "43be592f-418d-4f4c-ab7f-c71ae217404c"
+      ]
+    }
+  ],
+  "replay": {
+    "model": "LiquidAI/LFM3-1.7B-GGUF",
+    "uniquePositions": 7,
+    "order": [
+      "shared-v18",
+      "shared-v19",
+      "shared-v19",
+      "shared-v18"
+    ],
+    "warmupCallsExcluded": 18,
+    "recordedCalls": 56,
+    "before": {
+      "version": "shared-v18",
+      "meanInputTokens": 1498.2857142857142,
+      "groups": {
+        "changed-turn": {
+          "samples": 12,
+          "medianTotalMs": 646.4500000476837,
+          "meanTotalMs": 645.4750000039736,
+          "medianPromptMs": 418.0499999523163
+        },
+        "exact-repeat": {
+          "samples": 14,
+          "medianTotalMs": 217.69999998807907,
+          "meanTotalMs": 229.20000000510896,
+          "medianPromptMs": 4.100000023841858
+        },
+        "first-turn": {
+          "samples": 2,
+          "medianTotalMs": 211.30000007152557,
+          "meanTotalMs": 211.30000007152557,
+          "medianPromptMs": 5.949999988079071
+        }
+      }
+    },
+    "after": {
+      "version": "shared-v19",
+      "meanInputTokens": 1025.142857142857,
+      "groups": {
+        "changed-turn": {
+          "samples": 12,
+          "medianTotalMs": 525.7999999523163,
+          "meanTotalMs": 513.8499999741713,
+          "medianPromptMs": 289.55000001192093
+        },
+        "exact-repeat": {
+          "samples": 14,
+          "medianTotalMs": 217.19999998807907,
+          "meanTotalMs": 229.1142857159887,
+          "medianPromptMs": 4.100000023841858
+        },
+        "first-turn": {
+          "samples": 2,
+          "medianTotalMs": 209.45000004768372,
+          "meanTotalMs": 209.45000004768372,
+          "medianPromptMs": 4.050000011920929
+        }
+      }
+    },
+    "inputReductionPercent": 31.57894736842105,
+    "changedTurnMedianReductionPercent": 18.66346973261165
+  },
+  "sourceSha256": {
+    "apps/checkers/src/lib/shared-prompt.ts": "12756dac55e4d5d717ac6fb53d287568cbfa1aa258b83d1c3429f67204938549",
+    "apps/checkers/src/lib/concise-prompt.ts": "80fd8aa4549b4515e772245bfd6791f29091c2d9c8a1520be27d12ac2d273083",
+    "apps/checkers/bench/prompt-comparison.ts": "a75ce534f91d3e7bb785cb178a11c2336daf27c075453307bf5f7a6402b19c72",
+    "apps/checkers/src/lib/move-outcomes.ts": "5088452ac6f7d6f4ae75006e6e3a6fa64d5316f170f14e01f8e618dcbf20240f"
+  },
+  "notes": [
+    "All accepted sets, outcome search, legal labels/order, schema, sampling and generation settings are unchanged. No recommended moves are added.",
+    "All 528 recorded quality inputs were reproduced byte for byte after cleanup and default activation; 264 before/after pairs had identical action order and scoring.",
+    "516 inferred decisions and 12 forced turns were legal, with zero generation errors.",
+    "Earlier candidate wordings were rejected for tactical regressions; only the accepted final comparison is summarized here.",
+    "Six historical holdouts are compatibility checks, not fresh unseen evidence.",
+    "Input savings depend on position and tokenizer; suite-wide native means are about 29-30%, while the fixed seven-position real-game replay averages 31.6%.",
+    "Quality runs used concurrent models and their latency is not used for speed claims. Timing is a warm serial replay, not a cold-load or whole-game benchmark.",
+    "The first timing sample in each block follows an excluded warm-up at that position. Changed turns and exact retries are reported separately.",
+    "Raw reports are local artifacts and are not tracked."
+  ],
+  "validation": {
+    "tests": 255,
+    "typecheck": "passed",
+    "lint": "passed; 12 existing warnings",
+    "benchmarkAudit": "passed",
+    "productionBuild": "passed",
+    "recordedInputsReproduced": 528,
+    "matchedActionOrderAndScoringPairs": 264,
+    "defaultGameSmoke": {
+      "humanMove": "a3-b4",
+      "aiMove": "d6-c5",
+      "promptVersion": "shared-v19",
+      "thinking": false,
+      "browserConsoleErrors": 0
+    }
+  }
+}
