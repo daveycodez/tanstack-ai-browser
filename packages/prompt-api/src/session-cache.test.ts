@@ -7,7 +7,7 @@ import { pathToFileURL } from "node:url"
 import { createRequire } from "node:module"
 
 const root = resolve(process.cwd(), "../..")
-const require = createRequire(join(root, "packages/structured-output/package.json"))
+const require = createRequire(join(root, "packages/prompt-api/package.json"))
 const { build } = await import(pathToFileURL(require.resolve("esbuild")).href) as typeof import("esbuild")
 const temporary = await mkdtemp(join(tmpdir(), "prompt-session-cache-"))
 after(() => rm(temporary, { recursive: true, force: true }))

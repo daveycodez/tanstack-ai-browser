@@ -10,7 +10,7 @@ const repo = resolve(here, "../../..")
 const app = resolve(repo, process.argv[2] ?? "")
 const rel = relative(repo, app)
 if (!process.argv[2] || !rel || rel.startsWith("..") || isAbsolute(rel)) {
-  throw new Error("Usage: node packages/structured-output/bench/prepare-cache-qa.mjs <vite-app-directory> [baseline-ref|--clean]")
+  throw new Error("Usage: node packages/transformers-js/bench/prepare-cache-qa.mjs <vite-app-directory> [baseline-ref|--clean]")
 }
 const pages = [
   ["__adapter-cache-qa.html", "cache-template.html"],
@@ -59,7 +59,7 @@ if (process.argv[3] === "--clean") {
     const rootUrl = `/@fs/${repo}/`
     for (const [index,[,templateName]] of pages.entries()) {
       const template = await readFile(join(here,templateName),"utf8")
-      const text = template.replace("__CASES_URL__",JSON.stringify(rootUrl+"packages/structured-output/bench/cache-cases.ts"))
+      const text = template.replace("__CASES_URL__",JSON.stringify(rootUrl+"packages/transformers-js/bench/cache-cases.ts"))
         .replace("__ROOT_URL__",JSON.stringify(rootUrl))
         .replace("__WORKER_URL__",JSON.stringify(rootUrl+"packages/webgl/bench/mem-worker.ts"))
       await writeFile(htmlFiles[index],marker+"\n"+text,{flag:"wx"})

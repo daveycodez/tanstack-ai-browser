@@ -6,7 +6,7 @@
     "types": ["node"],
     "module": "ESNext",
     "moduleResolution": "bundler",
-    "lib": ["ES2022", "DOM", "DOM.Iterable", "WebWorker"]
+    "lib": ["ES2022", "DOM", "DOM.Iterable"]
   },
   "include": ["src/**/*.test.ts"],
   "references": [{ "path": "./tsconfig.lib.json" }]

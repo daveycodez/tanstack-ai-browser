@@ -13,9 +13,5 @@
   },
   "include": ["src/**/*.ts"],
   "exclude": ["src/**/*.test.ts"],
-  "references": [
-    {
-      "path": "../structured-output/tsconfig.lib.json"
-    }
-  ]
+  "references": []
 }

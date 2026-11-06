@@ -11,7 +11,7 @@ import { legalMoves, newGame } from "./checkers.ts"
 import type { Game } from "./checkers.ts"
 import { buildTurnLog, createAiTrace, finishAiTrace } from "./turn-log.ts"
 
-const require = createRequire(new URL("../../../../packages/structured-output/package.json", import.meta.url))
+const require = createRequire(new URL("../../../../packages/transformers-js/package.json", import.meta.url))
 const { build } = await import(pathToFileURL(require.resolve("esbuild")).href) as typeof import("esbuild")
 const temporary = await mkdtemp(join(tmpdir(), "checkers-review-"))
 const contexts: Record<string, unknown> = {}

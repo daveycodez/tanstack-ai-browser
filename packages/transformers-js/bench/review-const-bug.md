@@ -1,6 +1,6 @@
 # Finite-string constraint dead-end diagnostic
 
-Run `node packages/structured-output/bench/review-const-bug.mjs` from the repository root. It bundles this package's actual `createConstraint()` into a temporary directory and uses the installed `llguidance@0.2.1` public API. It prints JSON and deliberately exits unsuccessfully while the desired rejection assertions fail. This is a diagnostic outside the automated source test suite.
+Run `node packages/transformers-js/bench/review-const-bug.mjs` from the repository root. It bundles this package's actual `createConstraint()` into a temporary directory and uses the installed `llguidance@0.2.1` public API. It prints JSON and deliberately exits unsuccessfully while the desired rejection assertions fail. This is a diagnostic outside the automated source test suite.
 
 `review-const-bug.json` records the current run. The exact one-byte tokenizer removes model quality, sampling, model inference, reasoning markers, HF tokenizer conversion, and prompt caching from the reproduction. Valid ASCII, literal `<think>` / `</think>`, Unicode, quotes, control-character escapes, and equivalent Unicode-escape spellings remain controls.
 

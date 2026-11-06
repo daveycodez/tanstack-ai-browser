@@ -49,6 +49,58 @@ test("structured output forwards the schema, canonical token cap, thinking cap, 
   } finally { unloadModel() }
 })
 
+test("output schemas' objects are closed unless they set additionalProperties, as in OpenAI's strict mode", async () => {
+  const { transformersJsText } = await import("./adapter.js")
+  const { unloadModel } = await import("./client.js")
+  const sent: Array<unknown> = []
+  FakeWorker.generate = (worker, request) => {
+    sent.push(request.outputSchema)
+    worker.send({ type: "token", id: request.id, text: '{"city":"Oslo"}' })
+    worker.send({ type: "done", id: request.id, stats })
+  }
+  const run = (outputSchema: Record<string, unknown>) => transformersJsText(MODEL).structuredOutput({ chatOptions: options(), outputSchema })
+  try {
+    unloadModel()
+    // Nested objects too: an open object's free-form keys are slow to constrain and let a model invent keys.
+    const nested = { type: "object", properties: { city: { type: "string" }, author: { type: "object", properties: { name: { type: "string" } } }, tags: { type: "array", items: { type: "object", properties: { a: { type: "string" } } } } } }
+    const before = JSON.stringify(nested)
+    await run(nested)
+    assert.deepEqual(sent.at(-1), {
+      type: "object",
+      properties: {
+        city: { type: "string" },
+        author: { type: "object", properties: { name: { type: "string" } }, additionalProperties: false },
+        tags: { type: "array", items: { type: "object", properties: { a: { type: "string" } }, additionalProperties: false } }
+      },
+      additionalProperties: false
+    })
+    assert.equal(JSON.stringify(nested), before, "the caller's schema is never mutated")
+    // Saying so keeps an object open.
+    const open = { type: "object", properties: { city: { type: "string" } }, additionalProperties: true }
+    await run(open)
+    assert.deepEqual(sent.at(-1), open)
+  } finally { unloadModel() }
+})
+
+test("forced tool arguments are generated against closed objects", async () => {
+  const { transformersJsText } = await import("./adapter.js")
+  const { unloadModel } = await import("./client.js")
+  const inputSchema = { type: "object", properties: { city: { type: "string" } }, required: ["city"] }
+  unloadModel()
+  let sent: unknown
+  FakeWorker.generate = (worker, request) => {
+    sent = request.outputSchema
+    worker.send({ type: "token", id: request.id, text: '{"city":"Paris"}' })
+    worker.send({ type: "done", id: request.id, stats })
+  }
+  try {
+    const chunks = []
+    for await (const chunk of transformersJsText(MODEL).chatStream({ ...options(), tools: [{ name: "get_weather", description: "Weather", inputSchema }], toolChoice: { type: "tool", name: "get_weather" } })) chunks.push(chunk)
+    assert.ok(chunks.some(chunk => chunk.type === "TOOL_CALL_END"))
+    assert.deepEqual(sent, { ...inputSchema, additionalProperties: false })
+  } finally { unloadModel() }
+})
+
 test("required and specific tools use constrained decisions and arguments, emitting one tool call", async () => {
   const { transformersJsText } = await import("./adapter.js")
   const { unloadModel } = await import("./client.js")

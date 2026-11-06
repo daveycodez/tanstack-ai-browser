@@ -11,7 +11,7 @@ revision of WebGL, Transformers.js, and their shared tool/constraint helpers.
 From the workspace root, prepare pages on the existing Checkers Vite origin:
 
 ```sh
-node packages/structured-output/bench/prepare-cache-qa.mjs apps/checkers 390c71a
+node packages/transformers-js/bench/prepare-cache-qa.mjs apps/checkers 390c71a
 ```
 
 The preparation refuses to overwrite existing files. Open these pages on the app's
@@ -37,7 +37,7 @@ results, including failures. The comparison utility verifies input equality befo
 reporting per-group medians (excluding each group's first request):
 
 ```sh
-node packages/structured-output/bench/compare-cache-results.mjs before.json after.json
+node packages/transformers-js/bench/compare-cache-results.mjs before.json after.json
 ```
 
 Consumers supply messages, tools, schemas, thread IDs and optional standard
@@ -50,7 +50,7 @@ used. Native Apfel cache metadata is reported only when the server supplies it.
 After saving reports, remove the generated pages and frozen copies before Nx lint:
 
 ```sh
-node packages/structured-output/bench/prepare-cache-qa.mjs apps/checkers --clean
+node packages/transformers-js/bench/prepare-cache-qa.mjs apps/checkers --clean
 ```
 
 Do not commit generated app pages or frozen copies. No `.env` files are read, and

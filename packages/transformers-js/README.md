@@ -57,8 +57,8 @@ instruction tokens. Templates requiring a user query use tokenizer-only A/B prob
 their shared prefix is intersected with the actual full prompt. Probe text never
 reaches model inference. One latest prefix per tokenizer is memoized by exact
 system/tools/thinking, within the existing cache budgets.
-Structured request serialization is unchanged: exact schema guidance stays in the
-system prompt, and the original schema separately constrains decoding. Current tool
+Structured request serialization is unchanged: schema guidance stays in the
+system prompt, and the same schema separately constrains decoding. Current tool
 results/thinking retain the original chat-template turn semantics. Native common/end
 checkpoint scheduling is unchanged.
 `promptTokensDetails.cachedTokens` and `usage.providerUsageDetails.promptMs` report
@@ -90,7 +90,7 @@ export default defineConfig({
 
 ### Constrained structured output and guided tools
 
-`chat({ outputSchema })` forwards the schema to the adapter-owned worker. A shared tokenizer-aware constraint interpreter masks logits through Transformers.js's public `logits_processor` hook before sampling; no Transformers.js source patches or custom runtime builds are required. Thinking remains separate from the constrained JSON answer. `reasoning: { level: "high", budgetTokens: 512 }` closes reasoning at the requested ceiling and then activates the schema; compulsory-thinking models open their thinking block even when the template leaves the marker to generation.
+`chat({ outputSchema })` forwards the schema to the adapter-owned worker. A shared tokenizer-aware constraint interpreter masks logits through Transformers.js's public `logits_processor` hook before sampling; no Transformers.js source patches or custom runtime builds are required. Thinking remains separate from the constrained JSON answer. Objects that don't set `additionalProperties` are treated as closed, as in OpenAI's strict mode, for the answer and for tool arguments alike: a free-form key is slow to constrain ([llguidance-js#5](https://github.com/nico-martin/llguidance-js/issues/5)) and lets a model invent keys. Set `additionalProperties: true` for an open object. The JSON may be laid out the way models write it (`"key": "value"`, with whitespace between tokens, at most 8 whitespace-only tokens in a row). Items stay `,`-separated because of [llguidance-js#6](https://github.com/nico-martin/llguidance-js/issues/6). `reasoning: { level: "high", budgetTokens: 512 }` closes reasoning at the requested ceiling and then activates the schema; compulsory-thinking models open their thinking block even when the template leaves the marker to generation.
 
 With `stream: true`, the structured answer streams as OpenRouter's does (`structuredOutputStream`): `RUN_STARTED`, the thinking as `REASONING_*` events, the raw JSON as `TEXT_MESSAGE_*` deltas, then a `CUSTOM` `structured-output.complete` event with `{ object, raw, reasoning? }` and `RUN_FINISHED` with usage; a failure ends with `RUN_ERROR` (`code: "aborted"` when canceled). `structuredOutput()` drains the same stream.
 

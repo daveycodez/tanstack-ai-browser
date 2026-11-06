@@ -17,9 +17,6 @@
     },
     {
       "path": "./packages/webgllm"
-    },
-    {
-      "path": "./packages/structured-output"
     }
   ],
   "compilerOptions": {}

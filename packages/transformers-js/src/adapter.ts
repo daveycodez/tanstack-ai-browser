@@ -1,4 +1,4 @@
-import { chooseGuidedTool, addGuidedUsage, validateStructuredValue } from "@tanstack-ai-browser/structured-output"
+import { chooseGuidedTool, addGuidedUsage, closeObjects, validateStructuredValue } from "./constraint/index.js"
 /**
  * A TanStack AI text adapter for Transformers.js models that run in the
  * browser, on WebGPU in a Web Worker. Hand it to `chat()` like any hosted
@@ -815,7 +815,12 @@ export class TransformersJsTextAdapter<
     options: StructuredOutputOptions<TransformersJsTextProviderOptions>,
     runId = options.chatOptions.runId ?? nextId("run")
   ): AsyncGenerator<AdapterYieldChunk> {
-    const { chatOptions, outputSchema } = options
+    const { chatOptions } = options
+    // Closed unless they say otherwise, as in OpenAI's strict mode, for the
+    // answer and for tool arguments alike: a free-form key costs the
+    // constraint about a second a token on a real vocabulary
+    // (https://github.com/nico-martin/llguidance-js/issues/5).
+    const outputSchema = closeObjects(options.outputSchema) as Record<string, unknown>
     const model = this.model
     const threadId = chatOptions.threadId
     const messageId = nextId("msg")

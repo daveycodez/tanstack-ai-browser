@@ -1,10 +1,15 @@
 import assert from "node:assert/strict"
 import { test } from "node:test"
-import { createConstraint, tokenAllowed, type Constraint } from "./index.js"
+import { createConstraint, MAX_WHITESPACE_RUN, tokenAllowed, type Constraint } from "./index.js"
 const EOS = 256
 const tokenizer = { tokens: Array.from({ length: 257 }, (_, id) => id === EOS ? [] : [id]), eos_token_id: EOS, special_token_ids: [EOS] }
 const schema = { type: "object", properties: { moveId: { type: "string", enum: ["b6-a5", "d6-c5"] } }, required: ["moveId"], additionalProperties: false }
 const bytes = (text: string) => new TextEncoder().encode(text)
+// JSON as generation writes it: a space after each key's colon, items "," apart.
+const json = (value: unknown): string =>
+  Array.isArray(value) ? `[${value.map(json).join(",")}]` :
+  value !== null && typeof value === "object" ? `{${Object.entries(value).map(([key, item]) => `${JSON.stringify(key)}: ${json(item)}`).join(",")}}` :
+  JSON.stringify(value)
 function accept(c: Constraint, text: string) {
   for (const token of bytes(text)) {
     assert.ok(tokenAllowed(c.computeMask(), token), `token ${token} of ${text} is allowed`)
@@ -17,7 +22,7 @@ test("a move object enforces the enum and permits only EOS after completion", as
   assert.equal(c.vocabSize, 257)
   assert.equal(c.complete, false)
   assert.equal(tokenAllowed(c.computeMask(), EOS), false)
-  accept(c, '{"moveId":"')
+  accept(c, '{"moveId": "')
   assert.equal(tokenAllowed(c.computeMask(), "x".charCodeAt(0)), false)
   accept(c, 'b6-a5"}')
   assert.equal(c.complete, true)
@@ -32,7 +37,7 @@ test("a move object enforces the enum and permits only EOS after completion", as
 
 test("clones maintain separate speculative prefixes", async () => {
   const a = await createConstraint({ schema, tokenizer })
-  accept(a, '{"moveId":"')
+  accept(a, '{"moveId": "')
   const b = a.clone()
   accept(a, 'b6-a5"}')
   accept(b, 'd6-c5"}')
@@ -43,18 +48,18 @@ test("clones maintain separate speculative prefixes", async () => {
 test("exact UTF-8 bytes and escaped strings are accepted across token boundaries", async () => {
   const value = { answer: 'café ☃ "quoted"\n' }
   const c = await createConstraint({ schema: { const: value }, tokenizer })
-  accept(c, JSON.stringify(value))
+  accept(c, json(value))
   assert.equal(c.complete, true)
   c.dispose()
 })
 
 test("HF ByteLevel vocabulary bridge preserves raw byte tokens and added special ids", async () => {
   const bridge = {
-    tokenizerJSON: { model: { type: "BPE", vocab: { '{': 0, '}': 1, '"': 2, ':': 3, 'x': 4, '1': 5 } }, decoder: { type: "ByteLevel" }, added_tokens: [{ id: 6, content: "<eos>", special: true }] },
+    tokenizerJSON: { model: { type: "BPE", vocab: { '{': 0, '}': 1, '"': 2, ':': 3, 'x': 4, '1': 5, 'Ġ': 7 } }, decoder: { type: "ByteLevel" }, added_tokens: [{ id: 6, content: "<eos>", special: true }] },
     eos_token_id: 6
   }
   const c = await createConstraint({ schema: { const: { x: 1 } }, tokenizer: bridge })
-  for (const token of [0,2,4,2,3,5,1]) c.accept(token)
+  for (const token of [0,2,4,2,3,7,5,1]) c.accept(token)
   assert.equal(c.complete, true)
   assert.equal(tokenAllowed(c.computeMask(), 6), true)
   c.dispose()
@@ -104,33 +109,56 @@ test("structured answer preserves tag literals in JSON and strips only leading r
 })
 
 
-test("compact punctuation forbids whitespace loops outside strings while preserving string spaces", async () => {
-  const source = { type: "object", properties: { answer: { const: "a b" } }, required: ["answer"], additionalProperties: false, "x-guidance": { whitespace_flexible: true, key_separator: ": ", item_separator: ", " } }
+test("JSON takes whitespace where models write it, in runs of at most MAX_WHITESPACE_RUN tokens", async () => {
+  // The caller's own layout hints don't change it.
+  const source = { type: "object", properties: { answer: { const: "a b" } }, required: ["answer"], additionalProperties: false, "x-guidance": { whitespace_flexible: false, key_separator: ":", item_separator: ", " } }
   const before = JSON.stringify(source)
   const c = await createConstraint({ schema: source, tokenizer })
-  assert.equal(tokenAllowed(c.computeMask(), 32), false)
-  accept(c, "{")
-  assert.equal(tokenAllowed(c.computeMask(), 32), false)
-  assert.equal(tokenAllowed(c.computeMask(), 10), false)
+  accept(c, "{\n  ")
   accept(c, '"answer"')
-  assert.equal(tokenAllowed(c.computeMask(), 32), false)
   accept(c, ":")
-  assert.equal(tokenAllowed(c.computeMask(), 32), false)
-  accept(c, '"a b"}')
+  assert.equal(tokenAllowed(c.computeMask(), 34), false, "the key separator's space comes first")
+  accept(c, " ")
+  accept(c, '"a b"\n}')
   assert.equal(c.complete, true)
+  assert.equal(tokenAllowed(c.computeMask(), 32), false, "no whitespace after a complete value")
   assert.equal(JSON.stringify(source), before, "caller schema is never mutated")
   c.dispose()
+
+  const run = await createConstraint({ schema: source, tokenizer })
+  accept(run, "{")
+  const copy = run.clone()
+  for (let i = 0; i < MAX_WHITESPACE_RUN; i++) {
+    assert.equal(tokenAllowed(run.computeMask(), 32), true, `space ${i + 1}`)
+    run.accept(32)
+  }
+  assert.equal(tokenAllowed(run.computeMask(), 32), false, "a run stops at the cap")
+  assert.equal(tokenAllowed(run.computeMask(), 10), false)
+  assert.equal(tokenAllowed(copy.computeMask(), 32), true, "a clone counts its own run")
+  accept(run, '"answer"')
+  assert.equal(tokenAllowed(run.computeMask(), 32), true, "a new run after the JSON goes on")
+  run.dispose(); copy.dispose()
+
   const array = await createConstraint({ schema: { const: ["a b", "c d"] }, tokenizer })
-  accept(array, '["a b",')
-  assert.equal(tokenAllowed(array.computeMask(), 32), false)
-  accept(array, '"c d"]')
+  accept(array, '["a b", "c d"]')
   assert.equal(array.complete, true)
   array.dispose()
 })
 
+test("open objects take a space before their next key: no stray-colon keys", async () => {
+  const open = { type: "object", properties: { city: { type: "string" } }, required: ["city"] }
+  const c = await createConstraint({ schema: open, tokenizer: lfmTokenizer })
+  accept(c, '{"city": "Oslo",')
+  assert.equal(tokenAllowed(c.computeMask(), SPACE_QUOTE), true)
+  c.accept(SPACE_QUOTE)
+  accept(c, 'country": "Norway"}')
+  assert.equal(c.complete, true)
+  c.dispose()
+})
+
 test("finite tool-routing and argument enums reject wrong prefixes before closing quotes", async () => {
   const route = await createConstraint({ schema: { type: "object", properties: { action: { type: "string", enum: ["answer", "lookup_weather"] } }, required: ["action"], additionalProperties: false }, tokenizer })
-  accept(route, '{"action":"')
+  accept(route, '{"action": "')
   for (const invalid of ["x", " ", "L", "0"]) assert.equal(tokenAllowed(route.computeMask(), invalid.charCodeAt(0)), false)
   assert.equal(tokenAllowed(route.computeMask(), "a".charCodeAt(0)), true)
   assert.equal(tokenAllowed(route.computeMask(), "l".charCodeAt(0)), true)
@@ -144,7 +172,7 @@ test("finite tool-routing and argument enums reject wrong prefixes before closin
   assert.equal(route.complete, true); assert.equal(tool.complete, true)
   route.dispose();tool.dispose()
   const args = await createConstraint({ schema: { type: "object", properties: { city: { type: "string", enum: ["London"] } }, required: ["city"], additionalProperties: false }, tokenizer })
-  accept(args, '{"city":"')
+  accept(args, '{"city": "')
   assert.equal(tokenAllowed(args.computeMask(), "B".charCodeAt(0)), false)
   assert.equal(tokenAllowed(args.computeMask(), "l".charCodeAt(0)), false)
   accept(args, 'London"}')
@@ -206,4 +234,37 @@ test("explicit EOS replaces existing camel-case and snake-case metadata consiste
   }
   assert.equal(source.eosTokenId, 256)
   assert.equal(source.eos_token_id, 256)
+})
+
+// Multi-byte tokens LFM3 writes JSON with: `":` closes a key, ` "` opens a
+// value after the separator's space, `",` closes a value before another key.
+const QUOTE_COLON = 257, SPACE_QUOTE = 258, QUOTE_COMMA = 259, LFM_EOS = 260
+const lfmTokenizer = {
+  tokens: Array.from({ length: 261 }, (_, id) =>
+    id === QUOTE_COLON ? [34, 58] : id === SPACE_QUOTE ? [32, 34] : id === QUOTE_COMMA ? [34, 44] : id === LFM_EOS ? [] : [id === 256 ? 0 : id]),
+  eos_token_id: LFM_EOS,
+  special_token_ids: [LFM_EOS]
+}
+const closedCity = { type: "object", properties: { city: { type: "string" } }, required: ["city"], additionalProperties: false }
+
+test("a key's colon can't be followed by another quote-colon: a value never starts with a stray ':'", async () => {
+  const c = await createConstraint({ schema: closedCity, tokenizer: lfmTokenizer })
+  accept(c, '{"city')
+  c.accept(QUOTE_COLON)
+  assert.equal(tokenAllowed(c.computeMask(), QUOTE_COLON), false, '":" again would open the value with a colon')
+  assert.equal(tokenAllowed(c.computeMask(), SPACE_QUOTE), true, "the space and quote models write next")
+  c.accept(SPACE_QUOTE)
+  accept(c, 'Paris"}')
+  assert.equal(c.complete, true)
+  c.dispose()
+})
+
+test("a closed object takes no comma after its last key", async () => {
+  const c = await createConstraint({ schema: closedCity, tokenizer: lfmTokenizer })
+  accept(c, '{"city": "Paris')
+  assert.equal(tokenAllowed(c.computeMask(), QUOTE_COMMA), false)
+  accept(c, '"')
+  assert.equal(tokenAllowed(c.computeMask(), 44), false)
+  assert.equal(tokenAllowed(c.computeMask(), 125), true)
+  c.dispose()
 })

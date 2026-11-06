@@ -1,5 +1,6 @@
 import type { JsonGuidanceRuntime } from "llguidance/json-schema"
 import { canonicalAsciiObject, canonicalTokenMask } from "./canonical-mask.js"
+import { whitespaceTokenIds } from "./whitespace.js"
 
 /** Exact model tokenizer, not token strings decoded independently. */
 export type ConstraintTokenizer = object
@@ -9,7 +10,23 @@ export type ConstraintOptions = {
   /** Override when a runtime keeps EOS on its model config rather than tokenizer. */
   eosTokenId?: number
   maxTokens?: number
+  /**
+   * How the JSON may be laid out. "model" (the default) takes whitespace
+   * where models write it, as they write it: held to compact JSON, a model
+   * that writes `"key": "value"` (LFM3) gets no ` "` token after the colon
+   * or a comma, picks `":` instead and starts a value (or, in an open
+   * object, a key) with a stray colon. "compact" is JSON.stringify's
+   * layout, for checking parsed values.
+   */
+  layout?: "model" | "compact"
 }
+
+/**
+ * Whitespace-only tokens in a row before whitespace is refused until the
+ * JSON goes on: a laid-out document needs a few between two tokens, and a
+ * model stuck writing whitespace would otherwise run to its output limit.
+ */
+export const MAX_WHITESPACE_RUN = 8
 
 export class StructuredOutputError extends Error {
   constructor(readonly code: "unsupported-schema" | "invalid-tokenizer" | "constraint-dead-end" | "constraint-violation", message: string, options?: ErrorOptions) {
@@ -55,7 +72,17 @@ class JsonConstraint implements Constraint {
   private mask: Uint32Array | undefined
   private accepting = false
   private disposed = false
-  constructor(private readonly interpreter: Interpreter, readonly vocabSize: number, readonly eosTokenId: number, private readonly endAtAcceptance: boolean, private readonly canonicalMask?: Uint32Array) {}
+  /** Whitespace-only tokens accepted in a row. */
+  private whitespaceRun = 0
+  constructor(
+    private readonly interpreter: Interpreter,
+    readonly vocabSize: number,
+    readonly eosTokenId: number,
+    private readonly endAtAcceptance: boolean,
+    private readonly canonicalMask?: Uint32Array,
+    /** Whitespace-only tokens, when the layout takes whitespace (see MAX_WHITESPACE_RUN). */
+    private readonly whitespace?: Uint32Array
+  ) {}
 
   private check() {
     if (this.disposed) throw new StructuredOutputError("constraint-violation", "The structured-output constraint has been disposed.")
@@ -73,7 +100,10 @@ class JsonConstraint implements Constraint {
       return this.mask = mask
     }
     const canonical = this.canonicalMask
-    const allowed = canonical ? result.mask.map((word, index) => word & canonical[index]) : result.mask
+    const whitespace = this.whitespace && this.whitespaceRun >= MAX_WHITESPACE_RUN ? this.whitespace : undefined
+    const allowed = canonical || whitespace
+      ? result.mask.map((word, index) => word & (canonical ? canonical[index] : ~0) & (whitespace ? ~whitespace[index] : ~0))
+      : result.mask
     if (!allowed.some(word => word !== 0)) throw new StructuredOutputError("constraint-dead-end", "No token can complete the requested output schema.")
     this.accepting = tokenAllowed(allowed, this.eosTokenId)
     if (this.accepting && this.endAtAcceptance) {
@@ -95,12 +125,15 @@ class JsonConstraint implements Constraint {
     if (!tokenAllowed(this.computeMask(), token)) throw new StructuredOutputError("constraint-violation", `Token ${token} violates the requested output schema.`)
     const result = this.interpreter.commitToken(token)
     if (result.backtrack || result.ffTokens.length) throw new StructuredOutputError("constraint-violation", "Unexpected constraint backtracking or token insertion.")
+    if (this.whitespace) this.whitespaceRun = tokenAllowed(this.whitespace, token) ? this.whitespaceRun + 1 : 0
     this.mask = undefined
   }
 
   clone(): Constraint {
     this.check()
-    return new JsonConstraint(this.interpreter.clone(), this.vocabSize, this.eosTokenId, this.endAtAcceptance, this.canonicalMask)
+    const copy = new JsonConstraint(this.interpreter.clone(), this.vocabSize, this.eosTokenId, this.endAtAcceptance, this.canonicalMask, this.whitespace)
+    copy.whitespaceRun = this.whitespaceRun
+    return copy
   }
 
   dispose() {
@@ -126,9 +159,23 @@ function excludesNumericRoot(schema: unknown): boolean {
   return Array.isArray(s.allOf) && s.allOf.some(excludesNumericRoot)
 }
 
+type Layout = { whitespace_flexible: boolean; key_separator: string; item_separator: string }
+/** JSON.stringify's layout. */
+const COMPACT: Layout = { whitespace_flexible: false, key_separator: ":", item_separator: "," }
+/**
+ * Whitespace between any two tokens, and the key separator's space required
+ * (flexible alone also takes `":` again after a key's colon). Items stay ","
+ * apart: llguidance 0.2.1 takes a comma after a closed object's last key when
+ * items are ", " apart, then dead-ends
+ * (https://github.com/nico-martin/llguidance-js/issues/6). Use ", " once that
+ * is fixed.
+ */
+const MODEL: Layout = { whitespace_flexible: true, key_separator: ": ", item_separator: "," }
+/** MODEL when the tokenizer's whitespace tokens can't be read to cap their runs. */
+const MODEL_FIXED: Layout = { whitespace_flexible: false, key_separator: ": ", item_separator: "," }
+
 /** Formatting-only compiler hints; instance assertions and string contents stay intact. */
-function compactSchema(schema: unknown): unknown {
-  const compact = { whitespace_flexible: false, key_separator: ":", item_separator: "," }
+function compactSchema(schema: unknown, compact: Layout): unknown {
   if (schema && typeof schema === "object" && !Array.isArray(schema)) {
     const source = schema as Record<string, unknown>
     const hints = source["x-guidance"]
@@ -142,11 +189,13 @@ export async function createConstraint(options: ConstraintOptions): Promise<Cons
   const runtime = await loadRuntime()
   // Preserve identity so repeated generations reuse converted tokenizer bytes.
   const source = withEos(options.tokenizer, options.eosTokenId)
+  const whitespaceIds = options.layout === "compact" ? null : whitespaceTokenIds(source)
+  const layout = options.layout === "compact" ? COMPACT : whitespaceIds?.length ? MODEL : MODEL_FIXED
   let interpreter: Interpreter
   try {
     interpreter = runtime.createInterpreter({
       tokenizer: source,
-      response_format: { type: "json_schema", json_schema: compactSchema(options.schema) },
+      response_format: { type: "json_schema", json_schema: compactSchema(options.schema, layout) },
       limits: { maxTokens: options.maxTokens ?? Number.MAX_SAFE_INTEGER, maxOutputBytes: Number.MAX_SAFE_INTEGER }
     })
   } catch (cause) {
@@ -168,10 +217,16 @@ export async function createConstraint(options: ConstraintOptions): Promise<Cons
     if (cause instanceof StructuredOutputError) throw cause
     throw new StructuredOutputError("invalid-tokenizer", cause instanceof Error ? cause.message : String(cause), { cause })
   }
+  let whitespace: Uint32Array | undefined
+  if (layout === MODEL && whitespaceIds) {
+    whitespace = new Uint32Array(Math.ceil(vocabSize / 32))
+    for (const id of whitespaceIds) if (id >= 0 && id < vocabSize) whitespace[id >>> 5] |= 1 << (id & 31)
+  }
   return new JsonConstraint(interpreter, vocabSize, eos, excludesNumericRoot(options.schema),
-    canonicalAsciiObject(options.schema) ? canonicalTokenMask(source, vocabSize, eos) : undefined)
+    canonicalAsciiObject(options.schema) ? canonicalTokenMask(source, vocabSize, eos) : undefined, whitespace)
 }
 export { chooseGuidedTool, addGuidedUsage } from './guided-tools.js'
+export { closeObjects } from './close-objects.js'
 export type { GuidedCompletion, GuidedToolResult } from './guided-tools.js'
 
 /** Remove only the initial reasoning envelope; tag literals in JSON are data. */
@@ -206,7 +261,7 @@ function jsonValue(value: unknown, ancestors = new Set<object>()): boolean {
 export async function validateStructuredValue(schema: unknown, value: unknown): Promise<boolean> {
   let constraint: Constraint
   try {
-    constraint = await createConstraint({ schema, tokenizer: validationTokenizer })
+    constraint = await createConstraint({ schema, tokenizer: validationTokenizer, layout: "compact" })
   } catch (error) {
     // A supported but unsatisfiable schema has no accepted value.
     if (error instanceof StructuredOutputError && error.code === "constraint-dead-end") return false

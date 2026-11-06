@@ -131,4 +131,4 @@ measurements.
 
 A subsequent combined Nx confirmation passed all test/typecheck/lint/build targets; see `final-checks.log`.
 
-Upstream matcher bug filed as https://github.com/nico-martin/llguidance-js/issues/3. A subsequent fail-closed audit added adapter regression coverage and rejects failed native generations before executable tool-call events. See `packages/structured-output/bench/review-fail-closed.md`.
+Upstream matcher bug filed as https://github.com/nico-martin/llguidance-js/issues/3. A subsequent fail-closed audit added adapter regression coverage and rejects failed native generations before executable tool-call events. See `packages/transformers-js/bench/review-fail-closed.md`.

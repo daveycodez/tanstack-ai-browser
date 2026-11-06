@@ -1,5 +1,5 @@
 // Diagnostic for installed llguidance@0.2.1, not an automated passing test.
-// Run: node packages/structured-output/bench/review-const-bug.mjs
+// Run: node packages/transformers-js/bench/review-const-bug.mjs
 // Expected on the affected dependency: JSON evidence on stdout, exit status 1.
 import assert from 'node:assert/strict'
 import {mkdtemp, rm} from 'node:fs/promises'

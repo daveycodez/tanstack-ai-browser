@@ -1,4 +1,4 @@
-import { createConstraint } from "@tanstack-ai-browser/structured-output"
+import { createConstraint } from "./constraint/index.js"
 import { GenerationControl, thinkingControlTokens } from "./generation-control.js"
 import { createSampler } from "./sampling.js"
 /**
