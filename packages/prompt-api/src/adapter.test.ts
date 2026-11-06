@@ -57,6 +57,8 @@ async function idle() {
   while (model.busy) await model.busy
 }
 const generating = () => model.busy !== undefined
+/** Tokens Chrome's measureContextUsage adds for a message's framing (5 on Gemini Nano). */
+const FRAMING = 5
 const tokensOf = (text: string) =>
   Math.ceil(Array.from(text).reduce((sum, char) => sum + control.weight(char), 0))
 
@@ -86,7 +88,8 @@ class FakeSession extends EventTarget {
   async measureContextUsage(input: unknown) {
     await idle()
     control.measured.push(textOf(input))
-    return tokensOf(textOf(input))
+    // Chrome counts a message's framing too, even for an empty one.
+    return FRAMING + tokensOf(textOf(input))
   }
   async prompt(input: unknown, options: Record<string, unknown> = {}) {
     await idle()
@@ -516,7 +519,8 @@ test("chatStream under maxCompletionTokens never measures mid-stream and finishe
   // Calibration (the empty message, the request) before; the reply after.
   assert.deepEqual(control.measured.slice(0, 1), [""])
   assert.ok(control.measured[1].startsWith("Say hello"))
-  assert.deepEqual(control.measured.slice(2), ["Hello there, world!", "Hello there, world!"])
+  // The trim measures the reply; usage measures it again, less an empty message's framing.
+  assert.deepEqual(control.measured.slice(2), ["Hello there, world!", "", "Hello there, world!"])
 })
 
 test("chatStream without maxCompletionTokens passes the caller's signal and reports no cap", async () => {
@@ -527,8 +531,8 @@ test("chatStream without maxCompletionTokens passes the caller's signal and repo
   )
   assert.equal(streamSignals()[0], controller.signal)
   assert.equal("outputTokenLimit" in detailsOf(chunks.at(-1)), false)
-  // No calibration: only the finished reply is measured, for usage.
-  assert.deepEqual(control.measured, ["Hello"])
+  // No calibration: only the finished reply is measured, for usage (less an empty message's framing).
+  assert.deepEqual(control.measured, ["", "Hello"])
 })
 
 test("invalid maxCompletionTokens and parallelToolCalls throw before any session work", async () => {

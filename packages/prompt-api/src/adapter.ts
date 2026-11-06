@@ -226,11 +226,29 @@ const promptTokensBefore = async (
 
 const CAP_REACHED = "maxCompletionTokens reached"
 
-const replyTokens = (session: LanguageModelSession, text: string, signal?: AbortSignal) =>
-  text ? session.measureContextUsage(text, ...(signal ? [{ signal }] : [])).catch(() => {
+/** What measureContextUsage counts for an empty message: its framing, per session. */
+const framing = new WeakMap<LanguageModelSession, Promise<number>>()
+
+/**
+ * A reply's tokens: its measured text less a message's framing, which
+ * measureContextUsage counts too (as the output cap's measurement does).
+ */
+const replyTokens = async (session: LanguageModelSession, text: string, signal?: AbortSignal) => {
+  if (!text) return 0
+  const options = signal ? [{ signal }] : []
+  try {
+    let empty = framing.get(session)
+    if (!empty) {
+      empty = session.measureContextUsage("", ...options)
+      framing.set(session, empty)
+      empty.catch(() => framing.delete(session))
+    }
+    return Math.max(0, (await session.measureContextUsage(text, ...options)) - (await empty))
+  } catch {
     signal?.throwIfAborted()
     return 0
-  }) : Promise.resolve(0)
+  }
+}
 
 /** A prompt's reply as text, from a session that may answer in pieces. */
 const textOf = (output: LanguageModelOutput) =>
