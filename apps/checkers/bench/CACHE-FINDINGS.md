@@ -239,7 +239,7 @@ After warmup, the current prompt typically reuses 410 tokens; the previous engin
 reused zero on changed turns with this lean prompt. The recorded-game replay is
 28/28 legal, including historical/current prompt layouts.
 
-[Engine findings, raw quality/replay results, and Chrome proof](../../../packages/webgl/bench/short-prefix-results/FINDINGS.md).
+[Engine findings, raw quality/replay results, and Chrome proof](https://github.com/webgllm/webgllm/blob/main/packages/webgllm/bench/short-prefix-results/FINDINGS.md).
 Existing long-prefix hits and snapshot budgets were preserved; cold batches,
 sampling, output allowance, game outcomes, and the suite are unchanged. The engine's
 admission warmup and timing limitations are documented in that report.

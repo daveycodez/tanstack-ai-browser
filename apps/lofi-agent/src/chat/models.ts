@@ -16,12 +16,12 @@ import {
 } from "@tanstack-ai-browser/wllama"
 import type { WllamaTextModel } from "@tanstack-ai-browser/wllama"
 import {
-  hasWebGl2,
+  isSupported as webglSupported,
   modelStatus as webglModelStatus,
   WEBGL_MODEL_REASONING,
-  webglText
-} from "@tanstack-ai-browser/webgl"
-import type { WebGlTextModel } from "@tanstack-ai-browser/webgl"
+  webgllmText
+} from "@tanstack-ai-browser/webgllm"
+import type { WebGlTextModel } from "@tanstack-ai-browser/webgllm"
 import {
   APFEL_BASE_URL,
   apfelText,
@@ -56,12 +56,9 @@ export type ModelId =
   | "lfm2.5-350m-gguf"
   | "qwen3.5-2b-gguf"
   | "lfm3-webgl"
-  | "lfm3-web-webgl"
   | "lfm3-onnx-webgl"
   | "lfm2.5-webgl"
   | "lfm2.5-thinking-webgl"
-  | "lfm2.5-web-webgl"
-  | "lfm2.5-thinking-web-webgl"
   | "lfm2.5-350m-webgl"
   | "lfm2.5-gguf-webgl"
   | "lfm2.5-thinking-gguf-webgl"
@@ -167,7 +164,7 @@ const webgl = (id: ModelId, model: WebGlTextModel) => ({
   id,
   name: repoName(model),
   icon: makerIcon(model),
-  adapter: webglText(model, iosContext()),
+  adapter: webgllmText(model, iosContext()),
   status: webglModelStatus(model) as ModelStatusStore | null,
   needsWebGpu: false,
   reasoning: WEBGL_MODEL_REASONING[model] as ModelReasoning | undefined
@@ -216,17 +213,11 @@ export const MODELS = [
   gguf("lfm2.5-350m-gguf", "LiquidAI/LFM2.5-350M-GGUF"),
   gguf("qwen3.5-2b-gguf", "unsloth/Qwen3.5-2B-GGUF"),
   webgl("lfm3-onnx-webgl", "onnx-community/LFM3-1.7B-ONNX"),
-  webgl("lfm3-web-webgl", "daveycodez/LFM3-1.7B-Web-ONNX"),
   webgl("lfm3-webgl", "LiquidAI/LFM3-1.7B-GGUF"),
   webgl("lfm2.5-webgl", "LiquidAI/LFM2.5-1.2B-Instruct-ONNX"),
   webgl("lfm2.5-gguf-webgl", "LiquidAI/LFM2.5-1.2B-Instruct-GGUF"),
   webgl("lfm2.5-thinking-webgl", "LiquidAI/LFM2.5-1.2B-Thinking-ONNX"),
   webgl("lfm2.5-thinking-gguf-webgl", "LiquidAI/LFM2.5-1.2B-Thinking-GGUF"),
-  webgl("lfm2.5-web-webgl", "daveycodez/LFM2.5-1.2B-Web-ONNX"),
-  webgl(
-    "lfm2.5-thinking-web-webgl",
-    "daveycodez/LFM2.5-1.2B-Thinking-Web-ONNX"
-  ),
   webgl("lfm2.5-350m-webgl", "LiquidAI/LFM2.5-350M-ONNX"),
   webgl("lfm2.5-350m-gguf-webgl", "LiquidAI/LFM2.5-350M-GGUF"),
   webgl("qwen3.5-2b-webgl", "onnx-community/Qwen3.5-2B-ONNX"),
@@ -240,7 +231,7 @@ export const MODELS = [
     | ReturnType<typeof apfelText>
     | ReturnType<typeof wllamaText>
     | ReturnType<typeof promptApiText>
-    | ReturnType<typeof webglText>
+    | ReturnType<typeof webgllmText>
   status: ModelStatusStore | null
   needsWebGpu: boolean
   reasoning: ModelReasoning | undefined
@@ -254,7 +245,7 @@ export const PROVIDERS = [
   { id: "apfel", name: "apfel" },
   { id: "prompt-api", name: "Prompt API" },
   { id: "transformers-js", name: "Transformers.js" },
-  { id: "webgl", name: "WebGL" },
+  { id: "webgllm", name: "WebGL" },
   { id: "wllama", name: "Wllama" }
 ] as const
 
@@ -327,7 +318,7 @@ export function effortButtonLabel(id: ModelId, level: ReasoningLevel) {
  * Safari included), thinking at high effort (see ./model.ts). Of the LFM3
  * builds it calls tools most like the unquantized model: on 20 test prompts
  * that need a tool, its first reply token is a tool call on all 20, against
- * 16 for onnx-community's q4f16 ONNX (packages/webgl/bench/README.md).
+ * 16 for onnx-community's q4f16 ONNX (packages/webgllm/bench/README.md).
  */
 export const DEFAULT_MODEL: ModelId = "lfm3-webgl"
 
@@ -411,7 +402,7 @@ export function useBackends(): Partial<Record<string, string>> {
  */
 const webGl2 = createStore(false)
 if (typeof window !== "undefined") {
-  void Promise.resolve().then(() => webGl2.set(hasWebGl2()))
+  void Promise.resolve().then(() => webGl2.set(webglSupported()))
 }
 
 export const useHasWebGl2 = () =>
@@ -440,7 +431,7 @@ const canRun = (id: ModelId, isMac: boolean, hasGpu: boolean) =>
   isModelId(id) &&
   (id !== "apple-fm" || isMac) &&
   (id !== "built-in" || builtIn.get()) &&
-  (modelInfo(id).adapter.name !== "webgl" || webGl2.get()) &&
+  (modelInfo(id).adapter.name !== "webgllm" || webGl2.get()) &&
   (hasGpu || !modelInfo(id).needsWebGpu)
 
 /**

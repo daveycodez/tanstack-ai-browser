@@ -7,18 +7,18 @@ import {
   promptApiText
 } from "@tanstack-ai-browser/prompt-api"
 import {
-  hasWebGl2,
+  isSupported,
   loadModel,
   modelStatus,
   unloadModel,
-  webglText
-} from "@tanstack-ai-browser/webgl"
+  webgllmText
+} from "@tanstack-ai-browser/webgllm"
 import type {
-  GenerationPhase,
   ModelStatus,
   Store,
-  WebGlTextModel
-} from "@tanstack-ai-browser/webgl"
+  WebGlTextModel,
+  WebGllmTextConfig
+} from "@tanstack-ai-browser/webgllm"
 import { z } from "zod"
 import { legalMoves } from "./mancala"
 import type { Game } from "./mancala"
@@ -30,7 +30,12 @@ import type { PromptInput, PromptVersion } from "./shared-prompt"
 import { orderMovesForGame } from "./move-order"
 import { resolvePitLabel } from "./move-choice"
 
-export type { ModelStatus } from "@tanstack-ai-browser/webgl"
+export type { ModelStatus } from "@tanstack-ai-browser/webgllm"
+
+/** A generation phase, as the WebGL adapter reports it to `onGenerationPhase`. */
+type GenerationPhase = Parameters<
+  NonNullable<WebGllmTextConfig["onGenerationPhase"]>
+>[0]
 export const GAME_PROMPT_VERSION = SHARED_PROMPT_VERSION
 export const MAX_OUTPUT_TOKENS = 8192
 export const REASONING_BUDGET_TOKENS = 512
@@ -150,7 +155,7 @@ export async function chooseAiMove(
   if (
     opponent.model !== "prompt-api" &&
     opponent.model !== APFEL_MODEL &&
-    !hasWebGl2()
+    !isSupported()
   ) {
     throw new Error(
       "This browser cannot run the local model. Enable hardware acceleration and use a browser with WebGL 2 and OffscreenCanvas support."
@@ -242,7 +247,7 @@ export async function chooseAiMove(
           : await chat({
               ...options,
               adapter: withCancellation<AnyTextAdapter>(
-                webglText(opponent.model as WebGlTextModel, {
+                webgllmText(opponent.model as WebGlTextModel, {
                   onGenerationPhase: phase,
                   onThinking: thinking
                 }),

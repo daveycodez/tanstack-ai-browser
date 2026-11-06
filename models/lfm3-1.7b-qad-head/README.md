@@ -13,7 +13,7 @@ Needs llama.cpp at commit `19cce69` (the commit wllama builds), built natively (
 | `QAD`, `BF16` | Liquid's `LFM3-1.7B-QAD-Q4_0.gguf` and `LFM3-1.7B-BF16.gguf` |
 | `G` | a folder with `wt/wikitext-2-raw/wiki.test.raw` and `q/chat-corpus.txt` (English chat replies written by the BF16 model, from `../lfm3-1.7b-web-gguf/scripts/gencorpus.py`) and `q/cal-mix.txt` (that build's calibration text) |
 | `TOKDIR` | LFM3's `tokenizer.json` and `chat_template.jinja` (e.g. onnx-community/LFM3-1.7B-ONNX) |
-| `REF` | tools.html's LFM3 set (`tool_prompts.json`), made by `packages/webgl/bench/tool-ref/make_lfm3_ref.py` |
+| `REF` | tools.html's LFM3 set (`tool_prompts.json`), made by `packages/webgllm/bench/tool-ref/make_lfm3_ref.py` |
 
 ## Scripts
 
@@ -24,7 +24,7 @@ Needs llama.cpp at commit `19cce69` (the commit wllama builds), built natively (
 - `mkcal.py`: the calibration text (English cal-mix, Wikipedia intros in 16 languages, multilingual chat replies, the 8 tool-call transcripts of `corpus.py`).
 - `imatx.py`: `show` prints the head's importance vector stats and compares two matrices; `flat` makes a control matrix with the head's importance all ones.
 - `mltools.py`: renders `prompts/tool_prompts_ml.json` (the 20 tool prompts of tools.html, with model-written translations into 15 languages) with LFM3's template and the same four tools, thinking off, one tools.html-style set per language; the English set is checked token-identical to tools.html's.
-- `toolscore.py`, `runtools.sh`: the tool score on llama.cpp CPU (`llama-server -ngl 0`), computed like `packages/webgl/bench/tool-ref/llama_ref.py`: P(first token = `<tool_call>`) from the top-50 logprobs, greedy first token, and whether a 48-token greedy reply ever calls a tool.
+- `toolscore.py`, `runtools.sh`: the tool score on llama.cpp CPU (`llama-server -ngl 0`), computed like `packages/webgllm/bench/tool-ref/llama_ref.py`: P(first token = `<tool_call>`) from the top-50 logprobs, greedy first token, and whether a 48-token greedy reply ever calls a tool.
 - `kleval.sh`: `llama-perplexity` KL divergence / same top token / perplexity against saved reference logits (BF16, or the shipped QAD file for the head's own effect) on WikiText-2 test, the English chat corpus, Belebele and the BF16 chat replies in 16 languages. Runs on Metal.
 - `memrun.sh`: llama.cpp's reported model buffers, peak RSS and peak memory footprint (`/usr/bin/time -l`) for a short completion, default (mmap + repacking) and flat (`-lm none -nr`).
 - `benchcpu.sh`: interleaved `llama-bench` rounds on the CPU only (`-dev none`).
@@ -96,9 +96,9 @@ python3 -I $H/bench/serve.py $W/serve 19409 &    # the GGUFs + relaxed.wasm (pac
 OUT=$W/bench/wllama.jsonl PW=<playwright-core>/index.js node $H/bench/macbench.mjs 3 2 qad-shipped.gguf h-Q8_0-qad-none.gguf ...
 
 # the WebGL engine (packages/webgl), tools.html in headless Chromium (ANGLE Metal, Apple M3 Ultra)
-MODELS_DIR=<GGUFs>/ REF_DIR=<toolcheck>/ref/ RESULTS_FILE=$W/webgl/results.jsonl node packages/webgl/bench/server.mjs 19430 &
+MODELS_DIR=<GGUFs>/ REF_DIR=<toolcheck>/ref/ RESULTS_FILE=$W/webgl/results.jsonl node packages/webgllm/bench/server.mjs 19430 &
 PW=... node $H/bench/drive-page.mjs "http://localhost:19430/tools.html?set=lfm3&runtime=webgl&format=gguf&model=<gguf>"
-MODELS_DIR=<GGUFs>/ REF_DIR=$W/toolsets-webgl/ RESULTS_FILE=$W/webgl/results-ml.jsonl node packages/webgl/bench/server.mjs 19431 &
+MODELS_DIR=<GGUFs>/ REF_DIR=$W/toolsets-webgl/ RESULTS_FILE=$W/webgl/results-ml.jsonl node packages/webgllm/bench/server.mjs 19431 &
 PW=... $H/bench/webgl-ml.sh 19431 $W/webgl/ml LFM3-1.7B-QAD-Q4_0.gguf h-Q4_0-qad-imat.gguf h-Q4_0-qad-none.gguf h-Q8_0-qad-none.gguf
 $PY -I $H/bench/webglsum.py $W/webgl/results-ml.jsonl
 

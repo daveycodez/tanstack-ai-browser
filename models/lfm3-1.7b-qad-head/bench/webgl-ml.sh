@@ -1,5 +1,5 @@
 #!/bin/bash
-# tools.html (packages/webgl/bench) on the WebGL engine for each language set, per GGUF.
+# tools.html (packages/webgllm/bench) on the WebGL engine for each language set, per GGUF.
 # usage: webgl-ml.sh <bench server port> <out dir> <gguf basename> ...     (server: REF_DIR=<toolsets dir>/, MODELS_DIR=<dir of the GGUFs>/)
 # env: PW (playwright-core index.js)
 H="$(cd "$(dirname "$0")" && pwd)"

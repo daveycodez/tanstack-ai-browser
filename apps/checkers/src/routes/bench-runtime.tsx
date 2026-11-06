@@ -1,4 +1,4 @@
-import { unloadModel } from "@tanstack-ai-browser/webgl"
+import { unloadModel } from "@tanstack-ai-browser/webgllm"
 import { useEffect } from "react"
 import { createFileRoute } from "@tanstack/react-router"
 import { runBenchmark } from "../../bench/runner"

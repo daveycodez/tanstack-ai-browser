@@ -232,9 +232,9 @@ importers:
       '@tanstack-ai-browser/prompt-api':
         specifier: workspace:*
         version: link:../../packages/prompt-api
-      '@tanstack-ai-browser/webgl':
+      '@tanstack-ai-browser/webgllm':
         specifier: workspace:*
-        version: link:../../packages/webgl
+        version: link:../../packages/webgllm
       '@tanstack/ai':
         specifier: 1.0.0
         version: 1.0.0(zod@4.6.7)
@@ -299,9 +299,9 @@ importers:
       '@tanstack-ai-browser/prompt-api':
         specifier: workspace:*
         version: link:../../packages/prompt-api
-      '@tanstack-ai-browser/webgl':
+      '@tanstack-ai-browser/webgllm':
         specifier: workspace:*
-        version: link:../../packages/webgl
+        version: link:../../packages/webgllm
       '@tanstack/ai':
         specifier: 1.0.0
         version: 1.0.0(zod@4.6.7)
@@ -384,9 +384,9 @@ importers:
       '@tanstack-ai-browser/transformers-js':
         specifier: workspace:*
         version: link:../../packages/transformers-js
-      '@tanstack-ai-browser/webgl':
+      '@tanstack-ai-browser/webgllm':
         specifier: workspace:*
-        version: link:../../packages/webgl
+        version: link:../../packages/webgllm
       '@tanstack-ai-browser/wllama':
         specifier: workspace:*
         version: link:../../packages/wllama
@@ -493,9 +493,9 @@ importers:
       '@tanstack-ai-browser/prompt-api':
         specifier: workspace:*
         version: link:../../packages/prompt-api
-      '@tanstack-ai-browser/webgl':
+      '@tanstack-ai-browser/webgllm':
         specifier: workspace:*
-        version: link:../../packages/webgl
+        version: link:../../packages/webgllm
       '@tanstack/ai':
         specifier: 1.0.0
         version: 1.0.0(zod@4.6.7)
@@ -590,17 +590,11 @@ importers:
         specifier: 0.28.2
         version: 0.28.2
 
-  packages/webgl:
+  packages/webgllm:
     dependencies:
-      '@huggingface/jinja':
-        specifier: 0.5.10
-        version: 0.5.10
-      '@huggingface/tokenizers':
-        specifier: 0.2.0
-        version: 0.2.0
-      '@tanstack-ai-browser/structured-output':
-        specifier: workspace:*
-        version: link:../structured-output
+      webgllm:
+        specifier: ^0.1.0
+        version: 0.1.0
     devDependencies:
       '@tanstack/ai':
         specifier: 1.0.0
@@ -4998,6 +4992,9 @@ packages:
 
   wcwidth@1.0.1:
     resolution: {integrity: sha512-XHPEwS0q6TaxcvG85+8EYkbiCux2XtWG2mkc47Ng2A77BQu9+DqIOJldST4HgPkuea7dvKSj5VgX3P1d4rW8Tg==}
+
+  webgllm@0.1.0:
+    resolution: {integrity: sha512-aIf8zefcngTcj+EOoxBlhesMDjHKyh9SPvDUqree4YvHEFixfraycLobgjgnVq6OY4Lr35GbefCmeB1pfhWw2A==}
 
   webpack-virtual-modules@0.6.2:
     resolution: {integrity: sha512-66/V2i5hQanC51vBQKPH4aI8NMAcBW59FVBs+rC7eGHupMyfn34q7rZIE+ETlJ+XTevqfUhVVBgSUNSW2flEUQ==}
@@ -9849,6 +9846,12 @@ snapshots:
   wcwidth@1.0.1:
     dependencies:
       defaults: 1.0.4
+
+  webgllm@0.1.0:
+    dependencies:
+      '@huggingface/jinja': 0.5.10
+      '@huggingface/tokenizers': 0.2.0
+      llguidance: 0.2.1
 
   webpack-virtual-modules@0.6.2: {}
 

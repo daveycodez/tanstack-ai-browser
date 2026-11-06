@@ -140,7 +140,7 @@ test("Apple initialization is independent of LanguageModel and Prompt API remain
     "@tanstack/ai": `export const chat=async o=>(await o.adapter.structuredOutput({chatOptions:{},outputSchema:{}})).data;`,
     "@tanstack-ai-browser/apfel": `export const apfelText=()=>({structuredOutput:async()=>{c.apfelCalls++;return{data:{move:'b6-a5'},rawText:'{"move":"b6-a5"}'}}});`,
     "@tanstack-ai-browser/prompt-api": `export const loadPromptApiModel=async()=>{c.browserLoads++;if(!c.promptAvailable)throw Error('This browser has no built-in language model (the Prompt API).')};export const promptApiStatus=()=>({});export const promptApiText=()=>({structuredOutput:async()=>({data:{move:'b6-a5'},rawText:'{"move":"b6-a5"}'})});`,
-    "@tanstack-ai-browser/webgl": `export const hasWebGl2=()=>true;export const unloadModel=()=>{c.unloads++};export const loadModel=async()=>{c.webglLoads++};export const modelStatus=()=>({});export const webglText=()=>({structuredOutput:async()=>({data:{move:'b6-a5'},rawText:'{"move":"b6-a5"}'})});`
+    "@tanstack-ai-browser/webgllm": `export const isSupported=()=>true;export const unloadModel=async()=>{c.unloads++};export const loadModel=async()=>{c.webglLoads++};export const modelStatus=()=>({});export const webgllmText=()=>({structuredOutput:async()=>({data:{move:'b6-a5'},rawText:'{"move":"b6-a5"}'})});`
   })
   const restoreWindow = replaceGlobal("window", {}), restoreModel = replaceGlobal("LanguageModel", undefined)
   try {

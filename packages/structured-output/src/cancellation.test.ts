@@ -14,10 +14,10 @@ const schema = { type: "object", properties: { moveId: { type: "string", enum: [
 const raw = '{"moveId":"b6-a5"}'
 const stats = { inputTokens: 1, cachedTokens: 0, outputTokens: 1, firstTokenMs: 1, promptMs: 1, decodeMs: 1 }
 const logger = { request() { return undefined }, provider() { return undefined }, errors() { return undefined } }
-type Name = "webgl" | "transformers-js" | "wllama" | "prompt-api" | "apfel"
+type Name = "webgllm" | "transformers-js" | "wllama" | "prompt-api" | "apfel"
 type TestOptions = { chatOptions: { model: string; logger: object; threadId: string; messages: Array<{role:string;content:string}>; abortController?: AbortController; request?: Request | RequestInit }; outputSchema: object }
 type TestAdapter = { model: string; structuredOutput(options: TestOptions): Promise<{data:unknown}> }
-type AdapterPackage = { webglText(model:string):TestAdapter; transformersJsText(model:string):TestAdapter; wllamaText(model:string):TestAdapter; promptApiText():TestAdapter; apfelText(model:string):TestAdapter; chat(options:Record<string,unknown>):Promise<unknown> }
+type AdapterPackage = { webgllmText(model:string):TestAdapter; transformersJsText(model:string):TestAdapter; wllamaText(model:string):TestAdapter; promptApiText():TestAdapter; apfelText(model:string):TestAdapter; chat(options:Record<string,unknown>):Promise<unknown> }
 
 let init = async () => undefined
 let generate = async () => raw
@@ -33,8 +33,8 @@ async function packageFor(name: Name): Promise<AdapterPackage> {
   if (existing) return existing
   const job = (async () => {
     const outfile = join(temporary, `${name}.mjs`)
-    await build({ stdin: { contents: `export * from '${root}/packages/${name}/src/adapter.ts';export {chat} from '@tanstack/ai';`, resolveDir: join(root, "packages/webgl") }, outfile, bundle: true, format: "esm", platform: "node", conditions: ["@tanstack-ai-browser/source"], logLevel: "error", plugins: [{ name: "controlled-runtime", setup(bundle) {
-      bundle.onResolve({ filter: /^\.\/(client|sessions)\.js$/ }, args => args.importer.endsWith(`/${name}/src/adapter.ts`) ? { path: name, namespace: "controlled" } : undefined)
+    await build({ stdin: { contents: `export * from '${root}/packages/${name}/src/adapter.ts';export {chat} from '@tanstack/ai';`, resolveDir: join(root, "packages/webgllm") }, outfile, bundle: true, format: "esm", platform: "node", conditions: ["@tanstack-ai-browser/source"], logLevel: "error", plugins: [{ name: "controlled-runtime", setup(bundle) {
+      bundle.onResolve({ filter: /^\.\/(client|sessions|models)\.js$/ }, args => args.importer.endsWith(`/${name}/src/adapter.ts`) ? { path: name, namespace: "controlled" } : undefined)
       bundle.onLoad({ filter: /.*/, namespace: "controlled" }, () => ({ contents: `
         const c=globalThis.__cancellationContract;
         export const loadModel=()=>c.initialize(); export const setKeepLoaded=()=>{};export const setDebug=()=>{};
@@ -43,6 +43,13 @@ async function packageFor(name: Name): Promise<AdapterPackage> {
         export async function* generate(request){try{yield await c.generate(request.signal);return {stats:c.stats}}finally{c.returned++}}
         export const streamChat=async function*(){};
         export const completeChat=async(model,request,signal)=>{await c.initialize(signal);signal?.throwIfAborted();const content=await c.generate(signal);return {choices:[{finish_reason:'stop',message:{content}}]}};
+        export const ensureModel=async(model,contextLength,signal)=>{signal?.throwIfAborted();await c.initialize(signal);signal?.throwIfAborted()};
+        export const touchModel=()=>{};export const reconcile=async()=>{};
+        export const webgllm={chat:{completions:{create:async(body,options)=>(async function*(){try{const content=await c.generate(options?.signal);
+          yield {choices:[{index:0,delta:{role:'assistant',content},finish_reason:null}]};
+          yield {choices:[{index:0,delta:{},finish_reason:'stop'}]};
+          yield {choices:[],usage:{prompt_tokens:1,completion_tokens:1,total_tokens:2,prompt_tokens_details:{cached_tokens:0},completion_tokens_details:{reasoning_tokens:0}},timings:{first_token_ms:1,prompt_ms:1,decode_ms:1,prompt_tokens_per_second:1,decode_tokens_per_second:1}}
+        }finally{c.returned++}})()}}};
         export const leaseSession=async(options)=>{await c.initialize(options.signal);return {cachedTokens:0,overflowed:()=>false,discard(){c.discards++},session:{contextUsage:20,contextWindow:8192,measureContextUsage:(input,options)=>c.measure(options?.signal),prompt:(input,options)=>c.generate(options.signal)}}};
       ` }))
     } }] })
@@ -55,14 +62,14 @@ function reset() { state.inits = state.generations = state.discards = state.retu
 function options(adapter: {model:string}, cancellation: object) { return { chatOptions: { model: adapter.model, logger, threadId: "cancel-contract", messages: [{ role: "user", content: "Choose a move" }], ...cancellation }, outputSchema: schema } }
 async function adapterFor(name: Name): Promise<TestAdapter> {
   const p = await packageFor(name)
-  if (name === "webgl") return p.webglText("LiquidAI/LFM3-1.7B-GGUF")
+  if (name === "webgllm") return p.webgllmText("LiquidAI/LFM3-1.7B-GGUF")
   if (name === "transformers-js") return p.transformersJsText("LiquidAI/LFM2.5-1.2B-Thinking-ONNX")
   if (name === "wllama") return p.wllamaText("LiquidAI/LFM3-1.7B-GGUF")
   if (name === "prompt-api") return p.promptApiText()
   return p.apfelText("apple-foundationmodel")
 }
 function installFetch() { const original = globalThis.fetch; globalThis.fetch = async (_input, request) => { await state.initialize(request?.signal ?? undefined);request?.signal?.throwIfAborted(); const text = await state.generate(request?.signal ?? undefined); return new Response(JSON.stringify({choices:[{finish_reason:"stop",message:{content:text}}]})) }; return () => { globalThis.fetch = original } }
-for (const name of ["webgl", "transformers-js", "wllama", "prompt-api", "apfel"] as const) {
+for (const name of ["webgllm", "transformers-js", "wllama", "prompt-api", "apfel"] as const) {
   test(`${name}: structured cancellation via request.signal and legacy controller`, { timeout: 10_000 }, async () => {
     const restore = installFetch()
     try {
@@ -90,7 +97,7 @@ for (const name of ["webgl", "transformers-js", "wllama", "prompt-api", "apfel"]
         const pending = adapter.structuredOutput(options(adapter, transport(during))); const rejected = assert.rejects(pending, error => error === reason)
         await entered.promise; during.abort(reason); resume.release(); await rejected
         if (name === "prompt-api") assert.equal(state.discards, 1)
-        if (name === "webgl" || name === "transformers-js") assert.equal(state.returned, 1)
+        if (name === "webgllm" || name === "transformers-js") assert.equal(state.returned, 1)
         reset(); const nativeAbort = new AbortController(); const nativeEntered = gate()
         generate = () => new Promise<string>((_resolve, reject) => {
           nativeEntered.release()
@@ -107,7 +114,7 @@ for (const name of ["webgl", "transformers-js", "wllama", "prompt-api", "apfel"]
   })
 }
 test("installed TanStack chat forwards abortController through structured chatOptions.request.signal", async () => {
-  reset(); const p = await packageFor("webgl"); const adapter = await adapterFor("webgl"); const controller = new AbortController()
+  reset(); const p = await packageFor("webgllm"); const adapter = await adapterFor("webgllm"); const controller = new AbortController()
   const original = adapter.structuredOutput.bind(adapter); let seen = false
   adapter.structuredOutput = request => { seen = true; assert.ok(request.chatOptions.request); assert.equal(request.chatOptions.abortController, undefined); assert.equal(request.chatOptions.request.signal, controller.signal); return original(request) }
   await p.chat({ adapter, threadId:"forwarding-contract", messages:[{role:"user",content:"Choose a move"}], outputSchema:schema, abortController:controller, stream:false })

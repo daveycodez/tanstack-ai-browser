@@ -7,27 +7,32 @@ import {
   promptApiText
 } from "@tanstack-ai-browser/prompt-api"
 import {
-  hasWebGl2,
+  isSupported,
   loadModel,
   modelStatus,
   unloadModel,
-  webglText
-} from "@tanstack-ai-browser/webgl"
+  webgllmText
+} from "@tanstack-ai-browser/webgllm"
 import { moveOutputSchema } from "./move-output"
 import { analyzeMovePrompt } from "./analysis-worker"
 import type { Game } from "./chess"
 import { APFEL_MODEL, isWebGlOpponent, opponentOption, resolveOpponent } from "./opponents"
 import type { OpponentSettings } from "./opponents"
 import type {
-  GenerationPhase,
   ModelStatus,
   Store,
-  WebGlTextModel
-} from "@tanstack-ai-browser/webgl"
+  WebGlTextModel,
+  WebGllmTextConfig
+} from "@tanstack-ai-browser/webgllm"
 
 import type { PromptVersion } from "./shared-prompt"
 
-export type { ModelStatus } from "@tanstack-ai-browser/webgl"
+export type { ModelStatus } from "@tanstack-ai-browser/webgllm"
+
+/** A generation phase, as the WebGL adapter reports it to `onGenerationPhase`. */
+type GenerationPhase = Parameters<
+  NonNullable<WebGllmTextConfig["onGenerationPhase"]>
+>[0]
 
 
 export type AiMoveOptions = {
@@ -120,7 +125,7 @@ export async function chooseAiMove(
   }
 
   const thinkingSupport = opponentOption(opponent.model).thinking
-  if (isWebGlOpponent(opponent.model) && !hasWebGl2()) {
+  if (isWebGlOpponent(opponent.model) && !isSupported()) {
     throw new Error(
       "This browser cannot run the local AI. Enable hardware acceleration and use a browser with WebGL 2 and OffscreenCanvas support."
     )
@@ -221,7 +226,7 @@ export async function chooseAiMove(
         : await chat({
             ...chatOptions,
             // Runtime catalog metadata determines the selected model's reasoning support.
-            adapter: webglText(opponent.model as WebGlTextModel, {
+            adapter: webgllmText(opponent.model as WebGlTextModel, {
               ...(onPhase && {
                 onGenerationPhase: (phase: GenerationPhase) => {
                   if (!generationSignal.aborted) onPhase(phase)

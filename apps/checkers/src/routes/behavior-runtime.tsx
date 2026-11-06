@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router"
 import { useEffect } from "react"
-import { unloadModel } from "@tanstack-ai-browser/webgl"
+import { unloadModel } from "@tanstack-ai-browser/webgllm"
 import { runStandardStudy } from "../../bench/standard-study"
 import { STANDARD_CHANNEL } from "../../bench/run-standard-in-frame"
 import type { StandardCommand, StandardEvent } from "../../bench/run-standard-in-frame"

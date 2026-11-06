@@ -2,7 +2,7 @@
 import { readFile, writeFile } from 'node:fs/promises';
 import { basename } from 'node:path';
 import { createHash } from 'node:crypto';
-import { loadTokenizer } from '../../../packages/webgl/src/tokenizer.ts';
+import { loadTokenizer } from '../../../packages/webgllm/node_modules/webgllm/dist/advanced.js';
 import { buildMovePrompt, PREVIOUS_PROMPT_VERSION, SHARED_PROMPT_VERSION } from '../src/lib/shared-prompt.ts';
 import { legalMoves } from '../src/lib/checkers.ts';
 import { CASES, gameForCase } from './cases.ts';
