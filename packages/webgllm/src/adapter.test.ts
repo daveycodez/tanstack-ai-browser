@@ -23,9 +23,7 @@ test("streams thinking then text as AG-UI events, with usage and webgllm's timin
     chunk({}, "stop"),
     usageChunk({ prompt: 20, completion: 7, cached: 12, reasoning: 4 })
   ]
-  const thinking: Array<string> = []
-  const phases: Array<string> = []
-  const adapter = webgllmText(MODEL, { onThinking: (d) => thinking.push(d), onGenerationPhase: (p) => phases.push(p) })
+  const adapter = webgllmText(MODEL)
   const events = (await collect(adapter.chatStream(textOptions({ runId: "run-1" })))) as Array<Event>
   assert.deepEqual(types(events), [
     "RUN_STARTED",
@@ -41,8 +39,8 @@ test("streams thinking then text as AG-UI events, with usage and webgllm's timin
     "TEXT_MESSAGE_END",
     "RUN_FINISHED"
   ])
-  assert.deepEqual(thinking, ["Let me ", "think."])
-  assert.deepEqual(phases, ["processing", "generating"])
+  const thinking = events.filter((e) => e.type === "REASONING_MESSAGE_CONTENT")
+  assert.deepEqual(thinking.map((e) => e.delta), ["Let me ", "think."])
   const contents = events.filter((e) => e.type === "TEXT_MESSAGE_CONTENT")
   assert.deepEqual(contents.map((e) => [e.delta, e.content]), [["Paris", "Paris"], [".", "Paris."]])
   const finished = events.at(-1)!
@@ -104,7 +102,7 @@ test("tool calls become TOOL_CALL events before the text ends, finishing with to
   ])
 })
 
-test("model options, reasoning and prompt cache map onto the request", async () => {
+test("model options (OpenRouter's names), reasoning and prompt cache map onto the request", async () => {
   const adapter = webgllmText(MODEL)
   await collect(
     adapter.chatStream(
@@ -112,17 +110,20 @@ test("model options, reasoning and prompt cache map onto the request", async () 
         reasoning: { level: "high", summary: true, budgetTokens: 256 },
         promptCache: { retention: "none" },
         modelOptions: {
-          maxTokens: 300,
-          max_new_tokens: 5,
+          maxCompletionTokens: 300,
           temperature: 0.2,
-          top_k: 20,
-          top_p: 0.9,
-          min_p: 0.05,
-          repetition_penalty: 1.1,
-          presence_penalty: 0.5,
+          topP: 0.9,
+          presencePenalty: 0.5,
+          frequencyPenalty: 0,
           stop: ["END"],
-          seed: 7
-        }
+          seed: 7,
+          topK: 20,
+          minP: 0.05,
+          repetitionPenalty: 1.1,
+          parallelToolCalls: false,
+          repairToolCalls: false
+        },
+        tools: [{ name: "lookup", description: "Look up" }]
       })
     )
   )
@@ -130,26 +131,35 @@ test("model options, reasoning and prompt cache map onto the request", async () 
   assert.equal(body.reasoning_effort, "high")
   assert.equal(body.thinking_budget_tokens, 256)
   assert.equal(body.cache_prompt, false)
-  assert.equal(body.max_completion_tokens, 300, "maxTokens wins over the legacy alias")
+  assert.equal(body.max_completion_tokens, 300)
   assert.equal(body.temperature, 0.2)
-  assert.equal(body.top_k, 20)
   assert.equal(body.top_p, 0.9)
+  assert.equal(body.top_k, 20)
   assert.equal(body.min_p, 0.05)
   assert.equal(body.repetition_penalty, 1.1)
   assert.equal(body.presence_penalty, 0.5)
+  assert.equal("frequency_penalty" in body, false, "a zero frequencyPenalty isn't sent")
   assert.deepEqual(body.stop, ["END"])
   assert.equal(body.seed, 7)
+  assert.equal(body.parallel_tool_calls, false)
+  assert.equal(body.repair_tool_calls, false)
 
   // Off turns thinking off and ignores a valid cap; no request leaves the template's default.
   await collect(adapter.chatStream(textOptions({ reasoning: { level: "off", summary: true, budgetTokens: 256 } })))
   assert.equal(lastBody().reasoning_effort, "none")
   assert.equal("thinking_budget_tokens" in lastBody(), false)
   await collect(adapter.chatStream(textOptions()))
-  for (const key of ["reasoning_effort", "thinking_budget_tokens", "cache_prompt", "max_completion_tokens", "temperature"]) {
+  for (const key of ["reasoning_effort", "thinking_budget_tokens", "cache_prompt", "max_completion_tokens", "temperature", "top_p", "seed"]) {
     assert.equal(key in lastBody(), false, `${key} isn't sent unless asked for`)
   }
-  await collect(adapter.chatStream(textOptions({ modelOptions: { max_new_tokens: 64 } })))
-  assert.equal(lastBody().max_completion_tokens, 64)
+})
+
+test("a non-zero frequencyPenalty throws webgllm's unsupported-parameter error before any request", async () => {
+  await assert.rejects(
+    collect(webgllmText(MODEL).chatStream(textOptions({ modelOptions: { frequencyPenalty: 0.5 } }))),
+    (error: unknown) => error instanceof WebGLLMError && error.code === "unsupported-parameter"
+  )
+  assert.equal(fake.requests.length, 0)
 })
 
 test("invalid budgets and output caps throw before any request", async () => {
@@ -158,7 +168,7 @@ test("invalid budgets and output caps throw before any request", async () => {
     collect(adapter.chatStream(textOptions({ reasoning: { level: "high", summary: true, budgetTokens: -1 } }))),
     RangeError
   )
-  await assert.rejects(collect(adapter.chatStream(textOptions({ modelOptions: { maxTokens: 1.5 } }))), RangeError)
+  await assert.rejects(collect(adapter.chatStream(textOptions({ modelOptions: { maxCompletionTokens: 1.5 } }))), RangeError)
   assert.equal(fake.requests.length, 0)
   assert.equal(fake.loads.length, 0)
 })

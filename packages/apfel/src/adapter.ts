@@ -43,10 +43,6 @@ export type ApfelTextConfig = {
   baseURL?: string
   /** Headers sent with every request, such as apfel's bearer token. */
   defaultHeaders?: Record<string, string>
-  /** Adapter-managed phases, including the optional working-note draft. */
-  onGenerationPhase?: (phase: "processing" | "generating") => void
-  /** Emulated working-note deltas, not native hidden model reasoning. */
-  onThinking?: (delta: string) => void
 }
 
 /**
@@ -82,21 +78,30 @@ export type ApfelProviderUsageDetails = {
 }
 
 /**
- * Request fields apfel takes for Apple's model. apfel rejects parameters
- * the model doesn't support (stop, penalties, n…) with HTTP 400.
+ * Per-call `modelOptions`: the fields of TanStack's OpenRouter adapter
+ * (the OpenRouter SDK's camelCase chat request) that Apple's model takes.
+ * apfel rejects the ones it doesn't (`stop`, `frequencyPenalty`,
+ * `presencePenalty`, n…) with HTTP 400.
  */
 export type ApfelModelOptions = {
+  /** The most tokens the reply may have (sent as `max_tokens`). */
+  maxCompletionTokens?: number
   temperature?: number
-  maxTokens?: number
-  max_tokens?: number
+  /** Nucleus sampling threshold, in (0, 1] (sent as `top_p`). */
+  topP?: number
   seed?: number
 }
 
+/** `modelOptions` as apfel's request fields. */
 function nativeModelOptions(options: ApfelModelOptions | undefined) {
-  const { maxTokens, max_tokens, ...rest } = options ?? {}
-  const limit = maxTokens ?? max_tokens
-  if (limit !== undefined && (!Number.isSafeInteger(limit) || limit < 0)) throw new RangeError("maxTokens must be a nonnegative safe integer.")
-  return { ...rest, ...(limit !== undefined && { max_tokens: limit }) }
+  const { maxCompletionTokens: limit, temperature, topP, seed } = options ?? {}
+  if (limit !== undefined && (!Number.isSafeInteger(limit) || limit < 0)) throw new RangeError("maxCompletionTokens must be a nonnegative safe integer.")
+  return {
+    ...(temperature !== undefined && { temperature }),
+    ...(seed !== undefined && { seed }),
+    ...(topP !== undefined && { top_p: topP }),
+    ...(limit !== undefined && { max_tokens: limit })
+  }
 }
 
 export type ApfelReasoning = { levels: "off" | "high"; budget: true }
@@ -172,6 +177,7 @@ type OpenAIChunk = {
     delta?: {
       content?: string | null
       reasoning_content?: string | null
+      refusal?: string | null
       tool_calls?: Array<{
         index: number
         id?: string
@@ -375,6 +381,56 @@ let ids = 0
 const nextId = (prefix: string) =>
   `${prefix}_${Date.now().toString(36)}_${(ids++).toString(36)}`
 
+/** Where a chunk came from, in `metadata.tanstack.source`. */
+type ChunkSource = { provider: string; api: string; model: string }
+
+const sourceOf = (
+  adapter: { provider: string; api: string; model: string },
+  model: string | undefined
+): ChunkSource => ({
+  provider: adapter.provider,
+  api: adapter.api,
+  model: model ?? adapter.model
+})
+
+/** A chunk tagged with its source, as TanStack's own adapters tag theirs. */
+function withSource(chunk: AdapterYieldChunk, source: ChunkSource): AdapterYieldChunk {
+  const metadata = chunk.metadata as Record<string, unknown> | undefined
+  return {
+    ...chunk,
+    metadata: {
+      ...metadata,
+      tanstack: {
+        ...(metadata?.tanstack as Record<string, unknown> | undefined),
+        source
+      }
+    }
+  }
+}
+
+/** The caller's signal: the legacy `abortController` first, then `request`. */
+const signalOf = (options: TextOptions<ApfelModelOptions>) =>
+  options.abortController?.signal ??
+  (options.request as RequestInit | undefined)?.signal ??
+  undefined
+
+/** A structured answer that failed, with the `RUN_ERROR` code it streams as. */
+class StructuredOutputFailure extends Error {
+  constructor(
+    message: string,
+    readonly code: "parse-error" | "empty-response" | "refusal" | "max_tokens",
+    cause?: unknown
+  ) {
+    super(message, cause === undefined ? undefined : { cause })
+    this.name = "StructuredOutputFailure"
+  }
+}
+
+/** A structured answer, with the reasoning written before it. */
+type StructuredRunResult = StructuredOutputResult<unknown> & {
+  reasoning?: string
+}
+
 type StreamedCall = { name: string; arguments: string }
 
 export class ApfelTextAdapter<TModel extends string> extends BaseTextAdapter<
@@ -394,13 +450,9 @@ export class ApfelTextAdapter<TModel extends string> extends BaseTextAdapter<
   override readonly inputModalities = ["text"] as const
   private readonly baseURL: string
   private readonly headers: Record<string, string>
-  private readonly onGenerationPhase: ApfelTextConfig["onGenerationPhase"]
-  private readonly onThinking: ApfelTextConfig["onThinking"]
 
   constructor(config: ApfelTextConfig, model: TModel) {
     super({}, model)
-    this.onGenerationPhase = config.onGenerationPhase
-    this.onThinking = config.onThinking
     this.baseURL = (config.baseURL ?? APFEL_BASE_URL).replace(/\/+$/, "")
     this.headers = {
       ...config.defaultHeaders,
@@ -430,8 +482,6 @@ export class ApfelTextAdapter<TModel extends string> extends BaseTextAdapter<
       ...(limit !== undefined && { thinkingOutputLimitTokens: limit }),
       thinkingBudgetExhausted: false
     }
-    this.onGenerationPhase?.("generating")
-    signal?.throwIfAborted()
     if (limit === 0) {
       draft.details.thinkingTokens = 0
       draft.details.thinkingBudgetExhausted = budget === 0
@@ -484,7 +534,6 @@ export class ApfelTextAdapter<TModel extends string> extends BaseTextAdapter<
           yield { ...event, type: EventType.REASONING_MESSAGE_START, role: "reasoning", timestamp: Date.now() }
         }
         draft.notes += delta
-        this.onThinking?.(delta)
         yield { ...event, type: EventType.REASONING_MESSAGE_CONTENT, delta, timestamp: Date.now() }
       }
       signal?.throwIfAborted()
@@ -507,8 +556,16 @@ export class ApfelTextAdapter<TModel extends string> extends BaseTextAdapter<
   async *chatStream(
     options: TextOptions<ApfelModelOptions>
   ): AsyncIterable<AdapterYieldChunk> {
+    const source = sourceOf(this, options.model)
+    for await (const chunk of this.chatStreamRequest(options)) {
+      yield withSource(chunk, source)
+    }
+  }
+
+  private async *chatStreamRequest(
+    options: TextOptions<ApfelModelOptions>
+  ): AsyncIterable<AdapterYieldChunk> {
     const emulation = reasoningOptions(options.reasoning)
-    this.onGenerationPhase?.("processing")
     const runId = options.runId ?? nextId("run")
     const threadId = options.threadId
     const messageId = nextId("msg")
@@ -522,6 +579,7 @@ export class ApfelTextAdapter<TModel extends string> extends BaseTextAdapter<
     const timestamp = () => Date.now()
     const runError = (message: string): AdapterYieldChunk => ({
       type: EventType.RUN_ERROR,
+      runId,
       model,
       timestamp: timestamp(),
       message,
@@ -550,7 +608,6 @@ export class ApfelTextAdapter<TModel extends string> extends BaseTextAdapter<
     const draft: DraftReasoning = { notes: "" }
     try {
       if (emulation.enabled) yield* this.draftReasoning(options, signal, send, emulation.budget, draft)
-      else this.onGenerationPhase?.("generating")
     } catch (error) {
       if (signal?.aborted) return
       yield runError(`apfel's reasoning draft failed: ${errorText(error)}`)
@@ -920,29 +977,128 @@ export class ApfelTextAdapter<TModel extends string> extends BaseTextAdapter<
   /**
    * A JSON answer for `chat({ outputSchema })`, from apfel's JSON mode:
    * `response_format: json_schema` constrains Apple's model to the schema
-   * (guided generation). `chat()` validates the result.
+   * (guided generation). `chat()` validates the result. One request, not
+   * streamed; the streamed form is `structuredOutputStream`.
    */
   async structuredOutput(
     options: StructuredOutputOptions<ApfelModelOptions>
   ): Promise<StructuredOutputResult<unknown>> {
+    const run = this.structuredOutputRun(options, false)
+    let next = await run.next()
+    while (!next.done) next = await run.next()
+    const { data, rawText, model, usage } = next.value
+    return { data, rawText, model, ...(usage && { usage }) }
+  }
+
+  /**
+   * `chat({ outputSchema, stream: true })`: one streamed request with
+   * `response_format: json_schema`, after any emulated reasoning
+   * (`REASONING_*`), then `structured-output.complete` and `RUN_FINISHED`.
+   * apfel (v1.16) sends a constrained answer as a single delta once it's
+   * done, so the JSON arrives in one `TEXT_MESSAGE_CONTENT`.
+   */
+  async *structuredOutputStream(
+    options: StructuredOutputOptions<ApfelModelOptions>
+  ): AsyncIterable<AdapterYieldChunk> {
+    const source = sourceOf(this, options.chatOptions.model)
+    for await (const chunk of this.structuredOutputRequestStream(options)) {
+      yield withSource(chunk, source)
+    }
+  }
+
+  private async *structuredOutputRequestStream(
+    options: StructuredOutputOptions<ApfelModelOptions>
+  ): AsyncIterable<AdapterYieldChunk> {
+    const { chatOptions } = options
+    const runId = chatOptions.runId ?? nextId("run")
+    const threadId = chatOptions.threadId
+    const messageId = nextId("msg")
+    const model = this.model
+    const signal = signalOf(chatOptions)
+    yield {
+      type: EventType.RUN_STARTED,
+      runId,
+      threadId,
+      model,
+      timestamp: Date.now(),
+      ...(chatOptions.parentRunId && { parentRunId: chatOptions.parentRunId })
+    }
+    let result: StructuredRunResult
+    try {
+      result = yield* this.structuredOutputRun(options, true, messageId)
+    } catch (error) {
+      const aborted = !!signal?.aborted
+      const code = aborted
+        ? "aborted"
+        : error instanceof StructuredOutputFailure
+          ? error.code
+          : undefined
+      const message = errorText(aborted ? (signal?.reason ?? error) : error)
+      if (!aborted) {
+        chatOptions.logger.errors("apfel.structuredOutputStream fatal", {
+          error,
+          source: "apfel.structuredOutputStream"
+        })
+      }
+      yield {
+        type: EventType.RUN_ERROR,
+        runId,
+        model,
+        timestamp: Date.now(),
+        message,
+        ...(code && { code }),
+        error: { message, ...(code && { code }) }
+      }
+      return
+    }
+    yield {
+      type: EventType.CUSTOM,
+      name: "structured-output.complete",
+      value: {
+        object: result.data,
+        raw: result.rawText,
+        ...(result.reasoning ? { reasoning: result.reasoning } : {})
+      },
+      model,
+      timestamp: Date.now()
+    }
+    yield {
+      type: EventType.RUN_FINISHED,
+      runId,
+      threadId,
+      model,
+      timestamp: Date.now(),
+      finishReason: "stop",
+      ...(result.usage && { usage: result.usage })
+    }
+  }
+
+  /**
+   * One structured answer: the emulated reasoning draft (if asked for) as
+   * `REASONING_*` events, then the constrained JSON as `TEXT_MESSAGE_*`
+   * deltas (`stream`: from a streamed request; otherwise one request whose
+   * whole answer is one delta). Throws on failure and cancellation.
+   */
+  private async *structuredOutputRun(
+    options: StructuredOutputOptions<ApfelModelOptions>,
+    stream: boolean,
+    messageId = nextId("msg")
+  ): AsyncGenerator<AdapterYieldChunk, StructuredRunResult> {
     const { chatOptions, outputSchema } = options
-    const signal = chatOptions.abortController?.signal ?? (chatOptions.request as RequestInit | undefined)?.signal ?? undefined
+    const signal = signalOf(chatOptions)
     signal?.throwIfAborted()
     const emulation = reasoningOptions(chatOptions.reasoning)
-    this.onGenerationPhase?.("processing")
     const model = this.model
     const send = chatOptions.wrapFetch ? chatOptions.wrapFetch(fetch) : fetch
     chatOptions.logger.request(
-      `activity=chat provider=apfel model=${model} messages=${chatOptions.messages.length} tools=0 stream=false`,
+      `activity=${stream ? "structuredOutputStream" : "structuredOutput"} provider=apfel model=${model} messages=${chatOptions.messages.length} tools=0 stream=${stream}`,
       { provider: "apfel", model }
     )
-    let response: Response
     const draft: DraftReasoning = { notes: "" }
     if (emulation.enabled) {
-      for await (const event of this.draftReasoning(chatOptions, signal, send, emulation.budget, draft)) {
-        void event // Structured output exposes notes through onThinking instead.
-      }
-    } else this.onGenerationPhase?.("generating")
+      yield* this.draftReasoning(chatOptions, signal, send, emulation.budget, draft)
+    }
+    let response: Response
     try {
       signal?.throwIfAborted()
       response = await send(`${this.baseURL}/chat/completions`, {
@@ -951,6 +1107,10 @@ export class ApfelTextAdapter<TModel extends string> extends BaseTextAdapter<
         body: JSON.stringify({
           ...nativeModelOptions(chatOptions.modelOptions),
           model,
+          ...(stream && {
+            stream: true,
+            stream_options: { include_usage: true }
+          }),
           messages: withWorkingNotes([
             ...systemMessages(chatOptions.systemPrompts),
             ...toOpenAIMessages(chatOptions.messages)
@@ -968,7 +1128,7 @@ export class ApfelTextAdapter<TModel extends string> extends BaseTextAdapter<
         source: "apfel.structuredOutput"
       })
       if (signal?.aborted) throw error
-      throw new Error(unreachable(this.baseURL))
+      throw new Error(unreachable(this.baseURL), { cause: error })
     }
     signal?.throwIfAborted()
     if (!response.ok) {
@@ -976,32 +1136,105 @@ export class ApfelTextAdapter<TModel extends string> extends BaseTextAdapter<
         `apfel returned HTTP ${response.status}: ${await errorBody(response)}`
       )
     }
-    const completion = (await response.json()) as OpenAICompletion
+
+    let content = ""
+    let refusal = ""
+    let usage: OpenAIUsage | null | undefined
+    let finishReason: FinishReason = null
+    let textStarted = false
+    let reasoningId: string | undefined
+    let nativeReasoning = ""
+    const endReasoning = function* (): Generator<AdapterYieldChunk> {
+      if (!reasoningId) return
+      yield { type: EventType.REASONING_MESSAGE_END, messageId: reasoningId, model, timestamp: Date.now() }
+      yield { type: EventType.REASONING_END, messageId: reasoningId, model, timestamp: Date.now() }
+      reasoningId = undefined
+    }
+    const addText = function* (delta: string): Generator<AdapterYieldChunk> {
+      if (!delta) return
+      yield* endReasoning()
+      if (!textStarted) {
+        textStarted = true
+        yield { type: EventType.TEXT_MESSAGE_START, messageId, role: "assistant", model, timestamp: Date.now() }
+      }
+      content += delta
+      yield { type: EventType.TEXT_MESSAGE_CONTENT, messageId, delta, content, model, timestamp: Date.now() }
+    }
+    // A server that ignores `stream` answers with one JSON completion.
+    const streamed =
+      stream &&
+      !!response.body &&
+      !(response.headers.get("content-type") ?? "").includes("application/json")
+    if (streamed && response.body) {
+      for await (const data of sseData(response.body)) {
+        signal?.throwIfAborted()
+        if (data === "[DONE]") break
+        const chunk = JSON.parse(data) as OpenAIChunk
+        chatOptions.logger.provider("provider=apfel", { chunk })
+        if (chunk.error) throw new Error(chunk.error.message ?? "apfel sent an error.")
+        usage = chunk.usage ?? usage
+        const choice = chunk.choices?.[0]
+        if (choice?.finish_reason) finishReason = choice.finish_reason
+        const delta = choice?.delta
+        if (delta?.reasoning_content) {
+          if (!reasoningId) {
+            reasoningId = nextId("reasoning")
+            yield { type: EventType.REASONING_START, messageId: reasoningId, model, timestamp: Date.now() }
+            yield { type: EventType.REASONING_MESSAGE_START, messageId: reasoningId, role: "reasoning", model, timestamp: Date.now() }
+          }
+          nativeReasoning += delta.reasoning_content
+          yield { type: EventType.REASONING_MESSAGE_CONTENT, messageId: reasoningId, delta: delta.reasoning_content, model, timestamp: Date.now() }
+        }
+        if (delta?.refusal) refusal += delta.refusal
+        if (delta?.content) yield* addText(delta.content)
+      }
+    } else {
+      // The whole answer at once (or a server that answered a streamed
+      // request without streaming it).
+      const completion = (await response.json()) as OpenAICompletion
+      signal?.throwIfAborted()
+      const choice = completion.choices?.[0]
+      usage = completion.usage
+      finishReason = choice?.finish_reason ?? null
+      refusal = choice?.message?.refusal ?? ""
+      yield* addText(choice?.message?.content ?? "")
+    }
+    yield* endReasoning()
+    if (textStarted) {
+      yield { type: EventType.TEXT_MESSAGE_END, messageId, model, timestamp: Date.now() }
+    }
     signal?.throwIfAborted()
-    const choice = completion.choices?.[0]
-    if (choice?.finish_reason === "length") {
-      throw new Error(
-        "apfel's answer was cut off at the token limit before its JSON ended; raise modelOptions.max_tokens."
+    if (finishReason === "length") {
+      throw new StructuredOutputFailure(
+        "apfel's answer was cut off at the token limit before its JSON ended; raise modelOptions.maxCompletionTokens.",
+        "max_tokens"
       )
     }
-    const rawText = (
-      choice?.message?.content ??
-      choice?.message?.refusal ??
-      ""
-    ).trim()
+    const rawText = content.trim()
+    if (!rawText) {
+      throw refusal
+        ? new StructuredOutputFailure(`Model refused: ${refusal}`, "refusal")
+        : new StructuredOutputFailure("apfel's answer is empty.", "empty-response")
+    }
     const json = rawText.replace(/^```(?:json)?\s*|\s*```$/g, "")
-    const usage = usageOf(completion.usage, draft.details, draft.usage)
+    let data: unknown
     try {
-      return {
-        data: JSON.parse(json) as unknown,
-        rawText,
-        model,
-        ...(usage && { usage })
-      }
-    } catch {
-      throw new Error(
-        `The model's answer isn't JSON: ${rawText.slice(0, 200)}${rawText.length > 200 ? "…" : ""}`
+      data = JSON.parse(json) as unknown
+    } catch (error) {
+      throw new StructuredOutputFailure(
+        `The model's answer isn't JSON: ${rawText.slice(0, 200)}${rawText.length > 200 ? "…" : ""}`,
+        "parse-error",
+        error
       )
+    }
+    const finishUsage = usageOf(usage, draft.details, draft.usage)
+    const reasoning = draft.notes + nativeReasoning
+    return {
+      data,
+      rawText,
+      model,
+      ...(finishUsage && { usage: finishUsage }),
+      ...(reasoning && { reasoning })
     }
   }
 }

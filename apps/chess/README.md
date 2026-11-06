@@ -78,7 +78,7 @@ context, output, and deadline limits still apply. The
 shared game instructions do not require reasoning. LFM uses native thinking;
 Prompt API’s optional working notes are explicitly an adapter-managed extra pass.
 
-WebGL uses the model’s actual configured token context. `maxTokens: 8192` is a
+WebGL uses the model’s actual configured token context. `maxCompletionTokens: 8192` is a
 generation ceiling, not the context setting. The arbitrary character-count guard
 has been removed. Prompt API manages its native final-output limit.
 

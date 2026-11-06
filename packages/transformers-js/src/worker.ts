@@ -15,7 +15,7 @@ import { createSampler } from "./sampling.js"
 import type {
   ChatTurn,
   RunTimings,
-  Sampling,
+  WorkerSampling,
   ToolSpec,
   WeightsDtype,
   WorkerRequest,
@@ -2501,7 +2501,7 @@ async function generateRun(
   chat: Array<ChatTurn>,
   tools: Array<ToolSpec>,
   thinking: boolean | undefined,
-  sampling: Sampling,
+  sampling: WorkerSampling,
   maxTokens: number | undefined,
   requestedContext: number | undefined,
   thinkingOpen: string,

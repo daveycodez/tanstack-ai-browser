@@ -20,10 +20,10 @@ type RequestBody = { model: string; stream?: boolean; max_tokens?: number; tempe
 const state = { requests: [] as Array<{ url: string; body: RequestBody; init: RequestInit }>, tools: false, draftFinish: "length", draftTokens: 4, finalFinish: "stop", draftFailure: false, abortDraft: false, abortFinal: false, controller: new AbortController() }
 const originalFetch = globalThis.fetch
 after(() => { globalThis.fetch = originalFetch })
-function stream(draft: boolean) {
+function stream(draft: boolean, structured = false) {
   const chunks = draft
     ? [{ choices: [{ delta: { content: "working " } }] }, { choices: [{ delta: { content: "notes" }, finish_reason: state.draftFinish }] }, { choices: [], usage: { prompt_tokens: 20, completion_tokens: state.draftTokens } }]
-    : [{ choices: [{ delta: state.tools ? { tool_calls: [{ index: 0, id: "call_1", function: { name: "ping", arguments: "{}" } }] } : { content: "final answer" }, finish_reason: state.tools ? "tool_calls" : "stop" }] }, { choices: [], usage: { prompt_tokens: 30, completion_tokens: 3 } }]
+    : [{ choices: [{ delta: state.tools ? { tool_calls: [{ index: 0, id: "call_1", function: { name: "ping", arguments: "{}" } }] } : { content: structured ? '{"moveId":"b6-a5"}' : "final answer" }, finish_reason: state.tools ? "tool_calls" : structured ? state.finalFinish : "stop" }] }, { choices: [], usage: { prompt_tokens: 30, completion_tokens: 3 } }]
   let index = 0
   return new Response(new ReadableStream<Uint8Array>({ pull(controller) {
     if (draft && state.abortDraft && index === 1) state.controller.abort(new Error("cancel during draft"))
@@ -40,7 +40,7 @@ function reset() {
     const draft = body.messages.at(-1)?.content.includes("Write short working notes") === true
     if (draft && state.draftFailure) return new Response("draft failed", { status: 503 })
     if (!draft && state.abortFinal) state.controller.abort(new Error("cancel during final"))
-    if (body.stream) return stream(draft)
+    if (body.stream) return stream(draft, body.response_format !== undefined)
     return new Response(JSON.stringify({ choices: [{ message: { content: '{"moveId":"b6-a5"}' }, finish_reason: state.finalFinish }], usage: { prompt_tokens: 30, completion_tokens: 3 } }))
   }
 }
@@ -62,11 +62,17 @@ test("Apfel off/omitted remains one pass with model defaults and exact schema", 
 })
 
 test("Apfel high caps only draft, preserves final settings, schema and caller history", async () => {
-  reset(); let notes = ""; const phases: string[] = []
-  const input = options({ level: "high", budgetTokens: 4 }, { maxTokens: 8192, max_tokens: 8, temperature: 0.7, seed: 42 })
+  reset()
+  const input = options({ level: "high", budgetTokens: 4 }, { maxCompletionTokens: 8192, temperature: 0.7, seed: 42 })
   const original = JSON.stringify(input.chatOptions.messages)
-  const adapter = apfelText("apple-foundationmodel", { baseURL: "http://local.invalid/v1/", defaultHeaders: { "x-test": "yes" }, onThinking: (delta: string) => { notes += delta }, onGenerationPhase: (phase: string) => phases.push(phase) })
-  const result = await adapter.structuredOutput(input)
+  const adapter = apfelText("apple-foundationmodel", { baseURL: "http://local.invalid/v1/", defaultHeaders: { "x-test": "yes" } })
+  const events = await collect(adapter.structuredOutputStream(input))
+  const notes = events.filter(e => e.type === "REASONING_MESSAGE_CONTENT").map(e => e.delta).join("")
+  const complete = events.find(e => e.type === "CUSTOM" && e.name === "structured-output.complete") as { value: { object: unknown; reasoning?: string } } | undefined
+  const finished = events.find(e => e.type === "RUN_FINISHED") as { usage: { promptTokens: number; completionTokens: number; completionTokensDetails: { reasoningTokens: number }; providerUsageDetails: Record<string, unknown> } } | undefined
+  assert.ok(complete && finished)
+  assert.deepEqual(complete.value.object, { moveId: "b6-a5" }); assert.equal(complete.value.reasoning, "working notes")
+  const result = finished
   assert.equal(state.requests.length, 2)
   const [draft, final] = state.requests
   assert.equal(draft.url, "http://local.invalid/v1/chat/completions")
@@ -80,7 +86,7 @@ test("Apfel high caps only draft, preserves final settings, schema and caller hi
   assert.ok(draft.init.signal?.aborted, "draft transport is closed independently")
   assert.equal(state.controller.signal.aborted, false)
   assert.equal(notes, "working notes"); assert.match(final.body.messages.at(-1)?.content ?? "", /working notes/)
-  assert.deepEqual(phases, ["processing", "generating"])
+  assert.ok(events.findIndex(e => e.type === "REASONING_END") < events.findIndex(e => e.type === "TEXT_MESSAGE_START"), "reasoning precedes the JSON")
   assert.equal(JSON.stringify(input.chatOptions.messages), original)
   assert.equal(result.usage.promptTokens, 50); assert.equal(result.usage.completionTokens, 7)
   assert.equal(result.usage.completionTokensDetails.reasoningTokens, 4)
@@ -92,7 +98,7 @@ test("Apfel high caps only draft, preserves final settings, schema and caller hi
 test("Apfel high without a budget invents no cap; explicit smaller caller cap is preserved", async () => {
   reset(); await apfelText("apple").structuredOutput(options({ level: "high" }))
   assert.ok(state.requests.every(r => r.body.max_tokens === undefined))
-  reset(); const result = await apfelText("apple").structuredOutput(options({ level: "high", budgetTokens: 512 }, { maxTokens: 16 }))
+  reset(); const result = await apfelText("apple").structuredOutput(options({ level: "high", budgetTokens: 512 }, { maxCompletionTokens: 16 }))
   assert.deepEqual(state.requests.map(r => r.body.max_tokens), [16, 16])
   assert.equal(result.usage.providerUsageDetails.thinkingOutputLimitTokens, 16)
   assert.equal(result.usage.providerUsageDetails.thinkingBudgetExhausted, false)
@@ -198,11 +204,14 @@ test("Apfel preserves provider token accounting without clamping or claiming a n
 })
 
 
-test("Apfel cancellation from a generation-phase callback prevents the draft request", async () => {
+test("Apfel cancellation at the stream's RUN_STARTED prevents the draft request", async () => {
   reset()
-  const adapter = apfelText("apple", { onGenerationPhase: (phase: string) => {
-    if (phase === "generating") state.controller.abort(new Error("cancel at generation phase"))
-  } })
-  await assert.rejects(adapter.structuredOutput(options({ level: "high", budgetTokens: 4 })), /cancel at generation phase/)
+  const events: Array<Record<string, unknown>> = []
+  for await (const event of apfelText("apple").structuredOutputStream(options({ level: "high", budgetTokens: 4 }))) {
+    events.push(event)
+    if (event.type === "RUN_STARTED") state.controller.abort(new Error("cancel at run start"))
+  }
+  assert.deepEqual(events.map(e => e.type), ["RUN_STARTED", "RUN_ERROR"])
+  assert.equal(events[1].code, "aborted"); assert.equal(events[1].message, "cancel at run start")
   assert.equal(state.requests.length, 0)
 })

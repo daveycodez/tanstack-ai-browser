@@ -181,3 +181,72 @@ export function structuredAnswer(text: string, markers: ThinkingMarkers = THINK_
   const close = raw.indexOf(markers.close, markers.open.length)
   return close < 0 ? "" : raw.slice(close + markers.close.length).trim()
 }
+
+/**
+ * `structuredAnswer` while the reply streams: a reply that opens with the
+ * thinking marker is thinking up to the first close, and everything after
+ * it is the answer, marker-shaped text included (it is JSON data). The
+ * answer pieces, joined and trimmed, equal `structuredAnswer` of the reply.
+ */
+export function createStructuredSplitter({
+  open: OPEN,
+  close: CLOSE
+}: ThinkingMarkers = THINK_TAGS) {
+  let state: "start" | "thinking" | "answer" = "start"
+  let buffer = ""
+  let thought = false
+  let answered = false
+
+  const thinking = (text: string): Array<ReplyPiece> => {
+    const out = thought ? text : text.trimStart()
+    if (!out) return []
+    thought = true
+    return [{ kind: "thinking", text: out }]
+  }
+  const answer = (text: string): Array<ReplyPiece> => {
+    const out = answered ? text : text.trimStart()
+    if (!out) return []
+    answered = true
+    return [{ kind: "answer", text: out }]
+  }
+
+  function push(text: string): Array<ReplyPiece> {
+    buffer += text
+    const pieces: Array<ReplyPiece> = []
+    if (state === "start") {
+      const lead = buffer.trimStart()
+      if (lead.startsWith(OPEN)) {
+        buffer = lead.slice(OPEN.length)
+        state = "thinking"
+      } else if (OPEN.startsWith(lead)) {
+        return pieces
+      } else {
+        state = "answer"
+      }
+    }
+    if (state === "thinking") {
+      const end = buffer.indexOf(CLOSE)
+      if (end === -1) {
+        const keep = partialTag(buffer, CLOSE)
+        pieces.push(...thinking(buffer.slice(0, buffer.length - keep)))
+        buffer = buffer.slice(buffer.length - keep)
+        return pieces
+      }
+      pieces.push(...thinking(buffer.slice(0, end)))
+      buffer = buffer.slice(end + CLOSE.length)
+      state = "answer"
+    }
+    pieces.push(...answer(buffer))
+    buffer = ""
+    return pieces
+  }
+
+  /** Whatever is still held back, once the reply has ended. */
+  function flush(): Array<ReplyPiece> {
+    const rest = buffer
+    buffer = ""
+    return state === "thinking" ? thinking(rest) : answer(rest)
+  }
+
+  return { push, flush }
+}

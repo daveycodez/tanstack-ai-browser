@@ -25,19 +25,20 @@ import type {
 import { generate, loadModel, setDebug, setKeepLoaded } from "./client.js"
 import { modelMeta, modelReasoning } from "./model-meta.js"
 import type {
+  Sampling,
   TransformersJsListedModel,
   TransformersJsModelReasoningByName
 } from "./model-meta.js"
 import type {
   ChatTurn,
   RunTimings,
-  Sampling,
   ToolSpec,
-  WeightsDtype
+  WeightsDtype,
+  WorkerSampling
 } from "./protocol.js"
 import {
+  createStructuredSplitter,
   createThinkingSplitter,
-  structuredAnswer,
   THINKING_MARKERS
 } from "./thinking.js"
 import {
@@ -83,14 +84,33 @@ export type TransformersJsTextConfigFor<TModel extends string> =
     : TransformersJsTextConfig & { toolFormat: ToolFormat }
 
 /**
- * Per-call `modelOptions`: sampling, over the model card's (a listed
- * model's) or the defaults (any other), and the most tokens to generate.
+ * Per-call `modelOptions`, named as OpenRouter's adapter names them, so an
+ * app can swap this adapter for `@tanstack/ai-openrouter`'s unchanged.
+ * Sampling left out comes from the model card (a listed model) or the
+ * defaults (any other).
  */
-export type TransformersJsTextProviderOptions = Partial<Sampling> & {
-  /** Maximum generated tokens, thinking included; otherwise the remaining model context. */
-  maxTokens?: number
-  /** Legacy alias for maxTokens. */
-  max_new_tokens?: number
+export type TransformersJsTextProviderOptions = {
+  /** Most tokens to generate, thinking included; otherwise the remaining model context. */
+  maxCompletionTokens?: number
+  /** Randomness of sampling: 0 is greedy. */
+  temperature?: number
+  /** Nucleus sampling: the likeliest tokens up to this probability, in (0, 1]. */
+  topP?: number
+  /** Seeds the sampler, for the same samples from the same request. */
+  seed?: number
+  /**
+   * Not supported by this engine: 0 (or leaving it out) only; anything
+   * else throws. Use `repetitionPenalty`.
+   */
+  frequencyPenalty?: number
+  /** Not supported by this engine: 0 (or leaving it out) only; anything else throws. */
+  presencePenalty?: number
+  /** Not supported by this engine: leaving it out (or none) only; anything else throws. */
+  stop?: string | Array<string>
+  /** Sampling from the likeliest `topK` tokens only (0: all of them). */
+  topK?: number
+  /** Divides the scores of tokens already in the chat (1: off). */
+  repetitionPenalty?: number
 }
 
 /**
@@ -126,8 +146,8 @@ type ResolveReasoning<TModel extends string> =
 /** Sampling for a model this package doesn't list. */
 const DEFAULT_SAMPLING: Sampling = {
   temperature: 0.7,
-  top_k: 50,
-  repetition_penalty: 1
+  topK: 50,
+  repetitionPenalty: 1
 }
 
 /**
@@ -147,11 +167,53 @@ function thinkingOptions(request: ReasoningRequest | undefined, model: string) {
   return { thinking, ...(budget !== undefined && thinking !== false && { thinkingBudgetTokens: budget }) }
 }
 
-function outputTokens(options: TransformersJsTextProviderOptions | undefined) {
-  const limit = options?.maxTokens ?? options?.max_new_tokens
-  if (limit !== undefined && (!Number.isSafeInteger(limit) || limit < 0))
-    throw new RangeError("maxTokens must be a nonnegative safe integer.")
-  return limit
+/**
+ * A call's sampling and output cap: `modelOptions` over the model card's
+ * sampling, in the worker's names. Options this engine can't honour throw.
+ */
+function generationSettings(
+  options: TransformersJsTextProviderOptions | undefined,
+  base: Sampling
+): { sampling: WorkerSampling; maxTokens: number | undefined } {
+  const {
+    maxCompletionTokens,
+    temperature = base.temperature,
+    topP = base.topP,
+    topK = base.topK,
+    repetitionPenalty = base.repetitionPenalty,
+    seed,
+    frequencyPenalty,
+    presencePenalty,
+    stop
+  } = options ?? {}
+  if (maxCompletionTokens !== undefined && (!Number.isSafeInteger(maxCompletionTokens) || maxCompletionTokens < 0))
+    throw new RangeError("maxCompletionTokens must be a nonnegative safe integer.")
+  if (!Number.isFinite(temperature) || temperature < 0)
+    throw new RangeError("temperature must be a nonnegative number.")
+  if (topP !== undefined && (!Number.isFinite(topP) || topP <= 0 || topP > 1))
+    throw new RangeError("topP must be a number in (0, 1].")
+  if (!Number.isSafeInteger(topK) || topK < 0)
+    throw new RangeError("topK must be a nonnegative safe integer.")
+  if (!Number.isFinite(repetitionPenalty) || repetitionPenalty <= 0)
+    throw new RangeError("repetitionPenalty must be a positive number.")
+  if (seed !== undefined && !Number.isSafeInteger(seed))
+    throw new RangeError("seed must be a safe integer.")
+  if (frequencyPenalty !== undefined && frequencyPenalty !== 0)
+    throw new Error("transformers-js doesn't support frequencyPenalty; use repetitionPenalty.")
+  if (presencePenalty !== undefined && presencePenalty !== 0)
+    throw new Error("transformers-js doesn't support presencePenalty; use repetitionPenalty.")
+  if (stop !== undefined && (typeof stop === "string" || stop.length > 0))
+    throw new Error("transformers-js doesn't support stop sequences.")
+  return {
+    sampling: {
+      temperature,
+      top_k: topK,
+      repetition_penalty: repetitionPenalty,
+      ...(topP !== undefined && { top_p: topP }),
+      ...(seed !== undefined && { seed })
+    },
+    maxTokens: maxCompletionTokens
+  }
 }
 
 /** Cancel the caller's wait without discarding an in-progress model download. */
@@ -323,6 +385,17 @@ function usageOf(stats: RunTimings): TokenUsage {
 const errorText = (error: unknown) =>
   error instanceof Error ? error.message : String(error)
 
+/** The call's cancellation: the legacy controller's, else the request's. */
+const signalOf = (options: TextOptions<TransformersJsTextProviderOptions>) =>
+  options.abortController?.signal ??
+  (options.request as RequestInit | undefined)?.signal ??
+  undefined
+
+const STRUCTURED_OUTPUT_COMPLETE = "structured-output.complete"
+
+/** The `structured-output.complete` event's value. */
+type StructuredOutputComplete = { object: unknown; raw: string; reasoning?: string }
+
 let calls = 0
 const nextId = (prefix: string) =>
   `${prefix}_${Date.now().toString(36)}_${(calls++).toString(36)}`
@@ -363,19 +436,14 @@ export class TransformersJsTextAdapter<
     setKeepLoaded(model, config.keepLoaded ?? false)
   }
 
-  /** Sampling for a call: `modelOptions` over the model card's or the defaults. */
-  private sampling(
+  /** Sampling and output cap for a call: `modelOptions` over the model card's or the defaults. */
+  private settings(
     modelOptions: TransformersJsTextProviderOptions | undefined
   ) {
-    const base = modelMeta(this.model)?.sampling ?? DEFAULT_SAMPLING
-    const top_p = modelOptions?.top_p ?? base.top_p
-    return {
-      temperature: modelOptions?.temperature ?? base.temperature,
-      top_k: modelOptions?.top_k ?? base.top_k,
-      repetition_penalty:
-        modelOptions?.repetition_penalty ?? base.repetition_penalty,
-      ...(top_p !== undefined && { top_p })
-    }
+    return generationSettings(
+      modelOptions,
+      modelMeta(this.model)?.sampling ?? DEFAULT_SAMPLING
+    )
   }
 
   async *chatStream(
@@ -386,14 +454,10 @@ export class TransformersJsTextAdapter<
     const callId = nextId("call")
     const messageId = nextId("msg")
     const reasoningId = nextId("reasoning")
-    const signal =
-      options.abortController?.signal ??
-      (options.request as RequestInit | undefined)?.signal ??
-      undefined
+    const signal = signalOf(options)
     const model = this.model
-    const sampling = this.sampling(options.modelOptions)
+    const { sampling, maxTokens } = this.settings(options.modelOptions)
     const thinking = thinkingOptions(options.reasoning, model)
-    const maxTokens = outputTokens(options.modelOptions)
     const timestamp = () => Date.now()
 
     yield {
@@ -665,16 +729,100 @@ export class TransformersJsTextAdapter<
 
   /**
    * A schema-constrained JSON answer through the public logits-processor
-   * hook. `chat()` additionally validates the completed result.
+   * hook: `structuredOutputStream` drained. `chat()` additionally validates
+   * the completed result.
    */
   async structuredOutput(
     options: StructuredOutputOptions<TransformersJsTextProviderOptions>
   ): Promise<StructuredOutputResult<unknown>> {
+    let complete: StructuredOutputComplete | undefined
+    let usage: TokenUsage | undefined
+    for await (const chunk of this.structuredEvents(options)) {
+      if (chunk.type === EventType.CUSTOM && chunk.name === STRUCTURED_OUTPUT_COMPLETE)
+        complete = chunk.value as StructuredOutputComplete
+      if (chunk.type === EventType.RUN_FINISHED && chunk.usage && !Array.isArray(chunk.usage))
+        usage = chunk.usage as TokenUsage
+    }
+    if (!complete) throw new Error("The model's structured answer didn't complete.")
+    return {
+      data: complete.object,
+      rawText: complete.raw,
+      ...(usage && { usage })
+    }
+  }
+
+  /**
+   * `chat({ outputSchema, stream: true })`: the model's thinking as
+   * `REASONING_*` events, the schema-constrained JSON as `TEXT_MESSAGE_*`
+   * deltas, then a `CUSTOM` `structured-output.complete` event with
+   * `{ object, raw, reasoning? }` and `RUN_FINISHED` with usage. A failure
+   * ends the run with `RUN_ERROR` instead.
+   */
+  async *structuredOutputStream(
+    options: StructuredOutputOptions<TransformersJsTextProviderOptions>
+  ): AsyncIterable<AdapterYieldChunk> {
+    const { chatOptions } = options
+    const runId = chatOptions.runId ?? nextId("run")
+    let started = false
+    try {
+      for await (const chunk of this.structuredEvents(options, runId)) {
+        if (chunk.type === EventType.RUN_STARTED) started = true
+        yield chunk
+      }
+    } catch (error) {
+      const model = this.model
+      if (!started) {
+        yield {
+          type: EventType.RUN_STARTED,
+          runId,
+          threadId: chatOptions.threadId,
+          model,
+          timestamp: Date.now(),
+          ...(chatOptions.parentRunId && { parentRunId: chatOptions.parentRunId })
+        }
+      }
+      const aborted = signalOf(chatOptions)?.aborted === true
+      const message = aborted ? "The structured output was canceled." : errorText(error)
+      const code = aborted ? "aborted" : error instanceof SyntaxError ? "structured-output-parse-failed" : undefined
+      yield {
+        type: EventType.RUN_ERROR,
+        runId,
+        model,
+        timestamp: Date.now(),
+        message,
+        ...(code && { code }),
+        error: { message, ...(code && { code }) }
+      }
+    }
+  }
+
+  /**
+   * The structured-output run's events; failures (cancellation included,
+   * with the signal's own reason) are thrown, for `structuredOutput` to
+   * reject with and `structuredOutputStream` to report as `RUN_ERROR`.
+   */
+  private async *structuredEvents(
+    options: StructuredOutputOptions<TransformersJsTextProviderOptions>,
+    runId = options.chatOptions.runId ?? nextId("run")
+  ): AsyncGenerator<AdapterYieldChunk> {
     const { chatOptions, outputSchema } = options
-    const signal = chatOptions.abortController?.signal ?? (chatOptions.request as RequestInit | undefined)?.signal ?? undefined
-    const thinking = thinkingOptions(chatOptions.reasoning, this.model)
-    const maxTokens = outputTokens(chatOptions.modelOptions)
-    await waitForModel(this.model, this.dtype, this.contextLength, signal)
+    const model = this.model
+    const threadId = chatOptions.threadId
+    const messageId = nextId("msg")
+    const reasoningId = nextId("reasoning")
+    const signal = signalOf(chatOptions)
+    const timestamp = () => Date.now()
+    yield {
+      type: EventType.RUN_STARTED,
+      runId,
+      threadId,
+      model,
+      timestamp: timestamp(),
+      ...(chatOptions.parentRunId && { parentRunId: chatOptions.parentRunId })
+    }
+    const thinking = thinkingOptions(chatOptions.reasoning, model)
+    const { sampling, maxTokens } = this.settings(chatOptions.modelOptions)
+    await waitForModel(model, this.dtype, this.contextLength, signal)
     signal?.throwIfAborted()
     const system = normalizeSystemPrompts(chatOptions.systemPrompts)
       .map((p) => p.content)
@@ -682,6 +830,7 @@ export class TransformersJsTextAdapter<
         `Answer with only a JSON value matching this JSON Schema:\n${JSON.stringify(outputSchema)}`
       )
       .join("\n\n")
+    const markers = THINKING_MARKERS[this.toolFormat]
     const stream = generate({
       id: nextId("call"),
       chat: [
@@ -692,39 +841,93 @@ export class TransformersJsTextAdapter<
       ...(chatOptions.promptCache?.retention === "none" && { cachePrompt: false }),
       ...thinking,
       outputSchema,
-      sampling: this.sampling(chatOptions.modelOptions),
+      sampling,
       maxTokens,
       contextLength: this.contextLength,
-      thinkingOpen: THINKING_MARKERS[this.toolFormat].open,
-      thinkingClose: THINKING_MARKERS[this.toolFormat].close,
-      signal: signal
+      thinkingOpen: markers.open,
+      thinkingClose: markers.close,
+      signal
     })
-    let raw = ""
+    // Thinking, if the reply opens with it, then the JSON answer, where
+    // marker-shaped text is data.
+    const splitter = createStructuredSplitter(markers)
+    let reasoning: "none" | "open" | "closed" = "none"
+    let reasoningText = ""
+    let textStarted = false
+    let text = ""
+    const events = (pieces: ReturnType<typeof splitter.push>) => {
+      const out: Array<AdapterYieldChunk> = []
+      for (const piece of pieces) {
+        if (piece.kind === "thinking") {
+          if (reasoning === "none") {
+            reasoning = "open"
+            out.push(
+              { type: EventType.REASONING_START, messageId: reasoningId, model, timestamp: timestamp() },
+              { type: EventType.REASONING_MESSAGE_START, messageId: reasoningId, role: "reasoning", model, timestamp: timestamp() }
+            )
+          }
+          reasoningText += piece.text
+          out.push({ type: EventType.REASONING_MESSAGE_CONTENT, messageId: reasoningId, delta: piece.text, model, timestamp: timestamp() })
+          continue
+        }
+        out.push(...endReasoning())
+        if (!textStarted) {
+          textStarted = true
+          out.push({ type: EventType.TEXT_MESSAGE_START, messageId, role: "assistant", model, timestamp: timestamp() })
+        }
+        text += piece.text
+        out.push({ type: EventType.TEXT_MESSAGE_CONTENT, messageId, delta: piece.text, content: text, model, timestamp: timestamp() })
+      }
+      return out
+    }
+    const endReasoning = (): Array<AdapterYieldChunk> => {
+      if (reasoning !== "open") return []
+      reasoning = "closed"
+      return [
+        { type: EventType.REASONING_MESSAGE_END, messageId: reasoningId, model, timestamp: timestamp() },
+        { type: EventType.REASONING_END, messageId: reasoningId, model, timestamp: timestamp() }
+      ]
+    }
     let next = await stream.next()
     try {
       while (!next.done) {
         signal?.throwIfAborted()
-        raw += next.value
+        yield* events(splitter.push(next.value))
         next = await stream.next()
       }
     } finally {
       if (!next.done) await stream.return({})
     }
     signal?.throwIfAborted()
+    yield* events(splitter.flush())
+    yield* endReasoning()
+    if (textStarted) yield { type: EventType.TEXT_MESSAGE_END, messageId, model, timestamp: timestamp() }
     if (next.value.failure) throw new Error(next.value.failure)
-    const rawText = structuredAnswer(raw, THINKING_MARKERS[this.toolFormat])
-    signal?.throwIfAborted()
-    const json = rawText.replace(/^```(?:json)?\s*|\s*```$/g, "")
+    const raw = text.trim()
+    let object: unknown
     try {
-      return {
-        data: JSON.parse(json) as unknown,
-        rawText,
-        ...(next.value.stats && { usage: usageOf(next.value.stats) })
-      }
-    } catch {
-      throw new Error(
-        `The model's answer isn't JSON: ${rawText.slice(0, 200)}${rawText.length > 200 ? "…" : ""}`
+      object = JSON.parse(raw.replace(/^```(?:json)?\s*|\s*```$/g, "")) as unknown
+    } catch (error) {
+      throw new SyntaxError(
+        `The model's answer isn't JSON: ${raw.slice(0, 200)}${raw.length > 200 ? "…" : ""}`,
+        { cause: error }
       )
+    }
+    const value: StructuredOutputComplete = {
+      object,
+      raw,
+      ...(reasoningText && { reasoning: reasoningText })
+    }
+    yield { type: EventType.CUSTOM, name: STRUCTURED_OUTPUT_COMPLETE, value, model, timestamp: timestamp() }
+    const usage = next.value.stats ? usageOf(next.value.stats) : undefined
+    yield {
+      type: EventType.RUN_FINISHED,
+      runId,
+      threadId,
+      model,
+      timestamp: timestamp(),
+      finishReason: "stop",
+      ...(usage && { usage })
     }
   }
 }

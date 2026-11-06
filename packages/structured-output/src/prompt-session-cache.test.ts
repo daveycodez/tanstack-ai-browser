@@ -61,7 +61,13 @@ class FakeSession extends EventTarget {
     await this.append([...input, { role:"assistant", content:result }], { signal })
     return result
   }
-  promptStreaming(input: Message[], options: { signal?: AbortSignal } = {}) {
+  promptStreaming(input: Message[], options: { signal?: AbortSignal; responseConstraint?: unknown } = {}) {
+    // A constrained stream answers as prompt() does (structuredOutputStream).
+    if (options.responseConstraint) {
+      return new ReadableStream<string>({ start: async (controller) => {
+        try { controller.enqueue(await this.prompt(input, options)); controller.close() } catch (error) { controller.error(error) }
+      } })
+    }
     return new ReadableStream<string>({ start: async (controller) => {
       options.signal?.throwIfAborted()
       await this.append([...input, { role:"assistant", content:"plain answer" }], options)
@@ -304,12 +310,12 @@ test("concurrent cold chat leases sharing a key destroy the detached session on 
   destroyPromptApiSessions();assert.ok(control.sessions.every(session=>session.destroyed))
 })
 
-test("clone overflow is reported on structured usage and invokes the existing callback", async () => {
-  reset();let overflow=0
-  const adapter=promptApiText({onContextOverflow:()=>{overflow++}})
+test("clone overflow is reported on structured usage", async () => {
+  reset()
+  const adapter=promptApiText()
   control.onPrompt=()=>control.prompts.at(-1)?.session.dispatchEvent(new Event("contextoverflow"))
   const result=await adapter.structuredOutput(request())
-  assert.equal(result.usage.providerUsageDetails.contextOverflow,true);assert.equal(overflow,1)
+  assert.equal(result.usage.providerUsageDetails.contextOverflow,true)
 })
 
 test("the public TanStack structured-output path reuses the adapter base across calls", async () => {
@@ -372,12 +378,14 @@ test("public TanStack promptCache none creates fresh structured requests with no
   reset()
   const cachedCounts: number[] = [], policies: unknown[] = []
   const adapter = promptApiText()
-  const original = adapter.structuredOutput.bind(adapter)
-  adapter.structuredOutput = async (options: {chatOptions: Record<string, unknown>; outputSchema: unknown}) => {
+  // chat() drains structuredOutputStream (even with stream: false); its RUN_FINISHED carries the usage.
+  const original = adapter.structuredOutputStream.bind(adapter)
+  adapter.structuredOutputStream = async function* (options: {chatOptions: Record<string, unknown>; outputSchema: unknown}) {
     policies.push(options.chatOptions.promptCache)
-    const result = await original(options)
-    cachedCounts.push(cached(result))
-    return result
+    for await (const chunk of original(options)) {
+      if (chunk.type === "RUN_FINISHED") cachedCounts.push(cached(chunk))
+      yield chunk
+    }
   }
   for (let index=0;index<2;index++) {
     assert.deepEqual(await chat({adapter,threadId:"public-none",systemPrompts:["Stable system instructions"],messages:[{role:"user",content:"Choose a legal move"}],outputSchema:schema,promptCache:"none",stream:false}),{moveId:"b6-a5"})

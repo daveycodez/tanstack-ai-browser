@@ -47,7 +47,7 @@ test("wllama delegates the exact schema, thinking switch and output cap, and rej
   const { wllamaText } = await adapterPackage("wllama")
   control.requests = []; control.finish = "stop"
   const adapter = wllamaText("LiquidAI/LFM3-1.7B-GGUF")
-  const request = options(adapter.model, { maxTokens: 8192, max_new_tokens: 64, response_format: { type: "text" } })
+  const request = options(adapter.model, { maxCompletionTokens: 8192, response_format: { type: "text" } })
   const result = await adapter.structuredOutput({ ...request, chatOptions: { ...request.chatOptions, reasoning: { level: "high", summary: true } } })
   assert.deepEqual(result.data, { moveId: "b6-a5" })
   const sent = control.requests[0]
@@ -89,10 +89,10 @@ test("apfel forwards the exact guided schema and caller output cap, and rejects 
     return new Response(JSON.stringify({ choices: [{ finish_reason: finish, message: { content: '{"moveId":"b6-a5"}' } }] }), { headers: { "content-type": "application/json" } })
   }
   try {
-    assert.deepEqual((await adapter.structuredOutput(options(adapter.model, { maxTokens: 8192, max_tokens: 64 }))).data, { moveId: "b6-a5" })
+    assert.deepEqual((await adapter.structuredOutput(options(adapter.model, { maxCompletionTokens: 8192 }))).data, { moveId: "b6-a5" })
     assert.deepEqual(sent.response_format, { type: "json_schema", json_schema: { name: "output", schema } })
     assert.equal(sent.max_tokens, 8192)
-    assert.equal("maxTokens" in sent, false)
+    assert.equal("maxCompletionTokens" in sent, false)
     finish = "length"
     await assert.rejects(adapter.structuredOutput(options(adapter.model)), /cut off.*token limit/)
   } finally { globalThis.fetch = originalFetch }

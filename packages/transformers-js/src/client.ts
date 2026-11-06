@@ -10,7 +10,7 @@ import type { Store } from "./store.js"
 import type {
   ChatTurn,
   RunTimings,
-  Sampling,
+  WorkerSampling,
   ToolSpec,
   WeightsDtype,
   WorkerRequest,
@@ -273,7 +273,7 @@ export async function* generate(request: {
   thinkingBudgetTokens?: number
   outputSchema?: object
   cachePrompt?: boolean
-  sampling: Sampling
+  sampling: WorkerSampling
   maxTokens?: number
   contextLength?: number
   thinkingOpen: string

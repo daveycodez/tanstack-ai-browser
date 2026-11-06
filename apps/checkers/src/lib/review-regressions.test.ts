@@ -134,10 +134,10 @@ test("actual AI hooks in two tabs and reloads never retry a failed position with
 })
 
 test("Apple initialization is independent of LanguageModel and Prompt API remains separately loaded", async () => {
-  const c = { unloads: 0, browserLoads: 0, webglLoads: 0, apfelCalls: 0, promptAvailable: false }
+  const c = { unloads: 0, browserLoads: 0, webglLoads: 0, apfelCalls: 0, promptAvailable: false, mode: "ok" }
   const m = await bundle("./ai.ts", c, { "./opponents": opponents,
     "./analysis-worker": `export const analyzeMovePrompt=async({moves})=>({version:'shared-v17',systemPrompt:'Choose a move',prompt:'Board',choices:moves.map(m=>({id:m.id,label:m.id,outcome:''}))});`,
-    "@tanstack/ai": `export const chat=async o=>(await o.adapter.structuredOutput({chatOptions:{},outputSchema:{}})).data;`,
+    "@tanstack/ai": `export const EventType={TEXT_MESSAGE_CONTENT:'TEXT_MESSAGE_CONTENT',REASONING_MESSAGE_CONTENT:'REASONING_MESSAGE_CONTENT',RUN_ERROR:'RUN_ERROR',CUSTOM:'CUSTOM'};export const chat=o=>{if(o.stream!==true)throw Error('expected a stream');return(async function*(){if(c.mode==='hang')await new Promise(()=>{});if(c.mode==='error'){yield{type:'RUN_ERROR',message:'The model broke.'};return}const r=await o.adapter.structuredOutput({chatOptions:{},outputSchema:{}});yield{type:'REASONING_MESSAGE_CONTENT',delta:'thinking'};yield{type:'TEXT_MESSAGE_CONTENT',delta:r.rawText};yield{type:'CUSTOM',name:'structured-output.complete',value:{object:r.data,raw:r.rawText}}})()};`,
     "@tanstack-ai-browser/apfel": `export const apfelText=()=>({structuredOutput:async()=>{c.apfelCalls++;return{data:{move:'b6-a5'},rawText:'{"move":"b6-a5"}'}}});`,
     "@tanstack-ai-browser/prompt-api": `export const loadPromptApiModel=async()=>{c.browserLoads++;if(!c.promptAvailable)throw Error('This browser has no built-in language model (the Prompt API).')};export const promptApiStatus=()=>({});export const promptApiText=()=>({structuredOutput:async()=>({data:{move:'b6-a5'},rawText:'{"move":"b6-a5"}'})});`,
     "@tanstack-ai-browser/webgllm": `export const isSupported=()=>true;export const unloadModel=async()=>{c.unloads++};export const loadModel=async()=>{c.webglLoads++};export const modelStatus=()=>({});export const webgllmText=()=>({structuredOutput:async()=>({data:{move:'b6-a5'},rawText:'{"move":"b6-a5"}'})});`
@@ -154,6 +154,19 @@ test("Apple initialization is independent of LanguageModel and Prompt API remain
     c.promptAvailable = true
     assert.equal(await m.chooseAiMove({ ...game, opponent: { model: "prompt-api", thinking: false } }, new AbortController()), "b6-a5")
     assert.equal(c.browserLoads, 2)
+    // The standard structured-output stream drives the phase, thinking, and raw-answer callbacks.
+    const phases: string[] = [], thoughts: string[] = [], answers: string[] = []
+    const webgl = { ...game, opponent: { model: "LiquidAI/LFM3-1.7B-GGUF", thinking: true } }
+    assert.equal(await m.chooseAiMove(webgl, new AbortController(), (p: string) => phases.push(p), (d: string) => thoughts.push(d), { onAnswer: (a: string) => answers.push(a) }), "b6-a5")
+    assert.deepEqual(phases, ["processing", "generating"]); assert.deepEqual(thoughts, ["thinking"]); assert.deepEqual(answers, ['{"move":"b6-a5"}'])
+    c.mode = "error"
+    await assert.rejects(m.chooseAiMove(webgl, new AbortController()), /The model broke/)
+    // An abort rejects with its reason even while the stream is waiting on the model.
+    c.mode = "hang"
+    const controller = new AbortController(), reason = new Error("left the game")
+    const pending = m.chooseAiMove(webgl, controller)
+    setTimeout(() => controller.abort(reason), 10)
+    await assert.rejects(pending, (error: unknown) => error === reason)
   } finally { restoreWindow(); restoreModel() }
 })
 

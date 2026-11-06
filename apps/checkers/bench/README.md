@@ -84,7 +84,7 @@ losing a Black king.
 - Thinking / Working notes: off by default; required-reasoning models keep their mode.
 - Reasoning budget: default 512; larger nonnegative budgets are available for diagnostics.
 
-WebGL requests only `modelOptions.maxTokens: 8192` alongside the selected reasoning mode.
+WebGL requests only `modelOptions.maxCompletionTokens: 8192` alongside the selected reasoning mode.
 Context and sampling use model/runtime defaults. Prompt API output limits are browser
 managed, reported as `null`; an unused 512 budget in an off-mode configuration does not
 mean a reasoning pass was requested. The game's enabled-reasoning default remains 512.
@@ -248,7 +248,7 @@ contains fresh six-model runs with piece terminology; raw probes remain local.
 
 `Apple-FoundationModel` is first in the game and benchmark opponent pickers only
 in Vite development. It uses the Apfel adapter's local default endpoint and the
-same game AI path, native cancellation, model-default sampling, maxTokens 8192,
+same game AI path, native cancellation, model-default sampling, maxCompletionTokens 8192,
 and optional adapter-emulated working notes. Production builds omit the option;
 a stored development-only selection resolves to a normal supported opponent.
 No adapter or engine package code was changed.

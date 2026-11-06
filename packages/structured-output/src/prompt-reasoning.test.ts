@@ -33,9 +33,12 @@ class FakeSession {
  async measureContextUsage(input:unknown,options?:Record<string,unknown>){const value=10+text(input).length;control.events.push({kind:"measure",session:this.id,input,options,value});return value}
  promptStreaming(input:unknown,options:Record<string,unknown>={}){
   const draft=text(input).includes("Write short working notes")
-  control.events.push({kind:draft?"draft":"final-stream",session:this.id,input,options})
+  // A constrained stream answers like prompt(), in pieces: the structured-output stream.
+  const constrained=!draft&&!!options.responseConstraint
+  control.events.push({kind:draft?"draft":constrained?"final":"final-stream",session:this.id,input,options})
   const signal=options.signal as AbortSignal|undefined
-  const chunks:unknown[]=draft?control.chunks:this.nativeTools?[{type:"tool-call",value:{callId:"native-call",name:"lookup_weather",arguments:{city:"London"}}}]:["plain answer"]
+  if(constrained&&control.abortFinal)control.controller?.abort(new Error("caller cancelled final"))
+  const chunks:unknown[]=draft?control.chunks:constrained?['{"moveId":','"b6-a5"}']:this.nativeTools?[{type:"tool-call",value:{callId:"native-call",name:"lookup_weather",arguments:{city:"London"}}}]:["plain answer"]
   let index=0
   return new ReadableStream<unknown>({pull(controller){
    if(draft&&control.abortDraft&&index===1){control.abortDraft=false;control.controller?.abort(new Error("caller cancelled draft"))}
@@ -70,6 +73,19 @@ const schema={type:"object",properties:{moveId:{type:"string",enum:["b6-a5"]}},r
 const logger={request(){return undefined},errors(){return undefined},provider(){return undefined},warn(){return undefined}}
 function caller(){assert.ok(control.controller);return control.controller}
 const options=(reasoning?:unknown,useRequestSignal=false)=>({chatOptions:{logger,threadId:"retained-original",model:"built-in",messages:[{role:"user",content:"Choose the move"}],...(reasoning===undefined?{}:{reasoning}),...(useRequestSignal?{request:{signal:caller().signal}}:{abortController:control.controller})},outputSchema:schema})
+/** A streamed event, as these tests read it. */
+type StreamEvent={type:string;name?:string;delta?:string;message?:string;value?:{object?:unknown;reasoning?:string};usage?:{providerUsageDetails:Record<string,unknown>}}
+/** structuredOutputStream's events, its reasoning deltas, and the complete event and usage. */
+async function streamed(request:ReturnType<typeof options>){
+ const chunks:Array<StreamEvent>=[]
+ for await(const chunk of promptApiText().structuredOutputStream(request))chunks.push(chunk)
+ const error=chunks.find(c=>c.type==="RUN_ERROR")
+ if(error)throw new Error(error.message)
+ const complete=chunks.find(c=>c.type==="CUSTOM"&&c.name==="structured-output.complete")
+ const finished=chunks.find(c=>c.type==="RUN_FINISHED")
+ if(!finished?.usage)throw new Error("no RUN_FINISHED usage")
+ return {chunks,thoughts:chunks.filter(c=>c.type==="REASONING_MESSAGE_CONTENT").map(c=>c.delta).join(""),data:complete?.value?.object,reasoning:complete?.value?.reasoning,usage:finished.usage}
+}
 function reset(){control.sessions=[];control.events=[];control.controller=new AbortController();control.chunks=["abc","def","ghi"];control.abortDraft=false;control.abortFinal=false;control.discards=0;control.releases=0;control.leases=[]}
 
 test("Prompt API off/omitted reasoning remains one native constrained pass",async()=>{
@@ -84,10 +100,12 @@ test("Prompt API off/omitted reasoning remains one native constrained pass",asyn
 })
 
 test("emulated Prompt API budget subtracts message overhead and never aborts the final caller",async()=>{
- reset();let thoughts=""
- const response=await promptApiText({onThinking:(delta:string)=>{thoughts+=delta}}).structuredOutput(options({level:"high",summary:true,budgetTokens:4}))
+ reset()
+ const response=await streamed(options({level:"high",summary:true,budgetTokens:4}))
+ const thoughts=response.thoughts
  assert.deepEqual(response.data,{moveId:"b6-a5"})
  assert.equal(thoughts,"abcd")
+ assert.equal(response.reasoning,"abcd")
  assert.equal(caller().signal.aborted,false)
  const draft=control.events.find(e=>e.kind==="draft");assert.ok(draft)
  assert.ok((draft.options?.signal as AbortSignal).aborted,"draft budget abort affects only internal signal")
@@ -110,9 +128,9 @@ test("emulated Prompt API budget subtracts message overhead and never aborts the
 })
 
 test("emulated thinking with no budget has no invented token ceiling",async()=>{
- reset();let thoughts=""
- const response=await promptApiText({onThinking:(delta:string)=>{thoughts+=delta}}).structuredOutput(options({level:"high",summary:true}))
- assert.equal(thoughts,"abcdefghi")
+ reset()
+ const response=await streamed(options({level:"high",summary:true}))
+ assert.equal(response.thoughts,"abcdefghi")
  assert.equal(response.usage.providerUsageDetails.thinkingBudgetTokens,undefined)
  assert.equal(response.usage.providerUsageDetails.thinkingBudgetExhausted,false)
 })
@@ -154,9 +172,9 @@ test("emulated draft preserves constrained tool selection and argument generatio
 
 
 test("zero emulated budget skips the draft but retains constrained final generation",async()=>{
- reset();let thoughts=""
- const response=await promptApiText({onThinking:(delta:string)=>{thoughts+=delta}}).structuredOutput(options({level:"high",summary:true,budgetTokens:0}))
- assert.equal(thoughts,"")
+ reset()
+ const response=await streamed(options({level:"high",summary:true,budgetTokens:0}))
+ assert.equal(response.thoughts,"")
  assert.equal(control.events.filter(e=>e.kind==="draft").length,0)
  assert.equal(control.events.filter(e=>e.kind==="final").length,1)
  assert.equal(response.usage.providerUsageDetails.thinkingTokens,0)
@@ -205,10 +223,10 @@ test("off and omitted streamed calls preserve retained session behavior",async()
 })
 
 test("shared TanStack chat forwards opt-in reasoning to the Prompt API adapter",async()=>{
- reset();let thoughts=""
- const response=await chat({adapter:promptApiText({onThinking:(delta:string)=>{thoughts+=delta}}),threadId:"public-chat-reasoning",messages:[{role:"user",content:"Say hello"}],reasoning:{level:"high",budgetTokens:4},abortController:caller(),stream:false})
- assert.equal(thoughts,"abcd")
- assert.equal(response.chunks.find((chunk:{type:string})=>chunk.type==="RUN_FINISHED")?.usage?.providerUsageDetails?.reasoningEmulated,true)
+ reset();const chunks:Array<StreamEvent>=[]
+ for await(const chunk of chat({adapter:promptApiText(),threadId:"public-chat-reasoning",messages:[{role:"user",content:"Say hello"}],reasoning:{level:"high",budgetTokens:4},abortController:caller(),stream:true}))chunks.push(chunk)
+ assert.equal(chunks.filter(c=>c.type==="REASONING_MESSAGE_CONTENT").map(c=>c.delta).join(""),"abcd")
+ assert.equal(chunks.find(c=>c.type==="RUN_FINISHED")?.usage?.providerUsageDetails?.reasoningEmulated,true)
 })
 
 test("invalid emulated budgets reject before leasing a native session",async()=>{

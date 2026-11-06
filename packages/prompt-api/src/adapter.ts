@@ -78,15 +78,6 @@ export type PromptApiTextConfig = {
    * generation. A specific `toolChoice` always does.
    */
   nativeTools?: boolean
-  /** Adapter-managed phases; high reasoning is an explicit two-pass emulation. */
-  onGenerationPhase?: (phase: "processing" | "generating") => void
-  /** Working-note deltas from emulated reasoning, not native hidden reasoning. */
-  onThinking?: (delta: string) => void
-  /**
-   * Called when a conversation outgrows the context window and the browser
-   * drops its oldest turns (never the system prompt) to make room.
-   */
-  onContextOverflow?: (event: { threadId: string | undefined }) => void
 }
 
 /**
@@ -260,6 +251,56 @@ let ids = 0
 const nextId = (prefix: string) =>
   `${prefix}_${Date.now().toString(36)}_${(ids++).toString(36)}`
 
+/** Where a chunk came from, in `metadata.tanstack.source`. */
+type ChunkSource = { provider: string; api: string; model: string }
+
+const sourceOf = (
+  adapter: { provider: string; api: string; model: string },
+  model: string | undefined
+): ChunkSource => ({
+  provider: adapter.provider,
+  api: adapter.api,
+  model: model ?? adapter.model
+})
+
+/** A chunk tagged with its source, as TanStack's own adapters tag theirs. */
+function withSource(chunk: AdapterYieldChunk, source: ChunkSource): AdapterYieldChunk {
+  const metadata = chunk.metadata as Record<string, unknown> | undefined
+  return {
+    ...chunk,
+    metadata: {
+      ...metadata,
+      tanstack: {
+        ...(metadata?.tanstack as Record<string, unknown> | undefined),
+        source
+      }
+    }
+  }
+}
+
+/** The caller's signal: the legacy `abortController` first, then `request`. */
+const signalOf = (options: TextOptions<PromptApiModelOptions>) =>
+  options.abortController?.signal ??
+  (options.request as RequestInit | undefined)?.signal ??
+  undefined
+
+/** A structured answer that failed, with the `RUN_ERROR` code it streams as. */
+class StructuredOutputFailure extends Error {
+  constructor(
+    message: string,
+    readonly code: "parse-error" | "empty-response" | "unsupported-schema",
+    cause?: unknown
+  ) {
+    super(message, cause === undefined ? undefined : { cause })
+    this.name = "StructuredOutputFailure"
+  }
+}
+
+/** A structured answer, with the emulated reasoning written before it. */
+type StructuredRunResult = StructuredOutputResult<unknown> & {
+  reasoning?: string
+}
+
 /** A call's session and what it reads. */
 type Prepared = {
   lease: Lease
@@ -285,17 +326,11 @@ export class PromptApiTextAdapter extends BaseTextAdapter<
   override readonly inputModalities = ["text", "image", "audio"] as const
   private readonly languages: ReadonlyArray<string>
   private readonly nativeTools: boolean
-  private readonly onContextOverflow: PromptApiTextConfig["onContextOverflow"]
-  private readonly onGenerationPhase: PromptApiTextConfig["onGenerationPhase"]
-  private readonly onThinking: PromptApiTextConfig["onThinking"]
 
   constructor(config: PromptApiTextConfig = {}) {
     super({}, "built-in")
     this.languages = config.languages ?? DEFAULT_LANGUAGES
     this.nativeTools = config.nativeTools ?? true
-    this.onContextOverflow = config.onContextOverflow
-    this.onGenerationPhase = config.onGenerationPhase
-    this.onThinking = config.onThinking
   }
 
   /**
@@ -382,7 +417,6 @@ export class PromptApiTextAdapter extends BaseTextAdapter<
         "provider=prompt-api context overflow: the oldest turns were dropped",
         { threadId }
       )
-      this.onContextOverflow?.({ threadId })
     }
     return {
       contextUsage: lease.session.contextUsage,
@@ -392,6 +426,15 @@ export class PromptApiTextAdapter extends BaseTextAdapter<
   }
 
   async *chatStream(
+    options: TextOptions<PromptApiModelOptions>
+  ): AsyncIterable<AdapterYieldChunk> {
+    const source = sourceOf(this, options.model)
+    for await (const chunk of this.chatStreamRequest(options)) {
+      yield withSource(chunk, source)
+    }
+  }
+
+  private async *chatStreamRequest(
     options: TextOptions<PromptApiModelOptions>
   ): AsyncIterable<AdapterYieldChunk> {
     const runId = options.runId ?? nextId("run")
@@ -406,6 +449,7 @@ export class PromptApiTextAdapter extends BaseTextAdapter<
     const timestamp = () => Date.now()
     const runError = (message: string): AdapterYieldChunk => ({
       type: EventType.RUN_ERROR,
+      runId,
       model,
       timestamp: timestamp(),
       message,
@@ -448,7 +492,6 @@ export class PromptApiTextAdapter extends BaseTextAdapter<
       ]
     }
     const reasoning = promptReasoningOptions(options.reasoning)
-    this.onGenerationPhase?.("processing")
     const startedAt = performance.now()
 
     yield {
@@ -515,7 +558,6 @@ export class PromptApiTextAdapter extends BaseTextAdapter<
 
       try {
         if (reasoning.enabled) {
-          this.onGenerationPhase?.("generating")
           const draft = draftReasoning(session, input, signal, reasoning.budget)
           let next = await draft.next()
           let opened = false
@@ -527,7 +569,6 @@ export class PromptApiTextAdapter extends BaseTextAdapter<
                 yield { type: EventType.REASONING_START, messageId: reasoningId, model, timestamp: timestamp() }
                 yield { type: EventType.REASONING_MESSAGE_START, messageId: reasoningId, role: "reasoning", model, timestamp: timestamp() }
               }
-              this.onThinking?.(next.value)
               yield { type: EventType.REASONING_MESSAGE_CONTENT, messageId: reasoningId, delta: next.value, model, timestamp: timestamp() }
               next = await draft.next()
             }
@@ -540,7 +581,7 @@ export class PromptApiTextAdapter extends BaseTextAdapter<
             yield { type: EventType.REASONING_MESSAGE_END, messageId: reasoningId, model, timestamp: timestamp() }
             yield { type: EventType.REASONING_END, messageId: reasoningId, model, timestamp: timestamp() }
           }
-        } else this.onGenerationPhase?.("generating")
+        }
         signal?.throwIfAborted()
         const call =
           tools.length > 0 && !native
@@ -751,16 +792,125 @@ export class PromptApiTextAdapter extends BaseTextAdapter<
    * A JSON answer for `chat({ outputSchema })`, from guided generation:
    * `responseConstraint` holds the model to the original schema. Unsupported
    * schemas fail explicitly rather than silently dropping constraints. `chat()`
-   * validates the result.
+   * validates the result. One constrained prompt, not streamed; the streamed
+   * form is `structuredOutputStream`.
    */
   async structuredOutput(
     options: StructuredOutputOptions<PromptApiModelOptions>
   ): Promise<StructuredOutputResult<unknown>> {
+    const run = this.structuredOutputRun(options, false)
+    let next = await run.next()
+    while (!next.done) next = await run.next()
+    const { data, rawText, model, usage } = next.value
+    return { data, rawText, model, ...(usage && { usage }) }
+  }
+
+  /**
+   * `chat({ outputSchema, stream: true })`: the JSON streamed as the model
+   * writes it under `responseConstraint`, after any emulated reasoning
+   * (`REASONING_*`), then `structured-output.complete` and `RUN_FINISHED`.
+   */
+  async *structuredOutputStream(
+    options: StructuredOutputOptions<PromptApiModelOptions>
+  ): AsyncIterable<AdapterYieldChunk> {
+    const source = sourceOf(this, options.chatOptions.model)
+    for await (const chunk of this.structuredOutputRequestStream(options)) {
+      yield withSource(chunk, source)
+    }
+  }
+
+  private async *structuredOutputRequestStream(
+    options: StructuredOutputOptions<PromptApiModelOptions>
+  ): AsyncIterable<AdapterYieldChunk> {
+    const { chatOptions } = options
+    const runId = chatOptions.runId ?? nextId("run")
+    const threadId = chatOptions.threadId
+    const messageId = nextId("msg")
+    const model = this.model
+    const signal = signalOf(chatOptions)
+    yield {
+      type: EventType.RUN_STARTED,
+      runId,
+      threadId,
+      model,
+      timestamp: Date.now(),
+      ...(chatOptions.parentRunId && { parentRunId: chatOptions.parentRunId })
+    }
+    let result: StructuredRunResult
+    try {
+      result = yield* this.structuredOutputRun(options, true, messageId)
+    } catch (error) {
+      const aborted = !!signal?.aborted
+      const code = aborted
+        ? "aborted"
+        : error instanceof StructuredOutputFailure
+          ? error.code
+          : undefined
+      const message = aborted
+        ? errorText(signal?.reason ?? error)
+        : error instanceof DOMException
+          ? promptErrorText(error)
+          : errorText(error)
+      if (!aborted) {
+        chatOptions.logger.errors("prompt-api.structuredOutputStream fatal", {
+          error,
+          source: "prompt-api.structuredOutputStream"
+        })
+      }
+      yield {
+        type: EventType.RUN_ERROR,
+        runId,
+        model,
+        timestamp: Date.now(),
+        message,
+        ...(code && { code }),
+        error: { message, ...(code && { code }) }
+      }
+      return
+    }
+    yield {
+      type: EventType.CUSTOM,
+      name: "structured-output.complete",
+      value: {
+        object: result.data,
+        raw: result.rawText,
+        ...(result.reasoning ? { reasoning: result.reasoning } : {})
+      },
+      model,
+      timestamp: Date.now()
+    }
+    yield {
+      type: EventType.RUN_FINISHED,
+      runId,
+      threadId,
+      model,
+      timestamp: Date.now(),
+      finishReason: "stop",
+      ...(result.usage && { usage: result.usage })
+    }
+  }
+
+  /**
+   * One structured answer: emulated reasoning (if asked for) streamed as
+   * `REASONING_*` events, then the constrained JSON as `TEXT_MESSAGE_*`
+   * deltas (`stream`: from `promptStreaming`; otherwise one `prompt` whose
+   * whole answer is one delta). Throws on failure and cancellation, with
+   * the caller's abort reason.
+   */
+  private async *structuredOutputRun(
+    options: StructuredOutputOptions<PromptApiModelOptions>,
+    stream: boolean,
+    messageId = nextId("msg")
+  ): AsyncGenerator<AdapterYieldChunk, StructuredRunResult> {
     const { chatOptions, outputSchema } = options
-    const signal = chatOptions.abortController?.signal ?? (chatOptions.request as RequestInit | undefined)?.signal ?? undefined
+    const model = this.model
+    const signal = signalOf(chatOptions)
     signal?.throwIfAborted()
     const reasoning = promptReasoningOptions(chatOptions.reasoning)
-    this.onGenerationPhase?.("processing")
+    chatOptions.logger.request(
+      `activity=${stream ? "structuredOutputStream" : "structuredOutput"} provider=prompt-api model=${model} messages=${chatOptions.messages.length}`,
+      { provider: "prompt-api", model }
+    )
     const conversation = toPromptMessages(chatOptions.messages, {
       nativeTools: false
     })
@@ -789,13 +939,19 @@ export class PromptApiTextAdapter extends BaseTextAdapter<
           ? await toLanguageModelMessages(inputMessages, media)
           : "Answer."
       let reasoningUsage: PromptApiReasoningUsage | undefined
+      let reasoningText = ""
       if (reasoning.enabled) {
-        this.onGenerationPhase?.("generating")
+        const reasoningId = nextId("reasoning")
         const draft = draftReasoning(session, input, signal, reasoning.budget)
         let next = await draft.next()
         try {
           while (!next.done) {
-            this.onThinking?.(next.value)
+            if (!reasoningText) {
+              yield { type: EventType.REASONING_START, messageId: reasoningId, model, timestamp: Date.now() }
+              yield { type: EventType.REASONING_MESSAGE_START, messageId: reasoningId, role: "reasoning", model, timestamp: Date.now() }
+            }
+            reasoningText += next.value
+            yield { type: EventType.REASONING_MESSAGE_CONTENT, messageId: reasoningId, delta: next.value, model, timestamp: Date.now() }
             next = await draft.next()
           }
           reasoningUsage = next.value.usage
@@ -803,48 +959,106 @@ export class PromptApiTextAdapter extends BaseTextAdapter<
         } finally {
           if (!next.done) await draft.return({ notes: "", usage: { reasoningEmulated: true, reasoningTokenMeasurement: "context-usage", reasoningBudgetEnforcement: "best-effort", thinkingTokens: 0, thinkingBudgetExhausted: false, reasoningMs: 0 } })
         }
-      } else this.onGenerationPhase?.("generating")
+        if (reasoningText) {
+          yield { type: EventType.REASONING_MESSAGE_END, messageId: reasoningId, model, timestamp: Date.now() }
+          yield { type: EventType.REASONING_END, messageId: reasoningId, model, timestamp: Date.now() }
+        }
+      }
       signal?.throwIfAborted()
-      const ask = async (schema: object) =>
-        textOf(
-          await session.prompt(input, { responseConstraint: schema, signal })
-        )
-      let rawText: string
+      let rawText = ""
+      const textStart = (): AdapterYieldChunk => ({
+        type: EventType.TEXT_MESSAGE_START,
+        messageId,
+        role: "assistant",
+        model,
+        timestamp: Date.now()
+      })
+      const textContent = (delta: string): AdapterYieldChunk => {
+        rawText += delta
+        return {
+          type: EventType.TEXT_MESSAGE_CONTENT,
+          messageId,
+          delta,
+          content: rawText,
+          model,
+          timestamp: Date.now()
+        }
+      }
       try {
-        rawText = await ask(outputSchema)
+        if (stream) {
+          for await (const chunk of session.promptStreaming(input, {
+            responseConstraint: outputSchema,
+            signal
+          })) {
+            for (const piece of piecesOf(chunk)) {
+              if (piece.type !== "text" || typeof piece.value !== "string" || !piece.value) continue
+              if (!rawText) yield textStart()
+              yield textContent(piece.value)
+            }
+          }
+        } else {
+          const whole = textOf(
+            await session.prompt(input, { responseConstraint: outputSchema, signal })
+          )
+          if (whole) {
+            yield textStart()
+            yield textContent(whole)
+          }
+        }
       } catch (error) {
-        if (!(
-          error instanceof DOMException && error.name === "NotSupportedError"
-        ))
-          throw error
-        throw new Error("The browser cannot enforce the requested JSON Schema.", { cause: error })
+        if (
+          !rawText &&
+          error instanceof DOMException &&
+          error.name === "NotSupportedError"
+        ) {
+          throw new StructuredOutputFailure(
+            "The browser cannot enforce the requested JSON Schema.",
+            "unsupported-schema",
+            error
+          )
+        }
+        throw error
+      }
+      if (rawText) {
+        yield { type: EventType.TEXT_MESSAGE_END, messageId, model, timestamp: Date.now() }
       }
       signal?.throwIfAborted()
       const completionTokens = await replyTokens(session, rawText, signal)
       signal?.throwIfAborted()
-      try {
-        return {
-          data: JSON.parse(rawText) as unknown,
-          rawText,
-          model: this.model,
-          usage: usageOf(
-            session.contextUsage - completionTokens,
-            completionTokens,
-            lease.cachedTokens,
-            {
-              ...this.sessionDetails(lease, chatOptions.threadId, chatOptions.logger),
-              ...reasoningUsage
-            }
-          )
-        }
-      } catch {
-        throw new Error(
-          `The model's answer isn't JSON: ${rawText.slice(0, 200)}${rawText.length > 200 ? "…" : ""}`
+      if (!rawText) {
+        throw new StructuredOutputFailure(
+          "The model's answer is empty.",
+          "empty-response"
         )
+      }
+      let data: unknown
+      try {
+        data = JSON.parse(rawText) as unknown
+      } catch (error) {
+        throw new StructuredOutputFailure(
+          `The model's answer isn't JSON: ${rawText.slice(0, 200)}${rawText.length > 200 ? "…" : ""}`,
+          "parse-error",
+          error
+        )
+      }
+      return {
+        data,
+        rawText,
+        model,
+        usage: usageOf(
+          session.contextUsage - completionTokens,
+          completionTokens,
+          lease.cachedTokens,
+          {
+            ...this.sessionDetails(lease, chatOptions.threadId, chatOptions.logger),
+            ...reasoningUsage
+          }
+        ),
+        ...(reasoningText && { reasoning: reasoningText })
       }
     } catch (error) {
       signal?.throwIfAborted()
-      if (error instanceof DOMException) throw new Error(promptErrorText(error))
+      if (error instanceof DOMException) throw new Error(promptErrorText(error), { cause: error })
       throw error
     } finally {
       lease.discard()

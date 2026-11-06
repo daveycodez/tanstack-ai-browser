@@ -6,14 +6,17 @@
 import type { ModelReasoning } from "@tanstack/ai"
 import type { ModelReasoningCapability } from "@tanstack/ai/adapter-internals"
 
-/** Sampling settings from a model's card, as llama.cpp takes them. */
+/**
+ * Sampling settings from a model's card, in `modelOptions`' names
+ * (OpenRouter's convention): used unless a call's `modelOptions` overrides it.
+ */
 export type Sampling = {
   temperature: number
-  top_k: number
+  topK: number
   /** llama.cpp's repetition penalty (`--repeat-penalty`). */
-  repeat_penalty: number
+  repetitionPenalty: number
   /** Nucleus sampling: the likeliest tokens up to this probability. */
-  top_p?: number
+  topP?: number
 }
 
 export type WllamaModelMeta = {
@@ -58,20 +61,20 @@ const TOOLS = {
 /** The cards' llama.cpp settings: `--temp 0.1 --top-k 50 --repeat-penalty 1.05`. */
 const LFM2_5_SAMPLING = {
   temperature: 0.1,
-  top_k: 50,
-  repeat_penalty: 1.05
+  topK: 50,
+  repetitionPenalty: 1.05
 } as const satisfies Sampling
 /** LFM3's card: `--temp 0.1 --top-k 50 --repeat-penalty 1.1`. */
 const LFM3_SAMPLING = {
   temperature: 0.1,
-  top_k: 50,
-  repeat_penalty: 1.1
+  topK: 50,
+  repetitionPenalty: 1.1
 } as const satisfies Sampling
 /** LFM2.5 Thinking's card: `--temp 0.05 --top-k 50 --repeat-penalty 1.05`. */
 const LFM2_5_THINKING_SAMPLING = {
   temperature: 0.05,
-  top_k: 50,
-  repeat_penalty: 1.05
+  topK: 50,
+  repetitionPenalty: 1.05
 } as const satisfies Sampling
 
 /**
@@ -80,9 +83,9 @@ const LFM2_5_THINKING_SAMPLING = {
  */
 const QWEN_3_5_SAMPLING = {
   temperature: 0.6,
-  top_k: 20,
-  top_p: 0.95,
-  repeat_penalty: 1
+  topK: 20,
+  topP: 0.95,
+  repetitionPenalty: 1
 } as const satisfies Sampling
 
 // Liquid's models are Q4_K_M: in wllama's WebAssembly build it reads

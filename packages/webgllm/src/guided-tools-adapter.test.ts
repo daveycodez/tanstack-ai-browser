@@ -50,7 +50,7 @@ test("toolChoice none offers no tools; repair and parallel calls pass through", 
 
   await collect(
     webgllmText(MODEL).chatStream(
-      textOptions({ tools: [tool], modelOptions: { repair_tool_calls: false, parallel_tool_calls: false } })
+      textOptions({ tools: [tool], modelOptions: { repairToolCalls: false, parallelToolCalls: false } })
     )
   )
   assert.equal(lastBody().repair_tool_calls, false)

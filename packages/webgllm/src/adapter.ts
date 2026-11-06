@@ -23,7 +23,6 @@ import { BaseTextAdapter } from "@tanstack/ai/adapters"
 import type { StructuredOutputOptions, StructuredOutputResult } from "@tanstack/ai/adapters"
 import { WebGLLMError } from "webgllm"
 import type {
-  ChatCompletionChunk,
   ChatCompletionCreateParamsStreaming,
   ChatCompletionMessageParam,
   ChatCompletionTool,
@@ -32,32 +31,39 @@ import type {
   CompletionUsage,
   FinishReason
 } from "webgllm"
-import type { GenerationPhase } from "webgllm/advanced"
 
 import { modelMeta } from "./catalog.js"
 import type { WebGlModelReasoningByName, WebGlTextModel } from "./catalog.js"
 import { ensureModel, reconcile, setKeepLoaded, touchModel, webgllm } from "./models.js"
 
-/** Per-call `modelOptions`: sampling over the model card's, and the most tokens to generate. */
+/**
+ * Per-call `modelOptions`: sampling over the model card's, and the most
+ * tokens to generate. Named like TanStack's OpenRouter adapter's (the
+ * OpenRouter SDK's camelCase request fields), so the same `modelOptions`
+ * work with either adapter; webgllm's own extensions follow the same casing.
+ */
 export type WebGllmTextProviderOptions = {
   /** Maximum generated tokens, thinking included; otherwise EOS or remaining context. */
-  maxTokens?: number
-  /** Legacy alias for maxTokens. maxTokens takes precedence when both are supplied. */
-  max_new_tokens?: number
+  maxCompletionTokens?: number
   temperature?: number
-  top_k?: number
-  top_p?: number
-  min_p?: number
-  repetition_penalty?: number
-  presence_penalty?: number
+  topP?: number
+  presencePenalty?: number
+  /** Not supported by webgllm: anything but 0 throws its `unsupported-parameter` error. */
+  frequencyPenalty?: number
   /** Text that ends the reply where it appears (not included). */
   stop?: string | Array<string>
   /** Makes sampling repeatable. */
   seed?: number
-  /** False returns tool calls as the model wrote them, without webgllm's repair. Default true. */
-  repair_tool_calls?: boolean
   /** False keeps only the first tool call of a reply. */
-  parallel_tool_calls?: boolean
+  parallelToolCalls?: boolean
+  /** webgllm: samples from the k likeliest tokens. */
+  topK?: number
+  /** webgllm: drops tokens less likely than this fraction of the likeliest. */
+  minP?: number
+  /** webgllm: penalizes tokens already in the chat. */
+  repetitionPenalty?: number
+  /** webgllm: false returns tool calls as the model wrote them, without its repair. Default true. */
+  repairToolCalls?: boolean
 }
 
 /** Timings of one model call, in `RUN_FINISHED`'s `usage.providerUsageDetails` (webgllm's `timings`). */
@@ -74,14 +80,6 @@ export type WebGllmProviderUsageDetails = {
 
 /** Options for `webgllmText`. */
 export type WebGllmTextConfig = {
-  /**
-   * When the model starts reading the prompt ("processing", once it's
-   * loaded and the request is sent) and writing ("generating", at the first
-   * streamed text or thinking).
-   */
-  onGenerationPhase?: (phase: GenerationPhase) => void
-  /** Model-generated thinking text as it streams, in chats and structured output alike. */
-  onThinking?: (delta: string) => void
   /**
    * Most tokens a chat may hold, prompt and reply together: the model's
    * whole context length by default, never more. A smaller limit takes less
@@ -133,11 +131,34 @@ function reasoningFields(
 
 /** A caller's output cap, without a provider-wide default. */
 function outputTokens(options: WebGllmTextProviderOptions | undefined) {
-  const limit = options?.maxTokens ?? options?.max_new_tokens
+  const limit = options?.maxCompletionTokens
   if (limit !== undefined && (!Number.isSafeInteger(limit) || limit < 0)) {
-    throw new RangeError("maxTokens must be a nonnegative safe integer.")
+    throw new RangeError("maxCompletionTokens must be a nonnegative safe integer.")
   }
   return limit
+}
+
+/** `modelOptions` as webgllm's sampling fields. */
+function samplingFields(o: WebGllmTextProviderOptions | undefined): Partial<ChatCompletionCreateParamsStreaming> {
+  if ((o?.frequencyPenalty ?? 0) !== 0) {
+    throw new WebGLLMError(
+      "unsupported-parameter",
+      "frequencyPenalty isn't supported; presencePenalty and repetitionPenalty are."
+    )
+  }
+  const maxTokens = outputTokens(o)
+  const fields: Partial<ChatCompletionCreateParamsStreaming> = {
+    max_completion_tokens: maxTokens,
+    temperature: o?.temperature,
+    top_p: o?.topP,
+    top_k: o?.topK,
+    min_p: o?.minP,
+    repetition_penalty: o?.repetitionPenalty,
+    presence_penalty: o?.presencePenalty,
+    stop: o?.stop,
+    seed: o?.seed
+  }
+  return Object.fromEntries(Object.entries(fields).filter(([, value]) => value !== undefined))
 }
 
 function contentText(content: ModelMessage["content"]) {
@@ -269,71 +290,36 @@ export class WebGllmTextAdapter<TModel extends WebGlTextModel> extends BaseTextA
   override readonly inputModalities = ["text"] as const
 
   private readonly contextLength: number | undefined
-  private readonly onGenerationPhase: WebGllmTextConfig["onGenerationPhase"]
-  private readonly onThinking: WebGllmTextConfig["onThinking"]
 
   constructor(model: TModel, config: WebGllmTextConfig = {}) {
     super({}, model)
     this.contextLength = config.contextLength
-    this.onGenerationPhase = config.onGenerationPhase
-    this.onThinking = config.onThinking
     setKeepLoaded(model, config.keepLoaded ?? false)
   }
 
   /** The request body shared by chats and structured output (tools and schema aside). */
   private body(options: TextOptions<WebGllmTextProviderOptions>): ChatCompletionCreateParamsStreaming {
-    const o = options.modelOptions
-    const maxTokens = outputTokens(o)
     return {
       model: this.model,
       messages: toMessages(options.systemPrompts, options.messages),
       stream: true,
       stream_options: { include_usage: true },
       ...reasoningFields(options.reasoning, this.model),
-      ...(maxTokens !== undefined && { max_completion_tokens: maxTokens }),
-      ...(o?.temperature !== undefined && { temperature: o.temperature }),
-      ...(o?.top_k !== undefined && { top_k: o.top_k }),
-      ...(o?.top_p !== undefined && { top_p: o.top_p }),
-      ...(o?.min_p !== undefined && { min_p: o.min_p }),
-      ...(o?.repetition_penalty !== undefined && { repetition_penalty: o.repetition_penalty }),
-      ...(o?.presence_penalty !== undefined && { presence_penalty: o.presence_penalty }),
-      ...(o?.stop !== undefined && { stop: o.stop }),
-      ...(o?.seed !== undefined && { seed: o.seed }),
+      ...samplingFields(options.modelOptions),
       ...(options.promptCache?.retention === "none" && { cache_prompt: false })
     }
   }
 
-  /**
-   * Streams the request once the model is loaded for this adapter's context
-   * (webgllm would load it on demand, but for the instance's context).
-   */
-  private async request(
-    body: ChatCompletionCreateParamsStreaming,
-    signal: AbortSignal | undefined
-  ): Promise<AsyncIterable<ChatCompletionChunk>> {
-    await ensureModel(this.model, this.contextLength, signal)
-    signal?.throwIfAborted()
-    touchModel(this.model)
-    this.phase("processing", signal)
-    return webgllm.chat.completions.create(body, { ...(signal && { signal }) })
-  }
-
-  private phase(phase: GenerationPhase, signal: AbortSignal | undefined) {
-    if (!signal?.aborted) this.onGenerationPhase?.(phase)
-  }
-
   async *chatStream(options: TextOptions<WebGllmTextProviderOptions>): AsyncIterable<AdapterYieldChunk> {
     const offered = options.toolChoice === "none" ? [] : toTools(options.tools)
+    const repair = options.modelOptions?.repairToolCalls
+    const parallel = options.modelOptions?.parallelToolCalls
     const body: ChatCompletionCreateParamsStreaming = {
       ...this.body(options),
       ...(offered.length && { tools: offered }),
       ...(offered.length && options.toolChoice && { tool_choice: toToolChoice(options.toolChoice) }),
-      ...(options.modelOptions?.repair_tool_calls !== undefined && {
-        repair_tool_calls: options.modelOptions.repair_tool_calls
-      }),
-      ...(options.modelOptions?.parallel_tool_calls !== undefined && {
-        parallel_tool_calls: options.modelOptions.parallel_tool_calls
-      })
+      ...(repair !== undefined && { repair_tool_calls: repair }),
+      ...(parallel !== undefined && { parallel_tool_calls: parallel })
     }
     const runId = options.runId ?? nextId("run")
     const threadId = options.threadId
@@ -364,7 +350,6 @@ export class WebGllmTextAdapter<TModel extends WebGlTextModel> extends BaseTextA
     let reasoning: "none" | "open" | "closed" = "none"
     let textStarted = false
     let text = ""
-    let generating = false
     let finishReason: FinishReason | undefined
     let usage: TokenUsage | undefined
     /** Tool calls by index, as they stream (webgllm sends each whole, after the text). */
@@ -404,19 +389,13 @@ export class WebGllmTextAdapter<TModel extends WebGlTextModel> extends BaseTextA
 
     try {
       touchModel(model)
-      this.phase("processing", signal)
       const stream = await webgllm.chat.completions.create(body, { ...(signal && { signal }) })
       for await (const chunk of stream) {
         if (chunk.usage) usage = usageOf(chunk.usage, chunk.timings)
         const choice = chunk.choices[0]
         if (!choice) continue
         const { delta } = choice
-        if (!generating && (delta.content || delta.reasoning_content || delta.tool_calls)) {
-          generating = true
-          this.phase("generating", signal)
-        }
         if (delta.reasoning_content) {
-          if (!signal?.aborted) this.onThinking?.(delta.reasoning_content)
           if (reasoning === "none") {
             yield { type: EventType.REASONING_START, messageId: reasoningId, model, timestamp: timestamp() }
             yield {
@@ -509,15 +488,30 @@ export class WebGllmTextAdapter<TModel extends WebGlTextModel> extends BaseTextA
   }
 
   /**
-   * A JSON answer for `chat({ outputSchema })`: the model is asked for JSON
-   * matching the schema, webgllm constrains its answer to it, and the answer
-   * is parsed (`chat()` validates it).
+   * `chat({ outputSchema, stream: true })` (and, through `structuredOutput`,
+   * `stream: false`): one streamed request that asks the model for JSON
+   * matching the schema, which webgllm constrains its answer to. Emits
+   * RUN_STARTED, the thinking as REASONING_* events, the raw JSON as
+   * TEXT_MESSAGE_* deltas, a CUSTOM `structured-output.complete` with
+   * `{ object, raw, reasoning? }`, then RUN_FINISHED with usage (`chat()`
+   * validates the object). Failures are a RUN_ERROR, as in `chatStream`;
+   * an abort ends the stream without one.
    */
-  async structuredOutput(
+  async *structuredOutputStream(
     options: StructuredOutputOptions<WebGllmTextProviderOptions>
-  ): Promise<StructuredOutputResult<unknown>> {
+  ): AsyncIterable<AdapterYieldChunk> {
+    yield* this.structuredEvents(options, () => undefined)
+  }
+
+  /**
+   * The structured stream's events; `fail` receives the error behind a
+   * RUN_ERROR (or an abort), so `structuredOutput` can reject with it as is.
+   */
+  private async *structuredEvents(
+    options: StructuredOutputOptions<WebGllmTextProviderOptions>,
+    fail: (error: unknown) => void
+  ): AsyncGenerator<AdapterYieldChunk> {
     const { chatOptions, outputSchema } = options
-    const signal = signalOf(chatOptions)
     // Small models constrained to a schema they weren't asked for write poor values: ask too.
     const instruction = `Answer with only a JSON value matching this JSON Schema:\n${JSON.stringify(outputSchema)}`
     const body: ChatCompletionCreateParamsStreaming = {
@@ -530,33 +524,183 @@ export class WebGllmTextAdapter<TModel extends WebGlTextModel> extends BaseTextA
         json_schema: { name: "output", schema: outputSchema as Record<string, unknown> }
       }
     }
-    signal?.throwIfAborted()
-    let rawText = ""
-    let usage: TokenUsage | undefined
-    let generating = false
+    const runId = chatOptions.runId ?? nextId("run")
+    const threadId = chatOptions.threadId
+    const messageId = nextId("msg")
+    const reasoningId = nextId("reasoning")
+    const signal = signalOf(chatOptions)
+    if (signal?.aborted) return
+    const model = this.model
+    const timestamp = () => Date.now()
+
+    yield {
+      type: EventType.RUN_STARTED,
+      runId,
+      threadId,
+      model,
+      timestamp: timestamp(),
+      ...(chatOptions.parentRunId && { parentRunId: chatOptions.parentRunId })
+    }
+
     try {
-      for await (const chunk of await this.request(body, signal)) {
+      await ensureModel(model, this.contextLength, signal)
+    } catch (error) {
+      fail(error)
+      if (isAbort(error, signal)) return
+      yield runError(model, error, true)
+      return
+    }
+
+    let reasoningState: "none" | "open" | "closed" = "none"
+    let reasoning = ""
+    let textStarted = false
+    let raw = ""
+    let finishReason: FinishReason | undefined
+    let usage: TokenUsage | undefined
+
+    function* endReasoning(): Generator<AdapterYieldChunk> {
+      if (reasoningState !== "open") return
+      reasoningState = "closed"
+      yield { type: EventType.REASONING_MESSAGE_END, messageId: reasoningId, model, timestamp: timestamp() }
+      yield { type: EventType.REASONING_END, messageId: reasoningId, model, timestamp: timestamp() }
+    }
+    function* endText(): Generator<AdapterYieldChunk> {
+      if (!textStarted) return
+      textStarted = false
+      yield { type: EventType.TEXT_MESSAGE_END, messageId, model, timestamp: timestamp() }
+    }
+
+    try {
+      touchModel(model)
+      const stream = await webgllm.chat.completions.create(body, { ...(signal && { signal }) })
+      for await (const chunk of stream) {
+        // Stop reading (which stops webgllm's generation) once aborted.
+        if (signal?.aborted) break
         if (chunk.usage) usage = usageOf(chunk.usage, chunk.timings)
-        const delta = chunk.choices[0]?.delta
-        if (!delta) continue
-        if (!generating && (delta.content || delta.reasoning_content)) {
-          generating = true
-          this.phase("generating", signal)
+        const choice = chunk.choices[0]
+        if (!choice) continue
+        const { delta } = choice
+        if (delta.reasoning_content) {
+          if (reasoningState === "none") {
+            yield { type: EventType.REASONING_START, messageId: reasoningId, model, timestamp: timestamp() }
+            yield {
+              type: EventType.REASONING_MESSAGE_START,
+              messageId: reasoningId,
+              role: "reasoning",
+              model,
+              timestamp: timestamp()
+            }
+          }
+          reasoningState = "open"
+          reasoning += delta.reasoning_content
+          yield {
+            type: EventType.REASONING_MESSAGE_CONTENT,
+            messageId: reasoningId,
+            delta: delta.reasoning_content,
+            model,
+            timestamp: timestamp()
+          }
         }
-        if (delta.reasoning_content && !signal?.aborted) this.onThinking?.(delta.reasoning_content)
-        if (delta.content) rawText += delta.content
+        if (delta.content) {
+          yield* endReasoning()
+          if (!textStarted) {
+            textStarted = true
+            yield { type: EventType.TEXT_MESSAGE_START, messageId, role: "assistant", model, timestamp: timestamp() }
+          }
+          raw += delta.content
+          yield {
+            type: EventType.TEXT_MESSAGE_CONTENT,
+            messageId,
+            delta: delta.content,
+            content: raw,
+            model,
+            timestamp: timestamp()
+          }
+        }
+        if (choice.finish_reason) finishReason = choice.finish_reason
       }
+    } catch (error) {
+      fail(error)
+      yield* endReasoning()
+      yield* endText()
+      if (isAbort(error, signal)) return
+      yield runError(model, error, false)
+      return
     } finally {
+      // (Its own budget may have unloaded another model, or this one crashed.)
       void reconcile()
     }
-    signal?.throwIfAborted()
+
+    yield* endReasoning()
+    yield* endText()
+    if (signal?.aborted) return
+
+    let object: unknown
     try {
-      return { data: JSON.parse(rawText) as unknown, rawText, ...(usage && { usage }) }
-    } catch {
-      throw new Error(
-        `The model's answer isn't JSON: ${rawText.slice(0, 200)}${rawText.length > 200 ? "…" : ""}`
-      )
+      object = JSON.parse(raw) as unknown
+    } catch (cause) {
+      const cut = finishReason === "length"
+      const message = cut
+        ? "The answer was cut off at the output token limit (finish_reason=length); raise maxCompletionTokens."
+        : `The model's answer isn't JSON: ${raw.slice(0, 200)}${raw.length > 200 ? "…" : ""}`
+      const code = cut ? "max_tokens" : "structured-output-parse-failed"
+      fail(new Error(message, { cause }))
+      yield {
+        type: EventType.RUN_ERROR,
+        runId,
+        model,
+        timestamp: timestamp(),
+        message,
+        code,
+        errorType: code,
+        error: { message, code },
+        ...(usage && { usage })
+      } as AdapterYieldChunk
+      return
     }
+    yield {
+      type: EventType.CUSTOM,
+      name: "structured-output.complete",
+      value: { object, raw, ...(reasoning && { reasoning }) },
+      model,
+      timestamp: timestamp()
+    }
+    yield {
+      type: EventType.RUN_FINISHED,
+      runId,
+      threadId,
+      model,
+      timestamp: timestamp(),
+      finishReason: finishReason ?? "stop",
+      ...(usage && { usage })
+    }
+  }
+
+  /**
+   * `structuredOutputStream` drained to its result: rejects with webgllm's
+   * error as it is, the abort signal's reason, or an error for an answer
+   * that isn't JSON.
+   */
+  async structuredOutput(
+    options: StructuredOutputOptions<WebGllmTextProviderOptions>
+  ): Promise<StructuredOutputResult<unknown>> {
+    const signal = signalOf(options.chatOptions)
+    signal?.throwIfAborted()
+    let failure: { error: unknown } | undefined
+    let result: StructuredOutputResult<unknown> | undefined
+    let usage: TokenUsage | undefined
+    for await (const event of this.structuredEvents(options, (error) => (failure = { error }))) {
+      if (event.type === EventType.CUSTOM && event.name === "structured-output.complete") {
+        const value = event.value as { object: unknown; raw: string }
+        result = { data: value.object, rawText: value.raw }
+      } else if (event.type === EventType.RUN_FINISHED && event.usage && !Array.isArray(event.usage)) {
+        usage = event.usage
+      }
+    }
+    signal?.throwIfAborted()
+    if (failure) throw failure.error
+    if (!result) throw new Error("The structured output stream ended without a result.")
+    return { ...result, ...(usage && { usage }) }
   }
 }
 

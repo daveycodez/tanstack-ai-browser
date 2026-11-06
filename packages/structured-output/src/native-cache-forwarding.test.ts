@@ -36,7 +36,9 @@ class NativeSession extends EventTarget {
     await this.append(input,options);this.contextUsage+=text.length
     return text
   }
-  promptStreaming(input:unknown,options:{signal?:AbortSignal}={}){
+  promptStreaming(input:unknown,options:{signal?:AbortSignal;responseConstraint?:unknown}={}){
+    // A constrained stream answers as prompt() does (structuredOutputStream).
+    if(options.responseConstraint){const constrained={...options,responseConstraint:options.responseConstraint};return new ReadableStream<string>({start:async controller=>{try{controller.enqueue(await this.prompt(input,constrained));controller.close()}catch(error){controller.error(error)}}})}
     return new ReadableStream<string>({start:async controller=>{await this.append(input,options);controller.enqueue("answer");controller.close()}})
   }
 }
@@ -54,7 +56,7 @@ async function adapterPackage(name: "wllama" | "apfel" | "prompt-api") {
         export const configureRuntime=()=>{};export const setContextLength=()=>{};export const setKeepLoaded=()=>{};
         export const loadModel=async()=>{};export const waitForModel=loadModel;export const loadedContext=()=>32768;export const contextError=()=>undefined;
         export const completeChat=async(model,request,signal)=>{control.requests.push({runtime:'wllama',request,signal});return {choices:[{finish_reason:'stop',message:{content:JSON.stringify({value:request.response_format.json_schema.schema.properties.value.enum[0]})}}],timings}};
-        export const streamChat=async function*(model,request,signal){control.requests.push({runtime:'wllama',request,signal});yield {choices:[{delta:{content:'answer'},finish_reason:'stop'}],timings};};
+        export const streamChat=async function*(model,request,signal){control.requests.push({runtime:'wllama',request,signal});yield {choices:[{delta:{content:request.response_format?JSON.stringify({value:request.response_format.json_schema.schema.properties.value.enum[0]}):'answer'},finish_reason:'stop'}],timings};};
       `}))
     }}]})
     return import(pathToFileURL(outfile).href)
@@ -85,9 +87,17 @@ for(const name of ["wllama","apfel","prompt-api"] as const){
     const module=await adapterPackage(name),adapter=makeAdapter(module,name)
     control.requests=[]
     const cachedCounts:number[]=[]
-    const original=(adapter as {structuredOutput:(options:unknown)=>Promise<{usage?:{promptTokensDetails?:{cachedTokens?:number}}}>}).structuredOutput.bind(adapter)
-    ;(adapter as {structuredOutput:(options:unknown)=>Promise<unknown>}).structuredOutput=async options=>{
-      const answer=await original(options);cachedCounts.push(answer.usage?.promptTokensDetails?.cachedTokens??0);return answer
+    type Usage={usage?:{promptTokensDetails?:{cachedTokens?:number}}}
+    const target=adapter as {structuredOutput:(options:unknown)=>Promise<Usage>;structuredOutputStream?:(options:unknown)=>AsyncIterable<Usage&{type:string}>}
+    // chat() drains structuredOutputStream when the adapter has it (even with stream: false), else calls structuredOutput.
+    if(target.structuredOutputStream){
+      const original=target.structuredOutputStream.bind(adapter)
+      target.structuredOutputStream=async function*(options){for await(const chunk of original(options)){if(chunk.type==="RUN_FINISHED")cachedCounts.push(chunk.usage?.promptTokensDetails?.cachedTokens??0);yield chunk}}
+    }else{
+      const original=target.structuredOutput.bind(adapter)
+      target.structuredOutput=async options=>{
+        const answer=await original(options);cachedCounts.push(answer.usage?.promptTokensDetails?.cachedTokens??0);return answer
+      }
     }
     try{
       for(const policy of policies)assert.deepEqual(await invokeConsumer(module,adapter,policy),{value:"alpha"})

@@ -16,7 +16,7 @@ const stats = { inputTokens: 1, cachedTokens: 0, outputTokens: 1, firstTokenMs: 
 const logger = { request() { return undefined }, provider() { return undefined }, errors() { return undefined } }
 type Name = "webgllm" | "transformers-js" | "wllama" | "prompt-api" | "apfel"
 type TestOptions = { chatOptions: { model: string; logger: object; threadId: string; messages: Array<{role:string;content:string}>; abortController?: AbortController; request?: Request | RequestInit }; outputSchema: object }
-type TestAdapter = { model: string; structuredOutput(options: TestOptions): Promise<{data:unknown}> }
+type TestAdapter = { model: string; structuredOutput(options: TestOptions): Promise<{data:unknown}>; structuredOutputStream?(options: TestOptions): AsyncIterable<unknown> }
 type AdapterPackage = { webgllmText(model:string):TestAdapter; transformersJsText(model:string):TestAdapter; wllamaText(model:string):TestAdapter; promptApiText():TestAdapter; apfelText(model:string):TestAdapter; chat(options:Record<string,unknown>):Promise<unknown> }
 
 let init = async () => undefined
@@ -115,8 +115,16 @@ for (const name of ["webgllm", "transformers-js", "wllama", "prompt-api", "apfel
 }
 test("installed TanStack chat forwards abortController through structured chatOptions.request.signal", async () => {
   reset(); const p = await packageFor("webgllm"); const adapter = await adapterFor("webgllm"); const controller = new AbortController()
-  const original = adapter.structuredOutput.bind(adapter); let seen = false
-  adapter.structuredOutput = request => { seen = true; assert.ok(request.chatOptions.request); assert.equal(request.chatOptions.abortController, undefined); assert.equal(request.chatOptions.request.signal, controller.signal); return original(request) }
+  let seen = false
+  const check = (request: TestOptions) => { seen = true; assert.ok(request.chatOptions.request); assert.equal(request.chatOptions.abortController, undefined); assert.equal((request.chatOptions.request as Request).signal, controller.signal) }
+  // chat() uses structuredOutputStream when the adapter has it (stream: false drains it), else structuredOutput.
+  if (adapter.structuredOutputStream) {
+    const original = adapter.structuredOutputStream.bind(adapter)
+    adapter.structuredOutputStream = request => { check(request); return original(request) }
+  } else {
+    const original = adapter.structuredOutput.bind(adapter)
+    adapter.structuredOutput = request => { check(request); return original(request) }
+  }
   await p.chat({ adapter, threadId:"forwarding-contract", messages:[{role:"user",content:"Choose a move"}], outputSchema:schema, abortController:controller, stream:false })
   assert.equal(seen,true);assert.equal(state.signal,controller.signal)
 })

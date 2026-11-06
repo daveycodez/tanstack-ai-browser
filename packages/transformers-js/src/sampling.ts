@@ -1,11 +1,25 @@
-import type { Sampling } from "./protocol.js"
+import type { WorkerSampling } from "./protocol.js"
+
+/** Mulberry32: a small seeded generator of numbers in [0, 1). */
+function seededRandom(seed: number) {
+  let state = seed >>> 0
+  return () => {
+    state = (state + 0x6d2b79f5) >>> 0
+    let t = state
+    t = Math.imul(t ^ (t >>> 15), t | 1)
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61)
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296
+  }
+}
 
 export function createSampler({
   temperature,
   top_k,
   repetition_penalty,
-  top_p = 1
-}: Sampling, prepare?: (ids: Array<Array<bigint>>, data: Float32Array) => void) {
+  top_p = 1,
+  seed
+}: WorkerSampling, prepare?: (ids: Array<Array<bigint>>, data: Float32Array) => void) {
+  const random = seed === undefined ? Math.random : seededRandom(seed)
   const seen = new Set<number>()
   let counted = 0
   return <T extends { data: ArrayLike<number | bigint> }>(inputIds: Array<Array<bigint>>, logits: T): T => {
@@ -64,7 +78,7 @@ export function createSampler({
           }
         }
       }
-      let draw = Math.random() * total
+      let draw = random() * total
       for (let j = 0; j < k; j++) {
         draw -= kept[j]
         if (draw <= 0 && kept[j] > 0) {

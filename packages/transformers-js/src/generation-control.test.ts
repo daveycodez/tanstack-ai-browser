@@ -226,3 +226,16 @@ test("structured JSON marker tokens stay governed by the schema after the budget
   const answer = data(); control.prepare([[0n, 4n]], answer)
   assert.deepEqual([...answer], [...data()])
 })
+
+test("a seeded sampler draws the same tokens every time", () => {
+  const draws = (seed?: number) => {
+    const sample = createSampler({ temperature: 1, top_k: 0, repetition_penalty: 1, seed })
+    return Array.from({ length: 32 }, () => {
+      const logits = { data: new Float32Array(16).fill(0) }
+      sample([[]], logits)
+      return logits.data.indexOf(0)
+    })
+  }
+  assert.deepEqual(draws(7), draws(7))
+  assert.notDeepEqual(draws(7), draws(8))
+})

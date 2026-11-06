@@ -65,7 +65,7 @@ Other models download on first use. Download progress is labelled separately fro
 loading progress, in a fixed-height turn row. Prompt API uses the browser's built-in model.
 
 The picker exposes Thinking for models that support it. Models with compulsory reasoning
-show a checked, disabled control. Every WebGL turn requests `modelOptions.maxTokens: 8192`.
+show a checked, disabled control. Every WebGL turn requests `modelOptions.maxCompletionTokens: 8192`.
 With thinking enabled, every thinking-capable model also receives `reasoning: { level: "high", budgetTokens: 512 }`.
 Prompt API exposes the same toggle through adapter-emulated working notes: an isolated
 draft is streamed and measured against the 512-unit context-usage budget before a

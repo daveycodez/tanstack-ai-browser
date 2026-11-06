@@ -1,5 +1,5 @@
-import { chat } from "@tanstack/ai"
-import type { AnyTextAdapter, ChatMiddleware, UsageInfo } from "@tanstack/ai"
+import { EventType, chat } from "@tanstack/ai"
+import type { AnyTextAdapter, ChatMiddleware, StructuredOutputStream, UsageInfo } from "@tanstack/ai"
 import { apfelText } from "@tanstack-ai-browser/apfel"
 import {
   loadPromptApiModel,
@@ -16,8 +16,7 @@ import {
 import type {
   ModelStatus,
   Store,
-  WebGlTextModel,
-  WebGllmTextConfig
+  WebGlTextModel
 } from "@tanstack-ai-browser/webgllm"
 import { z } from "zod"
 import { legalMoves } from "./mancala"
@@ -32,10 +31,59 @@ import { resolvePitLabel } from "./move-choice"
 
 export type { ModelStatus } from "@tanstack-ai-browser/webgllm"
 
-/** A generation phase, as the WebGL adapter reports it to `onGenerationPhase`. */
-type GenerationPhase = Parameters<
-  NonNullable<WebGllmTextConfig["onGenerationPhase"]>
->[0]
+/** A turn's phase. The app reports "processing" before the request; the first streamed reasoning or answer text means "generating". */
+export type GenerationPhase = "processing" | "generating"
+
+/**
+ * Read TanStack AI's standard structured-output stream (`chat({ outputSchema, stream: true })`):
+ * reasoning deltas go to `onThinking`, the first reasoning or answer event calls `onGenerating`,
+ * and the validated object comes from the final `structured-output.complete` event. The stream is
+ * read to its end so usage middleware still runs. An abort rejects at once with the signal's reason.
+ */
+async function readStructuredAnswer<T>(
+  stream: StructuredOutputStream<T>,
+  signal: AbortSignal,
+  handlers: { onGenerating?: () => void; onThinking?: (delta: string) => void }
+): Promise<{ object: T; raw: string }> {
+  signal.throwIfAborted()
+  const iterator = stream[Symbol.asyncIterator]()
+  let onAbort = () => undefined as void
+  const aborted = new Promise<never>((_, reject) => {
+    onAbort = () => reject(signal.reason)
+    signal.addEventListener("abort", onAbort, { once: true })
+  })
+  aborted.catch(() => undefined)
+  let done = false
+  let generating = false
+  let answer: { object: T; raw: string } | undefined
+  try {
+    for (;;) {
+      const next = await Promise.race([iterator.next(), aborted])
+      if (next.done) {
+        done = true
+        break
+      }
+      const chunk = next.value
+      if (!generating && (chunk.type === EventType.TEXT_MESSAGE_CONTENT || chunk.type.startsWith("REASONING_"))) {
+        generating = true
+        handlers.onGenerating?.()
+      }
+      if (chunk.type === EventType.REASONING_MESSAGE_CONTENT) handlers.onThinking?.(chunk.delta)
+      else if (chunk.type === EventType.RUN_ERROR) {
+        throw Object.assign(new Error(chunk.message), chunk.code ? { code: chunk.code } : {})
+      } else if (chunk.type === EventType.CUSTOM && chunk.name === "structured-output.complete") {
+        answer = { object: chunk.value.object, raw: chunk.value.raw }
+      }
+    }
+  } finally {
+    signal.removeEventListener("abort", onAbort)
+    if (!done) void iterator.return?.()?.catch(() => undefined)
+  }
+  signal.throwIfAborted()
+  if (!answer) throw new Error("The model finished without an answer.")
+  return answer
+}
+
 export const GAME_PROMPT_VERSION = SHARED_PROMPT_VERSION
 export const MAX_OUTPUT_TOKENS = 8192
 export const REASONING_BUDGET_TOKENS = 512
@@ -79,25 +127,6 @@ async function waitForModel(model: WebGlTextModel, signal: AbortSignal) {
       }
     )
   })
-}
-
-function withCancellation<T extends AnyTextAdapter>(
-  adapter: T,
-  controller: AbortController,
-  onAnswer?: (answer: string) => void
-): T {
-  const structuredOutput = adapter.structuredOutput.bind(adapter)
-  // TanStack AI 1.0.0 needs the controller forwarded to structured finalization.
-  adapter.structuredOutput = async (options) => {
-    controller.signal.throwIfAborted()
-    const result = await structuredOutput({
-      ...options,
-      chatOptions: { ...options.chatOptions, abortController: controller }
-    })
-    if (!controller.signal.aborted) onAnswer?.(result.rawText)
-    return result
-  }
-  return adapter
 }
 
 /** The model chooses from legal moves; the rules engine owns every board change. */
@@ -187,13 +216,7 @@ export async function chooseAiMove(
       ...string[]
     ]
     const outputSchema = z.strictObject({ pit: z.enum(labels) })
-    const phase = (value: GenerationPhase) => {
-      if (!controller.signal.aborted) onPhase?.(value)
-    }
-    const thinking = (delta: string) => {
-      if (!controller.signal.aborted) onThinking?.(delta)
-    }
-    phase("processing")
+    onPhase?.("processing")
     const options = {
       threadId: `mancala-${game.sessionId}`,
       promptCache: "long" as const,
@@ -210,55 +233,35 @@ export async function chooseAiMove(
         ]
       }),
       outputSchema,
-      stream: false as const,
+      stream: true as const,
       abortController: controller
     }
     const reasoning = opponent.thinking
       ? { level: "high" as const, budgetTokens: reasoningBudgetTokens }
       : ("off" as const)
-    const answer =
+    const stream =
       opponent.model === APFEL_MODEL && import.meta.env.DEV
-        ? await chat({
+        ? chat({
             ...options,
-            adapter: withCancellation<AnyTextAdapter>(
-              apfelText(APFEL_MODEL, {
-                onGenerationPhase: phase,
-                onThinking: thinking
-              }),
-              controller,
-              diagnostics?.onAnswer
-            ),
+            adapter: apfelText(APFEL_MODEL) as AnyTextAdapter,
             reasoning,
-            modelOptions: { maxTokens: MAX_OUTPUT_TOKENS }
+            modelOptions: { maxCompletionTokens: MAX_OUTPUT_TOKENS }
           })
         : opponent.model === "prompt-api"
-          ? await chat({
+          ? chat({ ...options, adapter: promptApiText(), reasoning })
+          : chat({
               ...options,
-              adapter: withCancellation(
-                promptApiText({
-                  onGenerationPhase: phase,
-                  onThinking: thinking
-                }),
-                controller,
-                diagnostics?.onAnswer
-              ),
-              reasoning
-            })
-          : await chat({
-              ...options,
-              adapter: withCancellation<AnyTextAdapter>(
-                webgllmText(opponent.model as WebGlTextModel, {
-                  onGenerationPhase: phase,
-                  onThinking: thinking
-                }),
-                controller,
-                diagnostics?.onAnswer
-              ),
+              adapter: webgllmText(opponent.model as WebGlTextModel) as AnyTextAdapter,
               ...(opponentOption(opponent.model).thinking !== "none" && {
                 reasoning
               }),
-              modelOptions: { maxTokens: MAX_OUTPUT_TOKENS }
+              modelOptions: { maxCompletionTokens: MAX_OUTPUT_TOKENS }
             })
+    const { object: answer, raw } = await readStructuredAnswer(stream, controller.signal, {
+      onGenerating: () => onPhase?.("generating"),
+      ...(onThinking && { onThinking })
+    })
+    diagnostics?.onAnswer?.(raw)
     controller.signal.throwIfAborted()
     const pit = resolvePitLabel(input.choices, outputSchema.parse(answer).pit)
     if (!moves.includes(pit))
