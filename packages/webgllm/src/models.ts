@@ -6,7 +6,6 @@
  * make room for each other.
  */
 import { WebGLLM } from "webgllm"
-import type { LoadProgress } from "webgllm"
 import { defaultMemoryBudget } from "webgllm/advanced"
 
 import type { WebGlTextModel } from "./catalog.js"
@@ -139,28 +138,12 @@ async function estimateBytes(model: string): Promise<number> {
 
 /** The context each ready model was loaded for, as requested (undefined: the model's own). */
 const loadedFor = new Map<string, number | undefined>()
-/** Loads of each model this module is waiting on. */
-const loads = new Map<string, number>()
-/**
- * Bumped when a model is unloaded, so a load that was running then doesn't
- * mark it ready or failed afterwards.
- */
-const epochs = new Map<string, number>()
 
 const errorText = (error: unknown) => (error instanceof Error ? error.message : String(error))
 
-/** Forgets `model` as loaded: idle, out of the registry, and stale loads ignored. */
-function forget(model: string) {
-  epochs.set(model, (epochs.get(model) ?? 0) + 1)
-  loadedFor.delete(model)
-  releaseMemory(owner(model))
-  const status = modelStatus(model)
-  if (status.get().state !== "idle") status.set({ state: "idle" })
-}
-
 /** The registry unloads `model` to make room for another runtime's (or another webgllm model). */
 function evict(model: string): Promise<void> {
-  forget(model)
+  // webgllm's "unload" event then marks it idle and releases its claim.
   return webgllm.unloadModel(model).catch(() => undefined)
 }
 
@@ -174,41 +157,29 @@ async function claim(model: string, bytes: number) {
   })
 }
 
-/** Loads `model` for `contextLength`, claiming its memory first and driving its status. */
+/**
+ * Loads `model` for `contextLength`, claiming its memory first. Its status
+ * follows webgllm's events (see below), not this function.
+ */
 async function load(model: WebGlTextModel, contextLength: number | undefined, signal?: AbortSignal) {
-  const epoch = epochs.get(model) ?? 0
-  const current = () => (epochs.get(model) ?? 0) === epoch
-  const status = modelStatus(model)
-  loads.set(model, (loads.get(model) ?? 0) + 1)
-  if (status.get().state !== "loading") status.set({ state: "loading", progress: 0, cached: true })
+  // Make room before the load, so two big models aren't in memory at once.
+  const bytes = await estimateBytes(model)
+  signal?.throwIfAborted()
+  await claim(model, bytes)
   try {
-    // Make room before the load, so two big models aren't in memory at once.
-    const bytes = await estimateBytes(model)
-    signal?.throwIfAborted()
-    await claim(model, bytes)
     await webgllm.loadModel(model, {
       ...(contextLength !== undefined && { contextLength }),
       keepLoaded: keepLoaded.has(model),
       ...(signal && { signal })
     })
-    if (!current()) return
-    loadedFor.set(model, contextLength)
-    status.set({ state: "ready" })
-    // Its size wasn't known before it downloaded: claim what it is now.
-    if (bytes === 0) await claim(model, await estimateBytes(model))
-    void reconcile()
   } catch (error) {
-    if (current()) {
-      loadedFor.delete(model)
-      releaseMemory(owner(model))
-      status.set(signal?.aborted ? { state: "idle" } : { state: "error", message: errorText(error) })
-    }
+    // A load that never started (aborted while claiming) dispatches no events.
+    if (modelStatus(model).get().state !== "ready") releaseMemory(owner(model))
     throw error
-  } finally {
-    const left = (loads.get(model) ?? 1) - 1
-    if (left > 0) loads.set(model, left)
-    else loads.delete(model)
   }
+  loadedFor.set(model, contextLength)
+  // Its size wasn't known before it downloaded: claim what it is now.
+  if (bytes === 0) await claim(model, await estimateBytes(model))
 }
 
 /**
@@ -255,76 +226,21 @@ export function touchModel(model: WebGlTextModel) {
  * generation of it fails. Never rejects (callers often don't wait for it).
  */
 export function unloadModel(model?: WebGlTextModel): Promise<void> {
-  for (const name of model === undefined ? [...statuses.keys()] : [model]) forget(name)
   return webgllm.unloadModel(model).catch(() => undefined)
 }
 
-/**
- * Brings ready statuses in line with what webgllm holds: its own budget
- * may unload a model to make room (as a cache grows, say) and a worker may
- * crash, and neither is announced. Run after loads and generations.
- */
-export async function reconcile(): Promise<void> {
-  const ready = [...statuses].filter(([, status]) => status.get().state === "ready")
-  await Promise.all(
-    ready.map(async ([model]) => {
-      const epoch = epochs.get(model) ?? 0
-      const loaded = await webgllm.models.retrieve(model).then(
-        (info) => info.loaded,
-        () => true
-      )
-      if (!loaded && (epochs.get(model) ?? 0) === epoch && !loads.has(model)) forget(model)
-    })
-  )
-}
+// webgllm only dispatches events for models in its catalog, so `model` is a WebGlTextModel.
+// Statuses follow webgllm's lifecycle events, whatever started the load
+// (loadModel, a completion loading on demand) or the unload (unloadModel,
+// room for another model, a crash): set as they happen, as the
+// Transformers.js and wllama runtimes set theirs.
+webgllm.addEventListener("loadstart", ({ model }) => {
+  const status = modelStatus(model as WebGlTextModel)
+  if (status.get().state !== "loading") status.set({ state: "loading", progress: 0, cached: true })
+})
 
-/** Watches a load this module didn't start (a completion loading its model on demand). */
-const watched = new Map<string, { lastProgress: number }>()
-/** How long without progress before a watched load counts as over (it failed, or was a download only). */
-const WATCH_TIMEOUT_MS = 15_000
-const WATCH_INTERVAL_MS = 1_000
-
-function watch(model: string) {
-  const known = watched.get(model)
-  if (known) {
-    known.lastProgress = Date.now()
-    return
-  }
-  const entry = { lastProgress: Date.now() }
-  watched.set(model, entry)
-  const epoch = epochs.get(model) ?? 0
-  const tick = async () => {
-    const status = modelStatus(model)
-    const stillOurs = (epochs.get(model) ?? 0) === epoch && !loads.has(model) && status.get().state === "loading"
-    if (!stillOurs) {
-      watched.delete(model)
-      return
-    }
-    const info = await webgllm.models.retrieve(model).catch(() => undefined)
-    if (info?.loaded) {
-      watched.delete(model)
-      loadedFor.set(model, info.loadedContextLength)
-      status.set({ state: "ready" })
-      void claim(model, Math.round(info.size * TEXTURES_PER_FILE_BYTE))
-      return
-    }
-    if (Date.now() - entry.lastProgress > WATCH_TIMEOUT_MS) {
-      watched.delete(model)
-      if (status.get().state === "loading") status.set({ state: "idle" })
-      return
-    }
-    setTimeout(() => void tick(), WATCH_INTERVAL_MS)
-  }
-  setTimeout(() => void tick(), WATCH_INTERVAL_MS)
-}
-
-/**
- * Every load's progress, however it started: loads this module runs, and
- * ones a completion starts on demand (which it then watches until ready).
- */
-export function trackProgress(progress: LoadProgress) {
-  const status = modelStatus(progress.model)
-  status.set({
+webgllm.addEventListener("progress", (progress) => {
+  modelStatus(progress.model as WebGlTextModel).set({
     state: "loading",
     progress: progress.progress,
     cached: progress.cached,
@@ -333,7 +249,20 @@ export function trackProgress(progress: LoadProgress) {
       totalBytes: progress.totalBytes
     })
   })
-  if (!loads.has(progress.model)) watch(progress.model)
-}
+})
 
-webgllm.addEventListener("progress", trackProgress)
+webgllm.addEventListener("load", ({ model }) => {
+  modelStatus(model as WebGlTextModel).set({ state: "ready" })
+  touchMemory(owner(model))
+})
+
+webgllm.addEventListener("error", ({ model, error }) => {
+  modelStatus(model as WebGlTextModel).set({ state: "error", message: errorText(error) })
+})
+
+webgllm.addEventListener("unload", ({ model, reason }) => {
+  loadedFor.delete(model)
+  releaseMemory(owner(model))
+  // After a failed load or a crash the status keeps the error.
+  if (reason !== "failed" && reason !== "crashed") modelStatus(model as WebGlTextModel).set({ state: "idle" })
+})

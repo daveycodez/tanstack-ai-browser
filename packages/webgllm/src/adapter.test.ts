@@ -5,8 +5,8 @@ import { WebGLLMError } from "webgllm"
 
 import { webgllmText } from "./adapter.js"
 import { WEBGL_MODEL_REASONING } from "./catalog.js"
-import { chunk, collect, fake, lastBody, MODEL, TIMINGS, textOptions, usageChunk } from "./fake-webgllm.test.js"
-import { loadModel, modelStatus, setKeepLoaded, setMemoryBudget, trackProgress, unloadModel, webgllm } from "./models.js"
+import { chunk, collect, emit, fake, lastBody, MODEL, TIMINGS, textOptions, usageChunk } from "./fake-webgllm.test.js"
+import { loadModel, modelStatus, setKeepLoaded, setMemoryBudget, unloadModel, webgllm } from "./models.js"
 import type { ModelStatus } from "./models.js"
 
 beforeEach(() => fake.reset())
@@ -282,7 +282,7 @@ test("modelStatus follows loads, progress, unloads and failures", async () => {
   const loading = loadModel(MODEL, 4096)
   await new Promise((resolve) => setTimeout(resolve, 0))
   assert.equal(status.get().state, "loading")
-  trackProgress({ model: MODEL, phase: "download", progress: 0.4, cached: false, loadedBytes: 4, totalBytes: 10 })
+  emit("progress", { model: MODEL, phase: "download", progress: 0.4, cached: false, loadedBytes: 4, totalBytes: 10 })
   assert.deepEqual(status.get(), { state: "loading", progress: 0.4, cached: false, loadedBytes: 4, totalBytes: 10 })
   open()
   await loading
@@ -316,26 +316,33 @@ test("the adapter loads for its own context length and marks the model ready", a
   setKeepLoaded(MODEL, false)
 })
 
-test("a load webgllm starts on demand shows in the status until it's ready", { timeout: 10_000 }, async () => {
+test("a load webgllm starts on its own drives the status through its events", async () => {
   const status = modelStatus(MODEL)
-  trackProgress({ model: MODEL, phase: "load", progress: 0.95, cached: true })
+  // A completion loading its model on demand: webgllm dispatches the events.
+  emit("loadstart", { model: MODEL })
+  assert.equal(status.get().state, "loading")
+  emit("progress", { model: MODEL, phase: "load", progress: 0.95, cached: true })
   assert.deepEqual(status.get(), { state: "loading", progress: 0.95, cached: true })
-  fake.loaded.add(MODEL)
-  while (status.get().state === "loading") await new Promise((resolve) => setTimeout(resolve, 50))
+  emit("load", { model: MODEL, contextLength: 32_768 })
   assert.deepEqual(status.get(), { state: "ready" })
 })
 
-test("a model unloaded behind the status's back goes idle after the next generation", async () => {
+test("evictions and crashes reach the status as they happen", async () => {
   await loadModel(MODEL)
   assert.equal(modelStatus(MODEL).get().state, "ready")
-  // webgllm's own budget unloads it during this generation.
-  fake.script = () => {
-    fake.loaded.delete(MODEL)
-    return [chunk({ content: "x" }), chunk({}, "stop")]
-  }
-  await collect(webgllmText(MODEL).chatStream(textOptions()))
-  await new Promise((resolve) => setTimeout(resolve, 10))
+  // webgllm's own budget unloads it to make room.
+  emit("unload", { model: MODEL, reason: "evicted" })
   assert.deepEqual(modelStatus(MODEL).get(), { state: "idle" })
+  // A crash keeps its error.
+  await loadModel(MODEL)
+  emit("error", { model: MODEL, error: new Error("worker stopped") })
+  emit("unload", { model: MODEL, reason: "crashed" })
+  assert.deepEqual(modelStatus(MODEL).get(), { state: "error", message: "worker stopped" })
+  // Loading again after an unload loads it again (nothing thinks it's still loaded).
+  const before = fake.loads.length
+  await loadModel(MODEL)
+  assert.equal(fake.loads.length, before + 1)
+  assert.equal(modelStatus(MODEL).get().state, "ready")
 })
 
 test("the shared memory registry: claims an estimate, makes room across runtimes, and evicts through webgllm", async () => {
@@ -379,3 +386,15 @@ test("WEBGL_MODEL_REASONING has every model, in TanStack's shape", () => {
   assert.equal(reasoning.levels.off, "false")
   assert.equal(reasoning.budget, true)
 })
+
+// Compile-time: each model's reasoning is exact (typecheck fails if it widens again).
+type Equal<A, B> = (<T>() => T extends A ? 1 : 2) extends <T>() => T extends B ? 1 : 2 ? true : false
+const exact = <T extends true>(_: T) => undefined
+type Thinkers = keyof import("./catalog.js").WebGlModelReasoningByName
+exact<Equal<Thinkers,
+  | "LiquidAI/LFM3-1.7B-GGUF"
+  | "onnx-community/LFM3-1.7B-ONNX"
+  | "LiquidAI/LFM2.5-1.2B-Thinking-ONNX"
+  | "LiquidAI/LFM2.5-1.2B-Thinking-GGUF"
+  | "unsloth/Qwen3.5-2B-GGUF"
+  | "onnx-community/Qwen3.5-2B-ONNX">>(true)

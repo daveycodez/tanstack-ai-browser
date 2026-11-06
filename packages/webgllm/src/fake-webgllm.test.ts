@@ -10,7 +10,8 @@ import type {
   CompletionTimings,
   FinishReason,
   LoadModelOptions,
-  RequestOptions
+  RequestOptions,
+  WebGLLMEventMap
 } from "webgllm"
 import { resolveDebugOption } from "@tanstack/ai/adapter-internals"
 import type { TextOptions } from "@tanstack/ai"
@@ -128,17 +129,34 @@ function stream(steps: Array<Step>, signal: AbortSignal | undefined): AsyncItera
   return { [Symbol.asyncIterator]: () => iterator }
 }
 
+/** Dispatches a lifecycle event on the real instance, as webgllm itself does. */
+export function emit<K extends keyof WebGLLMEventMap>(type: K, event: WebGLLMEventMap[K]) {
+  ;(webgllm as unknown as { dispatch(type: K, event: WebGLLMEventMap[K]): void }).dispatch(type, event)
+}
+
+// Like webgllm's own: "loadstart", then "load", or "error" and "unload" ("failed" / "aborted").
 webgllm.loadModel = async (model, options = {}) => {
   fake.loads.push({ model, options })
+  emit("loadstart", { model, ...(options.contextLength !== undefined && { contextLength: options.contextLength }) })
   if (fake.loadGate) await fake.loadGate
-  options.signal?.throwIfAborted()
-  if (fake.loadError) throw fake.loadError
+  if (options.signal?.aborted) {
+    emit("unload", { model, reason: "aborted" })
+    options.signal.throwIfAborted()
+  }
+  if (fake.loadError) {
+    emit("error", { model, error: fake.loadError })
+    emit("unload", { model, reason: "failed" })
+    throw fake.loadError
+  }
   fake.loaded.add(model)
+  emit("load", { model, contextLength: options.contextLength ?? 32_768 })
 }
 webgllm.unloadModel = async (model) => {
   fake.unloads.push(model)
-  if (model === undefined) fake.loaded.clear()
-  else fake.loaded.delete(model)
+  for (const name of model === undefined ? [...fake.loaded] : fake.loaded.has(model) ? [model] : []) {
+    fake.loaded.delete(name)
+    emit("unload", { model: name, reason: "unloaded" })
+  }
 }
 webgllm.models.retrieve = async (model) => ({
   id: model,

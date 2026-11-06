@@ -593,8 +593,8 @@ importers:
   packages/webgllm:
     dependencies:
       webgllm:
-        specifier: ^0.1.0
-        version: 0.1.0
+        specifier: ^0.1.1
+        version: 0.1.1
     devDependencies:
       '@tanstack/ai':
         specifier: 1.0.0
@@ -4993,8 +4993,8 @@ packages:
   wcwidth@1.0.1:
     resolution: {integrity: sha512-XHPEwS0q6TaxcvG85+8EYkbiCux2XtWG2mkc47Ng2A77BQu9+DqIOJldST4HgPkuea7dvKSj5VgX3P1d4rW8Tg==}
 
-  webgllm@0.1.0:
-    resolution: {integrity: sha512-aIf8zefcngTcj+EOoxBlhesMDjHKyh9SPvDUqree4YvHEFixfraycLobgjgnVq6OY4Lr35GbefCmeB1pfhWw2A==}
+  webgllm@0.1.1:
+    resolution: {integrity: sha512-Tkqsv6lSs/3KlETUPedOE3xf1yio/kjzCMgSn2G9bKer7B7jAlAzz1STRl8eQ1Sbwtba6nuzt86oX5lBLaoUUA==}
 
   webpack-virtual-modules@0.6.2:
     resolution: {integrity: sha512-66/V2i5hQanC51vBQKPH4aI8NMAcBW59FVBs+rC7eGHupMyfn34q7rZIE+ETlJ+XTevqfUhVVBgSUNSW2flEUQ==}
@@ -9847,7 +9847,7 @@ snapshots:
     dependencies:
       defaults: 1.0.4
 
-  webgllm@0.1.0:
+  webgllm@0.1.1:
     dependencies:
       '@huggingface/jinja': 0.5.10
       '@huggingface/tokenizers': 0.2.0

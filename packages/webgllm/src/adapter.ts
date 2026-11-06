@@ -34,7 +34,7 @@ import type {
 
 import { modelMeta } from "./catalog.js"
 import type { WebGlModelReasoningByName, WebGlTextModel } from "./catalog.js"
-import { ensureModel, reconcile, setKeepLoaded, touchModel, webgllm } from "./models.js"
+import { ensureModel, setKeepLoaded, touchModel, webgllm } from "./models.js"
 
 /**
  * Per-call `modelOptions`: sampling over the model card's, and the most
@@ -470,7 +470,6 @@ export class WebGllmTextAdapter<TModel extends WebGlTextModel> extends BaseTextA
       return
     } finally {
       // (Its own budget may have unloaded another model, or this one crashed.)
-      void reconcile()
     }
 
     yield* endReasoning()
@@ -628,7 +627,6 @@ export class WebGllmTextAdapter<TModel extends WebGlTextModel> extends BaseTextA
       return
     } finally {
       // (Its own budget may have unloaded another model, or this one crashed.)
-      void reconcile()
     }
 
     yield* endReasoning()
