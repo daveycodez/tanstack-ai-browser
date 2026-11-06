@@ -10,7 +10,7 @@ import {build} from 'esbuild'
 
 const temporary = await mkdtemp(join(tmpdir(), 'constraint-const-review-'))
 try {
-  const entry = fileURLToPath(new URL('../src/index.ts', import.meta.url))
+  const entry = fileURLToPath(new URL('../src/constraint/index.ts', import.meta.url))
   const outfile = join(temporary, 'constraint.mjs')
   await build({entryPoints:[entry], outfile, bundle:true, format:'esm', platform:'node', logLevel:'error'})
   const {createConstraint, tokenAllowed} = await import(pathToFileURL(outfile).href)
@@ -23,7 +23,7 @@ try {
   const bytes = text => new TextEncoder().encode(text)
   const cases = []
   async function withConstraint(value, run) {
-    const constraint = await createConstraint({schema:schemaFor(value), tokenizer})
+    const constraint = await createConstraint({schema:schemaFor(value), tokenizer, layout:"compact"})
     try {return await run(constraint)} finally {constraint.dispose()}
   }
   function accept(constraint, sequence) {
@@ -79,7 +79,7 @@ try {
     cases.push({name:'traced semantic path: wrong escaped quote, incomplete UTF-8, dead end', acceptedBytes:accepted, acceptedAllBytes:accepted.length===sequence.length, error, diagnosticOnly:true})
   })
   const failures = cases.filter(result => result.desiredBehavior===false)
-  const report = {dependency:'llguidance@0.2.1', entry:'@tanstack-ai-browser/structured-output createConstraint()', schema:schemaFor(literal), tokenizer:'IDs 0..255 equal raw byte; EOS 256', modelUsed:false, samplingUsed:false, cases, desiredBehaviorFailures:failures.length}
+  const report = {dependency:'llguidance@0.2.1', entry:'transformers-js createConstraint()', schema:schemaFor(literal), tokenizer:'IDs 0..255 equal raw byte; EOS 256', modelUsed:false, samplingUsed:false, cases, desiredBehaviorFailures:failures.length}
   console.log(JSON.stringify(report, null, 2))
   assert.equal(failures.length, 0, 'Installed constraint compiler accepts impossible escaped/UTF-8 string prefixes. This diagnostic is expected to fail until the dependency is fixed.')
 } finally {

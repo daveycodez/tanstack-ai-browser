@@ -1,6 +1,6 @@
 import type { JsonGuidanceRuntime } from "llguidance/json-schema"
 import { canonicalAsciiObject, canonicalTokenMask } from "./canonical-mask.js"
-import { whitespaceTokenIds } from "./whitespace.js"
+import { jsonTokens, nextStringState, type JsonTokens, type StringState } from "./whitespace.js"
 
 /** Exact model tokenizer, not token strings decoded independently. */
 export type ConstraintTokenizer = object
@@ -22,9 +22,10 @@ export type ConstraintOptions = {
 }
 
 /**
- * Whitespace-only tokens in a row before whitespace is refused until the
- * JSON goes on: a laid-out document needs a few between two tokens, and a
- * model stuck writing whitespace would otherwise run to its output limit.
+ * Whitespace-only tokens in a row, outside strings, before whitespace is
+ * refused until the JSON goes on: a laid-out document needs a few between
+ * two tokens, and a model stuck writing whitespace would otherwise run to
+ * its output limit. Whitespace inside strings is content and isn't capped.
  */
 export const MAX_WHITESPACE_RUN = 8
 
@@ -72,8 +73,10 @@ class JsonConstraint implements Constraint {
   private mask: Uint32Array | undefined
   private accepting = false
   private disposed = false
-  /** Whitespace-only tokens accepted in a row. */
+  /** Whitespace-only tokens accepted in a row outside strings. */
   private whitespaceRun = 0
+  /** Where the bytes so far end: outside strings, in one, or after a backslash in one. */
+  private stringState: StringState = 0
   constructor(
     private readonly interpreter: Interpreter,
     readonly vocabSize: number,
@@ -81,7 +84,9 @@ class JsonConstraint implements Constraint {
     private readonly endAtAcceptance: boolean,
     private readonly canonicalMask?: Uint32Array,
     /** Whitespace-only tokens, when the layout takes whitespace (see MAX_WHITESPACE_RUN). */
-    private readonly whitespace?: Uint32Array
+    private readonly whitespace?: Uint32Array,
+    /** How tokens move in and out of strings, with whitespace. */
+    private readonly tokens?: JsonTokens
   ) {}
 
   private check() {
@@ -125,14 +130,19 @@ class JsonConstraint implements Constraint {
     if (!tokenAllowed(this.computeMask(), token)) throw new StructuredOutputError("constraint-violation", `Token ${token} violates the requested output schema.`)
     const result = this.interpreter.commitToken(token)
     if (result.backtrack || result.ffTokens.length) throw new StructuredOutputError("constraint-violation", "Unexpected constraint backtracking or token insertion.")
-    if (this.whitespace) this.whitespaceRun = tokenAllowed(this.whitespace, token) ? this.whitespaceRun + 1 : 0
+    if (this.whitespace && this.tokens) {
+      // Whitespace inside a string doesn't change the state, so the run is all outside strings.
+      this.whitespaceRun = this.stringState === 0 && tokenAllowed(this.whitespace, token) ? this.whitespaceRun + 1 : 0
+      this.stringState = nextStringState(this.tokens, token, this.stringState)
+    }
     this.mask = undefined
   }
 
   clone(): Constraint {
     this.check()
-    const copy = new JsonConstraint(this.interpreter.clone(), this.vocabSize, this.eosTokenId, this.endAtAcceptance, this.canonicalMask, this.whitespace)
+    const copy = new JsonConstraint(this.interpreter.clone(), this.vocabSize, this.eosTokenId, this.endAtAcceptance, this.canonicalMask, this.whitespace, this.tokens)
     copy.whitespaceRun = this.whitespaceRun
+    copy.stringState = this.stringState
     return copy
   }
 
@@ -189,8 +199,8 @@ export async function createConstraint(options: ConstraintOptions): Promise<Cons
   const runtime = await loadRuntime()
   // Preserve identity so repeated generations reuse converted tokenizer bytes.
   const source = withEos(options.tokenizer, options.eosTokenId)
-  const whitespaceIds = options.layout === "compact" ? null : whitespaceTokenIds(source)
-  const layout = options.layout === "compact" ? COMPACT : whitespaceIds?.length ? MODEL : MODEL_FIXED
+  const tokens = options.layout === "compact" ? null : jsonTokens(source)
+  const layout = options.layout === "compact" ? COMPACT : tokens?.whitespace.length ? MODEL : MODEL_FIXED
   let interpreter: Interpreter
   try {
     interpreter = runtime.createInterpreter({
@@ -218,12 +228,12 @@ export async function createConstraint(options: ConstraintOptions): Promise<Cons
     throw new StructuredOutputError("invalid-tokenizer", cause instanceof Error ? cause.message : String(cause), { cause })
   }
   let whitespace: Uint32Array | undefined
-  if (layout === MODEL && whitespaceIds) {
+  if (layout === MODEL && tokens) {
     whitespace = new Uint32Array(Math.ceil(vocabSize / 32))
-    for (const id of whitespaceIds) if (id >= 0 && id < vocabSize) whitespace[id >>> 5] |= 1 << (id & 31)
+    for (const id of tokens.whitespace) if (id >= 0 && id < vocabSize) whitespace[id >>> 5] |= 1 << (id & 31)
   }
   return new JsonConstraint(interpreter, vocabSize, eos, excludesNumericRoot(options.schema),
-    canonicalAsciiObject(options.schema) ? canonicalTokenMask(source, vocabSize, eos) : undefined, whitespace)
+    canonicalAsciiObject(options.schema) ? canonicalTokenMask(source, vocabSize, eos) : undefined, whitespace, tokens ?? undefined)
 }
 export { chooseGuidedTool, addGuidedUsage } from './guided-tools.js'
 export { closeObjects } from './close-objects.js'

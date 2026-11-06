@@ -487,15 +487,18 @@ test("an estimate that runs high stops short of the cap: what there is, finishRe
   assert.equal((finished?.usage as { completionTokens: number }).completionTokens, 5)
 })
 
-test("text already sent live is never taken back when the estimate ran low", { timeout: 5000 }, async () => {
-  // "#" is 4 tokens a character: live text passes the cap before the estimate does.
-  control.weight = (char) => (char === "#" ? 4 : 1)
-  control.answer = ["##", "##", "##", "##", "##", "##", "##", "##"]
-  const chunks = await collect(
-    promptApiText().chatStream(chatOptions({ modelOptions: { maxCompletionTokens: 20 } }))
+test("text sent live never passes the cap, even when the reply is denser than the calibration text", { timeout: 5000 }, async () => {
+  // The request's text runs 4 bytes a token; the reply's "x" 1 (the densest a tokenizer gets).
+  control.weight = (char) => (char === "x" ? 1 : 0.25)
+  control.answer = Array.from({ length: 100 }, () => "x")
+  const { chunks, live } = await collectTimed(
+    promptApiText().chatStream(chatOptions({ modelOptions: { maxCompletionTokens: 10 } }))
   )
-  assert.equal(textIn(chunks), "#".repeat(14))
+  // Live only while even one token a byte stays within the cap; the rest held, then trimmed.
+  assert.ok(live.filter((c) => c.generating).length <= 10)
+  assert.equal(textIn(chunks), "x".repeat(10))
   assert.equal(chunks.at(-1)?.finishReason, "length")
+  assert.equal((chunks.at(-1)?.usage as { completionTokens: number }).completionTokens, 10)
 })
 
 test("chatStream under maxCompletionTokens never measures mid-stream and finishes with stop", { timeout: 5000 }, async () => {
@@ -739,6 +742,27 @@ test("a native tool call the cap cuts into is left out, and the run finishes wit
     assert.equal(chunks.some((c) => c.type.startsWith("TOOL_CALL")), false)
     assert.equal(chunks.at(-1)?.finishReason, "length")
   })
+})
+
+test("a guided call that doesn't fit the cap whole sends nothing and finishes with length", async () => {
+  const ping = { name: "ping", description: "Ping", inputSchema: { type: "object", properties: {}, additionalProperties: false } }
+  // No arguments to generate, but the call itself still counts.
+  let chunks = await collect(
+    promptApiText({ nativeTools: false }).chatStream(chatOptions({ tools: [ping], toolChoice: "required", modelOptions: { maxCompletionTokens: 1 } }))
+  )
+  assert.equal(chunks.some((c) => c.type.startsWith("TOOL_CALL")), false)
+  assert.equal(chunks.at(-1)?.finishReason, "length")
+  assert.equal(detailsOf(chunks.at(-1)).outputTokenLimitReached, true)
+
+  // Arguments within the cap, the call as counted past it.
+  control.answer = ['{"city":', '"Rome"}']
+  chunks = await collect(
+    promptApiText({ nativeTools: false }).chatStream(
+      chatOptions({ threadId: "guided-whole", tools: [lookup], toolChoice: "required", modelOptions: { maxCompletionTokens: 20 } })
+    )
+  )
+  assert.equal(chunks.some((c) => c.type.startsWith("TOOL_CALL")), false)
+  assert.equal(chunks.at(-1)?.finishReason, "length")
 })
 
 test("guided tool arguments cut off by maxCompletionTokens send no call and finish with length", async () => {

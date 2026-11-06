@@ -64,18 +64,28 @@ function registryBudget(): number {
 }
 
 /**
- * The shared instance. Its own memory budget is the registry's: the registry
- * makes room across runtimes from estimates before a load, and webgllm's
- * budget then holds its own models to the same limit with the bytes its
- * workers measure (the attention cache grows as chats do). With the same
- * limit, webgllm only ever unloads models the registry would also have to,
- * and never refuses room the registry granted. webgllm reads
- * `memoryBudget` from its options at each claim, so the getter follows
- * `setMemoryBudget`.
+ * The shared instance. Each claim its workers make (an estimate before a
+ * load, the measured textures after, each growth of the attention cache)
+ * goes to the registry first, which makes room across runtimes before the
+ * worker allocates. webgllm's own budget holds its models to the same limit
+ * and orders them among themselves. webgllm reads `memoryBudget` from its
+ * options at each claim, so the getter follows `setMemoryBudget`.
  */
 export const webgllm = new WebGLLM({
   get memoryBudget() {
     return registryBudget()
+  },
+  onMemoryClaim: async ({ model, bytes, signal }) => {
+    await claimMemory({
+      owner: owner(model),
+      model,
+      bytes,
+      keepLoaded: keepLoaded.has(model),
+      unload: () => evict(model)
+    })
+    // Unloaded while the registry made room: its "unload" event has already
+    // released it, so hold nothing for it.
+    if (signal.aborted) releaseMemory(owner(model))
   }
 })
 
@@ -120,22 +130,6 @@ export function setKeepLoaded(model: WebGlTextModel, keep: boolean) {
 /** A model's name in the registry: webgllm holds several models, each its own entry. */
 const owner = (model: string) => `webgllm:${model}`
 
-/**
- * The textures a model takes loaded, per byte of its weight files (what the
- * old in-repo worker measured: 1.3–1.4× at 512-token prompt batches).
- */
-const TEXTURES_PER_FILE_BYTE = 1.4
-
-/** A model's memory once loaded, estimated from its download size (0 when unknown). */
-async function estimateBytes(model: string): Promise<number> {
-  try {
-    const { size } = await webgllm.models.retrieve(model)
-    return Math.round(size * TEXTURES_PER_FILE_BYTE)
-  } catch {
-    return 0
-  }
-}
-
 /** The context each ready model was loaded for, as requested (undefined: the model's own). */
 const loadedFor = new Map<string, number | undefined>()
 
@@ -147,39 +141,21 @@ function evict(model: string): Promise<void> {
   return webgllm.unloadModel(model).catch(() => undefined)
 }
 
-async function claim(model: string, bytes: number) {
-  await claimMemory({
-    owner: owner(model),
-    model,
-    bytes,
-    keepLoaded: keepLoaded.has(model),
-    unload: () => evict(model)
-  })
-}
-
 /**
- * Loads `model` for `contextLength`, claiming its memory first. Its status
- * follows webgllm's events (see below), not this function.
+ * Loads `model` for `contextLength`. Its memory is claimed from the worker
+ * (see onMemoryClaim) and released at its "unload" event, and its status
+ * follows webgllm's events (see below), not this function. Nothing is awaited
+ * before webgllm takes the load, so an unloadModel() from here on reaches it.
+ * A caller that gives up releases nothing: webgllm shares one load between
+ * its callers and unloads (releasing it) only when the last one leaves.
  */
 async function load(model: WebGlTextModel, contextLength: number | undefined, signal?: AbortSignal) {
-  // Make room before the load, so two big models aren't in memory at once.
-  const bytes = await estimateBytes(model)
-  signal?.throwIfAborted()
-  await claim(model, bytes)
-  try {
-    await webgllm.loadModel(model, {
-      ...(contextLength !== undefined && { contextLength }),
-      keepLoaded: keepLoaded.has(model),
-      ...(signal && { signal })
-    })
-  } catch (error) {
-    // A load that never started (aborted while claiming) dispatches no events.
-    if (modelStatus(model).get().state !== "ready") releaseMemory(owner(model))
-    throw error
-  }
+  await webgllm.loadModel(model, {
+    ...(contextLength !== undefined && { contextLength }),
+    keepLoaded: keepLoaded.has(model),
+    ...(signal && { signal })
+  })
   loadedFor.set(model, contextLength)
-  // Its size wasn't known before it downloaded: claim what it is now.
-  if (bytes === 0) await claim(model, await estimateBytes(model))
 }
 
 /**

@@ -32,6 +32,10 @@ export const fake = {
   loaded: new Set<string>(),
   /** Download size models.retrieve reports. */
   size: 1_000_000_000,
+  /** Bytes each load's worker claims through onMemoryClaim, as the real worker measures them. */
+  memory: 1_400_000_000,
+  /** Holds each load's memory claim until it resolves. */
+  claimGate: undefined as Promise<void> | undefined,
   /** Rejects the next loads with it. */
   loadError: undefined as Error | undefined,
   /** Holds loads until it resolves. */
@@ -51,6 +55,8 @@ export const fake = {
     this.unloads = []
     this.loaded.clear()
     this.size = 1_000_000_000
+    this.memory = 1_400_000_000
+    this.claimGate = undefined
     this.loadError = undefined
     this.loadGate = undefined
     this.createError = undefined
@@ -134,27 +140,90 @@ export function emit<K extends keyof WebGLLMEventMap>(type: K, event: WebGLLMEve
   ;(webgllm as unknown as { dispatch(type: K, event: WebGLLMEventMap[K]): void }).dispatch(type, event)
 }
 
-// Like webgllm's own: "loadstart", then "load", or "error" and "unload" ("failed" / "aborted").
-webgllm.loadModel = async (model, options = {}) => {
-  fake.loads.push({ model, options })
-  emit("loadstart", { model, ...(options.contextLength !== undefined && { contextLength: options.contextLength }) })
-  if (fake.loadGate) await fake.loadGate
-  if (options.signal?.aborted) {
-    emit("unload", { model, reason: "aborted" })
-    options.signal.throwIfAborted()
-  }
-  if (fake.loadError) {
-    emit("error", { model, error: fake.loadError })
-    emit("unload", { model, reason: "failed" })
-    throw fake.loadError
-  }
-  fake.loaded.add(model)
-  emit("load", { model, contextLength: options.contextLength ?? 32_768 })
+type Options = { onMemoryClaim?: (claim: { model: string; bytes: number; signal: AbortSignal }) => Promise<void> | void }
+const options = () => (webgllm as unknown as { options: Options }).options
+
+/** A worker's memory claim for `model`, awaited as webgllm awaits it before allocating (cache growth, say). */
+export async function claim(model: string, bytes: number, signal = new AbortController().signal) {
+  await options().onMemoryClaim?.({ model, bytes, signal })
 }
+
+/** Loads in flight, one per model, shared by their callers as webgllm shares them. */
+const pending = new Map<string, { promise: Promise<void>; contextLength?: number; waiters: number; gone: AbortController }>()
+const loadedFor = new Map<string, number | undefined>()
+
+const abortable = (promise: Promise<void>, signal?: AbortSignal) =>
+  signal
+    ? Promise.race([
+        promise,
+        new Promise<never>((_, reject) => {
+          if (signal.aborted) reject(signal.reason)
+          signal.addEventListener("abort", () => reject(signal.reason), { once: true })
+        })
+      ])
+    : promise
+
+// Like webgllm's pool: one load per model, its callers waiting on it; "loadstart",
+// a memory claim, then "load", or "error" and "unload" ("failed"). A caller that
+// gives up only stops waiting; the last one to leave unloads it ("aborted").
+webgllm.loadModel = async (model, options = {}) => {
+  options.signal?.throwIfAborted()
+  fake.loads.push({ model, options })
+  if (fake.loaded.has(model) && loadedFor.get(model) === options.contextLength) return
+  let load = pending.get(model)
+  if (!load || load.contextLength !== options.contextLength) {
+    const gone = new AbortController()
+    emit("loadstart", { model, ...(options.contextLength !== undefined && { contextLength: options.contextLength }) })
+    const promise = (async () => {
+      if (fake.claimGate) await fake.claimGate
+      await claim(model, fake.memory, gone.signal)
+      if (fake.loadGate) await fake.loadGate
+      gone.signal.throwIfAborted()
+      if (fake.loadError) {
+        pending.delete(model)
+        emit("error", { model, error: fake.loadError })
+        emit("unload", { model, reason: "failed" })
+        throw fake.loadError
+      }
+      pending.delete(model)
+      fake.loaded.add(model)
+      loadedFor.set(model, options.contextLength)
+      emit("load", { model, contextLength: options.contextLength ?? 32_768 })
+    })()
+    promise.catch(() => undefined)
+    load = { promise, waiters: 0, gone, ...(options.contextLength !== undefined && { contextLength: options.contextLength }) }
+    pending.set(model, load)
+  }
+  load.waiters++
+  try {
+    await abortable(load.promise, options.signal)
+  } catch (error) {
+    if (options.signal?.aborted && load.waiters === 1 && pending.get(model) === load) {
+      pending.delete(model)
+      load.gone.abort(error)
+      emit("unload", { model, reason: "aborted" })
+    }
+    throw error
+  } finally {
+    load.waiters--
+  }
+}
+// Whatever unloads a model (an eviction, a crash), webgllm forgets it.
+webgllm.addEventListener("unload", ({ model }) => {
+  fake.loaded.delete(model)
+  loadedFor.delete(model)
+})
 webgllm.unloadModel = async (model) => {
   fake.unloads.push(model)
+  for (const [name, load] of [...pending]) {
+    if (model !== undefined && name !== model) continue
+    pending.delete(name)
+    load.gone.abort(new Error(`${name} was unloaded.`))
+    emit("unload", { model: name, reason: "unloaded" })
+  }
   for (const name of model === undefined ? [...fake.loaded] : fake.loaded.has(model) ? [model] : []) {
     fake.loaded.delete(name)
+    loadedFor.delete(name)
     emit("unload", { model: name, reason: "unloaded" })
   }
 }

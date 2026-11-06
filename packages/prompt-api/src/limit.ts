@@ -90,10 +90,13 @@ export function textOfInput(input: string | ReadonlyArray<TextBearing>): string 
 }
 
 /**
- * Live emission stops once the estimate passes this share of the limit.
- * Text sent live can't be taken back, so it must stay within the limit even
- * when the estimate is low: at 0.75, the reply can hold a third more tokens
- * per byte than the calibration text before live text could pass the limit.
+ * Live emission stops once the estimate passes this share of the limit, or
+ * once the text passes the limit in UTF-8 bytes. Text sent live can't be
+ * taken back, so it must stay within the limit whatever the estimate says:
+ * no token is shorter than a byte, so text of at most `limit` bytes holds at
+ * most `limit` tokens, however much denser the reply is than the calibration
+ * text. The share keeps longer limits from streaming up to the last token
+ * live, where a low estimate would leave nothing to trim.
  */
 export const LIVE_FRACTION = 0.75
 /**
@@ -228,7 +231,7 @@ export async function tokenLimiter(
       text += delta
       bytes += utf8Bytes(delta)
       check()
-      if (!holding && estimate() <= liveLine) {
+      if (!holding && estimate() <= liveLine && bytes <= limit) {
         emitted += delta
         return delta
       }
@@ -268,7 +271,6 @@ export async function tokenLimiter(
         accepted = acceptedPoints.join("")
         count = await measure(accepted)
       }
-      // (At worst the text already sent live, if the estimate ran low.)
       return { text: accepted, held: accepted.slice(emitted.length), tokens: count, reached: true, trimmed: true }
     },
     measure

@@ -5,8 +5,8 @@ import { WebGLLMError } from "webgllm"
 
 import { webgllmText } from "./adapter.js"
 import { WEBGL_MODEL_REASONING } from "./catalog.js"
-import { chunk, collect, emit, fake, lastBody, MODEL, TIMINGS, textOptions, usageChunk } from "./fake-webgllm.test.js"
-import { loadModel, modelStatus, setKeepLoaded, setMemoryBudget, unloadModel, webgllm } from "./models.js"
+import { chunk, claim, collect, emit, fake, lastBody, MODEL, TIMINGS, textOptions, usageChunk } from "./fake-webgllm.test.js"
+import { ensureModel, loadModel, modelStatus, setKeepLoaded, setMemoryBudget, unloadModel } from "./models.js"
 import type { ModelStatus } from "./models.js"
 
 beforeEach(() => fake.reset())
@@ -345,7 +345,7 @@ test("evictions and crashes reach the status as they happen", async () => {
   assert.equal(modelStatus(MODEL).get().state, "ready")
 })
 
-test("the shared memory registry: claims an estimate, makes room across runtimes, and evicts through webgllm", async () => {
+test("the shared memory registry: holds what webgllm's workers claim, makes room across runtimes, and evicts through webgllm", async () => {
   type Held = { owner: string; bytes: number; keepLoaded: boolean; unload: () => unknown; lastUsed: number }
   const registry = (globalThis as unknown as Record<symbol, { held: Map<string, Held>; budget?: number }>)[
     Symbol.for("@tanstack-ai-browser/model-memory")
@@ -362,9 +362,8 @@ test("the shared memory registry: claims an estimate, makes room across runtimes
   try {
     await loadModel(MODEL)
     const held = registry.held.get(`webgllm:${MODEL}`)
-    assert.equal(held?.bytes, 1.4e9, "1.4× the download size")
+    assert.equal(held?.bytes, 1.4e9, "the bytes the worker claimed")
     assert.equal(otherUnloaded, true, "the other runtime's model made room")
-    assert.equal(webgllm.models !== undefined, true)
 
     // Another runtime claims past the budget: this model is unloaded through webgllm.
     const { claimMemory } = await import("./model-memory.js")
@@ -398,3 +397,67 @@ exact<Equal<Thinkers,
   | "LiquidAI/LFM2.5-1.2B-Thinking-GGUF"
   | "unsloth/Qwen3.5-2B-GGUF"
   | "onnx-community/Qwen3.5-2B-ONNX">>(true)
+
+const registryHeld = () =>
+  (globalThis as unknown as Record<symbol, { held: Map<string, { bytes: number }> }>)[Symbol.for("@tanstack-ai-browser/model-memory")]!.held
+
+test("a cache that grows claims its bytes in the registry first, making room in another runtime", async () => {
+  const held = registryHeld()
+  setMemoryBudget(2e9)
+  let otherUnloaded = false
+  try {
+    await loadModel(MODEL)
+    held.set("transformers-js", { owner: "transformers-js", model: "x", bytes: 0.5e9, keepLoaded: false, lastUsed: Date.now(), unload: () => (otherUnloaded = true) } as never)
+    // The worker's attention cache grows past what's left: the other runtime makes room before it allocates.
+    await claim(MODEL, 1.8e9)
+    assert.equal(held.get(`webgllm:${MODEL}`)?.bytes, 1.8e9)
+    assert.equal(otherUnloaded, true)
+    assert.equal(held.has("transformers-js"), false)
+  } finally {
+    held.delete("transformers-js")
+    setMemoryBudget(undefined)
+  }
+})
+
+test("one of two callers giving up leaves the shared load, and its memory claim, to the other", async () => {
+  const held = registryHeld()
+  let open!: () => void
+  fake.loadGate = new Promise<void>((resolve) => (open = resolve))
+  const controller = new AbortController()
+  const first = ensureModel(MODEL, undefined, controller.signal)
+  const second = ensureModel(MODEL, undefined)
+  await new Promise((resolve) => setTimeout(resolve, 0))
+  controller.abort()
+  await assert.rejects(first, { name: "AbortError" })
+  open()
+  await second
+  assert.deepEqual(modelStatus(MODEL).get(), { state: "ready" })
+  assert.equal(held.get(`webgllm:${MODEL}`)?.bytes, 1.4e9, "the loaded model's memory is still counted")
+})
+
+test("unloading a model just after asking for it stops that load: nothing waits before webgllm takes it", async () => {
+  const held = registryHeld()
+  // A player switching opponents at once.
+  const loading = loadModel(MODEL)
+  await unloadModel(MODEL)
+  await assert.rejects(loading)
+  await new Promise((resolve) => setTimeout(resolve, 0))
+  assert.equal(fake.loaded.has(MODEL), false, "the old model never loaded")
+  assert.equal(held.has(`webgllm:${MODEL}`), false, "and holds no memory")
+  assert.deepEqual(modelStatus(MODEL).get(), { state: "idle" })
+})
+
+test("unloading a model while its load waits for room never lets the old load go on", async () => {
+  const held = registryHeld()
+  let open!: () => void
+  fake.claimGate = new Promise<void>((resolve) => (open = resolve))
+  const loading = loadModel(MODEL)
+  await new Promise((resolve) => setTimeout(resolve, 0))
+  await unloadModel(MODEL)
+  open()
+  await assert.rejects(loading)
+  await new Promise((resolve) => setTimeout(resolve, 0))
+  assert.equal(fake.loaded.has(MODEL), false, "the old model never loaded")
+  assert.equal(held.has(`webgllm:${MODEL}`), false, "and holds no memory")
+  assert.deepEqual(modelStatus(MODEL).get(), { state: "idle" })
+})

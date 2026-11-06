@@ -893,9 +893,10 @@ export class PromptApiTextAdapter extends BaseTextAdapter<
    * undefined if it answers. Both are guided generations on copies of the
    * session, so the session itself reads only what the request will send.
    * Guided routing writes one call per step, so `parallelToolCalls` holds
-   * either way. Under an output cap (`limit`), the arguments count toward
-   * it (the routing decision is the adapter's, not the reply, and doesn't);
-   * arguments the cap cuts off give "length", never a broken call.
+   * either way. Under an output cap (`limit`), the call counts toward it
+   * whole, as the reply reports it (the routing decision is the adapter's,
+   * not the reply, and doesn't); a call the cap cuts off gives "length",
+   * never a broken call.
    */
   private async decideToolCall(
     session: LanguageModelSession,
@@ -937,6 +938,11 @@ export class PromptApiTextAdapter extends BaseTextAdapter<
     // arguments, instead of answering from its result.
     if (currentTurnCalls(options.messages).has(toolCallText(tool.name, args))) {
       return undefined
+    }
+    // The call counts toward the cap as the reply reports it, whole: one that
+    // doesn't fit is cut off, as the native path leaves such calls out.
+    if (limit !== undefined && (await replyTokens(session, toolCallText(tool.name, args), signal)) > limit) {
+      return "length"
     }
     return { name: tool.name, args }
   }
