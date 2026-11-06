@@ -1,4 +1,6 @@
 import type { ReasoningRequest } from "@tanstack/ai"
+import { calibrationSample, internalAbort, smallest, textOfInput, tokenLimiter } from "./limit.js"
+import type { TokenLimiter } from "./limit.js"
 import type { LanguageModelInput, LanguageModelMessage, LanguageModelSession } from "./types.js"
 
 export type PromptApiReasoning = { levels: "off" | "high"; budget: true }
@@ -11,7 +13,7 @@ export type PromptApiReasoningUsage = {
   thinkingBudgetExhausted: boolean
   reasoningMs: number
 }
-export type DraftReasoningResult = { notes: string; usage: PromptApiReasoningUsage }
+export type DraftReasoningResult = { notes: string; usage: PromptApiReasoningUsage; capReached: boolean }
 
 export function promptReasoningOptions(request: ReasoningRequest | undefined) {
   const budget = request?.budgetTokens
@@ -30,87 +32,71 @@ export function withWorkingNotes(input: LanguageModelInput, notes: string): Lang
   return [...messages, { role: "user", content: `Working notes to verify against the conversation:\n${notes}\nNow produce the final response or required tool call.` }]
 }
 
-/** Two-pass adapter emulation, not hidden native model reasoning or native token control. */
-export async function* draftReasoning(session: LanguageModelSession, input: LanguageModelInput, signal: AbortSignal | undefined, budget?: number): AsyncGenerator<string, DraftReasoningResult> {
+/**
+ * Two-pass adapter emulation, not hidden native model reasoning or native
+ * token control. The draft stops at the thinking `budget` and at `cap`, the
+ * output tokens left for the whole reply (`maxCompletionTokens`, which counts
+ * the draft too), whichever comes first; `capReached` says the cap stopped it.
+ * Under a limit, the draft is held to it as `tokenLimiter` holds any reply:
+ * estimated while it streams, stopped a little past the limit, then measured
+ * and trimmed exactly (the rest of the notes streams once the draft stops).
+ */
+export async function* draftReasoning(session: LanguageModelSession, input: LanguageModelInput, signal: AbortSignal | undefined, budget?: number, cap?: number): AsyncGenerator<string, DraftReasoningResult> {
   signal?.throwIfAborted()
   if (budget !== undefined && (!Number.isSafeInteger(budget) || budget < 0)) throw new RangeError("reasoning.budgetTokens must be a nonnegative safe integer.")
   const began = performance.now()
+  const limit = smallest(budget, cap)
   const usage = (tokens: number, exhausted: boolean): PromptApiReasoningUsage => ({ reasoningEmulated: true, reasoningTokenMeasurement: "context-usage", reasoningBudgetEnforcement: "best-effort", thinkingTokens: tokens, ...(budget !== undefined && { thinkingBudgetTokens: budget }), thinkingBudgetExhausted: exhausted, reasoningMs: performance.now() - began })
-  if (budget === 0) return { notes: "", usage: usage(0, true) }
+  if (limit === 0) return { notes: "", usage: usage(0, budget === 0), capReached: cap === 0 }
   let draft: LanguageModelSession | undefined
-  let counter: LanguageModelSession | undefined
-  const internal = new AbortController()
-  const cancel = () => internal.abort(signal?.reason)
-  signal?.addEventListener("abort", cancel, { once: true })
-  let notes = ""
-  let tokens = 0
-  let reached = false
+  let limiter: TokenLimiter | undefined
+  const stopper = internalAbort(signal, "Emulated reasoning budget reached")
   try {
     draft = await session.clone({ signal })
-    counter = await session.clone({ signal })
-    const counting = counter
-    const overhead = await counting.measureContextUsage("", { signal })
-    const measure = async (text: string) => {
-      signal?.throwIfAborted()
-      return Math.max(0, (await counting.measureContextUsage(text, { signal })) - overhead)
-    }
     const messages: LanguageModelMessage[] = typeof input === "string" ? [{ role: "user", content: input }] : input
-    const stream = draft.promptStreaming([...messages, draftInstruction], { signal: internal.signal })
+    const prompt = [...messages, draftInstruction]
+    // Calibrated while the model is idle; nothing is measured mid-draft.
+    if (limit !== undefined) limiter = await tokenLimiter(session, limit, calibrationSample([textOfInput(prompt)]), signal)
+    const stream = draft.promptStreaming(prompt, { signal: stopper.signal })
+    let notes = ""
     try {
       for await (const piece of stream) {
         signal?.throwIfAborted()
         const parts = Array.isArray(piece) ? piece : [piece]
         const delta = parts.map(part => typeof part === "string" ? part : part.type === "text" ? String(part.value) : "").join("")
         if (!delta) continue
-        const candidate = notes + delta
-        let accepted = candidate
-        let count = await measure(candidate)
-        if (budget !== undefined && count > budget) {
-          // Search by code point, retaining only measured-feasible prefixes. Token
-          // counts need not be monotonic, so verify the chosen prefix afterward.
-          const points = Array.from(candidate)
-          let low = Array.from(notes).length
-          let high = points.length
-          accepted = notes
-          count = tokens
-          while (low <= high) {
-            const middle = Math.floor((low + high) / 2)
-            const prefix = points.slice(0, middle).join("")
-            const size = await measure(prefix)
-            if (size <= budget) { accepted = prefix; count = size; low = middle + 1 }
-            else high = middle - 1
-          }
-          let acceptedPoints = Array.from(accepted)
-          count = await measure(accepted)
-          while (count > budget && acceptedPoints.length > Array.from(notes).length) {
-            acceptedPoints = acceptedPoints.slice(0, -1)
-            accepted = acceptedPoints.join("")
-            count = await measure(accepted)
-          }
-          if (count > budget) throw new Error("The browser's reasoning token measurement changed unexpectedly.")
-          reached = true
+        if (!limiter) {
+          notes += delta
+          yield delta
+          continue
         }
-        const emitted = accepted.slice(notes.length)
-        notes = accepted
-        tokens = count
-        const stop = reached || (budget !== undefined && tokens >= budget)
-        if (stop) {
-          reached = true
-          internal.abort(new DOMException("Emulated reasoning budget reached", "AbortError"))
-        }
-        if (emitted) yield emitted
-        if (stop) break
+        const live = limiter.push(delta)
+        if (limiter.stopped) stopper.stop()
+        if (live) yield live
+        if (limiter.stopped) break
       }
     } catch (error) {
       signal?.throwIfAborted()
-      if (!reached) throw error
+      if (!limiter?.stopped) throw error
     }
     signal?.throwIfAborted()
-    return { notes, usage: usage(tokens, reached) }
+    if (!limiter) return { notes, usage: usage(await notesTokens(session, notes, signal), false), capReached: false }
+    // The draft has stopped: the model is idle, so the exact count is instant.
+    const kept = await limiter.finish()
+    if (kept.held) yield kept.held
+    return { notes: kept.text, usage: usage(kept.tokens, kept.reached && limit === budget), capReached: kept.reached && limit === cap }
   } finally {
-    signal?.removeEventListener("abort", cancel)
-    if (!internal.signal.aborted) internal.abort()
+    stopper.dispose()
+    // Stops a draft left unread.
+    if (!stopper.signal.aborted) stopper.stop()
     draft?.destroy()
-    counter?.destroy()
   }
+}
+
+/** Tokens of finished notes, less the empty message's overhead. */
+async function notesTokens(session: LanguageModelSession, notes: string, signal: AbortSignal | undefined) {
+  if (!notes) return 0
+  const options = signal ? [{ signal }] : []
+  const overhead = await session.measureContextUsage("", ...options)
+  return Math.max(0, (await session.measureContextUsage(notes, ...options)) - overhead)
 }

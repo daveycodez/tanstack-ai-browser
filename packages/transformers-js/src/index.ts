@@ -18,6 +18,7 @@ export type {
   TransformersJsListedModel,
   TransformersJsModelMeta,
   TransformersJsModelReasoningByName,
+  Sampling,
   TransformersJsTextModel
 } from "./model-meta.js"
 export {
@@ -29,7 +30,6 @@ export {
 } from "./client.js"
 export { setMemoryBudget } from "./model-memory.js"
 export type { ModelStatus } from "./client.js"
-export type { Sampling } from "./protocol.js"
 export type { Store } from "./store.js"
 export { splitThinking } from "./thinking.js"
 export type { ToolFormat } from "./tool-calls.js"

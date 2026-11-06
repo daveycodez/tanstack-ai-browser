@@ -40,7 +40,7 @@
       "path": "../../packages/prompt-api"
     },
     {
-      "path": "../../packages/webgl"
+      "path": "../../packages/webgllm"
     }
   ]
 }

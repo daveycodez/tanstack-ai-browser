@@ -49,10 +49,14 @@
   "nx": {
     "name": "prompt-api"
   },
+  "scripts": {
+    "test": "node --import @swc-node/register/esm-register --test \"src/**/*.test.ts\""
+  },
   "peerDependencies": {
     "@tanstack/ai": "^1.0.0"
   },
   "devDependencies": {
-    "@tanstack/ai": "1.0.0"
+    "@tanstack/ai": "1.0.0",
+    "esbuild": "0.28.2"
   }
 }

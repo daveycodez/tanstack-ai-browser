@@ -36,7 +36,6 @@
   ],
   "release": {
     "projects": [
-      "structured-output",
       "transformers-js",
       "apfel"
     ],
@@ -47,7 +46,7 @@
     "version": {
       "conventionalCommits": true,
       "adjustSemverBumpsForZeroMajorVersion": true,
-      "preVersionCommand": "pnpm nx run-many -t build -p structured-output transformers-js apfel"
+      "preVersionCommand": "pnpm nx run-many -t build -p transformers-js apfel"
     },
     "changelog": {
       "projectChangelogs": {

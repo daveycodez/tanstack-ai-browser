@@ -136,4 +136,4 @@ Chrome result (raw run archived locally).
 The separate constraint change also passed 401 tests across structured-output
 (104), WebGL (185) and Transformers.js (112), with all 12 package
 test/typecheck/lint/build targets passing. Qwen scope and limitations are
-[documented separately](../../../packages/webgl/bench/review-followups/qwen-dead-end-findings.md).
+[documented separately](../../../packages/webgllm/bench/review-followups/qwen-dead-end-findings.md).

@@ -24,13 +24,18 @@ export type ToolSpec = {
   function: { name: string; description: string; parameters: unknown }
 }
 
-/** Sampling settings from each model's card. */
-export type Sampling = {
+/**
+ * Sampling as the worker takes it (its own wire format; the adapter maps
+ * `modelOptions`' camelCase names to it).
+ */
+export type WorkerSampling = {
   temperature: number
   top_k: number
   repetition_penalty: number
   /** Nucleus sampling: the likeliest tokens up to this probability. */
   top_p?: number
+  /** Seeds the sampler's random draws, for repeatable samples. */
+  seed?: number
 }
 
 /** Token counts and timings of one generation, measured in the worker. */
@@ -85,7 +90,7 @@ export type WorkerRequest =
       outputSchema?: object
       /** False disables automatic reuse/retention between calls, not autoregressive KV within this run. */
       cachePrompt?: boolean
-      sampling: Sampling
+      sampling: WorkerSampling
       /** Most tokens to generate; the worker's default when left out. */
       maxTokens?: number
       /**

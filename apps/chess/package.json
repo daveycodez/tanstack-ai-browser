@@ -17,7 +17,7 @@
   "dependencies": {
     "@tanstack-ai-browser/apfel": "workspace:*",
     "@tanstack-ai-browser/prompt-api": "workspace:*",
-    "@tanstack-ai-browser/webgl": "workspace:*",
+    "@tanstack-ai-browser/webgllm": "workspace:*",
     "@tanstack/ai": "1.0.0",
     "@tanstack/react-db": "1.0.0-rc.1",
     "@tanstack/react-router": "1.170.46",

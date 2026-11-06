@@ -153,7 +153,7 @@ On the head-only screen, `qad` wins every pair.
 
 ## The WebGL engine
 
-- **What its loader reads natively:** `packages/webgl/src/load-gguf.ts` keeps a Q6_K head as it is, repacks a Q4_0 head (4-bit) or Q8_0 head (8-bit), and quantizes F16/F32 to 8 bits.
+- **What its loader reads natively:** `packages/webgllm/src/load-gguf.ts` in the [webgllm repo](https://github.com/webgllm/webgllm) keeps a Q6_K head as it is, repacks a Q4_0 head (4-bit) or Q8_0 head (8-bit), and quantizes F16/F32 to 8 bits.
 - **Q5_K and Q4_1 load, but bigger:** `rowsToFloats` dequantizes them, then they are stored at 8 bits, which is larger than the shipped Q6_K.
 - **The other types don't load at all:** Q5_0, Q5_1, Q4_K, IQ4_NL and IQ4_XS make `rowsToFloats` throw "can't convert".
 - **Runs as-is:** I ran tools.html in headless Chromium on a real GPU ("ANGLE Metal Renderer: Apple M3 Ultra"):

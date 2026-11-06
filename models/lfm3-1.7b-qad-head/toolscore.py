@@ -1,4 +1,4 @@
-"""Tool score of a running llama-server on one or more prompt sets, the same way as packages/webgl/bench/tool-ref/llama_ref.py:
+"""Tool score of a running llama-server on one or more prompt sets, the same way as packages/webgllm/bench/tool-ref/llama_ref.py:
 P(first reply token = <tool_call>) from the top-50 logprobs, whether greedy picks it first, and a 48-token greedy reply
 (counted as "never calls" when <tool_call> isn't among its tokens).
 usage: toolscore.py <port> <sets dir> <out.json> [lang ...]     (sets dir holds <lang>/tool_prompts.json, from mltools.py)"""

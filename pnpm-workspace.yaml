@@ -9,6 +9,8 @@ allowBuilds:
   sharp: true
   workerd: true
 minimumReleaseAgeExclude:
+  # Our own package: its releases come from our release workflow.
+  - 'webgllm'
   - '@tanstack/db-ivm@1.0.0-rc.1'
   - '@tanstack/db@1.0.0-rc.1'
   - '@tanstack/react-db@1.0.0-rc.1'

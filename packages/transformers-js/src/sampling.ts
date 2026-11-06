@@ -1,11 +1,25 @@
-import type { Sampling } from "./protocol.js"
+import type { WorkerSampling } from "./protocol.js"
+
+/** Mulberry32: a small seeded generator of numbers in [0, 1). */
+function seededRandom(seed: number) {
+  let state = seed >>> 0
+  return () => {
+    state = (state + 0x6d2b79f5) >>> 0
+    let t = state
+    t = Math.imul(t ^ (t >>> 15), t | 1)
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61)
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296
+  }
+}
 
 export function createSampler({
   temperature,
   top_k,
   repetition_penalty,
-  top_p = 1
-}: Sampling, prepare?: (ids: Array<Array<bigint>>, data: Float32Array) => void) {
+  top_p = 1,
+  seed
+}: WorkerSampling, prepare?: (ids: Array<Array<bigint>>, data: Float32Array) => void) {
+  const random = seed === undefined ? Math.random : seededRandom(seed)
   const seen = new Set<number>()
   let counted = 0
   return <T extends { data: ArrayLike<number | bigint> }>(inputIds: Array<Array<bigint>>, logits: T): T => {
@@ -19,26 +33,30 @@ export function createSampler({
         data[token] = x < 0 ? x * repetition_penalty : x / repetition_penalty
       }
     }
-    // The k largest, in no order: replace the smallest kept when beaten.
-    const k = Math.max(
-      1,
-      Math.min(top_k > 0 ? top_k : data.length, data.length)
-    )
-    const keptIds = new Int32Array(k)
-    const kept = new Float32Array(k).fill(-Infinity)
-    let smallest = 0
-    for (let i = 0; i < data.length; i++) {
-      const x = data[i]
-      if (x <= kept[smallest]) continue
-      kept[smallest] = x
-      keptIds[smallest] = i
-      smallest = 0
-      for (let j = 1; j < k; j++) if (kept[j] < kept[smallest]) smallest = j
+    // Every token when top-k doesn't narrow it (0, or the whole vocabulary):
+    // a copy in one pass, as keeping the k largest costs a scan of the kept
+    // per replacement, quadratic over a whole vocabulary.
+    const all = !(top_k > 0 && top_k < data.length)
+    const k = all ? data.length : top_k
+    const keptIds = all ? null : new Int32Array(k)
+    const kept = all ? data.slice() : new Float32Array(k).fill(-Infinity)
+    if (keptIds) {
+      // The k largest, in no order: replace the smallest kept when beaten.
+      let smallest = 0
+      for (let i = 0; i < data.length; i++) {
+        const x = data[i]
+        if (x <= kept[smallest]) continue
+        kept[smallest] = x
+        keptIds[smallest] = i
+        smallest = 0
+        for (let j = 1; j < k; j++) if (kept[j] < kept[smallest]) smallest = j
+      }
     }
+    const idOf = (j: number) => (keptIds ? keptIds[j] : j)
     let best = 0
     for (let j = 1; j < k; j++) if (kept[j] > kept[best]) best = j
     if (!Number.isFinite(kept[best])) throw new Error("No allowed token has a finite model score.")
-    let chosen = keptIds[best]
+    let chosen = idOf(best)
     if (temperature > 0) {
       const max = kept[best]
       let total = 0
@@ -64,11 +82,11 @@ export function createSampler({
           }
         }
       }
-      let draw = Math.random() * total
+      let draw = random() * total
       for (let j = 0; j < k; j++) {
         draw -= kept[j]
         if (draw <= 0 && kept[j] > 0) {
-          chosen = keptIds[j]
+          chosen = idOf(j)
           break
         }
       }

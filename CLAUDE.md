@@ -6,18 +6,20 @@ On the Mac, test in the desktop app's built-in Browser (the `mcp__Claude_Browser
 
 ## Running the runtime benchmarks
 
-The bench pages live in `packages/webgl/bench` and are served cross-origin isolated by `server.mjs`, which also bundles the packages' TypeScript on request.
+The bench pages live in `packages/webgllm/bench` and are served cross-origin isolated by `server.mjs`, which also bundles the packages' TypeScript and the installed `webgllm` package on request.
+
+The WebGL 2 engine is the `webgllm` npm package, developed in its own repo, `/Users/david/Developer/webgllm` (with its own CLAUDE.md). Engine work and engine-only benches (`check.html`, `mem.html`, `webgl-perf.html`, …) happen there, not here.
 
 1. Put LFM3's tokenizer in a folder: `tokenizer.json`, `tokenizer_config.json` and `chat_template.jinja` from https://huggingface.co/LiquidAI/LFM3-1.7B. Every runtime gets the same prompt, built with this tokenizer.
 2. Start the server with absolute paths, on a free port (the app's dev server uses 3000):
-   `HF_DIR=/path/to/lfm3-tokenizer/ MODELS_DIR=/path/to/models/ node /path/to/repo/packages/webgl/bench/server.mjs 8790`
+   `HF_DIR=/path/to/lfm3-tokenizer/ MODELS_DIR=/path/to/models/ node /path/to/repo/packages/webgllm/bench/server.mjs 8790`
    `MODELS_DIR` is also where the phone driver's `job.json` goes (below).
 3. Open `http://localhost:8790/compare.html?run=<runtime>&model=<Hugging Face id>` in the browser pane, in ONE tab of your own that you reuse for every run. Never close or navigate the user's other tabs.
    - `run=tjs` or `tjs-cpu`: Transformers.js on WebGPU, or on the CPU (q4).
-   - `run=webgl`: this repo's WebGL 2 engine.
+   - `run=webgllm`: webgllm through its public API (`WebGLLM`, `chat.completions.create`), the installed npm version. `run=webgl` still works.
    - `run=wllama-pkg` or `wllama-pkg-cpu`: wllama through the wllama package, on WebGPU or the CPU only.
    - Options: `ctx=8192` (the iPhone's context; left out, the model's whole window), `len=512` (prompt tokens, the default), `q=quote` or `q=capital` (other questions).
-   - Examples: `run=tjs&model=onnx-community/Qwen3.5-2B-ONNX`, `run=webgl&model=unsloth/Qwen3.5-2B-GGUF`, `run=wllama-pkg&model=unsloth/Qwen3.5-2B-GGUF`.
+   - Examples: `run=tjs&model=onnx-community/Qwen3.5-2B-ONNX`, `run=webgllm&model=unsloth/Qwen3.5-2B-GGUF`, `run=wllama-pkg&model=unsloth/Qwen3.5-2B-GGUF`.
 4. Read the result in the server's output: each page line is printed as `[page] ...`. `RESULT ...` is the median of 3 runs; `ALL DONE` ends a page; `ERROR:` or `(ABORT)` is a failure.
    - A loop that waits for `ALL DONE` must also stop on `ERROR`, an abort and a dead server.
 5. Keep the port the same between runs: a page's origin holds its downloaded models (OPFS), and a new port downloads them again.
@@ -47,7 +49,7 @@ The user's iPhone 16 Pro Max is "Dave iPhone", UDID `00008140-000A7D0E227B001C`.
 - **Driving Safari (USB):** Safari's Web Inspector must be on (Settings > Apps > Safari > Advanced).
   - `ios_webkit_debug_proxy -c 00008140-000A7D0E227B001C:9333 --no-frontend`
   - `curl -s http://127.0.0.1:9333/json` lists the tabs.
-  - `node packages/webgl/bench/ios-tab.mjs <webSocketDebuggerUrl> '<async function body>'` runs JavaScript in a tab and prints its console.
+  - `node packages/webgllm/bench/ios-tab.mjs <webSocketDebuggerUrl> '<async function body>'` runs JavaScript in a tab and prints its console.
 - **Memory kills (USB):**
   - `idevicesyslog -u 00008140-000A7D0E227B001C --no-colors | grep -aE "per-process-limit|processTerminated|EXC_RESOURCE|vm-compressor"`
   - iOS kills a Safari tab near 2 GB (`per-process-limit`) and writes no crash report for it, so this live log is the only record.

@@ -27,6 +27,8 @@ if (await isApfelAvailable("apple-foundationmodel", config)) {
 
 `baseURL` is apfel's OpenAI-compatible API, up to `/v1`; `APFEL_BASE_URL` is apfel's default address. `defaultHeaders` adds headers to every request, such as a bearer token. Omitted reasoning or `reasoning: "off"` preserves ordinary single-pass behavior. `"high"` opts into adapter-emulated working notes, described below.
 
+`modelOptions` uses TanStack's OpenRouter adapter's names (the OpenRouter SDK's camelCase chat request) for what Apple's model takes: `maxCompletionTokens` (the reply's output cap, sent as `max_tokens`), `temperature`, `topP` (sent as `top_p`), `seed` and `parallelToolCalls` (sent as `parallel_tool_calls` with tools: false keeps one tool call, which apfel honours, and the adapter keeps only the first of any it reads from the reply's text too). apfel rejects `frequencyPenalty`, `presencePenalty` and `stop` with HTTP 400, so the adapter doesn't take them.
+
 ## Opt-in emulated reasoning
 
 ```ts
@@ -38,9 +40,9 @@ chat({
 })
 ```
 
-This is an adapter-owned draft/final flow, not native hidden reasoning or a change to Apple's model. A separate tool-free request streams short working notes, then the final request uses those notes while preserving native JSON Schema output and existing tool-call repair. Notes stay out of caller history. Streaming emits AGUI reasoning events; `apfelText(model, { onThinking, onGenerationPhase })` also exposes note deltas and `"processing"`/`"generating"` phases, including for structured output.
+This is an adapter-owned draft/final flow, not native hidden reasoning or a change to Apple's model. A separate tool-free request streams short working notes, then the final request uses those notes while preserving native JSON Schema output and existing tool-call repair. Notes stay out of caller history. The notes stream as standard AG-UI `REASONING_*` events, in `chatStream` and in `structuredOutputStream` (where they're also `structured-output.complete`'s `reasoning`); there are no adapter-specific callbacks.
 
-An explicit `budgetTokens` becomes the draft request's server-enforced `max_tokens`. If the caller's `modelOptions.maxTokens` (or `max_tokens`) is smaller, the draft uses that smaller cap. The final request keeps the original caller settings. These are two separate completions; `maxTokens` is not an aggregate ceiling over their combined usage. With no budget, the draft follows the caller's output cap or the model/server default. No fallback token limit or sampling override is added. A zero budget skips the draft. Draft truncation at its limit is expected; the final response still runs, with its own cap and schema.
+An explicit `budgetTokens` becomes the draft request's server-enforced `max_tokens`. If the caller's `modelOptions.maxCompletionTokens` is smaller, the draft uses that smaller cap. The final request keeps the original caller settings. These are two separate completions; `maxCompletionTokens` is not an aggregate ceiling over their combined usage. With no budget, the draft follows the caller's output cap or the model/server default. No fallback token limit or sampling override is added. A zero budget skips the draft. Draft truncation at its limit is expected; the final response still runs, with its own cap and schema.
 
 Caller cancellation stops either pass through `abortController` or `request.signal`; closing a reasoning stream also closes its draft request. Draft failures propagate without silently retrying or falling back to a final answer. Since apfel is stateless, no draft session is retained and no upstream runtime patch is needed.
 
@@ -54,6 +56,14 @@ Tools work as with any adapter: pass them to `chat({ tools })`, MCP tools includ
 2. The arguments are written again, constrained to the schema, with those fields required. Fields the model already named and typed right are kept as it wrote them.
 
 Schema keywords the on-device model can't enforce (`minLength`, `pattern`, `format`…) are dropped for the repair, `$ref`s are inlined, and `anyOf`/`oneOf` take their first non-null choice. If a repair request fails, the model's own arguments are used. Repair adds two short requests per tool call (one for a tool without optional fields), about a second and a half in all; it's in `usage.providerUsageDetails.toolRepairMs`.
+
+## Structured output
+
+`chat({ outputSchema })` sends the schema as `response_format: json_schema` (apfel's guided generation). The adapter implements TanStack AI's `structuredOutputStream`, so `chat({ outputSchema, stream: true })` makes one streamed request and emits the same events as TanStack's OpenRouter adapter:
+
+`RUN_STARTED` → (`REASONING_START`, `REASONING_MESSAGE_START`, `REASONING_MESSAGE_CONTENT`…, `REASONING_MESSAGE_END`, `REASONING_END`, with emulated reasoning) → `TEXT_MESSAGE_START`, `TEXT_MESSAGE_CONTENT`… (raw JSON deltas), `TEXT_MESSAGE_END` → `CUSTOM` `structured-output.complete` (`{ object, raw, reasoning? }`) → `RUN_FINISHED` (with `usage`).
+
+apfel (v1.16) sends a guided answer in one delta once it's complete, so the JSON arrives as one `TEXT_MESSAGE_CONTENT`; the reasoning draft streams in pieces. A failure ends the stream with `RUN_ERROR` instead, with a `code`: `aborted`, `max_tokens` (cut off: raise `maxCompletionTokens`), `parse-error`, `empty-response` or `refusal`. `chat()` uses this stream for `stream: false` too; the adapter's own `structuredOutput()` makes one non-streamed request. Each event carries `metadata.tanstack.source` (`{ provider, api, model }`).
 
 ## Usage
 

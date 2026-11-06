@@ -1,5 +1,5 @@
 """Render the 20 tool prompts (prompts/tool_prompts_ml.json, model-written translations) with LFM3's chat template and the
-same four tools as packages/webgl/bench/tool-ref/make_lfm3_ref.py, thinking off, as token ids: one set per language,
+same four tools as packages/webgllm/bench/tool-ref/make_lfm3_ref.py, thinking off, as token ids: one set per language,
 in the format of tools.html's tool_prompts.json. Checks that the English set is token-identical to the reference set.
 usage: mltools.py <LFM3 tokenizer dir (tokenizer.json, chat_template.jinja)> <reference tool_prompts.json> <out dir>"""
 import sys, os, json, re, jinja2

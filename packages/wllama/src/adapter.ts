@@ -101,11 +101,39 @@ export type WllamaTextConfig = {
   debug?: boolean
 }
 
-/** Per-call `modelOptions`: sampling over the model card's, and the most tokens to generate. */
-export type WllamaTextProviderOptions = Partial<Sampling> & {
-  /** Most tokens to generate. llama.cpp's default otherwise: up to the context limit. */
-  maxTokens?: number
-  max_new_tokens?: number
+/**
+ * Per-call `modelOptions`, named as OpenRouter's adapter names them, so an
+ * app can swap this adapter for `@tanstack/ai-openrouter`'s unchanged;
+ * mapped to llama.cpp's own settings. Sampling left out comes from the
+ * model card.
+ */
+export type WllamaTextProviderOptions = {
+  /** Most tokens to generate, thinking included. llama.cpp's default otherwise: up to the context limit. */
+  maxCompletionTokens?: number
+  /** Randomness of sampling: 0 is greedy. */
+  temperature?: number
+  /** Nucleus sampling: the likeliest tokens up to this probability, in (0, 1]. */
+  topP?: number
+  /** Lowers the odds of tokens by how often they've appeared (llama.cpp's `frequency_penalty`). */
+  frequencyPenalty?: number
+  /** Lowers the odds of tokens that have appeared at all (llama.cpp's `presence_penalty`). */
+  presencePenalty?: number
+  /** Seeds the sampler, for the same samples from the same request. */
+  seed?: number
+  /** Where to stop: the reply ends before the first of these it would write. */
+  stop?: string | Array<string>
+  /** Sampling from the likeliest `topK` tokens only (0: all of them). */
+  topK?: number
+  /** Drops tokens less likely than this share of the likeliest one's odds (llama.cpp's `min_p`). */
+  minP?: number
+  /** Penalizes tokens already in the chat (llama.cpp's `repeat_penalty`; 1: off). */
+  repetitionPenalty?: number
+  /**
+   * False keeps a reply to one tool call (llama.cpp's `parallel_tool_calls`,
+   * which constrains the model to a single call). True or left out: as many
+   * as the model writes, when its chat template supports several.
+   */
+  parallelToolCalls?: boolean
 }
 
 /**
@@ -267,6 +295,62 @@ function thinkingKwargs(
 const errorText = (error: unknown) =>
   error instanceof Error ? error.message : String(error)
 
+/**
+ * A call's `modelOptions` over the model card's sampling, as llama.cpp's
+ * chat-completion settings. Only these options are sent.
+ */
+function llamaSettings(
+  options: WllamaTextProviderOptions | undefined,
+  base: Sampling
+): Record<string, unknown> {
+  const {
+    maxCompletionTokens,
+    temperature = base.temperature,
+    topP = base.topP,
+    topK = base.topK,
+    minP,
+    repetitionPenalty = base.repetitionPenalty,
+    frequencyPenalty,
+    presencePenalty,
+    seed,
+    stop,
+    parallelToolCalls
+  } = options ?? {}
+  if (parallelToolCalls !== undefined && typeof parallelToolCalls !== "boolean")
+    throw new TypeError("parallelToolCalls must be a boolean.")
+  if (maxCompletionTokens !== undefined && (!Number.isSafeInteger(maxCompletionTokens) || maxCompletionTokens < 0))
+    throw new RangeError("maxCompletionTokens must be a nonnegative safe integer.")
+  if (!Number.isFinite(temperature) || temperature < 0)
+    throw new RangeError("temperature must be a nonnegative number.")
+  if (topP !== undefined && (!Number.isFinite(topP) || topP <= 0 || topP > 1))
+    throw new RangeError("topP must be a number in (0, 1].")
+  if (!Number.isSafeInteger(topK) || topK < 0)
+    throw new RangeError("topK must be a nonnegative safe integer.")
+  if (minP !== undefined && (!Number.isFinite(minP) || minP < 0 || minP > 1))
+    throw new RangeError("minP must be a number in [0, 1].")
+  if (!Number.isFinite(repetitionPenalty) || repetitionPenalty <= 0)
+    throw new RangeError("repetitionPenalty must be a positive number.")
+  for (const [name, value] of [["frequencyPenalty", frequencyPenalty], ["presencePenalty", presencePenalty]] as const) {
+    if (value !== undefined && !Number.isFinite(value)) throw new RangeError(`${name} must be a finite number.`)
+  }
+  if (seed !== undefined && (!Number.isSafeInteger(seed) || seed < 0))
+    throw new RangeError("seed must be a nonnegative safe integer.")
+  const stops = stop === undefined ? [] : typeof stop === "string" ? [stop] : stop
+  if (stops.some((s) => typeof s !== "string" || !s)) throw new TypeError("stop must hold nonempty strings.")
+  return {
+    temperature,
+    top_k: topK,
+    repeat_penalty: repetitionPenalty,
+    ...(topP !== undefined && { top_p: topP }),
+    ...(minP !== undefined && { min_p: minP }),
+    ...(frequencyPenalty !== undefined && { frequency_penalty: frequencyPenalty }),
+    ...(presencePenalty !== undefined && { presence_penalty: presencePenalty }),
+    ...(seed !== undefined && { seed }),
+    ...(stops.length > 0 && { stop: stops }),
+    ...(maxCompletionTokens !== undefined && { max_tokens: maxCompletionTokens })
+  }
+}
+
 /** Where a reply's thinking ends; llama.cpp leaves it in the text when thinking is off. */
 const THINK_CLOSE = "</think>"
 
@@ -319,16 +403,11 @@ export class WllamaTextAdapter<
     })
   }
 
-  /** Sampling and length for a call: `modelOptions` over the model card's. */
+  /** Sampling and length for a call: `modelOptions` over the model card's, in llama.cpp's names. */
   private settings(modelOptions: WllamaTextProviderOptions | undefined, promptCache?: TextOptions["promptCache"]) {
-    const { maxTokens, max_new_tokens, ...sampling } = modelOptions ?? {}
-    const limit = maxTokens ?? max_new_tokens
-    if (limit !== undefined && (!Number.isSafeInteger(limit) || limit < 0)) throw new RangeError("maxTokens must be a nonnegative safe integer.")
     return {
-      ...modelMeta(this.model).sampling,
-      ...sampling,
-      ...(promptCache?.retention === "none" && { cache_prompt: false }),
-      ...(limit !== undefined && { max_tokens: limit })
+      ...llamaSettings(modelOptions, modelMeta(this.model).sampling),
+      ...(promptCache?.retention === "none" && { cache_prompt: false })
     } as Partial<ChatRequest>
   }
 
@@ -348,6 +427,8 @@ export class WllamaTextAdapter<
     // The loaded model's, once it's loaded.
     let context = 0
     const timestamp = () => Date.now()
+    const tools = toTools(options.tools)
+    const parallel = options.modelOptions?.parallelToolCalls
 
     yield {
       type: EventType.RUN_STARTED,
@@ -361,6 +442,8 @@ export class WllamaTextAdapter<
     let reasoning: "none" | "open" | "closed" = "none"
     let text = ""
     let textStarted = false
+    /** With `parallelToolCalls: false`, the stream index of the one call kept. */
+    let onlyCall: number | undefined
     /** Tool calls by their index in the stream. */
     const toolCalls = new Map<
       number,
@@ -436,7 +519,8 @@ export class WllamaTextAdapter<
         model,
         {
           messages: toMessages(options.systemPrompts, options.messages),
-          ...(options.tools?.length && { tools: toTools(options.tools) }),
+          ...(tools.length && { tools }),
+          ...(tools.length && parallel !== undefined && { parallel_tool_calls: parallel }),
           ...this.settings(options.modelOptions, options.promptCache),
           ...thinking
         },
@@ -486,6 +570,9 @@ export class WllamaTextAdapter<
         if (delta.content) yield* addText(delta.content)
 
         for (const part of delta.tool_calls ?? []) {
+          // llama.cpp's grammar allows one call then; its parsers for some
+          // templates might still return more, so the first is kept here too.
+          if (parallel === false && (onlyCall ??= part.index) !== part.index) continue
           yield* endReasoning()
           let call = toolCalls.get(part.index)
           if (!call) {
@@ -590,8 +677,9 @@ export class WllamaTextAdapter<
   }
 
   /**
-   * A JSON answer for `chat({ outputSchema })`, constrained to the schema
-   * by llama.cpp's JSON Schema grammar; `chat()` validates the result.
+   * A JSON answer, constrained to the schema by llama.cpp's JSON Schema
+   * grammar, in one whole chat completion; `chat({ outputSchema })` uses
+   * `structuredOutputStream` instead, and validates the result.
    */
   async structuredOutput(
     options: StructuredOutputOptions<WllamaTextProviderOptions>
@@ -628,6 +716,144 @@ export class WllamaTextAdapter<
       throw new Error(
         `The model's answer isn't JSON: ${rawText.slice(0, 200)}${rawText.length > 200 ? "…" : ""}`
       )
+    }
+  }
+
+  /**
+   * `chat({ outputSchema, stream: true })`: one streamed chat completion
+   * constrained to the schema by llama.cpp's JSON Schema grammar. The
+   * model's thinking streams as `REASONING_*` events and the raw JSON as
+   * `TEXT_MESSAGE_*` deltas, then a `CUSTOM` `structured-output.complete`
+   * event with `{ object, raw, reasoning? }` and `RUN_FINISHED` with usage.
+   * A failure ends the run with `RUN_ERROR` instead.
+   */
+  async *structuredOutputStream(
+    options: StructuredOutputOptions<WllamaTextProviderOptions>
+  ): AsyncIterable<AdapterYieldChunk> {
+    const { chatOptions, outputSchema } = options
+    const model = this.model
+    const runId = chatOptions.runId ?? nextId("run")
+    const threadId = chatOptions.threadId
+    const messageId = nextId("msg")
+    const reasoningId = nextId("reasoning")
+    const signal = chatOptions.abortController?.signal ?? (chatOptions.request as RequestInit | undefined)?.signal ?? undefined
+    const timestamp = () => Date.now()
+    yield {
+      type: EventType.RUN_STARTED,
+      runId,
+      threadId,
+      model,
+      timestamp: timestamp(),
+      ...(chatOptions.parentRunId && { parentRunId: chatOptions.parentRunId })
+    }
+    let reasoning: "none" | "open" | "closed" = "none"
+    let reasoningText = ""
+    let textStarted = false
+    let text = ""
+    let finishReason: string | null = null
+    let timings: ResultTimings | undefined
+    let firstTokenMs: number | null = null
+    let context = 0
+    const endReasoning = function* () {
+      if (reasoning !== "open") return
+      reasoning = "closed"
+      yield { type: EventType.REASONING_MESSAGE_END, messageId: reasoningId, model, timestamp: timestamp() } satisfies AdapterYieldChunk
+      yield { type: EventType.REASONING_END, messageId: reasoningId, model, timestamp: timestamp() } satisfies AdapterYieldChunk
+    }
+    const fail = (message: string, code?: string): AdapterYieldChunk => ({
+      type: EventType.RUN_ERROR,
+      runId,
+      model,
+      timestamp: timestamp(),
+      message,
+      ...(code && { code }),
+      error: { message, ...(code && { code }) }
+    })
+    try {
+      const request: ChatRequest = {
+        messages: toMessages(chatOptions.systemPrompts, chatOptions.messages),
+        ...this.settings(chatOptions.modelOptions, chatOptions.promptCache),
+        ...thinkingKwargs(chatOptions.reasoning, model),
+        response_format: {
+          type: "json_schema",
+          json_schema: { name: "output", schema: outputSchema, strict: true }
+        }
+      }
+      signal?.throwIfAborted()
+      const wllama = await waitForModel(model, signal).catch((error: unknown) => {
+        throw signal?.aborted ? error : new Error(`Couldn't load ${model}: ${errorText(error)}`)
+      })
+      context = loadedContext(wllama)
+      const requested = performance.now()
+      const stream = await streamChat(model, request, signal)
+      for await (const chunk of stream) {
+        signal?.throwIfAborted()
+        timings = chunk.timings ?? timings
+        const choice = chunk.choices?.[0]
+        if (!choice) continue
+        finishReason = choice.finish_reason ?? finishReason
+        const delta = choice.delta as typeof choice.delta & { reasoning_content?: string | null }
+        if (firstTokenMs === null && (delta.reasoning_content || delta.content)) firstTokenMs = performance.now() - requested
+        if (delta.reasoning_content) {
+          if (reasoning === "none") {
+            reasoning = "open"
+            yield { type: EventType.REASONING_START, messageId: reasoningId, model, timestamp: timestamp() }
+            yield { type: EventType.REASONING_MESSAGE_START, messageId: reasoningId, role: "reasoning", model, timestamp: timestamp() }
+          }
+          reasoningText += delta.reasoning_content
+          yield { type: EventType.REASONING_MESSAGE_CONTENT, messageId: reasoningId, delta: delta.reasoning_content, model, timestamp: timestamp() }
+        }
+        // The JSON starts at its first visible character.
+        const piece = textStarted ? delta.content : delta.content?.trimStart()
+        if (piece) {
+          yield* endReasoning()
+          if (!textStarted) {
+            textStarted = true
+            yield { type: EventType.TEXT_MESSAGE_START, messageId, role: "assistant", model, timestamp: timestamp() }
+          }
+          text += piece
+          yield { type: EventType.TEXT_MESSAGE_CONTENT, messageId, delta: piece, content: text, model, timestamp: timestamp() }
+        }
+      }
+      signal?.throwIfAborted()
+    } catch (error) {
+      yield* endReasoning()
+      if (textStarted) yield { type: EventType.TEXT_MESSAGE_END, messageId, model, timestamp: timestamp() }
+      yield signal?.aborted
+        ? fail("The structured output was canceled.", "aborted")
+        : fail(errorText(contextError(error, context) ?? error))
+      return
+    }
+    yield* endReasoning()
+    if (textStarted) yield { type: EventType.TEXT_MESSAGE_END, messageId, model, timestamp: timestamp() }
+    if (finishReason === "length") {
+      yield fail("The model reached its output limit before structured generation completed.", "max_tokens")
+      return
+    }
+    const raw = text.trim()
+    let object: unknown
+    try {
+      object = JSON.parse(raw) as unknown
+    } catch {
+      yield fail(`The model's answer isn't JSON: ${raw.slice(0, 200)}${raw.length > 200 ? "…" : ""}`, "structured-output-parse-failed")
+      return
+    }
+    yield {
+      type: EventType.CUSTOM,
+      name: "structured-output.complete",
+      value: { object, raw, ...(reasoningText && { reasoning: reasoningText }) },
+      model,
+      timestamp: timestamp()
+    }
+    const usage = usageOf(timings, firstTokenMs)
+    yield {
+      type: EventType.RUN_FINISHED,
+      runId,
+      threadId,
+      model,
+      timestamp: timestamp(),
+      finishReason: "stop",
+      ...(usage && { usage })
     }
   }
 }

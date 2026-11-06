@@ -24,7 +24,7 @@ Object.defineProperty(globalThis, "Worker", { configurable: true, writable: true
 const MODEL = "LiquidAI/LFM2.5-1.2B-Thinking-ONNX"
 const stats: RunTimings = { inputTokens: 10, cachedTokens: 0, outputTokens: 20, firstTokenMs: 1, promptMs: 1, decodeMs: 1, thinkingTokens: 4, thinkingBudgetTokens: 512, thinkingBudgetExhausted: false }
 function options(): TextOptions<TransformersJsTextProviderOptions> {
-  return { logger: resolveDebugOption(false), model: MODEL, threadId: "tjs-adapter-test", messages: [{ role: "user", content: "choose a move" }], reasoning: { level: "high", summary: true, budgetTokens: 512 }, modelOptions: { maxTokens: 8192 } }
+  return { logger: resolveDebugOption(false), model: MODEL, threadId: "tjs-adapter-test", messages: [{ role: "user", content: "choose a move" }], reasoning: { level: "high", summary: true, budgetTokens: 512 }, modelOptions: { maxCompletionTokens: 8192 } }
 }
 const schema = { type: "object", properties: { moveId: { type: "string", enum: ["b6-a5"] } }, required: ["moveId"], additionalProperties: false }
 
@@ -43,9 +43,61 @@ test("structured output forwards the schema, canonical token cap, thinking cap, 
     worker.send({ type: "done", id: request.id, stats })
   }
   try {
-    const result = await transformersJsText(MODEL).structuredOutput({ chatOptions: { ...options(), modelOptions: { maxTokens: 8192, max_new_tokens: 64 } }, outputSchema: schema })
+    const result = await transformersJsText(MODEL).structuredOutput({ chatOptions: { ...options(), modelOptions: { maxCompletionTokens: 8192 } }, outputSchema: schema })
     assert.deepEqual(result.data, { moveId: "b6-a5" })
     assert.equal(result.usage?.providerUsageDetails?.thinkingTokens, 4)
+  } finally { unloadModel() }
+})
+
+test("output schemas' objects are closed unless they set additionalProperties, as in OpenAI's strict mode", async () => {
+  const { transformersJsText } = await import("./adapter.js")
+  const { unloadModel } = await import("./client.js")
+  const sent: Array<unknown> = []
+  FakeWorker.generate = (worker, request) => {
+    sent.push(request.outputSchema)
+    worker.send({ type: "token", id: request.id, text: '{"city":"Oslo"}' })
+    worker.send({ type: "done", id: request.id, stats })
+  }
+  const run = (outputSchema: Record<string, unknown>) => transformersJsText(MODEL).structuredOutput({ chatOptions: options(), outputSchema })
+  try {
+    unloadModel()
+    // Nested objects too: an open object's free-form keys are slow to constrain and let a model invent keys.
+    const nested = { type: "object", properties: { city: { type: "string" }, author: { type: "object", properties: { name: { type: "string" } } }, tags: { type: "array", items: { type: "object", properties: { a: { type: "string" } } } } } }
+    const before = JSON.stringify(nested)
+    await run(nested)
+    assert.deepEqual(sent.at(-1), {
+      type: "object",
+      properties: {
+        city: { type: "string" },
+        author: { type: "object", properties: { name: { type: "string" } }, additionalProperties: false },
+        tags: { type: "array", items: { type: "object", properties: { a: { type: "string" } }, additionalProperties: false } }
+      },
+      additionalProperties: false
+    })
+    assert.equal(JSON.stringify(nested), before, "the caller's schema is never mutated")
+    // Saying so keeps an object open.
+    const open = { type: "object", properties: { city: { type: "string" } }, additionalProperties: true }
+    await run(open)
+    assert.deepEqual(sent.at(-1), open)
+  } finally { unloadModel() }
+})
+
+test("forced tool arguments are generated against closed objects", async () => {
+  const { transformersJsText } = await import("./adapter.js")
+  const { unloadModel } = await import("./client.js")
+  const inputSchema = { type: "object", properties: { city: { type: "string" } }, required: ["city"] }
+  unloadModel()
+  let sent: unknown
+  FakeWorker.generate = (worker, request) => {
+    sent = request.outputSchema
+    worker.send({ type: "token", id: request.id, text: '{"city":"Paris"}' })
+    worker.send({ type: "done", id: request.id, stats })
+  }
+  try {
+    const chunks = []
+    for await (const chunk of transformersJsText(MODEL).chatStream({ ...options(), tools: [{ name: "get_weather", description: "Weather", inputSchema }], toolChoice: { type: "tool", name: "get_weather" } })) chunks.push(chunk)
+    assert.ok(chunks.some(chunk => chunk.type === "TOOL_CALL_END"))
+    assert.deepEqual(sent, { ...inputSchema, additionalProperties: false })
   } finally { unloadModel() }
 })
 
@@ -104,8 +156,8 @@ test("invalid token budgets fail before loading a worker", async () => {
   const { unloadModel } = await import("./client.js")
   unloadModel()
   const previous = FakeWorker.last
-  for (const maxTokens of [-1, 0.5, NaN, Infinity]) {
-    await assert.rejects(transformersJsText(MODEL).structuredOutput({ chatOptions: { ...options(), modelOptions: { maxTokens } }, outputSchema: schema }), /nonnegative safe integer/)
+  for (const maxCompletionTokens of [-1, 0.5, NaN, Infinity]) {
+    await assert.rejects(transformersJsText(MODEL).structuredOutput({ chatOptions: { ...options(), modelOptions: { maxCompletionTokens } }, outputSchema: schema }), /nonnegative safe integer/)
     assert.equal(FakeWorker.last, previous)
   }
 })
@@ -118,10 +170,31 @@ test("canceling model loading rejects promptly without generating", { timeout: 2
   FakeWorker.ready = false
   try {
     const controller = new AbortController()
+    let generated = 0
+    FakeWorker.generate = () => { generated++ }
     const request = transformersJsText(MODEL).structuredOutput({ chatOptions: { ...options(), abortController: controller }, outputSchema: schema })
     controller.abort(new Error("cancel pending model"))
     await assert.rejects(request, /cancel pending model/)
-    assert.ok(!FakeWorker.last.posted.some(request => request.type === "generate"))
+    assert.equal(generated, 0)
+  } finally { FakeWorker.ready = true; unloadModel() }
+})
+
+
+test("canceling while the model loads rejects without generating", { timeout: 2000 }, async () => {
+  const { transformersJsText } = await import("./adapter.js")
+  const { unloadModel } = await import("./client.js")
+  unloadModel(); FakeWorker.ready = false
+  try {
+    const controller = new AbortController()
+    let generated = 0
+    FakeWorker.generate = () => { generated++ }
+    const loads = () => FakeWorker.last.posted.filter(request => request.type === "load").length
+    const worker = FakeWorker.last, before = loads()
+    const request = transformersJsText(MODEL).structuredOutput({ chatOptions: { ...options(), abortController: controller }, outputSchema: schema })
+    while (FakeWorker.last === worker && loads() === before) await new Promise(resolve => setTimeout(resolve, 0))
+    controller.abort(new Error("cancel loading model"))
+    await assert.rejects(request, /cancel loading model/)
+    assert.equal(generated, 0)
   } finally { FakeWorker.ready = true; unloadModel() }
 })
 
@@ -132,10 +205,12 @@ test("request-only signal cancels structured model loading", { timeout: 2000 }, 
   unloadModel(); FakeWorker.ready = false
   try {
     const controller = new AbortController()
+    let generated = 0
+    FakeWorker.generate = () => { generated++ }
     const request = transformersJsText(MODEL).structuredOutput({ chatOptions: { ...options(), request: new Request("http://localhost", { signal: controller.signal }) }, outputSchema: schema })
     controller.abort(new Error("request canceled"))
     await assert.rejects(request, /request canceled/)
-    assert.ok(!FakeWorker.last.posted.some(request => request.type === "generate"))
+    assert.equal(generated, 0)
   } finally { FakeWorker.ready = true; unloadModel() }
 })
 
@@ -250,6 +325,48 @@ test("valid native auto arguments emit directly without an extra model call", as
     for await (const chunk of transformersJsText(MODEL).chatStream({ ...options(), tools: [{ name: "lookup", description: "Lookup", inputSchema: { type: "object", properties: { query: { type: "string" } }, required: ["query"], additionalProperties: false } }] })) chunks.push(chunk)
     assert.equal(requests, 1)
     assert.ok(chunks.some(chunk => chunk.type === "TOOL_CALL_END" && chunk.toolCallName === "lookup"))
+  } finally { unloadModel() }
+})
+
+test("parallelToolCalls false emits only the first native tool call; true and unset emit every call", async () => {
+  const { transformersJsText } = await import("./adapter.js")
+  const { unloadModel } = await import("./client.js")
+  const { formatLfm2ToolCalls } = await import("./tool-calls.js")
+  const tools = [{ name: "lookup", description: "Lookup", inputSchema: { type: "object", properties: { query: { type: "string" } }, required: ["query"], additionalProperties: false } }]
+  unloadModel(); let requests = 0
+  FakeWorker.generate = (worker, request) => {
+    requests++
+    // The second call's arguments are invalid: dropping it must not repair it.
+    worker.send({ type: "token", id: request.id, text: formatLfm2ToolCalls([{ name: "lookup", args: { query: "first" } }, { name: "lookup", args: { query: 2 } }, { name: "lookup", args: { query: "third" } }]) })
+    worker.send({ type: "done", id: request.id, stats })
+  }
+  try {
+    const adapter = transformersJsText(MODEL)
+    const run = async (modelOptions: TransformersJsTextProviderOptions) => {
+      const chunks = []
+      for await (const chunk of adapter.chatStream({ ...options(), tools, modelOptions })) chunks.push(chunk)
+      return chunks
+    }
+    const single = await run({ parallelToolCalls: false })
+    assert.equal(requests, 1, "no repair call for the dropped calls")
+    assert.deepEqual(single.filter(c => c.type.startsWith("TOOL_CALL_")).map(c => c.type), ["TOOL_CALL_START", "TOOL_CALL_ARGS", "TOOL_CALL_END"])
+    const end = single.find(c => c.type === "TOOL_CALL_END")
+    assert.ok(end && end.type === "TOOL_CALL_END")
+    assert.deepEqual(end.input, { query: "first" })
+    assert.ok(single.some(c => c.type === "RUN_FINISHED" && c.finishReason === "tool_calls"))
+    FakeWorker.generate = (worker, request) => {
+      requests++
+      worker.send({ type: "token", id: request.id, text: formatLfm2ToolCalls([{ name: "lookup", args: { query: "first" } }, { name: "lookup", args: { query: "second" } }]) })
+      worker.send({ type: "done", id: request.id, stats })
+    }
+    for (const modelOptions of [{ parallelToolCalls: true }, {}]) {
+      const chunks = await run(modelOptions)
+      assert.equal(chunks.filter(c => c.type === "TOOL_CALL_START").length, 2)
+      assert.deepEqual(chunks.filter(c => c.type === "TOOL_CALL_END").map(c => c.type === "TOOL_CALL_END" && c.input), [{ query: "first" }, { query: "second" }])
+    }
+    const before = requests
+    await assert.rejects(async () => { for await (const chunk of adapter.chatStream({ ...options(), tools, modelOptions: { parallelToolCalls: "no" as unknown as boolean } })) assert.ok(chunk) }, /parallelToolCalls must be a boolean/)
+    assert.equal(requests, before, "an invalid option never reaches the worker")
   } finally { unloadModel() }
 })
 
@@ -428,4 +545,91 @@ test("structured matcher failures and incomplete JSON are never repaired, retrie
     FakeWorker.generate=(worker,request)=>{worker.send({type:"token",id:request.id,text:JSON.stringify({value:literal})});worker.send({type:"done",id:request.id,stats})}
     const result=await invoke();assert.deepEqual(result.data,{value:literal});assert.equal(result.rawText,JSON.stringify({value:literal}))
   }finally{unloadModel()}
+})
+
+test("OpenRouter-named modelOptions map to the worker's sampling over the model card's", async () => {
+  const { transformersJsText } = await import("./adapter.js")
+  const { unloadModel } = await import("./client.js")
+  unloadModel()
+  const sent: Array<Extract<WorkerRequest, { type: "generate" }>> = []
+  FakeWorker.generate = (worker, request) => {
+    sent.push(request)
+    worker.send({ type: "token", id: request.id, text: "answer" })
+    worker.send({ type: "done", id: request.id, stats })
+  }
+  try {
+    const adapter = transformersJsText(MODEL)
+    for await (const chunk of adapter.chatStream({ ...options(), modelOptions: { maxCompletionTokens: 64, temperature: 0.3, topP: 0.9, topK: 7, repetitionPenalty: 1.2, seed: 42, frequencyPenalty: 0, presencePenalty: 0, stop: [] } })) assert.ok(chunk)
+    for await (const chunk of adapter.chatStream({ ...options(), modelOptions: {} })) assert.ok(chunk)
+    assert.deepEqual(sent[0].sampling, { temperature: 0.3, top_k: 7, repetition_penalty: 1.2, top_p: 0.9, seed: 42 })
+    assert.equal(sent[0].maxTokens, 64)
+    assert.deepEqual(sent[1].sampling, { temperature: 0.05, top_k: 50, repetition_penalty: 1.05 }, "the model card's sampling")
+    assert.equal(sent[1].maxTokens, undefined)
+    for (const [modelOptions, error] of [
+      [{ frequencyPenalty: 0.5 }, /frequencyPenalty/], [{ presencePenalty: 1 }, /presencePenalty/], [{ stop: "\n" }, /stop sequences/], [{ stop: ["END"] }, /stop sequences/],
+      [{ topP: 0 }, /topP/], [{ topK: -1 }, /topK/], [{ temperature: -1 }, /temperature/], [{ repetitionPenalty: 0 }, /repetitionPenalty/], [{ seed: 1.5 }, /seed/]
+    ] satisfies Array<[TransformersJsTextProviderOptions, RegExp]>) {
+      await assert.rejects(adapter.structuredOutput({ chatOptions: { ...options(), modelOptions }, outputSchema: schema }), error)
+      await assert.rejects(async () => { for await (const chunk of adapter.chatStream({ ...options(), modelOptions })) assert.ok(chunk) }, error)
+    }
+    assert.equal(sent.length, 2, "rejected options never reach the worker")
+  } finally { unloadModel() }
+})
+
+test("structuredOutputStream streams reasoning, raw JSON deltas, the completion event and usage", async () => {
+  const { transformersJsText } = await import("./adapter.js")
+  const { unloadModel } = await import("./client.js")
+  unloadModel()
+  FakeWorker.generate = (worker, request) => {
+    assert.deepEqual(request.outputSchema, schema)
+    for (const text of ["<think>", "pl", "an</th", 'ink>{"move', 'Id":"b6-a5"}']) worker.send({ type: "token", id: request.id, text })
+    worker.send({ type: "done", id: request.id, stats })
+  }
+  try {
+    const chunks = []
+    for await (const chunk of transformersJsText(MODEL).structuredOutputStream({ chatOptions: { ...options(), runId: "run-1" }, outputSchema: schema })) chunks.push(chunk)
+    assert.deepEqual(chunks.map(chunk => chunk.type === "CUSTOM" ? `CUSTOM:${chunk.name}` : chunk.type), [
+      "RUN_STARTED", "REASONING_START", "REASONING_MESSAGE_START", "REASONING_MESSAGE_CONTENT", "REASONING_MESSAGE_CONTENT",
+      "REASONING_MESSAGE_END", "REASONING_END", "TEXT_MESSAGE_START", "TEXT_MESSAGE_CONTENT", "TEXT_MESSAGE_CONTENT", "TEXT_MESSAGE_END",
+      "CUSTOM:structured-output.complete", "RUN_FINISHED"
+    ])
+    const text = chunks.filter(chunk => chunk.type === "TEXT_MESSAGE_CONTENT").map(chunk => chunk.type === "TEXT_MESSAGE_CONTENT" ? chunk.delta : "").join("")
+    assert.equal(text, '{"moveId":"b6-a5"}')
+    const complete = chunks.find(chunk => chunk.type === "CUSTOM")
+    assert.ok(complete && complete.type === "CUSTOM")
+    assert.deepEqual(complete.value, { object: { moveId: "b6-a5" }, raw: '{"moveId":"b6-a5"}', reasoning: "plan" })
+    const finished = chunks.at(-1)
+    assert.ok(finished && finished.type === "RUN_FINISHED")
+    assert.equal(finished.runId, "run-1")
+    assert.equal(finished.finishReason, "stop")
+    assert.equal(!Array.isArray(finished.usage) && finished.usage?.completionTokens, 20)
+    const timestamps = chunks.map(chunk => chunk.timestamp ?? 0)
+    assert.deepEqual(timestamps, [...timestamps].sort((a, b) => a - b), "timestamps follow stream order")
+  } finally { unloadModel() }
+})
+
+test("structuredOutputStream ends with RUN_ERROR on answers that aren't JSON, worker failures and cancellation", async () => {
+  const { transformersJsText } = await import("./adapter.js")
+  const { unloadModel } = await import("./client.js")
+  const adapter = transformersJsText(MODEL)
+  const run = async (chatOptions: TextOptions<TransformersJsTextProviderOptions>) => {
+    const chunks = []
+    for await (const chunk of adapter.structuredOutputStream({ chatOptions, outputSchema: schema })) chunks.push(chunk)
+    assert.equal(chunks[0]?.type, "RUN_STARTED")
+    assert.ok(!chunks.some(chunk => chunk.type === "CUSTOM" || chunk.type === "RUN_FINISHED"))
+    const last = chunks.at(-1)
+    assert.ok(last && last.type === "RUN_ERROR")
+    return last
+  }
+  try {
+    unloadModel()
+    FakeWorker.generate = (worker, request) => { worker.send({ type: "token", id: request.id, text: "Paris" }); worker.send({ type: "done", id: request.id, stats }) }
+    const parse = await run(options())
+    assert.match(parse.message, /isn't JSON/); assert.equal(parse.code, "structured-output-parse-failed")
+    FakeWorker.generate = (worker, request) => { worker.send({ type: "error", id: request.id, message: "No token can complete the requested output schema." }) }
+    assert.match((await run(options())).message, /No token can complete/)
+    const controller = new AbortController(); controller.abort(new Error("stop"))
+    assert.equal((await run({ ...options(), abortController: controller })).code, "aborted")
+    assert.match((await run({ ...options(), modelOptions: { stop: "x" } })).message, /stop sequences/)
+  } finally { unloadModel() }
 })

@@ -1,6 +1,6 @@
 import { promptApiModel } from "@tanstack-ai-browser/prompt-api"
-import { WEBGL_MODEL_META, WEBGL_TEXT_MODELS } from "@tanstack-ai-browser/webgl"
-import type { WebGlTextModel } from "@tanstack-ai-browser/webgl"
+import { WEBGL_MODEL_META, WEBGL_TEXT_MODELS } from "@tanstack-ai-browser/webgllm"
+import type { WebGlTextModel } from "@tanstack-ai-browser/webgllm"
 
 export type OpponentModel =
   WebGlTextModel | "prompt-api" | "apple-foundationmodel"
@@ -39,9 +39,7 @@ export const DEV_OPPONENTS: OpponentOption[] =
 export const usesEmulatedReasoning = (model: OpponentModel) =>
   model === "prompt-api" || model === APFEL_MODEL
 
-export const WEBGL_OPPONENTS: OpponentOption[] = WEBGL_TEXT_MODELS.filter(
-  (id) => !id.includes("-Web-")
-)
+export const WEBGL_OPPONENTS: OpponentOption[] = WEBGL_TEXT_MODELS
   .map((id): OpponentOption => {
     const meta = WEBGL_MODEL_META[id]
     return {

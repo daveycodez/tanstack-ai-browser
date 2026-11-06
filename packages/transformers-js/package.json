@@ -58,6 +58,6 @@
     "esbuild": "0.28.2"
   },
   "dependencies": {
-    "@tanstack-ai-browser/structured-output": "workspace:*"
+    "llguidance": "0.2.1"
   }
 }

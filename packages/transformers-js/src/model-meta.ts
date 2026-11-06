@@ -7,7 +7,19 @@
 import type { ModelReasoning } from "@tanstack/ai"
 import type { ModelReasoningCapability } from "@tanstack/ai/adapter-internals"
 
-import type { Sampling, WeightsDtype } from "./protocol.js"
+import type { WeightsDtype } from "./protocol.js"
+
+/**
+ * Sampling from a model's card, in `modelOptions`' names (OpenRouter's
+ * convention): used unless a call's `modelOptions` overrides it.
+ */
+export type Sampling = {
+  temperature: number
+  topK: number
+  repetitionPenalty: number
+  /** Nucleus sampling: the likeliest tokens up to this probability. */
+  topP?: number
+}
 import type { ToolFormat } from "./tool-calls.js"
 
 export type TransformersJsModelMeta = {
@@ -60,33 +72,33 @@ const TOOLS = {
 /** LFM2 1.2B Tool card: greedy decoding (temperature 0). */
 const LFM2_TOOL_SAMPLING = {
   temperature: 0,
-  top_k: 1,
-  repetition_penalty: 1
+  topK: 1,
+  repetitionPenalty: 1
 } as const satisfies Sampling
 
 /** LFM3 card, "General" (chat, tool use, agents, coding). */
 const LFM3_SAMPLING = {
   temperature: 0.1,
-  top_k: 50,
-  repetition_penalty: 1.1
+  topK: 50,
+  repetitionPenalty: 1.1
 } as const satisfies Sampling
 const LFM2_5_SAMPLING = {
   temperature: 0.1,
-  top_k: 50,
-  repetition_penalty: 1.05
+  topK: 50,
+  repetitionPenalty: 1.05
 } as const satisfies Sampling
 const LFM2_5_THINKING_SAMPLING = {
   temperature: 0.05,
-  top_k: 50,
-  repetition_penalty: 1.05
+  topK: 50,
+  repetitionPenalty: 1.05
 } as const satisfies Sampling
 
 /** Gemma 4's generation config: temperature 1, top-k 64, top-p 0.95. */
 const GEMMA_4_SAMPLING = {
   temperature: 1,
-  top_k: 64,
-  top_p: 0.95,
-  repetition_penalty: 1
+  topK: 64,
+  topP: 0.95,
+  repetitionPenalty: 1
 } as const satisfies Sampling
 
 /**
@@ -95,9 +107,9 @@ const GEMMA_4_SAMPLING = {
  */
 const QWEN_3_5_SAMPLING = {
   temperature: 0.6,
-  top_k: 20,
-  top_p: 0.95,
-  repetition_penalty: 1
+  topK: 20,
+  topP: 0.95,
+  repetitionPenalty: 1
 } as const satisfies Sampling
 
 /**

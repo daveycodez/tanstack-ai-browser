@@ -1,5 +1,7 @@
 import { draftReasoning, promptReasoningOptions, withWorkingNotes } from "./reasoning.js"
 import type { PromptApiReasoning, PromptApiReasoningUsage } from "./reasoning.js"
+import { calibrationSample, internalAbort, outputLimitUsage, outputTokenLimit, parallelToolCalls, textOfInput, tokenLimiter } from "./limit.js"
+import type { PromptApiOutputLimitUsage } from "./limit.js"
 /**
  * A TanStack AI text adapter for the browser's built-in language model,
  * through the Prompt API (`LanguageModel`): Gemini Nano in Chrome,
@@ -53,6 +55,7 @@ import { languageModel } from "./types.js"
 import type {
   LanguageModelContent,
   LanguageModelCreateOptions,
+  LanguageModelInput,
   LanguageModelMessage,
   LanguageModelOutput,
   LanguageModelSession,
@@ -78,15 +81,6 @@ export type PromptApiTextConfig = {
    * generation. A specific `toolChoice` always does.
    */
   nativeTools?: boolean
-  /** Adapter-managed phases; high reasoning is an explicit two-pass emulation. */
-  onGenerationPhase?: (phase: "processing" | "generating") => void
-  /** Working-note deltas from emulated reasoning, not native hidden reasoning. */
-  onThinking?: (delta: string) => void
-  /**
-   * Called when a conversation outgrows the context window and the browser
-   * drops its oldest turns (never the system prompt) to make room.
-   */
-  onContextOverflow?: (event: { threadId: string | undefined }) => void
 }
 
 /**
@@ -103,6 +97,20 @@ export type PromptApiModelOptions = {
   /** Raw sampling, for extensions (web pages ignore it); `samplingMode` wins. */
   temperature?: number
   topK?: number
+  /**
+   * The most tokens the reply may have, emulated reasoning's working notes
+   * included (as OpenAI and OpenRouter count reasoning). The Prompt API has
+   * no output cap, so the adapter estimates the reply's tokens as it streams
+   * (Chrome can't count while the model writes), stops it a little past the
+   * cap, and trims it exactly to the cap with the session's tokenizer once
+   * it has stopped: best-effort.
+   */
+  maxCompletionTokens?: number
+  /**
+   * False keeps only the first tool call of a reply. Only the browser's own
+   * tool use can write several; guided tool calls are always one per step.
+   */
+  parallelToolCalls?: boolean
 }
 
 /**
@@ -134,7 +142,7 @@ export type PromptApiProviderUsageDetails = {
   thinkingBudgetTokens?: number
   thinkingBudgetExhausted?: boolean
   reasoningMs?: number
-}
+} & Partial<PromptApiOutputLimitUsage>
 
 
 type MetadataByModality = {
@@ -204,11 +212,43 @@ function usageOf(
  * Tokens of what the model wrote, measured once it's done (so the count
  * never holds up the reply). The rest of the session is the prompt.
  */
-const replyTokens = (session: LanguageModelSession, text: string, signal?: AbortSignal) =>
-  text ? session.measureContextUsage(text, ...(signal ? [{ signal }] : [])).catch(() => {
+/**
+ * Prompt tokens of a call whose generation was stopped at the output cap:
+ * what the session held before, plus the input (an aborted prompt leaves
+ * the session's own count unspecified).
+ */
+const promptTokensBefore = async (
+  session: LanguageModelSession,
+  contextBefore: number,
+  input: LanguageModelInput,
+  signal: AbortSignal | undefined
+) => contextBefore + (await session.measureContextUsage(input, ...(signal ? [{ signal }] : [])))
+
+const CAP_REACHED = "maxCompletionTokens reached"
+
+/** What measureContextUsage counts for an empty message: its framing, per session. */
+const framing = new WeakMap<LanguageModelSession, Promise<number>>()
+
+/**
+ * A reply's tokens: its measured text less a message's framing, which
+ * measureContextUsage counts too (as the output cap's measurement does).
+ */
+const replyTokens = async (session: LanguageModelSession, text: string, signal?: AbortSignal) => {
+  if (!text) return 0
+  const options = signal ? [{ signal }] : []
+  try {
+    let empty = framing.get(session)
+    if (!empty) {
+      empty = session.measureContextUsage("", ...options)
+      framing.set(session, empty)
+      empty.catch(() => framing.delete(session))
+    }
+    return Math.max(0, (await session.measureContextUsage(text, ...options)) - (await empty))
+  } catch {
     signal?.throwIfAborted()
     return 0
-  }) : Promise.resolve(0)
+  }
+}
 
 /** A prompt's reply as text, from a session that may answer in pieces. */
 const textOf = (output: LanguageModelOutput) =>
@@ -260,6 +300,56 @@ let ids = 0
 const nextId = (prefix: string) =>
   `${prefix}_${Date.now().toString(36)}_${(ids++).toString(36)}`
 
+/** Where a chunk came from, in `metadata.tanstack.source`. */
+type ChunkSource = { provider: string; api: string; model: string }
+
+const sourceOf = (
+  adapter: { provider: string; api: string; model: string },
+  model: string | undefined
+): ChunkSource => ({
+  provider: adapter.provider,
+  api: adapter.api,
+  model: model ?? adapter.model
+})
+
+/** A chunk tagged with its source, as TanStack's own adapters tag theirs. */
+function withSource(chunk: AdapterYieldChunk, source: ChunkSource): AdapterYieldChunk {
+  const metadata = chunk.metadata as Record<string, unknown> | undefined
+  return {
+    ...chunk,
+    metadata: {
+      ...metadata,
+      tanstack: {
+        ...(metadata?.tanstack as Record<string, unknown> | undefined),
+        source
+      }
+    }
+  }
+}
+
+/** The caller's signal: the legacy `abortController` first, then `request`. */
+const signalOf = (options: TextOptions<PromptApiModelOptions>) =>
+  options.abortController?.signal ??
+  (options.request as RequestInit | undefined)?.signal ??
+  undefined
+
+/** A structured answer that failed, with the `RUN_ERROR` code it streams as. */
+class StructuredOutputFailure extends Error {
+  constructor(
+    message: string,
+    readonly code: "parse-error" | "empty-response" | "unsupported-schema" | "max_tokens",
+    cause?: unknown
+  ) {
+    super(message, cause === undefined ? undefined : { cause })
+    this.name = "StructuredOutputFailure"
+  }
+}
+
+/** A structured answer, with the emulated reasoning written before it. */
+type StructuredRunResult = StructuredOutputResult<unknown> & {
+  reasoning?: string
+}
+
 /** A call's session and what it reads. */
 type Prepared = {
   lease: Lease
@@ -285,17 +375,11 @@ export class PromptApiTextAdapter extends BaseTextAdapter<
   override readonly inputModalities = ["text", "image", "audio"] as const
   private readonly languages: ReadonlyArray<string>
   private readonly nativeTools: boolean
-  private readonly onContextOverflow: PromptApiTextConfig["onContextOverflow"]
-  private readonly onGenerationPhase: PromptApiTextConfig["onGenerationPhase"]
-  private readonly onThinking: PromptApiTextConfig["onThinking"]
 
   constructor(config: PromptApiTextConfig = {}) {
     super({}, "built-in")
     this.languages = config.languages ?? DEFAULT_LANGUAGES
     this.nativeTools = config.nativeTools ?? true
-    this.onContextOverflow = config.onContextOverflow
-    this.onGenerationPhase = config.onGenerationPhase
-    this.onThinking = config.onThinking
   }
 
   /**
@@ -382,7 +466,6 @@ export class PromptApiTextAdapter extends BaseTextAdapter<
         "provider=prompt-api context overflow: the oldest turns were dropped",
         { threadId }
       )
-      this.onContextOverflow?.({ threadId })
     }
     return {
       contextUsage: lease.session.contextUsage,
@@ -392,6 +475,15 @@ export class PromptApiTextAdapter extends BaseTextAdapter<
   }
 
   async *chatStream(
+    options: TextOptions<PromptApiModelOptions>
+  ): AsyncIterable<AdapterYieldChunk> {
+    const source = sourceOf(this, options.model)
+    for await (const chunk of this.chatStreamRequest(options)) {
+      yield withSource(chunk, source)
+    }
+  }
+
+  private async *chatStreamRequest(
     options: TextOptions<PromptApiModelOptions>
   ): AsyncIterable<AdapterYieldChunk> {
     const runId = options.runId ?? nextId("run")
@@ -406,6 +498,7 @@ export class PromptApiTextAdapter extends BaseTextAdapter<
     const timestamp = () => Date.now()
     const runError = (message: string): AdapterYieldChunk => ({
       type: EventType.RUN_ERROR,
+      runId,
       model,
       timestamp: timestamp(),
       message,
@@ -448,7 +541,8 @@ export class PromptApiTextAdapter extends BaseTextAdapter<
       ]
     }
     const reasoning = promptReasoningOptions(options.reasoning)
-    this.onGenerationPhase?.("processing")
+    const limit = outputTokenLimit(options.modelOptions)
+    const parallel = parallelToolCalls(options.modelOptions)
     const startedAt = performance.now()
 
     yield {
@@ -508,6 +602,7 @@ export class PromptApiTextAdapter extends BaseTextAdapter<
       let input = prepared.input
       const { session } = lease
       let reasoningUsage: PromptApiReasoningUsage | undefined
+      let draftCapReached = false
       // Given back only once the call has ended well; freed otherwise (an
       // abort, an error, or the stream left unread).
       let released = false
@@ -515,8 +610,7 @@ export class PromptApiTextAdapter extends BaseTextAdapter<
 
       try {
         if (reasoning.enabled) {
-          this.onGenerationPhase?.("generating")
-          const draft = draftReasoning(session, input, signal, reasoning.budget)
+          const draft = draftReasoning(session, input, signal, reasoning.budget, limit)
           let next = await draft.next()
           let opened = false
           const reasoningId = nextId("reasoning")
@@ -527,25 +621,58 @@ export class PromptApiTextAdapter extends BaseTextAdapter<
                 yield { type: EventType.REASONING_START, messageId: reasoningId, model, timestamp: timestamp() }
                 yield { type: EventType.REASONING_MESSAGE_START, messageId: reasoningId, role: "reasoning", model, timestamp: timestamp() }
               }
-              this.onThinking?.(next.value)
               yield { type: EventType.REASONING_MESSAGE_CONTENT, messageId: reasoningId, delta: next.value, model, timestamp: timestamp() }
               next = await draft.next()
             }
             reasoningUsage = next.value.usage
+            draftCapReached = next.value.capReached
             input = withWorkingNotes(input, next.value.notes) as Array<LanguageModelMessage>
           } finally {
-            if (!next.done) await draft.return({ notes: "", usage: { reasoningEmulated: true, reasoningTokenMeasurement: "context-usage", reasoningBudgetEnforcement: "best-effort", thinkingTokens: 0, thinkingBudgetExhausted: false, reasoningMs: 0 } })
+            if (!next.done) await draft.return({ notes: "", usage: { reasoningEmulated: true, reasoningTokenMeasurement: "context-usage", reasoningBudgetEnforcement: "best-effort", thinkingTokens: 0, thinkingBudgetExhausted: false, reasoningMs: 0 }, capReached: false })
           }
           if (opened) {
             yield { type: EventType.REASONING_MESSAGE_END, messageId: reasoningId, model, timestamp: timestamp() }
             yield { type: EventType.REASONING_END, messageId: reasoningId, model, timestamp: timestamp() }
           }
-        } else this.onGenerationPhase?.("generating")
+        }
         signal?.throwIfAborted()
+        // The cap covers the working notes and the answer together.
+        const answerLimit =
+          limit === undefined
+            ? undefined
+            : draftCapReached
+              ? 0
+              : Math.max(0, limit - (reasoningUsage?.thinkingTokens ?? 0))
         const call =
-          tools.length > 0 && !native
-            ? await this.decideToolCall(session, input, tools, options, signal)
-            : undefined
+          answerLimit === 0
+            ? "length"
+            : tools.length > 0 && !native
+              ? await this.decideToolCall(session, input, tools, options, signal, answerLimit)
+              : undefined
+
+        if (call === "length") {
+          // No room left under the cap (or a tool call's arguments were cut
+          // off by it, and no partial call is sent): nothing is written. The
+          // session itself has read nothing new.
+          const promptTokens = await promptTokensBefore(session, session.contextUsage, input, signal)
+          const sessionDetails = this.sessionDetails(lease, threadId, logger)
+          lease.release(prior)
+          released = true
+          yield {
+            type: EventType.RUN_FINISHED,
+            runId,
+            threadId,
+            model,
+            timestamp: timestamp(),
+            finishReason: "length",
+            usage: usageOf(promptTokens, 0, lease.cachedTokens, {
+              ...reasoningUsage,
+              ...outputLimitUsage(limit, true),
+              ...sessionDetails
+            })
+          }
+          return
+        }
 
         if (call) {
           const callText = toolCallText(call.name, call.args)
@@ -579,6 +706,7 @@ export class PromptApiTextAdapter extends BaseTextAdapter<
               lease.cachedTokens,
               {
                 ...reasoningUsage,
+                ...outputLimitUsage(limit, false),
                 firstTokenMs: decidedAt - startedAt,
                 ...sessionDetails
               }
@@ -588,42 +716,110 @@ export class PromptApiTextAdapter extends BaseTextAdapter<
         }
 
         // The answer, streamed as the model writes it; with the browser's
-        // own tools, its tool calls come after any text.
+        // own tools, its tool calls come after any text. Under a cap, a
+        // limiter estimates it (nothing is measured mid-stream: Chrome would
+        // wait for the reply to finish), an internal abort stops it a little
+        // past the cap, and the text is trimmed exactly once it has stopped.
         const promptAt = performance.now()
+        const contextBefore = session.contextUsage
         let first = 0
         let last = 0
         let text = ""
-        const written: Array<LanguageModelToolCall> = []
-        for await (const chunk of session.promptStreaming(input, { signal })) {
-          for (const piece of piecesOf(chunk)) {
-            if (piece.type === "tool-call") {
-              written.push(piece.value as LanguageModelToolCall)
-              continue
-            }
-            if (piece.type !== "text" || typeof piece.value !== "string")
-              continue
-            const delta = piece.value
-            if (!delta) continue
-            last = performance.now()
-            if (!first) {
-              first = last
-              sent = true
-              yield {
-                type: EventType.TEXT_MESSAGE_START,
-                messageId,
-                role: "assistant",
-                model,
-                timestamp: timestamp()
-              }
-            }
-            text += delta
-            yield {
-              type: EventType.TEXT_MESSAGE_CONTENT,
+        let written: Array<LanguageModelToolCall> = []
+        // Calls the model wrote that aren't sent (parallelToolCalls: false).
+        let dropped = false
+        const limiter =
+          answerLimit === undefined
+            ? undefined
+            : await tokenLimiter(
+                session,
+                answerLimit,
+                calibrationSample([
+                  textOfInput(input),
+                  ...prior.slice().reverse().map((m) => textOfInput([m]))
+                ]),
+                signal
+              )
+        const stopper = limiter ? internalAbort(signal, CAP_REACHED) : undefined
+        const textEvents = (delta: string): Array<AdapterYieldChunk> => {
+          const events: Array<AdapterYieldChunk> = []
+          last = performance.now()
+          if (!first) {
+            first = last
+            sent = true
+            events.push({
+              type: EventType.TEXT_MESSAGE_START,
               messageId,
-              delta,
-              content: text,
+              role: "assistant",
               model,
               timestamp: timestamp()
+            })
+          }
+          text += delta
+          events.push({
+            type: EventType.TEXT_MESSAGE_CONTENT,
+            messageId,
+            delta,
+            content: text,
+            model,
+            timestamp: timestamp()
+          })
+          return events
+        }
+        try {
+          for await (const chunk of session.promptStreaming(input, {
+            signal: stopper?.signal ?? signal
+          })) {
+            for (const piece of piecesOf(chunk)) {
+              if (piece.type === "tool-call") {
+                const toolCall = piece.value as LanguageModelToolCall
+                if (parallel === false && written.length > 0) {
+                  dropped = true
+                  continue
+                }
+                limiter?.account(`\n${toolCallText(toolCall.name, toolCall.arguments ?? {})}`)
+                written.push(toolCall)
+                continue
+              }
+              if (piece.type !== "text" || typeof piece.value !== "string")
+                continue
+              const delta = limiter ? limiter.push(piece.value) : piece.value
+              if (delta) yield* textEvents(delta)
+            }
+            if (limiter?.stopped) {
+              stopper?.stop()
+              break
+            }
+          }
+        } catch (error) {
+          // The internal abort at the cap ends the stream; the caller's doesn't.
+          if (!limiter?.stopped || signal?.aborted) throw error
+        } finally {
+          stopper?.dispose()
+        }
+        let cut = false
+        if (limiter && answerLimit !== undefined) {
+          // The generation has stopped, so the model is idle and measuring
+          // is instant: the exact trim, then the text held back up to it.
+          signal?.throwIfAborted()
+          const kept = await limiter.finish()
+          if (kept.held) yield* textEvents(kept.held)
+          cut = kept.reached
+          if (written.length > 0) {
+            // A call counts whole: one the cap cuts into is left out, as a
+            // cut-off call is with the other adapters. Calls come after the
+            // text, so a trim inside the text leaves none.
+            let fits = 0
+            while (!kept.trimmed && fits < written.length) {
+              const reply = [kept.text, ...written.slice(0, fits + 1).map((c) => toolCallText(c.name, c.arguments ?? {}))]
+                .filter(Boolean)
+                .join("\n")
+              if ((await limiter.measure(reply)) > answerLimit) break
+              fits++
+            }
+            if (fits < written.length) {
+              written = written.slice(0, fits)
+              cut = true
             }
           }
         }
@@ -647,10 +843,17 @@ export class PromptApiTextAdapter extends BaseTextAdapter<
             .join("\n")
         )
         const reply = assistantMessage(text, calls, native)
-        const measuredContext = session.contextUsage
+        const promptTokens = cut
+          ? await promptTokensBefore(session, contextBefore, input, signal)
+          : session.contextUsage - completionTokens
         const sessionDetails = this.sessionDetails(lease, threadId, logger)
-        lease.release([...prior, ...inputMessages, ...(reply ? [reply] : [])])
-        released = true
+        // A reply stopped at the cap, or with calls left out, isn't what the
+        // session read (an aborted prompt leaves its history unspecified), so
+        // that session is freed rather than kept.
+        if (!cut && !dropped) {
+          lease.release([...prior, ...inputMessages, ...(reply ? [reply] : [])])
+          released = true
+        }
         for (const [index, c] of calls.entries()) {
           yield* toolCallEvents(c.callId, c.name, c.arguments, index)
         }
@@ -660,9 +863,9 @@ export class PromptApiTextAdapter extends BaseTextAdapter<
           threadId,
           model,
           timestamp: timestamp(),
-          finishReason: calls.length > 0 ? "tool_calls" : "stop",
+          finishReason: calls.length > 0 ? "tool_calls" : cut ? "length" : "stop",
           usage: usageOf(
-            measuredContext - completionTokens,
+            promptTokens,
             completionTokens,
             lease.cachedTokens,
             {
@@ -673,6 +876,7 @@ export class PromptApiTextAdapter extends BaseTextAdapter<
                 decodeTokens: Math.max(completionTokens - 1, 0)
               }),
               ...reasoningUsage,
+              ...outputLimitUsage(limit, cut),
               ...sessionDetails
             }
           )
@@ -706,14 +910,20 @@ export class PromptApiTextAdapter extends BaseTextAdapter<
    * The tool the model calls for this input, with its arguments, or
    * undefined if it answers. Both are guided generations on copies of the
    * session, so the session itself reads only what the request will send.
+   * Guided routing writes one call per step, so `parallelToolCalls` holds
+   * either way. Under an output cap (`limit`), the call counts toward it
+   * whole, as the reply reports it (the routing decision is the adapter's,
+   * not the reply, and doesn't); a call the cap cuts off gives "length",
+   * never a broken call.
    */
   private async decideToolCall(
     session: LanguageModelSession,
     input: Array<LanguageModelMessage>,
     tools: Array<Tool>,
     options: TextOptions<PromptApiModelOptions>,
-    signal: AbortSignal | undefined
-  ): Promise<{ name: string; args: Record<string, unknown> } | undefined> {
+    signal: AbortSignal | undefined,
+    limit: number | undefined
+  ): Promise<{ name: string; args: Record<string, unknown> } | "length" | undefined> {
     const names = tools.map((tool) => tool.name)
     const choice = options.toolChoice
     let action: string | undefined
@@ -723,7 +933,7 @@ export class PromptApiTextAdapter extends BaseTextAdapter<
       // The only allowed route is already known; constrain its arguments directly.
       action = names[0]
     } else {
-      const raw = await promptCopy(session, input, signal, {
+      const { text: raw } = await promptCopy(session, input, signal, {
         responseConstraint: decisionSchema(names, choice === "required")
       })
       action = parseDecision(raw)?.action
@@ -735,14 +945,22 @@ export class PromptApiTextAdapter extends BaseTextAdapter<
     const schema = inputSchemaOf(tool)
     const hasFields =
       Object.keys((schema.properties ?? {}) as object).length > 0
-    const raw = hasFields
-      ? await promptCopy(session, input, signal, { responseConstraint: schema })
-      : "{}"
-    const args = parseArguments(raw) ?? {}
+    const generated = hasFields
+      ? await promptCopy(session, input, signal, { responseConstraint: schema }, limit)
+      : { text: "{}", reached: false }
+    const parsed = parseArguments(generated.text)
+    // Arguments that still parse were complete when the cap was reached.
+    if (generated.reached && !parsed) return "length"
+    const args = parsed ?? {}
     // Small models sometimes call the tool they just called, with the same
     // arguments, instead of answering from its result.
     if (currentTurnCalls(options.messages).has(toolCallText(tool.name, args))) {
       return undefined
+    }
+    // The call counts toward the cap as the reply reports it, whole: one that
+    // doesn't fit is cut off, as the native path leaves such calls out.
+    if (limit !== undefined && (await replyTokens(session, toolCallText(tool.name, args), signal)) > limit) {
+      return "length"
     }
     return { name: tool.name, args }
   }
@@ -751,16 +969,126 @@ export class PromptApiTextAdapter extends BaseTextAdapter<
    * A JSON answer for `chat({ outputSchema })`, from guided generation:
    * `responseConstraint` holds the model to the original schema. Unsupported
    * schemas fail explicitly rather than silently dropping constraints. `chat()`
-   * validates the result.
+   * validates the result. One constrained prompt, not streamed; the streamed
+   * form is `structuredOutputStream`.
    */
   async structuredOutput(
     options: StructuredOutputOptions<PromptApiModelOptions>
   ): Promise<StructuredOutputResult<unknown>> {
+    const run = this.structuredOutputRun(options, false)
+    let next = await run.next()
+    while (!next.done) next = await run.next()
+    const { data, rawText, model, usage } = next.value
+    return { data, rawText, model, ...(usage && { usage }) }
+  }
+
+  /**
+   * `chat({ outputSchema, stream: true })`: the JSON streamed as the model
+   * writes it under `responseConstraint`, after any emulated reasoning
+   * (`REASONING_*`), then `structured-output.complete` and `RUN_FINISHED`.
+   */
+  async *structuredOutputStream(
+    options: StructuredOutputOptions<PromptApiModelOptions>
+  ): AsyncIterable<AdapterYieldChunk> {
+    const source = sourceOf(this, options.chatOptions.model)
+    for await (const chunk of this.structuredOutputRequestStream(options)) {
+      yield withSource(chunk, source)
+    }
+  }
+
+  private async *structuredOutputRequestStream(
+    options: StructuredOutputOptions<PromptApiModelOptions>
+  ): AsyncIterable<AdapterYieldChunk> {
+    const { chatOptions } = options
+    const runId = chatOptions.runId ?? nextId("run")
+    const threadId = chatOptions.threadId
+    const messageId = nextId("msg")
+    const model = this.model
+    const signal = signalOf(chatOptions)
+    yield {
+      type: EventType.RUN_STARTED,
+      runId,
+      threadId,
+      model,
+      timestamp: Date.now(),
+      ...(chatOptions.parentRunId && { parentRunId: chatOptions.parentRunId })
+    }
+    let result: StructuredRunResult
+    try {
+      result = yield* this.structuredOutputRun(options, true, messageId)
+    } catch (error) {
+      const aborted = !!signal?.aborted
+      const code = aborted
+        ? "aborted"
+        : error instanceof StructuredOutputFailure
+          ? error.code
+          : undefined
+      const message = aborted
+        ? errorText(signal?.reason ?? error)
+        : error instanceof DOMException
+          ? promptErrorText(error)
+          : errorText(error)
+      if (!aborted) {
+        chatOptions.logger.errors("prompt-api.structuredOutputStream fatal", {
+          error,
+          source: "prompt-api.structuredOutputStream"
+        })
+      }
+      yield {
+        type: EventType.RUN_ERROR,
+        runId,
+        model,
+        timestamp: Date.now(),
+        message,
+        ...(code && { code }),
+        error: { message, ...(code && { code }) }
+      }
+      return
+    }
+    yield {
+      type: EventType.CUSTOM,
+      name: "structured-output.complete",
+      value: {
+        object: result.data,
+        raw: result.rawText,
+        ...(result.reasoning ? { reasoning: result.reasoning } : {})
+      },
+      model,
+      timestamp: Date.now()
+    }
+    yield {
+      type: EventType.RUN_FINISHED,
+      runId,
+      threadId,
+      model,
+      timestamp: Date.now(),
+      finishReason: "stop",
+      ...(result.usage && { usage: result.usage })
+    }
+  }
+
+  /**
+   * One structured answer: emulated reasoning (if asked for) streamed as
+   * `REASONING_*` events, then the constrained JSON as `TEXT_MESSAGE_*`
+   * deltas (`stream`: from `promptStreaming`; otherwise one `prompt` whose
+   * whole answer is one delta). Throws on failure and cancellation, with
+   * the caller's abort reason.
+   */
+  private async *structuredOutputRun(
+    options: StructuredOutputOptions<PromptApiModelOptions>,
+    stream: boolean,
+    messageId = nextId("msg")
+  ): AsyncGenerator<AdapterYieldChunk, StructuredRunResult> {
     const { chatOptions, outputSchema } = options
-    const signal = chatOptions.abortController?.signal ?? (chatOptions.request as RequestInit | undefined)?.signal ?? undefined
+    const model = this.model
+    const signal = signalOf(chatOptions)
     signal?.throwIfAborted()
     const reasoning = promptReasoningOptions(chatOptions.reasoning)
-    this.onGenerationPhase?.("processing")
+    const limit = outputTokenLimit(chatOptions.modelOptions)
+    chatOptions.logger.request(
+      `activity=${stream ? "structuredOutputStream" : "structuredOutput"} provider=prompt-api model=${model} messages=${chatOptions.messages.length}`,
+      { provider: "prompt-api", model }
+    )
     const conversation = toPromptMessages(chatOptions.messages, {
       nativeTools: false
     })
@@ -789,62 +1117,197 @@ export class PromptApiTextAdapter extends BaseTextAdapter<
           ? await toLanguageModelMessages(inputMessages, media)
           : "Answer."
       let reasoningUsage: PromptApiReasoningUsage | undefined
+      let reasoningText = ""
+      let draftCapReached = false
       if (reasoning.enabled) {
-        this.onGenerationPhase?.("generating")
-        const draft = draftReasoning(session, input, signal, reasoning.budget)
+        const reasoningId = nextId("reasoning")
+        const draft = draftReasoning(session, input, signal, reasoning.budget, limit)
         let next = await draft.next()
         try {
           while (!next.done) {
-            this.onThinking?.(next.value)
+            if (!reasoningText) {
+              yield { type: EventType.REASONING_START, messageId: reasoningId, model, timestamp: Date.now() }
+              yield { type: EventType.REASONING_MESSAGE_START, messageId: reasoningId, role: "reasoning", model, timestamp: Date.now() }
+            }
+            reasoningText += next.value
+            yield { type: EventType.REASONING_MESSAGE_CONTENT, messageId: reasoningId, delta: next.value, model, timestamp: Date.now() }
             next = await draft.next()
           }
           reasoningUsage = next.value.usage
+          draftCapReached = next.value.capReached
           input = withWorkingNotes(input, next.value.notes)
         } finally {
-          if (!next.done) await draft.return({ notes: "", usage: { reasoningEmulated: true, reasoningTokenMeasurement: "context-usage", reasoningBudgetEnforcement: "best-effort", thinkingTokens: 0, thinkingBudgetExhausted: false, reasoningMs: 0 } })
+          if (!next.done) await draft.return({ notes: "", usage: { reasoningEmulated: true, reasoningTokenMeasurement: "context-usage", reasoningBudgetEnforcement: "best-effort", thinkingTokens: 0, thinkingBudgetExhausted: false, reasoningMs: 0 }, capReached: false })
         }
-      } else this.onGenerationPhase?.("generating")
+        if (reasoningText) {
+          yield { type: EventType.REASONING_MESSAGE_END, messageId: reasoningId, model, timestamp: Date.now() }
+          yield { type: EventType.REASONING_END, messageId: reasoningId, model, timestamp: Date.now() }
+        }
+      }
       signal?.throwIfAborted()
-      const ask = async (schema: object) =>
-        textOf(
-          await session.prompt(input, { responseConstraint: schema, signal })
-        )
-      let rawText: string
+      // The cap covers the working notes and the JSON together.
+      const answerLimit =
+        limit === undefined
+          ? undefined
+          : draftCapReached
+            ? 0
+            : Math.max(0, limit - (reasoningUsage?.thinkingTokens ?? 0))
+      const contextBefore = session.contextUsage
+      let cut = false
+      let rawText = ""
+      const textStart = (): AdapterYieldChunk => ({
+        type: EventType.TEXT_MESSAGE_START,
+        messageId,
+        role: "assistant",
+        model,
+        timestamp: Date.now()
+      })
+      const textContent = (delta: string): AdapterYieldChunk => {
+        rawText += delta
+        return {
+          type: EventType.TEXT_MESSAGE_CONTENT,
+          messageId,
+          delta,
+          content: rawText,
+          model,
+          timestamp: Date.now()
+        }
+      }
       try {
-        rawText = await ask(outputSchema)
+        if (answerLimit === 0) {
+          cut = true
+        } else if (answerLimit !== undefined) {
+          // Streamed and estimated (for `structuredOutput` too, whose answer
+          // is still one delta), stopped by an internal abort a little past
+          // the cap, then trimmed exactly once the model is idle.
+          const limiter = await tokenLimiter(
+            session,
+            answerLimit,
+            calibrationSample([
+              textOfInput(input),
+              ...prior.slice().reverse().map((m) => textOfInput([m]))
+            ]),
+            signal
+          )
+          const stopper = internalAbort(signal, CAP_REACHED)
+          try {
+            for await (const chunk of session.promptStreaming(input, {
+              responseConstraint: outputSchema,
+              signal: stopper.signal
+            })) {
+              for (const piece of piecesOf(chunk)) {
+                if (piece.type !== "text" || typeof piece.value !== "string" || !piece.value) continue
+                const delta = limiter.push(piece.value)
+                if (!delta || !stream) continue
+                if (!rawText) yield textStart()
+                yield textContent(delta)
+              }
+              if (limiter.stopped) {
+                stopper.stop()
+                break
+              }
+            }
+          } catch (error) {
+            if (!limiter.stopped || signal?.aborted) throw error
+          } finally {
+            stopper.dispose()
+          }
+          signal?.throwIfAborted()
+          const kept = await limiter.finish()
+          cut = kept.reached
+          // Streamed: the text held back; otherwise the whole answer, at once.
+          const rest = stream ? kept.held : kept.text
+          if (rest) {
+            if (!rawText) yield textStart()
+            yield textContent(rest)
+          }
+        } else if (stream) {
+          for await (const chunk of session.promptStreaming(input, {
+            responseConstraint: outputSchema,
+            signal
+          })) {
+            for (const piece of piecesOf(chunk)) {
+              if (piece.type !== "text" || typeof piece.value !== "string" || !piece.value) continue
+              if (!rawText) yield textStart()
+              yield textContent(piece.value)
+            }
+          }
+        } else {
+          const whole = textOf(
+            await session.prompt(input, { responseConstraint: outputSchema, signal })
+          )
+          if (whole) {
+            yield textStart()
+            yield textContent(whole)
+          }
+        }
       } catch (error) {
-        if (!(
-          error instanceof DOMException && error.name === "NotSupportedError"
-        ))
-          throw error
-        throw new Error("The browser cannot enforce the requested JSON Schema.", { cause: error })
+        if (
+          !rawText &&
+          error instanceof DOMException &&
+          error.name === "NotSupportedError"
+        ) {
+          throw new StructuredOutputFailure(
+            "The browser cannot enforce the requested JSON Schema.",
+            "unsupported-schema",
+            error
+          )
+        }
+        throw error
+      }
+      if (rawText) {
+        yield { type: EventType.TEXT_MESSAGE_END, messageId, model, timestamp: Date.now() }
       }
       signal?.throwIfAborted()
       const completionTokens = await replyTokens(session, rawText, signal)
       signal?.throwIfAborted()
-      try {
-        return {
-          data: JSON.parse(rawText) as unknown,
-          rawText,
-          model: this.model,
-          usage: usageOf(
-            session.contextUsage - completionTokens,
-            completionTokens,
-            lease.cachedTokens,
-            {
-              ...this.sessionDetails(lease, chatOptions.threadId, chatOptions.logger),
-              ...reasoningUsage
-            }
-          )
-        }
-      } catch {
-        throw new Error(
-          `The model's answer isn't JSON: ${rawText.slice(0, 200)}${rawText.length > 200 ? "…" : ""}`
+      // Stopped at the cap: an error like the other adapters' length stop,
+      // unless the JSON happened to be complete.
+      const cutOff = (cause?: unknown) =>
+        new StructuredOutputFailure(
+          `The answer was cut off at the output token limit (maxCompletionTokens: ${limit}) before its JSON ended; raise maxCompletionTokens.`,
+          "max_tokens",
+          cause
         )
+      if (!rawText) {
+        throw cut
+          ? cutOff()
+          : new StructuredOutputFailure("The model's answer is empty.", "empty-response")
+      }
+      let data: unknown
+      try {
+        data = JSON.parse(rawText) as unknown
+      } catch (error) {
+        throw cut
+          ? cutOff(error)
+          : new StructuredOutputFailure(
+              `The model's answer isn't JSON: ${rawText.slice(0, 200)}${rawText.length > 200 ? "…" : ""}`,
+              "parse-error",
+              error
+            )
+      }
+      const promptTokens = cut
+        ? await promptTokensBefore(session, contextBefore, input, signal)
+        : session.contextUsage - completionTokens
+      return {
+        data,
+        rawText,
+        model,
+        usage: usageOf(
+          promptTokens,
+          completionTokens,
+          lease.cachedTokens,
+          {
+            ...this.sessionDetails(lease, chatOptions.threadId, chatOptions.logger),
+            ...reasoningUsage,
+            ...outputLimitUsage(limit, cut)
+          }
+        ),
+        ...(reasoningText && { reasoning: reasoningText })
       }
     } catch (error) {
       signal?.throwIfAborted()
-      if (error instanceof DOMException) throw new Error(promptErrorText(error))
+      if (error instanceof DOMException) throw new Error(promptErrorText(error), { cause: error })
       throw error
     } finally {
       lease.discard()
@@ -852,16 +1315,44 @@ export class PromptApiTextAdapter extends BaseTextAdapter<
   }
 }
 
-/** A guided generation on a copy of the session, freed after. */
+/**
+ * A guided generation on a copy of the session, freed after. Under a
+ * `limit`, it streams, estimated, stops a little past the limit, and is
+ * trimmed exactly to it (`reached`).
+ */
 async function promptCopy(
   session: LanguageModelSession,
   input: Array<LanguageModelMessage>,
   signal: AbortSignal | undefined,
-  options: { responseConstraint: object }
-) {
+  options: { responseConstraint: object },
+  limit?: number
+): Promise<{ text: string; reached: boolean }> {
   const copy = await session.clone({ signal })
   try {
-    return textOf(await copy.prompt(input, { ...options, signal }))
+    if (limit === undefined) {
+      return { text: textOf(await copy.prompt(input, { ...options, signal })), reached: false }
+    }
+    // Calibrated, and measured after, on the session: the copy generates.
+    const limiter = await tokenLimiter(session, limit, calibrationSample([textOfInput(input)]), signal)
+    const stopper = internalAbort(signal, CAP_REACHED)
+    try {
+      for await (const chunk of copy.promptStreaming(input, { ...options, signal: stopper.signal })) {
+        for (const piece of piecesOf(chunk)) {
+          if (piece.type === "text" && typeof piece.value === "string") limiter.push(piece.value)
+        }
+        if (limiter.stopped) {
+          stopper.stop()
+          break
+        }
+      }
+    } catch (error) {
+      if (!limiter.stopped || signal?.aborted) throw error
+    } finally {
+      stopper.dispose()
+    }
+    signal?.throwIfAborted()
+    const kept = await limiter.finish()
+    return { text: kept.text, reached: kept.reached }
   } finally {
     copy.destroy()
   }
