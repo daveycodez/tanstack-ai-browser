@@ -1,6 +1,6 @@
 import { draftReasoning, promptReasoningOptions, withWorkingNotes } from "./reasoning.js"
 import type { PromptApiReasoning, PromptApiReasoningUsage } from "./reasoning.js"
-import { internalAbort, outputLimitUsage, outputTokenLimit, parallelToolCalls, tokenMeter } from "./limit.js"
+import { calibrationSample, internalAbort, outputLimitUsage, outputTokenLimit, parallelToolCalls, textOfInput, tokenLimiter } from "./limit.js"
 import type { PromptApiOutputLimitUsage } from "./limit.js"
 /**
  * A TanStack AI text adapter for the browser's built-in language model,
@@ -100,8 +100,10 @@ export type PromptApiModelOptions = {
   /**
    * The most tokens the reply may have, emulated reasoning's working notes
    * included (as OpenAI and OpenRouter count reasoning). The Prompt API has
-   * no output cap, so the adapter counts the reply as it streams and stops
-   * it at the cap: best-effort, measured with the session's tokenizer.
+   * no output cap, so the adapter estimates the reply's tokens as it streams
+   * (Chrome can't count while the model writes), stops it a little past the
+   * cap, and trims it exactly to the cap with the session's tokenizer once
+   * it has stopped: best-effort.
    */
   maxCompletionTokens?: number
   /**
@@ -697,82 +699,112 @@ export class PromptApiTextAdapter extends BaseTextAdapter<
 
         // The answer, streamed as the model writes it; with the browser's
         // own tools, its tool calls come after any text. Under a cap, a
-        // meter counts it and an internal abort stops it at the cap.
+        // limiter estimates it (nothing is measured mid-stream: Chrome would
+        // wait for the reply to finish), an internal abort stops it a little
+        // past the cap, and the text is trimmed exactly once it has stopped.
         const promptAt = performance.now()
         const contextBefore = session.contextUsage
         let first = 0
         let last = 0
         let text = ""
-        const written: Array<LanguageModelToolCall> = []
+        let written: Array<LanguageModelToolCall> = []
         // Calls the model wrote that aren't sent (parallelToolCalls: false).
         let dropped = false
-        const meter =
+        const limiter =
           answerLimit === undefined
             ? undefined
-            : await tokenMeter(session, answerLimit, signal)
-        const stopper = meter ? internalAbort(signal, CAP_REACHED) : undefined
-        try {
-          try {
-            for await (const chunk of session.promptStreaming(input, {
-              signal: stopper?.signal ?? signal
-            })) {
-              for (const piece of piecesOf(chunk)) {
-                if (meter?.reached) break
-                if (piece.type === "tool-call") {
-                  const toolCall = piece.value as LanguageModelToolCall
-                  if (parallel === false && written.length > 0) {
-                    dropped = true
-                    continue
-                  }
-                  if (meter) {
-                    // A call counts whole: one the cap cuts into is left out,
-                    // as a cut-off call is with the other adapters.
-                    const whole = `${meter.text ? "\n" : ""}${toolCallText(toolCall.name, toolCall.arguments ?? {})}`
-                    if ((await meter.push(whole)) !== whole) break
-                  }
-                  written.push(toolCall)
-                  continue
-                }
-                if (piece.type !== "text" || typeof piece.value !== "string")
-                  continue
-                const delta = meter ? await meter.push(piece.value) : piece.value
-                if (!delta) continue
-                last = performance.now()
-                if (!first) {
-                  first = last
-                  sent = true
-                  yield {
-                    type: EventType.TEXT_MESSAGE_START,
-                    messageId,
-                    role: "assistant",
-                    model,
-                    timestamp: timestamp()
-                  }
-                }
-                text += delta
-                yield {
-                  type: EventType.TEXT_MESSAGE_CONTENT,
-                  messageId,
-                  delta,
-                  content: text,
-                  model,
-                  timestamp: timestamp()
-                }
-              }
-              if (meter?.reached) {
-                stopper?.stop()
-                break
-              }
-            }
-          } catch (error) {
-            // The internal abort at the cap ends the stream; the caller's doesn't.
-            if (!meter?.reached || signal?.aborted) throw error
+            : await tokenLimiter(
+                session,
+                answerLimit,
+                calibrationSample([
+                  textOfInput(input),
+                  ...prior.slice().reverse().map((m) => textOfInput([m]))
+                ]),
+                signal
+              )
+        const stopper = limiter ? internalAbort(signal, CAP_REACHED) : undefined
+        const textEvents = (delta: string): Array<AdapterYieldChunk> => {
+          const events: Array<AdapterYieldChunk> = []
+          last = performance.now()
+          if (!first) {
+            first = last
+            sent = true
+            events.push({
+              type: EventType.TEXT_MESSAGE_START,
+              messageId,
+              role: "assistant",
+              model,
+              timestamp: timestamp()
+            })
           }
+          text += delta
+          events.push({
+            type: EventType.TEXT_MESSAGE_CONTENT,
+            messageId,
+            delta,
+            content: text,
+            model,
+            timestamp: timestamp()
+          })
+          return events
+        }
+        try {
+          for await (const chunk of session.promptStreaming(input, {
+            signal: stopper?.signal ?? signal
+          })) {
+            for (const piece of piecesOf(chunk)) {
+              if (piece.type === "tool-call") {
+                const toolCall = piece.value as LanguageModelToolCall
+                if (parallel === false && written.length > 0) {
+                  dropped = true
+                  continue
+                }
+                limiter?.account(`\n${toolCallText(toolCall.name, toolCall.arguments ?? {})}`)
+                written.push(toolCall)
+                continue
+              }
+              if (piece.type !== "text" || typeof piece.value !== "string")
+                continue
+              const delta = limiter ? limiter.push(piece.value) : piece.value
+              if (delta) yield* textEvents(delta)
+            }
+            if (limiter?.stopped) {
+              stopper?.stop()
+              break
+            }
+          }
+        } catch (error) {
+          // The internal abort at the cap ends the stream; the caller's doesn't.
+          if (!limiter?.stopped || signal?.aborted) throw error
         } finally {
           stopper?.dispose()
-          meter?.destroy()
         }
-        const cut = !!meter?.reached
+        let cut = false
+        if (limiter && answerLimit !== undefined) {
+          // The generation has stopped, so the model is idle and measuring
+          // is instant: the exact trim, then the text held back up to it.
+          signal?.throwIfAborted()
+          const kept = await limiter.finish()
+          if (kept.held) yield* textEvents(kept.held)
+          cut = kept.reached
+          if (written.length > 0) {
+            // A call counts whole: one the cap cuts into is left out, as a
+            // cut-off call is with the other adapters. Calls come after the
+            // text, so a trim inside the text leaves none.
+            let fits = 0
+            while (!kept.trimmed && fits < written.length) {
+              const reply = [kept.text, ...written.slice(0, fits + 1).map((c) => toolCallText(c.name, c.arguments ?? {}))]
+                .filter(Boolean)
+                .join("\n")
+              if ((await limiter.measure(reply)) > answerLimit) break
+              fits++
+            }
+            if (fits < written.length) {
+              written = written.slice(0, fits)
+              cut = true
+            }
+          }
+        }
         if (first) {
           yield {
             type: EventType.TEXT_MESSAGE_END,
@@ -1121,43 +1153,49 @@ export class PromptApiTextAdapter extends BaseTextAdapter<
         if (answerLimit === 0) {
           cut = true
         } else if (answerLimit !== undefined) {
-          // Streamed and counted (for `structuredOutput` too, whose answer is
-          // still one delta), stopped by an internal abort at the cap.
-          const meter = await tokenMeter(session, answerLimit, signal)
+          // Streamed and estimated (for `structuredOutput` too, whose answer
+          // is still one delta), stopped by an internal abort a little past
+          // the cap, then trimmed exactly once the model is idle.
+          const limiter = await tokenLimiter(
+            session,
+            answerLimit,
+            calibrationSample([
+              textOfInput(input),
+              ...prior.slice().reverse().map((m) => textOfInput([m]))
+            ]),
+            signal
+          )
           const stopper = internalAbort(signal, CAP_REACHED)
-          let whole = ""
           try {
-            try {
-              for await (const chunk of session.promptStreaming(input, {
-                responseConstraint: outputSchema,
-                signal: stopper.signal
-              })) {
-                for (const piece of piecesOf(chunk)) {
-                  if (piece.type !== "text" || typeof piece.value !== "string" || !piece.value) continue
-                  const delta = await meter.push(piece.value)
-                  if (!stream) whole += delta
-                  else if (delta) {
-                    if (!rawText) yield textStart()
-                    yield textContent(delta)
-                  }
-                  if (meter.reached) break
-                }
-                if (meter.reached) {
-                  stopper.stop()
-                  break
-                }
+            for await (const chunk of session.promptStreaming(input, {
+              responseConstraint: outputSchema,
+              signal: stopper.signal
+            })) {
+              for (const piece of piecesOf(chunk)) {
+                if (piece.type !== "text" || typeof piece.value !== "string" || !piece.value) continue
+                const delta = limiter.push(piece.value)
+                if (!delta || !stream) continue
+                if (!rawText) yield textStart()
+                yield textContent(delta)
               }
-            } catch (error) {
-              if (!meter.reached || signal?.aborted) throw error
+              if (limiter.stopped) {
+                stopper.stop()
+                break
+              }
             }
-            cut = meter.reached
+          } catch (error) {
+            if (!limiter.stopped || signal?.aborted) throw error
           } finally {
             stopper.dispose()
-            meter.destroy()
           }
-          if (whole) {
-            yield textStart()
-            yield textContent(whole)
+          signal?.throwIfAborted()
+          const kept = await limiter.finish()
+          cut = kept.reached
+          // Streamed: the text held back; otherwise the whole answer, at once.
+          const rest = stream ? kept.held : kept.text
+          if (rest) {
+            if (!rawText) yield textStart()
+            yield textContent(rest)
           }
         } else if (stream) {
           for await (const chunk of session.promptStreaming(input, {
@@ -1255,7 +1293,8 @@ export class PromptApiTextAdapter extends BaseTextAdapter<
 
 /**
  * A guided generation on a copy of the session, freed after. Under a
- * `limit`, it streams, counted, and stops at the limit (`reached`).
+ * `limit`, it streams, estimated, stops a little past the limit, and is
+ * trimmed exactly to it (`reached`).
  */
 async function promptCopy(
   session: LanguageModelSession,
@@ -1269,28 +1308,27 @@ async function promptCopy(
     if (limit === undefined) {
       return { text: textOf(await copy.prompt(input, { ...options, signal })), reached: false }
     }
-    const meter = await tokenMeter(session, limit, signal)
+    // Calibrated, and measured after, on the session: the copy generates.
+    const limiter = await tokenLimiter(session, limit, calibrationSample([textOfInput(input)]), signal)
     const stopper = internalAbort(signal, CAP_REACHED)
     try {
-      try {
-        for await (const chunk of copy.promptStreaming(input, { ...options, signal: stopper.signal })) {
-          for (const piece of piecesOf(chunk)) {
-            if (piece.type === "text" && typeof piece.value === "string") await meter.push(piece.value)
-            if (meter.reached) break
-          }
-          if (meter.reached) {
-            stopper.stop()
-            break
-          }
+      for await (const chunk of copy.promptStreaming(input, { ...options, signal: stopper.signal })) {
+        for (const piece of piecesOf(chunk)) {
+          if (piece.type === "text" && typeof piece.value === "string") limiter.push(piece.value)
         }
-      } catch (error) {
-        if (!meter.reached || signal?.aborted) throw error
+        if (limiter.stopped) {
+          stopper.stop()
+          break
+        }
       }
-      return { text: meter.text, reached: meter.reached }
+    } catch (error) {
+      if (!limiter.stopped || signal?.aborted) throw error
     } finally {
       stopper.dispose()
-      meter.destroy()
     }
+    signal?.throwIfAborted()
+    const kept = await limiter.finish()
+    return { text: kept.text, reached: kept.reached }
   } finally {
     copy.destroy()
   }

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict"
-import { beforeEach, test } from "node:test"
+import { afterEach, beforeEach, test } from "node:test"
 
 import { chat } from "@tanstack/ai"
 import type { TextOptions } from "@tanstack/ai"
@@ -38,8 +38,27 @@ const control = {
   failure: undefined as unknown,
   /** Called before each streamed answer piece. */
   beforePiece: noop as (index: number) => void,
-  destroyed: 0
+  destroyed: 0,
+  /** Tokens per character for the fake tokenizer (1 by default). */
+  weight: (() => 1) as (char: string) => number,
+  /** Pieces each kind of generation wrote, stopped or not. */
+  produced: { draft: 0, stream: 0 },
+  /** Measurements or clones asked for while a generation was running. */
+  whileBusy: 0
 }
+
+/**
+ * The browser's one model, which runs one operation at a time, as Chrome's
+ * does: measuring or cloning while a generation runs waits for it to end.
+ */
+const model = { busy: undefined as Promise<void> | undefined }
+async function idle() {
+  if (model.busy) control.whileBusy++
+  while (model.busy) await model.busy
+}
+const generating = () => model.busy !== undefined
+const tokensOf = (text: string) =>
+  Math.ceil(Array.from(text).reduce((sum, char) => sum + control.weight(char), 0))
 
 const textOf = (input: unknown): string =>
   typeof input === "string"
@@ -54,50 +73,78 @@ class FakeSession extends EventTarget {
   contextUsage = 40
   readonly contextWindow = 9216
   async clone() {
+    await idle()
     return new FakeSession()
   }
   destroy() {
     control.destroyed++
   }
   async append(input: unknown) {
+    await idle()
     this.contextUsage += textOf(input).length
   }
   async measureContextUsage(input: unknown) {
+    await idle()
     control.measured.push(textOf(input))
-    return textOf(input).length
+    return tokensOf(textOf(input))
   }
   async prompt(input: unknown, options: Record<string, unknown> = {}) {
+    await idle()
     control.calls.push({ kind: "prompt", input, options })
     if (control.failure) throw control.failure
     return control.answer.map(textOf).join("")
   }
+  /**
+   * Writes on its own, a piece per macrotask, whether or not anyone reads,
+   * until the reply ends, the signal aborts or the stream is cancelled.
+   */
   promptStreaming(input: unknown, options: Record<string, unknown> = {}) {
     const draft = textOf(input).includes("Write short working notes")
-    control.calls.push({ kind: draft ? "draft" : "stream", input, options })
+    const kind = draft ? "draft" : "stream"
+    control.calls.push({ kind, input, options })
     const signal = options.signal as AbortSignal | undefined
     const pieces = draft ? control.notes : control.answer
-    let index = 0
-    return new ReadableStream<unknown>(
-      {
-        pull(controller) {
-          if (!draft && control.failure) {
-            controller.error(control.failure)
-            return
-          }
-          if (!draft) control.beforePiece(index)
-          if (signal?.aborted) {
-            controller.error(signal.reason)
-            return
-          }
-          if (index >= pieces.length) {
+    const previous = model.busy
+    let done: () => void = noop
+    const busy = new Promise<void>((resolve) => { done = resolve })
+    model.busy = busy
+    let ended = false
+    const end = () => {
+      if (ended) return
+      ended = true
+      if (model.busy === busy) model.busy = undefined
+      done()
+    }
+    return new ReadableStream<unknown>({
+      start(controller) {
+        signal?.addEventListener("abort", () => {
+          if (ended) return
+          end()
+          controller.error(signal.reason)
+        }, { once: true })
+        void (async () => {
+          await previous
+          try {
+            if (!draft && control.failure) throw control.failure
+            for (let index = 0; index < pieces.length; index++) {
+              await new Promise((resolve) => setImmediate(resolve))
+              if (ended) return
+              if (!draft) control.beforePiece(index)
+              signal?.throwIfAborted()
+              control.produced[kind]++
+              controller.enqueue(pieces[index])
+            }
+            end()
             controller.close()
-            return
+          } catch (error) {
+            if (ended) return
+            end()
+            controller.error(error)
           }
-          controller.enqueue(pieces[index++])
-        }
+        })()
       },
-      { highWaterMark: 0 }
-    )
+      cancel: end
+    })
   }
 }
 
@@ -115,6 +162,15 @@ beforeEach(() => {
   control.failure = undefined
   control.beforePiece = noop
   control.destroyed = 0
+  control.weight = () => 1
+  control.produced = { draft: 0, stream: 0 }
+  control.whileBusy = 0
+  model.busy = undefined
+})
+
+afterEach(() => {
+  // Chrome would make such a call wait for the whole reply.
+  assert.equal(control.whileBusy, 0, "nothing measured or cloned while generating")
 })
 
 const options = (extra: Record<string, unknown> = {}) => ({
@@ -330,7 +386,21 @@ const streamSignals = () =>
     .filter((c) => c.kind === "stream")
     .map((c) => c.options.signal as AbortSignal)
 
-test("chatStream stops at maxCompletionTokens with finishReason length, by an internal abort only", async () => {
+/** Each text delta, and whether the model was still generating when it arrived. */
+async function collectTimed(source: AsyncIterable<unknown>) {
+  const chunks: Array<Chunk> = []
+  const live: Array<{ delta: string; generating: boolean }> = []
+  for await (const chunk of source) {
+    const c = chunk as Chunk
+    chunks.push(c)
+    if (c.type === "TEXT_MESSAGE_CONTENT" || c.type === "REASONING_MESSAGE_CONTENT") {
+      live.push({ delta: String(c.delta), generating: generating() })
+    }
+  }
+  return { chunks, live }
+}
+
+test("chatStream stops at maxCompletionTokens with finishReason length, by an internal abort only", { timeout: 5000 }, async () => {
   control.answer = ["Hello ", "there, ", "world!"]
   const controller = new AbortController()
   const chunks = await collect(
@@ -341,6 +411,7 @@ test("chatStream stops at maxCompletionTokens with finishReason length, by an in
       })
     )
   )
+  // Trimmed exactly to the cap after the generation stopped.
   assert.equal(textIn(chunks), "Hello th")
   const finished = chunks.at(-1)
   assert.equal(finished?.type, "RUN_FINISHED")
@@ -348,28 +419,101 @@ test("chatStream stops at maxCompletionTokens with finishReason length, by an in
   assert.equal(controller.signal.aborted, false, "the caller's signal is never aborted")
   const [signal] = streamSignals()
   assert.notEqual(signal, controller.signal)
-  assert.equal(signal.aborted, true, "the cap aborts the generation")
+  assert.equal(signal.aborted, true, "the estimate past the cap aborts the generation")
   const details = detailsOf(finished)
   assert.equal(details.outputTokenLimit, 8)
   assert.equal(details.outputTokenLimitReached, true)
   assert.equal(details.outputTokenLimitEnforcement, "best-effort")
-  assert.equal(details.outputTokenMeasurement, "context-usage")
+  assert.equal(details.outputTokenMeasurement, "estimate-then-context-usage")
   assert.equal((finished?.usage as { completionTokens: number }).completionTokens, 8)
-  // Text under the cap ("Hello ") was never measured; the rest was searched.
-  assert.ok(!control.measured.includes("Hello "))
-  assert.ok(control.measured.length < 10, `measured ${control.measured.length} times`)
 })
 
-test("chatStream under maxCompletionTokens never measures mid-stream and finishes with stop", async () => {
-  control.answer = ["Hello ", "there, ", "world!"]
+test("the cap stops a long reply early: text streams live under the cap, the trimmed rest after the stop", { timeout: 5000 }, async () => {
+  control.answer = Array.from({ length: 200 }, () => "word ")
+  const { chunks, live } = await collectTimed(
+    promptApiText().chatStream(chatOptions({ modelOptions: { maxCompletionTokens: 20 } }))
+  )
+  // Stopped once the estimate passed 1.25 × 20 + 8 = 33 tokens (7 pieces),
+  // not after the whole reply.
+  assert.ok(control.produced.stream <= 8, `wrote ${control.produced.stream} of 200 pieces`)
+  assert.equal(textIn(chunks), "word word word word ")
+  // Live while the estimate is within 0.75 × 20 = 15; the rest once stopped.
+  assert.deepEqual(live, [
+    { delta: "word ", generating: true },
+    { delta: "word ", generating: true },
+    { delta: "word ", generating: true },
+    { delta: "word ", generating: false }
+  ])
+  assert.equal(chunks.at(-1)?.finishReason, "length")
+  assert.equal((chunks.at(-1)?.usage as { completionTokens: number }).completionTokens, 20)
+})
+
+test("the estimate is calibrated on the request's text before generating", { timeout: 5000 }, async () => {
+  // Two characters a token everywhere: "word " pieces estimate at 2.5 tokens.
+  control.weight = () => 0.5
+  control.answer = Array.from({ length: 200 }, () => "word ")
   const chunks = await collect(
+    promptApiText().chatStream(
+      chatOptions({
+        messages: [{ role: "user", content: "Write a long story about a fox, with plenty of detail in every part." }],
+        modelOptions: { maxCompletionTokens: 20 }
+      })
+    )
+  )
+  // Calibration measured the empty message and the request's text, idle.
+  assert.deepEqual(control.measured.slice(0, 2), [
+    "",
+    "Write a long story about a fox, with plenty of detail in every part."
+  ])
+  // Stop line 33 tokens = 14 pieces at 2.5 each; the trim keeps 40 characters.
+  assert.ok(control.produced.stream <= 15, `wrote ${control.produced.stream} pieces`)
+  assert.equal(textIn(chunks), "word ".repeat(8))
+  assert.equal(chunks.at(-1)?.finishReason, "length")
+})
+
+test("an estimate that runs high stops short of the cap: what there is, finishReason length", { timeout: 5000 }, async () => {
+  // The reply's "~" holds 8 per token; the calibration text 1 per token.
+  control.weight = (char) => (char === "~" ? 0.125 : 1)
+  control.answer = Array.from({ length: 50 }, () => "~".repeat(10))
+  const chunks = await collect(
+    promptApiText().chatStream(chatOptions({ modelOptions: { maxCompletionTokens: 20 } }))
+  )
+  assert.ok(control.produced.stream <= 5, `wrote ${control.produced.stream} pieces`)
+  assert.equal(textIn(chunks), "~".repeat(40))
+  const finished = chunks.at(-1)
+  // The limiter stopped the reply for the cap, so it reports the cap.
+  assert.equal(finished?.finishReason, "length")
+  assert.equal(detailsOf(finished).outputTokenLimitReached, true)
+  assert.equal((finished?.usage as { completionTokens: number }).completionTokens, 5)
+})
+
+test("text already sent live is never taken back when the estimate ran low", { timeout: 5000 }, async () => {
+  // "#" is 4 tokens a character: live text passes the cap before the estimate does.
+  control.weight = (char) => (char === "#" ? 4 : 1)
+  control.answer = ["##", "##", "##", "##", "##", "##", "##", "##"]
+  const chunks = await collect(
+    promptApiText().chatStream(chatOptions({ modelOptions: { maxCompletionTokens: 20 } }))
+  )
+  assert.equal(textIn(chunks), "#".repeat(14))
+  assert.equal(chunks.at(-1)?.finishReason, "length")
+})
+
+test("chatStream under maxCompletionTokens never measures mid-stream and finishes with stop", { timeout: 5000 }, async () => {
+  control.answer = ["Hello ", "there, ", "world!"]
+  const { chunks, live } = await collectTimed(
     promptApiText().chatStream(chatOptions({ modelOptions: { maxCompletionTokens: 100 } }))
   )
   assert.equal(textIn(chunks), "Hello there, world!")
+  // Each piece streams as it's written: nothing is held back.
+  assert.deepEqual(live.map((d) => d.delta), ["Hello ", "there, ", "world!"])
+  assert.equal(live[0].generating, true)
   assert.equal(chunks.at(-1)?.finishReason, "stop")
   assert.equal(detailsOf(chunks.at(-1)).outputTokenLimitReached, false)
-  // Only the finished reply is measured, for usage, as without a cap.
-  assert.deepEqual(control.measured, ["Hello there, world!"])
+  assert.equal(control.produced.stream, 3)
+  // Calibration (the empty message, the request) before; the reply after.
+  assert.deepEqual(control.measured.slice(0, 1), [""])
+  assert.ok(control.measured[1].startsWith("Say hello"))
+  assert.deepEqual(control.measured.slice(2), ["Hello there, world!", "Hello there, world!"])
 })
 
 test("chatStream without maxCompletionTokens passes the caller's signal and reports no cap", async () => {
@@ -380,6 +524,8 @@ test("chatStream without maxCompletionTokens passes the caller's signal and repo
   )
   assert.equal(streamSignals()[0], controller.signal)
   assert.equal("outputTokenLimit" in detailsOf(chunks.at(-1)), false)
+  // No calibration: only the finished reply is measured, for usage.
+  assert.deepEqual(control.measured, ["Hello"])
 })
 
 test("invalid maxCompletionTokens and parallelToolCalls throw before any session work", async () => {
@@ -472,6 +618,54 @@ test("maxCompletionTokens covers emulated reasoning: the draft and the answer sh
   assert.equal(details.thinkingTokens, 8)
   assert.equal(details.thinkingBudgetExhausted, false, "the cap, not a thinking budget, stopped it")
   assert.equal(control.calls.filter((c) => c.kind === "stream").length, 0)
+})
+
+test("a thinking budget stops the draft early by estimate and trims the notes exactly", { timeout: 5000 }, async () => {
+  control.notes = Array.from({ length: 200 }, () => "note ")
+  control.answer = ["Hello"]
+  const { chunks, live } = await collectTimed(
+    promptApiText().chatStream(chatOptions({ reasoning: { level: "high", budgetTokens: 10 } }))
+  )
+  // Stopped once the estimate passed 1.25 × 10 + 8 = 20.5 tokens (5 pieces).
+  assert.ok(control.produced.draft <= 6, `the draft wrote ${control.produced.draft} of 200 pieces`)
+  const thoughts = chunks.filter((c) => c.type === "REASONING_MESSAGE_CONTENT")
+  assert.equal(thoughts.map((c) => c.delta).join(""), "note note ")
+  // Live within 0.75 × 10; the rest once the draft stopped.
+  assert.deepEqual(live.slice(0, 2), [
+    { delta: "note ", generating: true },
+    { delta: "note ", generating: false }
+  ])
+  const details = detailsOf(chunks.at(-1))
+  assert.equal(details.thinkingTokens, 10)
+  assert.equal(details.thinkingBudgetTokens, 10)
+  assert.equal(details.thinkingBudgetExhausted, true)
+  const draft = control.calls.find((c) => c.kind === "draft")
+  assert.equal((draft?.options.signal as AbortSignal).aborted, true)
+  const answer = control.calls.find((c) => c.kind === "stream")
+  assert.match(textOf(answer?.input), /Working notes[^]*note note \n/)
+  assert.equal(textIn(chunks), "Hello")
+  assert.equal(chunks.at(-1)?.finishReason, "stop")
+})
+
+test("a draft stopped early by the shared cap leaves the answer the cap less its exact tokens", { timeout: 5000 }, async () => {
+  control.notes = Array.from({ length: 200 }, () => "note ")
+  control.answer = ["Hello ", "there"]
+  const chunks = await collect(
+    promptApiText().chatStream(
+      chatOptions({
+        reasoning: { level: "high", budgetTokens: 10 },
+        modelOptions: { maxCompletionTokens: 14 }
+      })
+    )
+  )
+  assert.ok(control.produced.draft <= 6, `the draft wrote ${control.produced.draft} pieces`)
+  const details = detailsOf(chunks.at(-1))
+  assert.equal(details.thinkingTokens, 10)
+  assert.equal(details.thinkingBudgetExhausted, true)
+  // 14 − 10 = 4 tokens for the answer.
+  assert.equal(textIn(chunks), "Hell")
+  assert.equal(chunks.at(-1)?.finishReason, "length")
+  assert.equal(details.outputTokenLimitReached, true)
 })
 
 /** Runs `body` with the browser's native tool-use classes defined. */

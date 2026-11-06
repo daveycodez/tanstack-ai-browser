@@ -11,7 +11,7 @@ const {build}=await import(pathToFileURL(require.resolve("esbuild")).href) as ty
 const temporary=await mkdtemp(join(tmpdir(),"prompt-reasoning-contract-"))
 after(()=>rm(temporary,{recursive:true,force:true}))
 type Event={kind:string;session?:number;input?:unknown;options?:Record<string,unknown>;value?:number}
-const control={sessions:[] as FakeSession[],events:[] as Event[],chunks:["abc","def","ghi"],controller:undefined as AbortController|undefined,abortDraft:false,abortFinal:false,discards:0,releases:0,leases:[] as Array<Record<string,unknown>>}
+const control={sessions:[] as FakeSession[],events:[] as Event[],chunks:["abc","def","ghi"],produced:0,controller:undefined as AbortController|undefined,abortDraft:false,abortFinal:false,discards:0,releases:0,leases:[] as Array<Record<string,unknown>>}
 function text(input:unknown):string {
  if(typeof input==="string")return input
  if(Array.isArray(input))return input.map(text).join("")
@@ -21,16 +21,23 @@ function text(input:unknown):string {
  }
  return ""
 }
+// The browser's one model runs one operation at a time, as Chrome's does: a
+// measurement or clone asked for while a generation runs waits for it to end
+// (here, a stream ends only when read to the end, aborted or cancelled, so a
+// mid-stream measurement hangs the test until its timeout).
+const model={busy:undefined as Promise<void>|undefined}
+const generating=()=>model.busy!==undefined
+async function idle(){while(model.busy)await model.busy}
 class FakeSession {
  readonly id=control.sessions.length
  readonly contextUsage=50
  readonly contextWindow=8192
  destroyed=false
  constructor(readonly nativeTools=false){control.sessions.push(this)}
- async clone(options?:Record<string,unknown>){control.events.push({kind:"clone",session:this.id,options});return new FakeSession(this.nativeTools)}
+ async clone(options?:Record<string,unknown>){control.events.push({kind:generating()?"clone-while-generating":"clone",session:this.id,options});await idle();return new FakeSession(this.nativeTools)}
  destroy(){this.destroyed=true;control.events.push({kind:"destroy",session:this.id})}
  async append(input:unknown,options?:Record<string,unknown>){control.events.push({kind:"append",session:this.id,input,options})}
- async measureContextUsage(input:unknown,options?:Record<string,unknown>){const value=10+text(input).length;control.events.push({kind:"measure",session:this.id,input,options,value});return value}
+ async measureContextUsage(input:unknown,options?:Record<string,unknown>){const value=10+text(input).length;control.events.push({kind:generating()?"measure-while-generating":"measure",session:this.id,input,options,value});await idle();return value}
  promptStreaming(input:unknown,options:Record<string,unknown>={}){
   const draft=text(input).includes("Write short working notes")
   // A constrained stream answers like prompt(), in pieces: the structured-output stream.
@@ -40,12 +47,17 @@ class FakeSession {
   if(constrained&&control.abortFinal)control.controller?.abort(new Error("caller cancelled final"))
   const chunks:unknown[]=draft?control.chunks:constrained?['{"moveId":','"b6-a5"}']:this.nativeTools?[{type:"tool-call",value:{callId:"native-call",name:"lookup_weather",arguments:{city:"London"}}}]:["plain answer"]
   let index=0
+  let done=()=>undefined as void
+  const busy=new Promise<void>(resolve=>{done=resolve})
+  model.busy=busy
+  const end=()=>{if(model.busy===busy)model.busy=undefined;done();control.events.push({kind:"end",session:this.id})}
   return new ReadableStream<unknown>({pull(controller){
    if(draft&&control.abortDraft&&index===1){control.abortDraft=false;control.controller?.abort(new Error("caller cancelled draft"))}
-   if(signal?.aborted){controller.error(signal.reason);return}
-   if(index>=chunks.length){controller.close();return}
+   if(signal?.aborted){end();controller.error(signal.reason);return}
+   if(index>=chunks.length){end();controller.close();return}
+   if(draft)control.produced++
    controller.enqueue(chunks[index++])
-  }},{highWaterMark:0}) as ReadableStream<unknown>&AsyncIterable<unknown>
+  },cancel:end},{highWaterMark:0}) as ReadableStream<unknown>&AsyncIterable<unknown>
  }
  async prompt(input:unknown,options:Record<string,unknown>={}){
   control.events.push({kind:"final",session:this.id,input,options})
@@ -86,7 +98,7 @@ async function streamed(request:ReturnType<typeof options>){
  if(!finished?.usage)throw new Error("no RUN_FINISHED usage")
  return {chunks,thoughts:chunks.filter(c=>c.type==="REASONING_MESSAGE_CONTENT").map(c=>c.delta).join(""),data:complete?.value?.object,reasoning:complete?.value?.reasoning,usage:finished.usage}
 }
-function reset(){control.sessions=[];control.events=[];control.controller=new AbortController();control.chunks=["abc","def","ghi"];control.abortDraft=false;control.abortFinal=false;control.discards=0;control.releases=0;control.leases=[]}
+function reset(){model.busy=undefined;control.produced=0;control.sessions=[];control.events=[];control.controller=new AbortController();control.chunks=["abc","def","ghi"];control.abortDraft=false;control.abortFinal=false;control.discards=0;control.releases=0;control.leases=[]}
 
 test("Prompt API off/omitted reasoning remains one native constrained pass",async()=>{
  for(const reasoning of [undefined,{level:"off",summary:true,budgetTokens:4}]){
@@ -99,7 +111,7 @@ test("Prompt API off/omitted reasoning remains one native constrained pass",asyn
  }
 })
 
-test("emulated Prompt API budget subtracts message overhead and never aborts the final caller",async()=>{
+test("emulated Prompt API budget subtracts message overhead and never aborts the final caller",{timeout:5000},async()=>{
  reset()
  const response=await streamed(options({level:"high",summary:true,budgetTokens:4}))
  const thoughts=response.thoughts
@@ -125,14 +137,42 @@ test("emulated Prompt API budget subtracts message overhead and never aborts the
  assert.equal(details.thinkingBudgetTokens,4)
  assert.equal(details.thinkingBudgetExhausted,true)
  assert.ok(control.events.some(e=>e.kind==="measure"&&text(e.input)===""&&e.value===10))
+ // Calibrated on the draft's prompt before it starts; measured exactly after it ends; never during.
+ const kinds=control.events.map(e=>e.kind)
+ const start=kinds.indexOf("draft"),end=kinds.indexOf("end",start)
+ assert.ok(start>0&&end>start)
+ assert.equal(control.events.slice(start,end).filter(e=>e.kind.startsWith("measure")||e.kind.startsWith("clone")).length,0)
+ assert.ok(control.events.slice(0,start).some(e=>e.kind==="measure"&&/Write short working notes/.test(text(e.input))),"the draft's prompt calibrates the estimate")
+ assert.ok(control.events.slice(end).some(e=>e.kind==="measure"&&text(e.input)==="abcdefghi"),"the whole draft is measured once it ends")
+ assert.ok(!kinds.some(k=>k.endsWith("-while-generating")))
 })
 
-test("emulated thinking with no budget has no invented token ceiling",async()=>{
+test("emulated Prompt API budget stops a long draft early by estimate, then trims the notes exactly",{timeout:5000},async()=>{
+ reset();control.chunks=Array.from({length:100},()=>"abc")
+ const response=await streamed(options({level:"high",summary:true,budgetTokens:4}))
+ // Stopped once the estimate passed 1.25 × 4 + 8 = 13 tokens: 5 chunks of 100.
+ assert.ok(control.produced<=6,`the draft wrote ${control.produced} chunks`)
+ assert.equal(response.thoughts,"abca")
+ assert.equal(response.reasoning,"abca")
+ assert.deepEqual(response.data,{moveId:"b6-a5"})
+ const details=response.usage.providerUsageDetails
+ assert.equal(details.thinkingTokens,4)
+ assert.equal(details.thinkingBudgetExhausted,true)
+ assert.equal(caller().signal.aborted,false)
+ assert.ok(!control.events.some(e=>e.kind.endsWith("-while-generating")))
+})
+
+test("emulated thinking with no budget has no invented token ceiling",{timeout:5000},async()=>{
  reset()
  const response=await streamed(options({level:"high",summary:true}))
  assert.equal(response.thoughts,"abcdefghi")
  assert.equal(response.usage.providerUsageDetails.thinkingBudgetTokens,undefined)
  assert.equal(response.usage.providerUsageDetails.thinkingBudgetExhausted,false)
+ assert.equal(response.usage.providerUsageDetails.thinkingTokens,9)
+ // No limit, no calibration: only the finished notes are measured.
+ const draft=control.events.findIndex(e=>e.kind==="draft")
+ assert.equal(control.events.slice(0,draft).filter(e=>e.kind==="measure").length,0)
+ assert.ok(!control.events.some(e=>e.kind.endsWith("-while-generating")))
 })
 
 test("caller abort before or during draft prevents final generation, via request.signal or legacy abortController",{timeout:5000},async()=>{
