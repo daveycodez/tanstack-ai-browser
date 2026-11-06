@@ -128,6 +128,12 @@ export type WllamaTextProviderOptions = {
   minP?: number
   /** Penalizes tokens already in the chat (llama.cpp's `repeat_penalty`; 1: off). */
   repetitionPenalty?: number
+  /**
+   * False keeps a reply to one tool call (llama.cpp's `parallel_tool_calls`,
+   * which constrains the model to a single call). True or left out: as many
+   * as the model writes, when its chat template supports several.
+   */
+  parallelToolCalls?: boolean
 }
 
 /**
@@ -307,8 +313,11 @@ function llamaSettings(
     frequencyPenalty,
     presencePenalty,
     seed,
-    stop
+    stop,
+    parallelToolCalls
   } = options ?? {}
+  if (parallelToolCalls !== undefined && typeof parallelToolCalls !== "boolean")
+    throw new TypeError("parallelToolCalls must be a boolean.")
   if (maxCompletionTokens !== undefined && (!Number.isSafeInteger(maxCompletionTokens) || maxCompletionTokens < 0))
     throw new RangeError("maxCompletionTokens must be a nonnegative safe integer.")
   if (!Number.isFinite(temperature) || temperature < 0)
@@ -418,6 +427,8 @@ export class WllamaTextAdapter<
     // The loaded model's, once it's loaded.
     let context = 0
     const timestamp = () => Date.now()
+    const tools = toTools(options.tools)
+    const parallel = options.modelOptions?.parallelToolCalls
 
     yield {
       type: EventType.RUN_STARTED,
@@ -431,6 +442,8 @@ export class WllamaTextAdapter<
     let reasoning: "none" | "open" | "closed" = "none"
     let text = ""
     let textStarted = false
+    /** With `parallelToolCalls: false`, the stream index of the one call kept. */
+    let onlyCall: number | undefined
     /** Tool calls by their index in the stream. */
     const toolCalls = new Map<
       number,
@@ -506,7 +519,8 @@ export class WllamaTextAdapter<
         model,
         {
           messages: toMessages(options.systemPrompts, options.messages),
-          ...(options.tools?.length && { tools: toTools(options.tools) }),
+          ...(tools.length && { tools }),
+          ...(tools.length && parallel !== undefined && { parallel_tool_calls: parallel }),
           ...this.settings(options.modelOptions, options.promptCache),
           ...thinking
         },
@@ -556,6 +570,9 @@ export class WllamaTextAdapter<
         if (delta.content) yield* addText(delta.content)
 
         for (const part of delta.tool_calls ?? []) {
+          // llama.cpp's grammar allows one call then; its parsers for some
+          // templates might still return more, so the first is kept here too.
+          if (parallel === false && (onlyCall ??= part.index) !== part.index) continue
           yield* endReasoning()
           let call = toolCalls.get(part.index)
           if (!call) {

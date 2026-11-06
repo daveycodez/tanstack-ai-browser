@@ -27,7 +27,7 @@ if (await isApfelAvailable("apple-foundationmodel", config)) {
 
 `baseURL` is apfel's OpenAI-compatible API, up to `/v1`; `APFEL_BASE_URL` is apfel's default address. `defaultHeaders` adds headers to every request, such as a bearer token. Omitted reasoning or `reasoning: "off"` preserves ordinary single-pass behavior. `"high"` opts into adapter-emulated working notes, described below.
 
-`modelOptions` uses TanStack's OpenRouter adapter's names (the OpenRouter SDK's camelCase chat request) for what Apple's model takes: `maxCompletionTokens` (the reply's output cap, sent as `max_tokens`), `temperature`, `topP` (sent as `top_p`) and `seed`. apfel rejects `frequencyPenalty`, `presencePenalty` and `stop` with HTTP 400, so the adapter doesn't take them.
+`modelOptions` uses TanStack's OpenRouter adapter's names (the OpenRouter SDK's camelCase chat request) for what Apple's model takes: `maxCompletionTokens` (the reply's output cap, sent as `max_tokens`), `temperature`, `topP` (sent as `top_p`), `seed` and `parallelToolCalls` (sent as `parallel_tool_calls` with tools: false keeps one tool call, which apfel honours, and the adapter keeps only the first of any it reads from the reply's text too). apfel rejects `frequencyPenalty`, `presencePenalty` and `stop` with HTTP 400, so the adapter doesn't take them.
 
 ## Opt-in emulated reasoning
 

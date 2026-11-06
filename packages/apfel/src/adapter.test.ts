@@ -337,3 +337,103 @@ test("chat({ outputSchema, stream: true }) runs end to end on the adapter's stre
   })
   assert.deepEqual(value, { moveId: "b6-a5" })
 })
+
+test("parallelToolCalls goes to apfel with tools, and false keeps one tool call", async () => {
+  const tools = [
+    {
+      name: "get_weather",
+      description: "Weather for a city",
+      inputSchema: { type: "object", properties: { city: { type: "string" } }, required: ["city"] }
+    }
+  ]
+  const call = (index: number, city: string) => ({
+    index,
+    id: `call_${index + 1}`,
+    type: "function",
+    function: { name: "get_weather", arguments: JSON.stringify({ city }) }
+  })
+  /** The model's reply: two calls streamed, or as JSON text apfel didn't recognize. */
+  let reply: "streamed" | "text" = "streamed"
+  globalThis.fetch = async (_url, init = {}) => {
+    const body = JSON.parse(String(init.body)) as Body
+    server.requests.push({ body, init })
+    // Argument repair fails, so the model's own arguments stand.
+    if (!body.stream) return new Response("{}", { status: 500 })
+    return sse(
+      reply === "streamed"
+        ? [
+            { choices: [{ delta: { tool_calls: [call(0, "Tokyo")] } }] },
+            { choices: [{ delta: { tool_calls: [call(1, "Paris")] }, finish_reason: "tool_calls" }] }
+          ]
+        : [
+            {
+              choices: [
+                {
+                  delta: {
+                    content:
+                      '{"tool_calls": [{"function": "get_weather", "arguments": {"city": "Tokyo"}}, {"function": "get_weather", "arguments": {"city": "Paris"}}]}'
+                  },
+                  finish_reason: "stop"
+                }
+              ]
+            }
+          ]
+    )
+  }
+  const run = (modelOptions: ApfelModelOptions) =>
+    collect(
+      adapter().chatStream({
+        model: "apple-foundationmodel",
+        logger,
+        threadId: "thread",
+        messages: [{ role: "user", content: "Weather in Tokyo and Paris?" }],
+        tools,
+        modelOptions
+      })
+    )
+  const toolEvents = (chunks: Array<Chunk>) => typesOf(chunks).filter((t) => t.startsWith("TOOL_CALL_"))
+  const cities = (chunks: Array<Chunk>) =>
+    chunks.filter((c) => c.type === "TOOL_CALL_END").map((c) => (c.input as { city: string }).city)
+
+  const single = await run({ parallelToolCalls: false })
+  assert.equal(server.requests[0]?.body.parallel_tool_calls, false)
+  assert.deepEqual(toolEvents(single), ["TOOL_CALL_START", "TOOL_CALL_ARGS", "TOOL_CALL_END"])
+  assert.deepEqual(cities(single), ["Tokyo"])
+  assert.equal(single.at(-1)?.finishReason, "tool_calls")
+  assert.equal(server.requests.length, 2, "only the kept call's arguments are repaired")
+
+  for (const [modelOptions, sent] of [[{ parallelToolCalls: true }, true], [{}, undefined]] as const) {
+    server.requests = []
+    const chunks = await run(modelOptions)
+    assert.equal(server.requests[0]?.body.parallel_tool_calls, sent)
+    assert.equal("parallel_tool_calls" in (server.requests[0]?.body ?? {}), sent !== undefined)
+    assert.deepEqual(cities(chunks), ["Tokyo", "Paris"])
+  }
+
+  reply = "text"
+  server.requests = []
+  assert.deepEqual(cities(await run({ parallelToolCalls: false })), ["Tokyo"], "calls read from the text too")
+  assert.deepEqual(cities(await run({})), ["Tokyo", "Paris"])
+
+  server.requests = []
+  await assert.rejects(
+    run({ parallelToolCalls: 0 as unknown as boolean }),
+    /parallelToolCalls must be a boolean/
+  )
+  assert.equal(server.requests.length, 0)
+})
+
+test("parallelToolCalls isn't sent without tools", async () => {
+  await collect(
+    adapter().chatStream({
+      model: "apple-foundationmodel",
+      logger,
+      threadId: "thread",
+      messages: [{ role: "user", content: "Hi" }],
+      modelOptions: { parallelToolCalls: false }
+    })
+  )
+  assert.equal("parallel_tool_calls" in (server.requests[0]?.body ?? {}), false)
+  await adapter().structuredOutput(options({ modelOptions: { parallelToolCalls: false } }))
+  assert.equal("parallel_tool_calls" in (server.requests[1]?.body ?? {}), false)
+})

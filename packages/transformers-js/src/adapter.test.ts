@@ -276,6 +276,48 @@ test("valid native auto arguments emit directly without an extra model call", as
   } finally { unloadModel() }
 })
 
+test("parallelToolCalls false emits only the first native tool call; true and unset emit every call", async () => {
+  const { transformersJsText } = await import("./adapter.js")
+  const { unloadModel } = await import("./client.js")
+  const { formatLfm2ToolCalls } = await import("./tool-calls.js")
+  const tools = [{ name: "lookup", description: "Lookup", inputSchema: { type: "object", properties: { query: { type: "string" } }, required: ["query"], additionalProperties: false } }]
+  unloadModel(); let requests = 0
+  FakeWorker.generate = (worker, request) => {
+    requests++
+    // The second call's arguments are invalid: dropping it must not repair it.
+    worker.send({ type: "token", id: request.id, text: formatLfm2ToolCalls([{ name: "lookup", args: { query: "first" } }, { name: "lookup", args: { query: 2 } }, { name: "lookup", args: { query: "third" } }]) })
+    worker.send({ type: "done", id: request.id, stats })
+  }
+  try {
+    const adapter = transformersJsText(MODEL)
+    const run = async (modelOptions: TransformersJsTextProviderOptions) => {
+      const chunks = []
+      for await (const chunk of adapter.chatStream({ ...options(), tools, modelOptions })) chunks.push(chunk)
+      return chunks
+    }
+    const single = await run({ parallelToolCalls: false })
+    assert.equal(requests, 1, "no repair call for the dropped calls")
+    assert.deepEqual(single.filter(c => c.type.startsWith("TOOL_CALL_")).map(c => c.type), ["TOOL_CALL_START", "TOOL_CALL_ARGS", "TOOL_CALL_END"])
+    const end = single.find(c => c.type === "TOOL_CALL_END")
+    assert.ok(end && end.type === "TOOL_CALL_END")
+    assert.deepEqual(end.input, { query: "first" })
+    assert.ok(single.some(c => c.type === "RUN_FINISHED" && c.finishReason === "tool_calls"))
+    FakeWorker.generate = (worker, request) => {
+      requests++
+      worker.send({ type: "token", id: request.id, text: formatLfm2ToolCalls([{ name: "lookup", args: { query: "first" } }, { name: "lookup", args: { query: "second" } }]) })
+      worker.send({ type: "done", id: request.id, stats })
+    }
+    for (const modelOptions of [{ parallelToolCalls: true }, {}]) {
+      const chunks = await run(modelOptions)
+      assert.equal(chunks.filter(c => c.type === "TOOL_CALL_START").length, 2)
+      assert.deepEqual(chunks.filter(c => c.type === "TOOL_CALL_END").map(c => c.type === "TOOL_CALL_END" && c.input), [{ query: "first" }, { query: "second" }])
+    }
+    const before = requests
+    await assert.rejects(async () => { for await (const chunk of adapter.chatStream({ ...options(), tools, modelOptions: { parallelToolCalls: "no" as unknown as boolean } })) assert.ok(chunk) }, /parallelToolCalls must be a boolean/)
+    assert.equal(requests, before, "an invalid option never reaches the worker")
+  } finally { unloadModel() }
+})
+
 test("malformed native auto envelopes fail before any tool event", async () => {
   const { transformersJsText } = await import("./adapter.js")
   const { unloadModel } = await import("./client.js")

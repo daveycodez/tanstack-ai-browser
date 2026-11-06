@@ -111,6 +111,11 @@ export type TransformersJsTextProviderOptions = {
   topK?: number
   /** Divides the scores of tokens already in the chat (1: off). */
   repetitionPenalty?: number
+  /**
+   * False keeps only the first tool call of a reply (the model still writes
+   * the rest; they're dropped). True or left out: every call it writes.
+   */
+  parallelToolCalls?: boolean
 }
 
 /**
@@ -184,8 +189,11 @@ function generationSettings(
     seed,
     frequencyPenalty,
     presencePenalty,
-    stop
+    stop,
+    parallelToolCalls
   } = options ?? {}
+  if (parallelToolCalls !== undefined && typeof parallelToolCalls !== "boolean")
+    throw new TypeError("parallelToolCalls must be a boolean.")
   if (maxCompletionTokens !== undefined && (!Number.isSafeInteger(maxCompletionTokens) || maxCompletionTokens < 0))
     throw new RangeError("maxCompletionTokens must be a nonnegative safe integer.")
   if (!Number.isFinite(temperature) || temperature < 0)
@@ -636,7 +644,9 @@ export class TransformersJsTextAdapter<
     endReasoning()
     const { text: rest, markup } = toolSplitter.flush()
     addText(rest)
-    const parsed = markup && options.tools?.length && options.toolChoice !== "none" ? parseToolCalls(markup) : []
+    const allParsed = markup && options.tools?.length && options.toolChoice !== "none" ? parseToolCalls(markup) : []
+    // parallelToolCalls: false keeps the first call only (before validating or repairing the rest).
+    const parsed = options.modelOptions?.parallelToolCalls === false ? allParsed.slice(0, 1) : allParsed
     const nativeTools = !!options.tools?.length && options.toolChoice !== "none"
     if (markup && parsed.length === 0 && !nativeTools) addText(markup)
     yield* events.splice(0)

@@ -90,11 +90,17 @@ export type ApfelModelOptions = {
   /** Nucleus sampling threshold, in (0, 1] (sent as `top_p`). */
   topP?: number
   seed?: number
+  /**
+   * False keeps a reply to one tool call (sent as `parallel_tool_calls`
+   * with tools). True or left out: as many as the model writes.
+   */
+  parallelToolCalls?: boolean
 }
 
-/** `modelOptions` as apfel's request fields. */
+/** `modelOptions` as apfel's request fields (`parallelToolCalls` aside: tool requests only). */
 function nativeModelOptions(options: ApfelModelOptions | undefined) {
-  const { maxCompletionTokens: limit, temperature, topP, seed } = options ?? {}
+  const { maxCompletionTokens: limit, temperature, topP, seed, parallelToolCalls } = options ?? {}
+  if (parallelToolCalls !== undefined && typeof parallelToolCalls !== "boolean") throw new TypeError("parallelToolCalls must be a boolean.")
   if (limit !== undefined && (!Number.isSafeInteger(limit) || limit < 0)) throw new RangeError("maxCompletionTokens must be a nonnegative safe integer.")
   return {
     ...(temperature !== undefined && { temperature }),
@@ -566,6 +572,8 @@ export class ApfelTextAdapter<TModel extends string> extends BaseTextAdapter<
     options: TextOptions<ApfelModelOptions>
   ): AsyncIterable<AdapterYieldChunk> {
     const emulation = reasoningOptions(options.reasoning)
+    // Invalid options throw here, before the run starts.
+    const sampling = nativeModelOptions(options.modelOptions)
     const runId = options.runId ?? nextId("run")
     const threadId = options.threadId
     const messageId = nextId("msg")
@@ -597,6 +605,7 @@ export class ApfelTextAdapter<TModel extends string> extends BaseTextAdapter<
 
     const tools = toOpenAITools(options.tools)
     const toolNames = new Set(tools.map((tool) => tool.function.name))
+    const parallel = options.modelOptions?.parallelToolCalls
     const send = options.wrapFetch ? options.wrapFetch(fetch) : fetch
     const url = `${this.baseURL}/chat/completions`
     logger.request(
@@ -619,7 +628,7 @@ export class ApfelTextAdapter<TModel extends string> extends BaseTextAdapter<
         method: "POST",
         headers: this.headers,
         body: JSON.stringify({
-          ...nativeModelOptions(options.modelOptions),
+          ...sampling,
           model,
           stream: true,
           // Token counts, for the stats.
@@ -630,7 +639,8 @@ export class ApfelTextAdapter<TModel extends string> extends BaseTextAdapter<
           ], draft.notes),
           ...(tools.length > 0 && {
             tools,
-            ...toolChoice(options.toolChoice)
+            ...toolChoice(options.toolChoice),
+            ...(parallel !== undefined && { parallel_tool_calls: parallel })
           })
         }),
         signal
@@ -827,7 +837,7 @@ export class ApfelTextAdapter<TModel extends string> extends BaseTextAdapter<
     // Calls to tools that don't exist are passed on too: `chat()` answers
     // them with an "Unknown tool" error, so the model can answer with what
     // it has instead of stopping there.
-    const calls = [
+    const found = [
       ...streamed.filter((call) => call?.name),
       ...fromText.map((call) => ({
         name: call.name,
@@ -837,6 +847,9 @@ export class ApfelTextAdapter<TModel extends string> extends BaseTextAdapter<
       ...call,
       name: matchToolName(call.name, toolNames) ?? call.name
     }))
+    // apfel keeps one call for `parallel_tool_calls: false`; calls read from
+    // the text are its model's own, so the first is kept here too.
+    const calls = parallel === false ? found.slice(0, 1) : found
     let repairMs = 0
     for (const [index, call] of calls.entries()) {
       const toolCallId = nextId("tool")

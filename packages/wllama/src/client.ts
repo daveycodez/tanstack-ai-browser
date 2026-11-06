@@ -698,7 +698,10 @@ export function contextError(error: unknown, context: number) {
 }
 
 /** A chat completion request, as llama.cpp's OpenAI-compatible API takes it. */
-export type ChatRequest = Omit<ChatCompletionParams, "stream" | "abortSignal">
+export type ChatRequest = Omit<ChatCompletionParams, "stream" | "abortSignal"> & {
+  /** llama.cpp's server reads it (wllama's types leave it out); its default is the chat template's support. */
+  parallel_tool_calls?: boolean
+}
 
 /** Cancel this caller's wait while the shared model download keeps filling its cache. */
 export async function waitForModel(model: WllamaTextModel, signal?: AbortSignal): Promise<Wllama> {

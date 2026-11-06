@@ -28,3 +28,4 @@ export { destroyPromptApiSessions } from "./sessions.js"
 export type { Store } from "./store.js"
 
 export type { PromptApiReasoning, PromptApiReasoningUsage } from "./reasoning.js"
+export type { PromptApiOutputLimitUsage } from "./limit.js"
