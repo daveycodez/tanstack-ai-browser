@@ -168,7 +168,7 @@ export async function chooseAiMove(
   }
 
   const thinkingSupport = opponentOption(opponent.model).thinking
-  if (isWebGlOpponent(opponent.model) && !(await isSupported())) {
+  if (isWebGlOpponent(opponent.model) && !isSupported()) {
     throw new Error(
       "This browser cannot run the local AI. Enable hardware acceleration and use a browser with WebGL 2 and OffscreenCanvas support."
     )

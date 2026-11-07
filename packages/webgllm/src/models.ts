@@ -93,7 +93,7 @@ export const webgllm = new WebGLLM({
  * Whether this browser can run the engine (WebGL 2 with float render
  * targets, in a worker), so `model` (any model in the catalog).
  */
-export async function isSupported(model?: WebGllmChatModel): Promise<boolean> {
+export function isSupported(model?: WebGllmChatModel): boolean {
   void model
   return WebGLLM.isSupported()
 }

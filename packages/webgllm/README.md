@@ -17,7 +17,7 @@ const stream = chat({
 })
 ```
 
-It needs WebGL 2 with float render targets (`EXT_color_buffer_float`) and OffscreenCanvas in workers, which current Chrome, Firefox and Safari have; `await isSupported()` checks.
+It needs WebGL 2 with float render targets (`EXT_color_buffer_float`) and OffscreenCanvas in workers, which current Chrome, Firefox and Safari have; `isSupported()` checks.
 
 The package is shaped like `@tanstack/ai-openrouter`'s text adapter. The root has `webgllmText(model, config?)`, `WebGllmTextAdapter`, `isSupported`, `loadModel`, `unloadModel`, `modelStatus`, `setMemoryBudget` and the types `WebGllmConfig`, `WebGllmTextModelOptions`, `WebGllmProviderUsageDetails`, `ModelStatus` and `Store`; `@tanstack-ai-browser/webgllm/model-meta` has the catalog (below).
 

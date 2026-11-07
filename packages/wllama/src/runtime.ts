@@ -14,7 +14,7 @@ export type { ModelStatus } from "./client.js"
  * runs in WebAssembly, on WebGPU where wllama can drive it and on the CPU
  * elsewhere, so wherever the browser has WebAssembly.
  */
-export async function isSupported(model?: WllamaChatModel): Promise<boolean> {
+export function isSupported(model?: WllamaChatModel): boolean {
   void model
   return typeof WebAssembly !== "undefined"
 }

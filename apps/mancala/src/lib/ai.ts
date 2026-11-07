@@ -181,7 +181,7 @@ export async function chooseAiMove(
   if (
     opponent.model !== "prompt-api" &&
     opponent.model !== APFEL_MODEL &&
-    !(await isSupported())
+    !isSupported()
   ) {
     throw new Error(
       "This browser cannot run the local model. Enable hardware acceleration and use a browser with WebGL 2 and OffscreenCanvas support."

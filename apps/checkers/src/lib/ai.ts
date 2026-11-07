@@ -166,7 +166,7 @@ export async function chooseAiMove(
 
   const opponent = resolveOpponent(game.opponent)
   const thinkingSupport = opponentOption(opponent.model).thinking
-  if (opponent.model !== "prompt-api" && opponent.model !== APFEL_MODEL && !(await isSupported())) {
+  if (opponent.model !== "prompt-api" && opponent.model !== APFEL_MODEL && !isSupported()) {
     throw new Error(
       "This browser cannot run the local AI. Enable hardware acceleration and use a browser with WebGL 2 and OffscreenCanvas support."
     )

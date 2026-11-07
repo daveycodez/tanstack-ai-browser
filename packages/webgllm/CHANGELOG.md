@@ -6,7 +6,7 @@
   - `WebGllmTextConfig` → `WebGllmConfig`
   - `WebGllmTextProviderOptions` → `WebGllmTextModelOptions`
   - `new WebGllmTextAdapter(model, config)` → `new WebGllmTextAdapter(config, model)`, as the other adapters
-  - `isSupported()` → `isSupported(model?)`, now returning a promise
+  - `isSupported()` → `isSupported(model?)`, still synchronous
   - `loadModel(model, contextLength?)` → `loadModel(model, { contextLength? })`
   - `WEBGL_TEXT_MODELS` → `WEBGLLM_CHAT_MODELS`, `WEBGL_MODEL_META` → `WEBGLLM_MODEL_META`, `WEBGL_MODEL_REASONING` → `WEBGLLM_MODEL_REASONING`, in `/model-meta`
   - `WebGlTextModel` → `WebGllmChatModel`, `WebGlModelMeta` → `WebGllmModelMeta`, `WebGlModelReasoningByName` → `WebGllmModelReasoningByName`, in `/model-meta`

@@ -433,7 +433,7 @@ export function useBackends(): Partial<Record<string, string>> {
  */
 const webGl2 = createStore(false)
 if (typeof window !== "undefined") {
-  void webglSupported().then(webGl2.set)
+  webGl2.set(webglSupported())
 }
 
 export const useHasWebGl2 = () =>
