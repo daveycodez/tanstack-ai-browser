@@ -1,31 +1,14 @@
 /**
  * TanStack AI adapter for the browser's built-in language model, through
- * the Prompt API: Gemini Nano in Chrome, Phi-4-mini in Edge.
+ * the Prompt API: Gemini Nano in Chrome, Phi-4-mini in Edge. The model
+ * catalog is in `@tanstack-ai-browser/prompt-api/model-meta`.
  */
 export { PromptApiTextAdapter, promptApiText } from "./adapter.js"
 export type {
-  PromptApiModelOptions,
+  PromptApiConfig,
   PromptApiProviderUsageDetails,
-  PromptApiTextConfig,
-  PromptApiTextModel
+  PromptApiTextModelOptions
 } from "./adapter.js"
-export {
-  loadPromptApiModel,
-  promptApiAvailability,
-  promptApiContextWindow,
-  promptApiModel,
-  promptApiStatus,
-  PromptApiError
-} from "./model.js"
-export type {
-  Availability,
-  MediaInput,
-  ModelStatus,
-  PromptApiModelInfo,
-  SamplingMode
-} from "./model.js"
-export { destroyPromptApiSessions } from "./sessions.js"
+export { isSupported, loadModel, modelStatus, unloadModel } from "./runtime.js"
+export type { ModelStatus } from "./runtime.js"
 export type { Store } from "./store.js"
-
-export type { PromptApiReasoning, PromptApiReasoningUsage } from "./reasoning.js"
-export type { PromptApiOutputLimitUsage } from "./limit.js"

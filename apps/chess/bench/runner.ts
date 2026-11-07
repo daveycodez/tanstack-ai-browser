@@ -1,4 +1,4 @@
-import { promptApiModel } from "@tanstack-ai-browser/prompt-api"
+import { PROMPT_API_MODEL_META } from "@tanstack-ai-browser/prompt-api/model-meta"
 import { chooseAiMove } from "../src/lib/ai.ts"
 import { applyMove, fromFen, newGame } from "../src/lib/chess.ts"
 import { isWebGlOpponent, opponentOption, resolveOpponent, usesEmulatedReasoning } from "../src/lib/opponents.ts"
@@ -68,7 +68,7 @@ export async function runBenchmark(
     config: {
       ...opponent,
       ...(opponent.model === "prompt-api"
-        ? { runtimeModel: promptApiModel() }
+        ? { runtimeModel: PROMPT_API_MODEL_META["built-in"].browserModel }
         : {}),
       requestedThinking: options.thinking,
       reasoningSupported,

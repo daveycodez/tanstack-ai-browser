@@ -1,8 +1,8 @@
 
-import {webgllmText,unloadModel,modelStatus,WEBGL_MODEL_META} from '@tanstack-ai-browser/webgllm';
+import {webgllmText,unloadModel,modelStatus} from '@tanstack-ai-browser/webgllm';import {WEBGLLM_MODEL_META} from '@tanstack-ai-browser/webgllm/model-meta';
 import {resolveDebugOption} from '@tanstack/ai/adapter-internals';
 const status=document.querySelector('#status'),output=document.querySelector('#report');let running=false;
-document.querySelector('#run').onclick=async()=>{if(running)return;running=true;output.textContent='';const model=document.querySelector('#model').value,meta=WEBGL_MODEL_META[model],thinking=model.includes('Thinking');let thinkingChars=0;
+document.querySelector('#run').onclick=async()=>{if(running)return;running=true;output.textContent='';const model=document.querySelector('#model').value,meta=WEBGLLM_MODEL_META[model],thinking=model.includes('Thinking');let thinkingChars=0;
 const report={model,sampling:{...meta.sampling,top_p:meta.sampling.top_p??1,min_p:meta.sampling.min_p??0},thinking,thinkingBudgetTokens:thinking?512:null,maxTokens:1024,structured:[],tools:[]};const store=modelStatus(model);const unsub=store.subscribe(()=>{const state=store.get();if(state.state==='loading')status.textContent=(state.cached?'Loading cached model':'Downloading')+' '+Math.round(state.progress*100)+'%'});
 try{await unloadModel();const adapter=webgllmText(model,{onThinking:delta=>thinkingChars+=delta.length});
 const opts={logger:resolveDebugOption(false),threadId:'lfm25-gguf-qa-'+model,promptCache:'long',model,systemPrompts:['Answer the user using the requested city.'],modelOptions:{maxTokens:1024},...(thinking?{reasoning:{level:'high',budgetTokens:512}}:{})};

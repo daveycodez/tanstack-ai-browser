@@ -1,17 +1,10 @@
 /**
  * TanStack AI adapter for Apple's on-device Foundation Model, served by apfel.
+ * The model catalog is in `@tanstack-ai-browser/apfel/model-meta`.
  */
-export {
-  APFEL_BASE_URL,
-  APFEL_TEXT_MODELS,
-  ApfelTextAdapter,
-  apfelText,
-  isApfelAvailable
-} from "./adapter.js"
+export { ApfelTextAdapter, apfelText, isSupported } from "./adapter.js"
 export type {
-  ApfelModelOptions,
-  ApfelReasoning,
+  ApfelConfig,
   ApfelProviderUsageDetails,
-  ApfelTextConfig,
-  ApfelTextModel
+  ApfelTextModelOptions
 } from "./adapter.js"

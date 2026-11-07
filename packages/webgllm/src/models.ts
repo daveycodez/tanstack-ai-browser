@@ -8,7 +8,7 @@
 import { WebGLLM } from "webgllm"
 import { defaultMemoryBudget } from "webgllm/advanced"
 
-import type { WebGlTextModel } from "./catalog.js"
+import type { WebGllmChatModel } from "./catalog.js"
 import {
   claimMemory,
   releaseMemory,
@@ -89,8 +89,12 @@ export const webgllm = new WebGLLM({
   }
 })
 
-/** Whether this browser can run the engine (WebGL 2 with float render targets, in a worker). */
-export function isSupported(): boolean {
+/**
+ * Whether this browser can run the engine (WebGL 2 with float render
+ * targets, in a worker), so `model` (any model in the catalog).
+ */
+export async function isSupported(model?: WebGllmChatModel): Promise<boolean> {
+  void model
   return WebGLLM.isSupported()
 }
 
@@ -105,7 +109,7 @@ export function setMemoryBudget(bytes: number | undefined) {
 const statuses = new Map<string, Store<ModelStatus>>()
 
 /** Loading status of a model, by its name. */
-export function modelStatus(model: WebGlTextModel): Store<ModelStatus> {
+export function modelStatus(model: WebGllmChatModel): Store<ModelStatus> {
   let status = statuses.get(model)
   if (!status) {
     status = createStore<ModelStatus>({ state: "idle" })
@@ -122,7 +126,7 @@ const keepLoaded = new Set<string>()
  * Transformers.js or wllama) loads past the memory budget; by default the
  * least recently used goes. Applies from the model's next load.
  */
-export function setKeepLoaded(model: WebGlTextModel, keep: boolean) {
+export function setKeepLoaded(model: WebGllmChatModel, keep: boolean) {
   if (keep) keepLoaded.add(model)
   else keepLoaded.delete(model)
 }
@@ -149,7 +153,7 @@ function evict(model: string): Promise<void> {
  * A caller that gives up releases nothing: webgllm shares one load between
  * its callers and unloads (releasing it) only when the last one leaves.
  */
-async function load(model: WebGlTextModel, contextLength: number | undefined, signal?: AbortSignal) {
+async function load(model: WebGllmChatModel, contextLength: number | undefined, signal?: AbortSignal) {
   await webgllm.loadModel(model, {
     ...(contextLength !== undefined && { contextLength }),
     keepLoaded: keepLoaded.has(model),
@@ -164,8 +168,8 @@ async function load(model: WebGlTextModel, contextLength: number | undefined, si
  * A different context length loads the model again. Other models stay
  * loaded while they fit the memory budget.
  */
-export function loadModel(model: WebGlTextModel, contextLength?: number): Promise<void> {
-  const promise = ensureModel(model, contextLength)
+export function loadModel(model: WebGllmChatModel, options: { contextLength?: number } = {}): Promise<void> {
+  const promise = ensureModel(model, options.contextLength)
   // Callers may not wait for it: the status store reports a failure too.
   promise.catch(() => undefined)
   return promise
@@ -176,7 +180,7 @@ export function loadModel(model: WebGlTextModel, contextLength?: number): Promis
  * isn't: what each adapter call waits for before its request.
  */
 export async function ensureModel(
-  model: WebGlTextModel,
+  model: WebGllmChatModel,
   contextLength: number | undefined,
   signal?: AbortSignal
 ): Promise<void> {
@@ -193,7 +197,7 @@ export async function ensureModel(
 }
 
 /** Marks `model` as just used, for least recently used order across runtimes. */
-export function touchModel(model: WebGlTextModel) {
+export function touchModel(model: WebGllmChatModel) {
   touchMemory(owner(model))
 }
 
@@ -201,22 +205,22 @@ export function touchModel(model: WebGlTextModel) {
  * Unloads `model`, or every model, freeing its GPU memory; a running
  * generation of it fails. Never rejects (callers often don't wait for it).
  */
-export function unloadModel(model?: WebGlTextModel): Promise<void> {
+export function unloadModel(model?: WebGllmChatModel): Promise<void> {
   return webgllm.unloadModel(model).catch(() => undefined)
 }
 
-// webgllm only dispatches events for models in its catalog, so `model` is a WebGlTextModel.
+// webgllm only dispatches events for models in its catalog, so `model` is a WebGllmChatModel.
 // Statuses follow webgllm's lifecycle events, whatever started the load
 // (loadModel, a completion loading on demand) or the unload (unloadModel,
 // room for another model, a crash): set as they happen, as the
 // Transformers.js and wllama runtimes set theirs.
 webgllm.addEventListener("loadstart", ({ model }) => {
-  const status = modelStatus(model as WebGlTextModel)
+  const status = modelStatus(model as WebGllmChatModel)
   if (status.get().state !== "loading") status.set({ state: "loading", progress: 0, cached: true })
 })
 
 webgllm.addEventListener("progress", (progress) => {
-  modelStatus(progress.model as WebGlTextModel).set({
+  modelStatus(progress.model as WebGllmChatModel).set({
     state: "loading",
     progress: progress.progress,
     cached: progress.cached,
@@ -228,17 +232,17 @@ webgllm.addEventListener("progress", (progress) => {
 })
 
 webgllm.addEventListener("load", ({ model }) => {
-  modelStatus(model as WebGlTextModel).set({ state: "ready" })
+  modelStatus(model as WebGllmChatModel).set({ state: "ready" })
   touchMemory(owner(model))
 })
 
 webgllm.addEventListener("error", ({ model, error }) => {
-  modelStatus(model as WebGlTextModel).set({ state: "error", message: errorText(error) })
+  modelStatus(model as WebGllmChatModel).set({ state: "error", message: errorText(error) })
 })
 
 webgllm.addEventListener("unload", ({ model, reason }) => {
   loadedFor.delete(model)
   releaseMemory(owner(model))
   // After a failed load or a crash the status keeps the error.
-  if (reason !== "failed" && reason !== "crashed") modelStatus(model as WebGlTextModel).set({ state: "idle" })
+  if (reason !== "failed" && reason !== "crashed") modelStatus(model as WebGllmChatModel).set({ state: "idle" })
 })

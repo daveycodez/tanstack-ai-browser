@@ -49,9 +49,16 @@ const nextConfig: NextConfig = {
 }
 ```
 
+## Exports
+
+The package is shaped like `@tanstack/ai-openrouter`'s text adapter:
+
+- `@tanstack-ai-browser/wllama`: `wllamaText(model, config?)`, `WllamaTextAdapter`, the runtime functions `isSupported`, `loadModel`, `unloadModel`, `modelStatus` and `setMemoryBudget`, and the types `WllamaConfig`, `WllamaTextModelOptions`, `WllamaProviderUsageDetails`, `ModelStatus` and `Store`.
+- `@tanstack-ai-browser/wllama/model-meta`: the catalog, `WLLAMA_CHAT_MODELS`, `WLLAMA_MODEL_META` and `WLLAMA_MODEL_REASONING`, with the types `WllamaChatModel`, `WllamaModelMeta` and `WllamaModelReasoningByName`.
+
 ## Models
 
-`WLLAMA_TEXT_MODELS` lists the models this package knows, and `WLLAMA_MODEL_META` has each one's details: Hugging Face repository, GGUF file, capabilities, reasoning levels and the sampling from its card. They're Liquid AI's official GGUF builds, and Unsloth's build of Qwen3.5 2B. LFM3's GGUFs aren't listed: wllama 3.8.1's llama.cpp doesn't know their architecture ([ngxson/wllama#310](https://github.com/ngxson/wllama/issues/310)).
+`WLLAMA_CHAT_MODELS` (in `@tanstack-ai-browser/wllama/model-meta`) lists the models this package knows, and `WLLAMA_MODEL_META` has each one's details: Hugging Face repository, GGUF file, capabilities, reasoning levels and the sampling from its card. They're Liquid AI's official GGUF builds, and Unsloth's build of Qwen3.5 2B. LFM3's GGUFs aren't listed: wllama 3.8.1's llama.cpp doesn't know their architecture ([ngxson/wllama#310](https://github.com/ngxson/wllama/issues/310)).
 
 | Model                                | Reasoning                       | File            |
 | ------------------------------------ | ------------------------------- | --------------- |
@@ -90,7 +97,7 @@ Actual reuse comes from llama.cpp's `timings.cache_n`, forwarded as
 Reuse lasts as long as the loaded model: llama.cpp keeps what it has read in memory, and
 a reload of the page or the model reads the prompt again.
 
-**Downloads:** `loadModel(model)` downloads and loads a model ahead of time, and `modelStatus(model)` is a store of its loading progress (with bytes downloaded and the total while it downloads).
+**Downloads:** `loadModel(model)` downloads and loads a model ahead of time, `unloadModel(model?)` frees it, and `modelStatus(model)` is a store of its loading progress (with bytes downloaded and the total while it downloads). `isSupported()` is true wherever the browser has WebAssembly.
 
 ## How it runs
 

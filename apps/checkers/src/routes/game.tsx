@@ -1,6 +1,6 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router"
 import { useEffect, useState } from "react"
-import { loadPromptApiModel } from "@tanstack-ai-browser/prompt-api"
+import { loadModel as loadPromptApiModel } from "@tanstack-ai-browser/prompt-api"
 import { resolveOpponent } from "../lib/opponents"
 import type { OpponentSettings } from "../lib/opponents"
 import { usePromptApiAvailable } from "../lib/use-prompt-api"
@@ -41,7 +41,7 @@ function GamePage() {
     const next = resolveOpponent(settings)
     if (next.model === "prompt-api" && promptApiAvailable) {
       // Start a built-in model download from the explicit model-selection gesture.
-      void loadPromptApiModel().catch((error: unknown) => {
+      void loadPromptApiModel("built-in").catch((error: unknown) => {
         setError(
           error instanceof Error
             ? error.message

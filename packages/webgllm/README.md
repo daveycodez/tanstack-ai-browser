@@ -17,7 +17,9 @@ const stream = chat({
 })
 ```
 
-It needs WebGL 2 with float render targets (`EXT_color_buffer_float`) and OffscreenCanvas in workers, which current Chrome, Firefox and Safari have; `isSupported()` checks.
+It needs WebGL 2 with float render targets (`EXT_color_buffer_float`) and OffscreenCanvas in workers, which current Chrome, Firefox and Safari have; `await isSupported()` checks.
+
+The package is shaped like `@tanstack/ai-openrouter`'s text adapter. The root has `webgllmText(model, config?)`, `WebGllmTextAdapter`, `isSupported`, `loadModel`, `unloadModel`, `modelStatus`, `setMemoryBudget` and the types `WebGllmConfig`, `WebGllmTextModelOptions`, `WebGllmProviderUsageDetails`, `ModelStatus` and `Store`; `@tanstack-ai-browser/webgllm/model-meta` has the catalog (below).
 
 The engine is the [`webgllm`](https://www.npmjs.com/package/webgllm) package, behind OpenAI's Chat Completions API. This package maps TanStack AI's chat options to its requests and its streamed chunks back to AG-UI events; tool-call parsing and repair, thinking, guided tool choice and schema-constrained answers are webgllm's own. See [webgllm.dev](https://webgllm.dev) and its README for how the engine works, its memory and speed.
 
@@ -82,22 +84,21 @@ A failure is a `RUN_ERROR`: webgllm's error code, `structured-output-parse-faile
 
 ## Models and loading
 
-`WEBGL_TEXT_MODELS` lists the models webgllm runs and `WEBGL_MODEL_META` has each one's files, capabilities and sampling (webgllm's catalog). `WEBGL_MODEL_REASONING` has each model's reasoning levels in TanStack's shape, for `supportedReasoningLevels()`. LFM3 thinks by default and Qwen3.5 doesn't; `chat({ reasoning })` switches it.
+`@tanstack-ai-browser/webgllm/model-meta` has the catalog: `WEBGLLM_CHAT_MODELS` lists the models webgllm runs and `WEBGLLM_MODEL_META` has each one's files, capabilities and sampling (webgllm's catalog). `WEBGLLM_MODEL_REASONING` has each model's reasoning levels in TanStack's shape, for `supportedReasoningLevels()`. Their types are `WebGllmChatModel`, `WebGllmModelMeta` and `WebGllmModelReasoningByName`. LFM3 thinks by default and Qwen3.5 doesn't; `chat({ reasoning })` switches it.
 
 ```ts
 import { loadModel, modelStatus, unloadModel } from "@tanstack-ai-browser/webgllm"
 
 const status = modelStatus("LiquidAI/LFM3-1.7B-GGUF")
 status.subscribe(() => console.log(status.get())) // idle, loading (progress), ready or error
-await loadModel("LiquidAI/LFM3-1.7B-GGUF", 8192)  // ahead of time; else the first chat loads it
-unloadModel()                                      // every model; or one by name
+await loadModel("LiquidAI/LFM3-1.7B-GGUF", { contextLength: 8192 }) // ahead of time; else the first chat loads it
+unloadModel() // every model; or one by name
 ```
 
-The status follows loads however they start (`loadModel`, an adapter's first chat) and goes back to idle when a model is unloaded or evicted. `webgllm` is the one `WebGLLM` instance all of this shares, for anything else of webgllm's API (`models.list()`, `models.delete(id)`, `downloadModel(id)`).
-
+The status follows loads however they start (`loadModel`, an adapter's first chat) and goes back to idle when a model is unloaded or evicted.
 ## Memory
 
-This project's runtimes (this one, Transformers.js and wllama) share one memory budget: before a model loads, the least recently used models of any runtime are unloaded until everything fits. The budget is 1.5 GB on iOS (a Safari tab gets about 2 GB), half the device's memory where the browser says, else 4 GB; `setMemoryBudget(bytes)` changes it for all of them. A webgllm model counts as 1.4× its download size (its textures, measured). `setKeepLoaded(model, true)` (or the adapter's `keepLoaded`) keeps a model loaded past the budget, from its next load.
+This project's runtimes (this one, Transformers.js and wllama) share one memory budget: before a model loads, the least recently used models of any runtime are unloaded until everything fits. The budget is 1.5 GB on iOS (a Safari tab gets about 2 GB), half the device's memory where the browser says, else 4 GB; `setMemoryBudget(bytes)` changes it for all of them. A webgllm model counts as 1.4× its download size (its textures, measured). The adapter's `keepLoaded` keeps a model loaded past the budget, from its next load.
 
 The shared `WebGLLM` instance holds its own models to the same budget, with the bytes its workers measure as the attention cache grows.
 

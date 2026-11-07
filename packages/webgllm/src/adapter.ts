@@ -33,7 +33,7 @@ import type {
 } from "webgllm"
 
 import { modelMeta } from "./catalog.js"
-import type { WebGlModelReasoningByName, WebGlTextModel } from "./catalog.js"
+import type { WebGllmModelReasoningByName, WebGllmChatModel } from "./catalog.js"
 import { ensureModel, setKeepLoaded, touchModel, webgllm } from "./models.js"
 
 /**
@@ -42,7 +42,7 @@ import { ensureModel, setKeepLoaded, touchModel, webgllm } from "./models.js"
  * OpenRouter SDK's camelCase request fields), so the same `modelOptions`
  * work with either adapter; webgllm's own extensions follow the same casing.
  */
-export type WebGllmTextProviderOptions = {
+export type WebGllmTextModelOptions = {
   /** Maximum generated tokens, thinking included; otherwise EOS or remaining context. */
   maxCompletionTokens?: number
   temperature?: number
@@ -79,7 +79,7 @@ export type WebGllmProviderUsageDetails = {
 }
 
 /** Options for `webgllmText`. */
-export type WebGllmTextConfig = {
+export type WebGllmConfig = {
   /**
    * Most tokens a chat may hold, prompt and reply together: the model's
    * whole context length by default, never more. A smaller limit takes less
@@ -94,8 +94,8 @@ export type WebGllmTextConfig = {
   keepLoaded?: boolean
 }
 
-type ResolveReasoning<TModel extends string> = TModel extends keyof WebGlModelReasoningByName
-  ? WebGlModelReasoningByName[TModel]
+type ResolveReasoning<TModel extends string> = TModel extends keyof WebGllmModelReasoningByName
+  ? WebGllmModelReasoningByName[TModel]
   : never
 
 type MetadataByModality = {
@@ -113,7 +113,7 @@ type MetadataByModality = {
  */
 function reasoningFields(
   request: ReasoningRequest | undefined,
-  model: WebGlTextModel
+  model: WebGllmChatModel
 ): Pick<ChatCompletionCreateParamsStreaming, "reasoning_effort" | "thinking_budget_tokens"> {
   const budget = request?.budgetTokens
   if (budget !== undefined && (!Number.isSafeInteger(budget) || budget < 0)) {
@@ -130,7 +130,7 @@ function reasoningFields(
 }
 
 /** A caller's output cap, without a provider-wide default. */
-function outputTokens(options: WebGllmTextProviderOptions | undefined) {
+function outputTokens(options: WebGllmTextModelOptions | undefined) {
   const limit = options?.maxCompletionTokens
   if (limit !== undefined && (!Number.isSafeInteger(limit) || limit < 0)) {
     throw new RangeError("maxCompletionTokens must be a nonnegative safe integer.")
@@ -139,7 +139,7 @@ function outputTokens(options: WebGllmTextProviderOptions | undefined) {
 }
 
 /** `modelOptions` as webgllm's sampling fields. */
-function samplingFields(o: WebGllmTextProviderOptions | undefined): Partial<ChatCompletionCreateParamsStreaming> {
+function samplingFields(o: WebGllmTextModelOptions | undefined): Partial<ChatCompletionCreateParamsStreaming> {
   if ((o?.frequencyPenalty ?? 0) !== 0) {
     throw new WebGLLMError(
       "unsupported-parameter",
@@ -271,12 +271,12 @@ function runError(model: string, error: unknown, loading: boolean): AdapterYield
 let calls = 0
 const nextId = (prefix: string) => `${prefix}_${Date.now().toString(36)}_${(calls++).toString(36)}`
 
-const signalOf = (options: TextOptions<WebGllmTextProviderOptions>) =>
+const signalOf = (options: TextOptions<WebGllmTextModelOptions>) =>
   options.abortController?.signal ?? (options.request as RequestInit | undefined)?.signal ?? undefined
 
-export class WebGllmTextAdapter<TModel extends WebGlTextModel> extends BaseTextAdapter<
+export class WebGllmTextAdapter<TModel extends WebGllmChatModel> extends BaseTextAdapter<
   TModel,
-  WebGllmTextProviderOptions,
+  WebGllmTextModelOptions,
   readonly ["text"],
   MetadataByModality,
   ReadonlyArray<string>,
@@ -291,14 +291,14 @@ export class WebGllmTextAdapter<TModel extends WebGlTextModel> extends BaseTextA
 
   private readonly contextLength: number | undefined
 
-  constructor(model: TModel, config: WebGllmTextConfig = {}) {
+  constructor(config: WebGllmConfig, model: TModel) {
     super({}, model)
     this.contextLength = config.contextLength
     setKeepLoaded(model, config.keepLoaded ?? false)
   }
 
   /** The request body shared by chats and structured output (tools and schema aside). */
-  private body(options: TextOptions<WebGllmTextProviderOptions>): ChatCompletionCreateParamsStreaming {
+  private body(options: TextOptions<WebGllmTextModelOptions>): ChatCompletionCreateParamsStreaming {
     return {
       model: this.model,
       messages: toMessages(options.systemPrompts, options.messages),
@@ -310,7 +310,7 @@ export class WebGllmTextAdapter<TModel extends WebGlTextModel> extends BaseTextA
     }
   }
 
-  async *chatStream(options: TextOptions<WebGllmTextProviderOptions>): AsyncIterable<AdapterYieldChunk> {
+  async *chatStream(options: TextOptions<WebGllmTextModelOptions>): AsyncIterable<AdapterYieldChunk> {
     const offered = options.toolChoice === "none" ? [] : toTools(options.tools)
     const repair = options.modelOptions?.repairToolCalls
     const parallel = options.modelOptions?.parallelToolCalls
@@ -497,7 +497,7 @@ export class WebGllmTextAdapter<TModel extends WebGlTextModel> extends BaseTextA
    * an abort ends the stream without one.
    */
   async *structuredOutputStream(
-    options: StructuredOutputOptions<WebGllmTextProviderOptions>
+    options: StructuredOutputOptions<WebGllmTextModelOptions>
   ): AsyncIterable<AdapterYieldChunk> {
     yield* this.structuredEvents(options, () => undefined)
   }
@@ -507,7 +507,7 @@ export class WebGllmTextAdapter<TModel extends WebGlTextModel> extends BaseTextA
    * RUN_ERROR (or an abort), so `structuredOutput` can reject with it as is.
    */
   private async *structuredEvents(
-    options: StructuredOutputOptions<WebGllmTextProviderOptions>,
+    options: StructuredOutputOptions<WebGllmTextModelOptions>,
     fail: (error: unknown) => void
   ): AsyncGenerator<AdapterYieldChunk> {
     const { chatOptions, outputSchema } = options
@@ -680,7 +680,7 @@ export class WebGllmTextAdapter<TModel extends WebGlTextModel> extends BaseTextA
    * that isn't JSON.
    */
   async structuredOutput(
-    options: StructuredOutputOptions<WebGllmTextProviderOptions>
+    options: StructuredOutputOptions<WebGllmTextModelOptions>
   ): Promise<StructuredOutputResult<unknown>> {
     const signal = signalOf(options.chatOptions)
     signal?.throwIfAborted()
@@ -711,9 +711,9 @@ export class WebGllmTextAdapter<TModel extends WebGlTextModel> extends BaseTextA
  * chat({ adapter: webgllmText("LiquidAI/LFM3-1.7B-GGUF"), messages, threadId })
  * ```
  */
-export function webgllmText<TModel extends WebGlTextModel>(
+export function webgllmText<TModel extends WebGllmChatModel>(
   model: TModel,
-  config?: WebGllmTextConfig
+  config?: WebGllmConfig
 ): WebGllmTextAdapter<TModel> {
-  return new WebGllmTextAdapter(model, config)
+  return new WebGllmTextAdapter(config ?? {}, model)
 }

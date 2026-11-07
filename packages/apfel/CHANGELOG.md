@@ -1,3 +1,16 @@
+## Unreleased
+
+### ⚠️ Breaking Changes
+
+- Exported names changed: the package now exposes the same API shape as `@tanstack/ai-openrouter`'s text adapter, and the same as the other adapter packages here. The root entry has the adapter (its class and factory, and its config, model options and usage types) and the runtime functions (`isSupported`, `loadModel`, `unloadModel`, `modelStatus`, `setMemoryBudget` where they apply); the model catalog moved to the new `@tanstack-ai-browser/apfel/model-meta` subpath. Behaviour is unchanged apart from the renames below.
+  - `ApfelTextConfig` → `ApfelConfig`
+  - `ApfelModelOptions` → `ApfelTextModelOptions`
+  - `isApfelAvailable(model, config?)` → `isSupported(model?, config?)` (the model defaults to `"apple-foundationmodel"`)
+  - `APFEL_TEXT_MODELS` → `APFEL_CHAT_MODELS`, in `@tanstack-ai-browser/apfel/model-meta`
+  - `ApfelTextModel` → `ApfelChatModel` (the listed model; `apfelText` still takes any id apfel serves), in `/model-meta`
+  - New in `/model-meta`: `APFEL_MODEL_META`, `APFEL_MODEL_REASONING`, `ApfelModelMeta`, `ApfelModelReasoningByName`
+  - Removed: `APFEL_BASE_URL` (still the `baseURL` default, `http://127.0.0.1:11434/v1`) and `ApfelReasoning` (see `ApfelModelReasoningByName`)
+
 ## 0.1.0 (2026-10-30)
 
 ### 🚀 Features

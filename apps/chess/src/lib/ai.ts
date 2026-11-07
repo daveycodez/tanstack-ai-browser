@@ -2,8 +2,8 @@ import { EventType, chat } from "@tanstack/ai"
 import { apfelText } from "@tanstack-ai-browser/apfel"
 import type { AnyTextAdapter, ChatMiddleware, StructuredOutputStream, UsageInfo } from "@tanstack/ai"
 import {
-  loadPromptApiModel,
-  promptApiStatus,
+  loadModel as loadPromptApiModel,
+  modelStatus as promptApiStatus,
   promptApiText
 } from "@tanstack-ai-browser/prompt-api"
 import {
@@ -18,11 +18,8 @@ import { analyzeMovePrompt } from "./analysis-worker"
 import type { Game } from "./chess"
 import { APFEL_MODEL, isWebGlOpponent, opponentOption, resolveOpponent } from "./opponents"
 import type { OpponentSettings } from "./opponents"
-import type {
-  ModelStatus,
-  Store,
-  WebGlTextModel
-} from "@tanstack-ai-browser/webgllm"
+import type { ModelStatus, Store } from "@tanstack-ai-browser/webgllm"
+import type { WebGllmChatModel } from "@tanstack-ai-browser/webgllm/model-meta"
 
 import type { PromptVersion } from "./shared-prompt"
 
@@ -104,18 +101,18 @@ export type AiMoveOptions = {
 
 export const MODEL = "LiquidAI/LFM3-1.7B-GGUF" as const
 type LoadingStore = Pick<Store<ModelStatus>, "get" | "subscribe">
-let activeWebGlModel: WebGlTextModel | undefined
+let activeWebGlModel: WebGllmChatModel | undefined
 
 /** The selected adapter's real download, cache, GPU upload, and failure status. */
 export function loadingStoreFor(settings?: OpponentSettings): LoadingStore {
   const { model } = resolveOpponent(settings)
   if (model === APFEL_MODEL) return { get: () => ({ state: "ready" }), subscribe: () => () => undefined }
-  return model === "prompt-api" ? promptApiStatus() : modelStatus(model)
+  return model === "prompt-api" ? promptApiStatus("built-in") : modelStatus(model)
 }
 
 /** Loading can finish into the browser cache after leaving the game. */
 function waitForModel(
-  model: WebGlTextModel,
+  model: WebGllmChatModel,
   signal: AbortSignal
 ): Promise<void> {
   signal.throwIfAborted()
@@ -171,7 +168,7 @@ export async function chooseAiMove(
   }
 
   const thinkingSupport = opponentOption(opponent.model).thinking
-  if (isWebGlOpponent(opponent.model) && !isSupported()) {
+  if (isWebGlOpponent(opponent.model) && !(await isSupported())) {
     throw new Error(
       "This browser cannot run the local AI. Enable hardware acceleration and use a browser with WebGL 2 and OffscreenCanvas support."
     )
@@ -187,7 +184,7 @@ export async function chooseAiMove(
       unloadModel()
       activeWebGlModel = undefined
     }
-    await loadPromptApiModel({ signal })
+    await loadPromptApiModel("built-in", { signal })
   } else if (isWebGlOpponent(opponent.model)) {
     await waitForModel(opponent.model, signal)
   } else if (activeWebGlModel) {
@@ -249,11 +246,11 @@ export async function chooseAiMove(
             modelOptions: { maxCompletionTokens: 8192 }
           })
         : opponent.model === "prompt-api"
-        ? chat({ ...chatOptions, adapter: promptApiText(), reasoning })
+        ? chat({ ...chatOptions, adapter: promptApiText("built-in"), reasoning })
         : chat({
             ...chatOptions,
             // Runtime catalog metadata determines the selected model's reasoning support.
-            adapter: webgllmText(opponent.model as WebGlTextModel) as AnyTextAdapter,
+            adapter: webgllmText(opponent.model as WebGllmChatModel) as AnyTextAdapter,
             ...(thinkingSupport !== "none" && { reasoning }),
             modelOptions: { maxCompletionTokens: 8192, ...(options?.webglTemperature !== undefined && { temperature: options.webglTemperature }) }
           })

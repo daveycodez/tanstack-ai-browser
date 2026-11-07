@@ -18,9 +18,16 @@ const stream = chat({
 })
 ```
 
+## Exports
+
+The package is shaped like `@tanstack/ai-openrouter`'s text adapter:
+
+- `@tanstack-ai-browser/transformers-js`: `transformersJsText(model, config?)`, `TransformersJsTextAdapter`, the runtime functions `isSupported`, `loadModel`, `unloadModel`, `modelStatus` and `setMemoryBudget`, and the types `TransformersJsConfig`, `TransformersJsTextModelOptions`, `TransformersJsProviderUsageDetails`, `ModelStatus` and `Store`.
+- `@tanstack-ai-browser/transformers-js/model-meta`: the catalog, `TRANSFORMERS_JS_CHAT_MODELS`, `TRANSFORMERS_JS_MODEL_META` and `TRANSFORMERS_JS_MODEL_REASONING`, with the types `TransformersJsChatModel`, `TransformersJsModelMeta` and `TransformersJsModelReasoningByName`.
+
 ## Models
 
-`TRANSFORMERS_JS_TEXT_MODELS` lists the models this package knows, and `TRANSFORMERS_JS_MODEL_META` has each one's details: Hugging Face id, size, capabilities, tool format, reasoning levels and the sampling from its model card. A listed model needs no config.
+`TRANSFORMERS_JS_CHAT_MODELS` (in `@tanstack-ai-browser/transformers-js/model-meta`) lists the models this package knows, and `TRANSFORMERS_JS_MODEL_META` has each one's details: Hugging Face id, size, capabilities, tool format, reasoning levels, whether it has CPU weights (`cpu`) and the sampling from its model card. A listed model needs no config.
 
 | Model                                      | Reasoning                  | Without WebGPU |
 | ------------------------------------------ | -------------------------- | -------------- |
@@ -44,9 +51,9 @@ Any other Hugging Face ONNX model works too, given how it writes tool calls and 
 
 **Usage** is in each call's `RUN_FINISHED` event, as with any TanStack AI adapter: `promptTokens`, `completionTokens`, `totalTokens`, and `promptTokensDetails.cachedTokens` for the start of the prompt the model reused from an earlier call. Timings are in `usage.providerUsageDetails` (`TransformersJsProviderUsageDetails`: `firstTokenMs`, `promptMs`, `decodeMs`, `decodeTokens`), for example in `chat()` middleware's `onUsage`.
 
-**Without WebGPU** (Firefox on Android, for one), there's nothing to set: the worker sees there's no GPU adapter and runs the model on the CPU through ONNX Runtime's WebAssembly backend, from its `q4` weights. It's slower, with the same features, prompt caching in memory and on disk included. `hasWebGpu()` says which this browser gets, and `runsWithoutWebGpu(model)` whether a model has CPU weights. Models whose q4 graph looks up its embedding with GatherBlockQuantized don't run on the CPU: the ONNX Runtime build Transformers.js imports has no CPU kernel for it ([microsoft/onnxruntime#33961](https://github.com/microsoft/onnxruntime/issues/33961)). It uses several threads where the page is cross-origin isolated, else one.
+**Without WebGPU** (Firefox on Android, for one), there's nothing to set: the worker sees there's no GPU adapter and runs the model on the CPU through ONNX Runtime's WebAssembly backend, from its `q4` weights. It's slower, with the same features, prompt caching in memory and on disk included. `isSupported(model)` says whether a model can run in this browser: on WebGPU, or without it from CPU weights (`TRANSFORMERS_JS_MODEL_META[model].cpu`; any other Hugging Face id is taken to have them). Models whose q4 graph looks up its embedding with GatherBlockQuantized don't run on the CPU: the ONNX Runtime build Transformers.js imports has no CPU kernel for it ([microsoft/onnxruntime#33961](https://github.com/microsoft/onnxruntime/issues/33961)). It uses several threads where the page is cross-origin isolated, else one.
 
-**Downloads:** `loadModel(model)` downloads and loads a model ahead of time, and `modelStatus(model)` is a store of its loading progress (with bytes downloaded and the total while it downloads).
+**Downloads:** `loadModel(model, { dtype?, contextLength? })` downloads and loads a model ahead of time, `unloadModel(model?)` frees it, and `modelStatus(model)` is a store of its loading progress (with bytes downloaded and the total while it downloads). The adapter's `debug: true` logs the worker's memory and cache use in the console.
 
 ## How it runs
 

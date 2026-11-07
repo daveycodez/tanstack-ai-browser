@@ -4,7 +4,7 @@ import { chat } from "@tanstack/ai"
 import { WebGLLMError } from "webgllm"
 
 import { webgllmText } from "./adapter.js"
-import { WEBGL_MODEL_REASONING } from "./catalog.js"
+import { WEBGLLM_MODEL_REASONING } from "./catalog.js"
 import { chunk, claim, collect, emit, fake, lastBody, MODEL, TIMINGS, textOptions, usageChunk } from "./fake-webgllm.test.js"
 import { ensureModel, loadModel, modelStatus, setKeepLoaded, setMemoryBudget, unloadModel } from "./models.js"
 import type { ModelStatus } from "./models.js"
@@ -279,7 +279,7 @@ test("modelStatus follows loads, progress, unloads and failures", async () => {
   const stop = status.subscribe(() => seen.push(status.get().state))
   let open!: () => void
   fake.loadGate = new Promise<void>((resolve) => (open = resolve))
-  const loading = loadModel(MODEL, 4096)
+  const loading = loadModel(MODEL, { contextLength: 4096 })
   await new Promise((resolve) => setTimeout(resolve, 0))
   assert.equal(status.get().state, "loading")
   emit("progress", { model: MODEL, phase: "download", progress: 0.4, cached: false, loadedBytes: 4, totalBytes: 10 })
@@ -290,9 +290,9 @@ test("modelStatus follows loads, progress, unloads and failures", async () => {
   assert.deepEqual(fake.loads.at(-1)?.options, { contextLength: 4096, keepLoaded: false })
 
   // The same context is already loaded; another loads it again.
-  await loadModel(MODEL, 4096)
+  await loadModel(MODEL, { contextLength: 4096 })
   assert.equal(fake.loads.length, 1)
-  await loadModel(MODEL, 8192)
+  await loadModel(MODEL, { contextLength: 8192 })
   assert.equal(fake.loads.length, 2)
 
   await unloadModel(MODEL)
@@ -378,8 +378,8 @@ test("the shared memory registry: holds what webgllm's workers claim, makes room
   }
 })
 
-test("WEBGL_MODEL_REASONING has every model, in TanStack's shape", () => {
-  const reasoning = WEBGL_MODEL_REASONING[MODEL]
+test("WEBGLLM_MODEL_REASONING has every model, in TanStack's shape", () => {
+  const reasoning = WEBGLLM_MODEL_REASONING[MODEL]
   assert.ok(reasoning)
   assert.equal(reasoning.levels.high, "true")
   assert.equal(reasoning.levels.off, "false")
@@ -389,7 +389,7 @@ test("WEBGL_MODEL_REASONING has every model, in TanStack's shape", () => {
 // Compile-time: each model's reasoning is exact (typecheck fails if it widens again).
 type Equal<A, B> = (<T>() => T extends A ? 1 : 2) extends <T>() => T extends B ? 1 : 2 ? true : false
 const exact = <T extends true>(_: T) => undefined
-type Thinkers = keyof import("./catalog.js").WebGlModelReasoningByName
+type Thinkers = keyof import("./catalog.js").WebGllmModelReasoningByName
 exact<Equal<Thinkers,
   | "LiquidAI/LFM3-1.7B-GGUF"
   | "onnx-community/LFM3-1.7B-ONNX"

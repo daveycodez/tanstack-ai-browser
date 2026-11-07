@@ -23,12 +23,12 @@ import type {
 } from "@tanstack/ai/adapters"
 
 import { generate, loadModel, setDebug, setKeepLoaded } from "./client.js"
-import { modelMeta, modelReasoning } from "./model-meta.js"
+import { modelMeta, modelReasoning } from "./catalog.js"
 import type {
   Sampling,
-  TransformersJsListedModel,
+  TransformersJsChatModel,
   TransformersJsModelReasoningByName
-} from "./model-meta.js"
+} from "./catalog.js"
 import type {
   ChatTurn,
   RunTimings,
@@ -48,7 +48,7 @@ import {
 } from "./tool-calls.js"
 import type { ParsedToolCall, ToolFormat } from "./tool-calls.js"
 
-export type TransformersJsTextConfig = {
+export type TransformersJsConfig = {
   /**
    * How the model writes tool calls: LFM2's markers or LFM3's XML-ish calls.
    * A listed model's own by default; required for any other model.
@@ -76,10 +76,10 @@ export type TransformersJsTextConfig = {
 }
 
 /** The config a model takes: any other model than a listed one names its tool format. */
-export type TransformersJsTextConfigFor<TModel extends string> =
-  TModel extends TransformersJsListedModel
-    ? TransformersJsTextConfig
-    : TransformersJsTextConfig & { toolFormat: ToolFormat }
+export type TransformersJsConfigFor<TModel extends string> =
+  TModel extends TransformersJsChatModel
+    ? TransformersJsConfig
+    : TransformersJsConfig & { toolFormat: ToolFormat }
 
 /**
  * Per-call `modelOptions`, named as OpenRouter's adapter names them, so an
@@ -87,7 +87,7 @@ export type TransformersJsTextConfigFor<TModel extends string> =
  * Sampling left out comes from the model card (a listed model) or the
  * defaults (any other).
  */
-export type TransformersJsTextProviderOptions = {
+export type TransformersJsTextModelOptions = {
   /** Most tokens to generate, thinking included; otherwise the remaining model context. */
   maxCompletionTokens?: number
   /** Randomness of sampling: 0 is greedy. */
@@ -142,7 +142,7 @@ export type TransformersJsProviderUsageDetails = {
 type ResolveReasoning<TModel extends string> =
   TModel extends keyof TransformersJsModelReasoningByName
     ? TransformersJsModelReasoningByName[TModel]
-    : TModel extends TransformersJsListedModel
+    : TModel extends TransformersJsChatModel
       ? never
       : { levels: "off" | "high"; budget: true }
 
@@ -175,7 +175,7 @@ function thinkingOptions(request: ReasoningRequest | undefined, model: string) {
  * sampling, in the worker's names. Options this engine can't honour throw.
  */
 function generationSettings(
-  options: TransformersJsTextProviderOptions | undefined,
+  options: TransformersJsTextModelOptions | undefined,
   base: Sampling
 ): { sampling: WorkerSampling; maxTokens: number | undefined } {
   const {
@@ -225,7 +225,7 @@ function generationSettings(
 /** Cancel the caller's wait without discarding an in-progress model download. */
 function waitForModel(model: string, dtype: WeightsDtype, contextLength: number | undefined, signal: AbortSignal | undefined): Promise<void> {
   signal?.throwIfAborted()
-  const loading = loadModel(model, dtype, contextLength)
+  const loading = loadModel(model, { dtype, contextLength })
   if (!signal) return loading
   return new Promise((resolve, reject) => {
     const aborted = () => reject(signal.reason)
@@ -392,7 +392,7 @@ const errorText = (error: unknown) =>
   error instanceof Error ? error.message : String(error)
 
 /** The call's cancellation: the legacy controller's, else the request's. */
-const signalOf = (options: TextOptions<TransformersJsTextProviderOptions>) =>
+const signalOf = (options: TextOptions<TransformersJsTextModelOptions>) =>
   options.abortController?.signal ??
   (options.request as RequestInit | undefined)?.signal ??
   undefined
@@ -410,7 +410,7 @@ export class TransformersJsTextAdapter<
   TModel extends string
 > extends BaseTextAdapter<
   TModel,
-  TransformersJsTextProviderOptions,
+  TransformersJsTextModelOptions,
   readonly ["text"],
   MetadataByModality,
   ReadonlyArray<string>,
@@ -426,7 +426,7 @@ export class TransformersJsTextAdapter<
   private readonly contextLength: number | undefined
   private readonly dtype: WeightsDtype
 
-  constructor(config: TransformersJsTextConfig, model: TModel) {
+  constructor(config: TransformersJsConfig, model: TModel) {
     super({}, model)
     const toolFormat = config.toolFormat ?? modelMeta(model)?.toolFormat
     if (!toolFormat) {
@@ -444,7 +444,7 @@ export class TransformersJsTextAdapter<
 
   /** Sampling and output cap for a call: `modelOptions` over the model card's or the defaults. */
   private settings(
-    modelOptions: TransformersJsTextProviderOptions | undefined
+    modelOptions: TransformersJsTextModelOptions | undefined
   ) {
     return generationSettings(
       modelOptions,
@@ -453,7 +453,7 @@ export class TransformersJsTextAdapter<
   }
 
   async *chatStream(
-    options: TextOptions<TransformersJsTextProviderOptions>
+    options: TextOptions<TransformersJsTextModelOptions>
   ): AsyncIterable<AdapterYieldChunk> {
     const runId = options.runId ?? nextId("run")
     const threadId = options.threadId
@@ -741,7 +741,7 @@ export class TransformersJsTextAdapter<
    * the completed result.
    */
   async structuredOutput(
-    options: StructuredOutputOptions<TransformersJsTextProviderOptions>
+    options: StructuredOutputOptions<TransformersJsTextModelOptions>
   ): Promise<StructuredOutputResult<unknown>> {
     let complete: StructuredOutputComplete | undefined
     let usage: TokenUsage | undefined
@@ -767,7 +767,7 @@ export class TransformersJsTextAdapter<
    * ends the run with `RUN_ERROR` instead.
    */
   async *structuredOutputStream(
-    options: StructuredOutputOptions<TransformersJsTextProviderOptions>
+    options: StructuredOutputOptions<TransformersJsTextModelOptions>
   ): AsyncIterable<AdapterYieldChunk> {
     const { chatOptions } = options
     const runId = chatOptions.runId ?? nextId("run")
@@ -810,7 +810,7 @@ export class TransformersJsTextAdapter<
    * reject with and `structuredOutputStream` to report as `RUN_ERROR`.
    */
   private async *structuredEvents(
-    options: StructuredOutputOptions<TransformersJsTextProviderOptions>,
+    options: StructuredOutputOptions<TransformersJsTextModelOptions>,
     runId = options.chatOptions.runId ?? nextId("run")
   ): AsyncGenerator<AdapterYieldChunk> {
     const { chatOptions } = options
@@ -947,7 +947,7 @@ export class TransformersJsTextAdapter<
 
 /**
  * A TanStack AI text adapter for a Transformers.js model in the browser: a
- * model this package lists (`TRANSFORMERS_JS_TEXT_MODELS`), which needs no
+ * model this package lists (`TRANSFORMERS_JS_CHAT_MODELS`), which needs no
  * config, or any other Hugging Face ONNX model, given its tool format.
  *
  * @example
@@ -962,9 +962,9 @@ export class TransformersJsTextAdapter<
  */
 export function transformersJsText<TModel extends string>(
   model: TModel,
-  ...[config]: TModel extends TransformersJsListedModel
-    ? [config?: TransformersJsTextConfigFor<TModel>]
-    : [config: TransformersJsTextConfigFor<TModel>]
+  ...[config]: TModel extends TransformersJsChatModel
+    ? [config?: TransformersJsConfigFor<TModel>]
+    : [config: TransformersJsConfigFor<TModel>]
 ): TransformersJsTextAdapter<TModel> {
   return new TransformersJsTextAdapter(config ?? {}, model)
 }

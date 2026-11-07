@@ -2,7 +2,7 @@ import assert from "node:assert/strict"
 import { test } from "node:test"
 import { resolveDebugOption } from "@tanstack/ai/adapter-internals"
 import type { TextOptions } from "@tanstack/ai"
-import type { TransformersJsTextProviderOptions } from "./adapter.js"
+import type { TransformersJsTextModelOptions } from "./adapter.js"
 import type { RunTimings, WorkerRequest, WorkerResponse } from "./protocol.js"
 
 class FakeWorker {
@@ -23,7 +23,7 @@ class FakeWorker {
 Object.defineProperty(globalThis, "Worker", { configurable: true, writable: true, value: FakeWorker })
 const MODEL = "LiquidAI/LFM2.5-1.2B-Thinking-ONNX"
 const stats: RunTimings = { inputTokens: 10, cachedTokens: 0, outputTokens: 20, firstTokenMs: 1, promptMs: 1, decodeMs: 1, thinkingTokens: 4, thinkingBudgetTokens: 512, thinkingBudgetExhausted: false }
-function options(): TextOptions<TransformersJsTextProviderOptions> {
+function options(): TextOptions<TransformersJsTextModelOptions> {
   return { logger: resolveDebugOption(false), model: MODEL, threadId: "tjs-adapter-test", messages: [{ role: "user", content: "choose a move" }], reasoning: { level: "high", summary: true, budgetTokens: 512 }, modelOptions: { maxCompletionTokens: 8192 } }
 }
 const schema = { type: "object", properties: { moveId: { type: "string", enum: ["b6-a5"] } }, required: ["moveId"], additionalProperties: false }
@@ -342,7 +342,7 @@ test("parallelToolCalls false emits only the first native tool call; true and un
   }
   try {
     const adapter = transformersJsText(MODEL)
-    const run = async (modelOptions: TransformersJsTextProviderOptions) => {
+    const run = async (modelOptions: TransformersJsTextModelOptions) => {
       const chunks = []
       for await (const chunk of adapter.chatStream({ ...options(), tools, modelOptions })) chunks.push(chunk)
       return chunks
@@ -568,7 +568,7 @@ test("OpenRouter-named modelOptions map to the worker's sampling over the model 
     for (const [modelOptions, error] of [
       [{ frequencyPenalty: 0.5 }, /frequencyPenalty/], [{ presencePenalty: 1 }, /presencePenalty/], [{ stop: "\n" }, /stop sequences/], [{ stop: ["END"] }, /stop sequences/],
       [{ topP: 0 }, /topP/], [{ topK: -1 }, /topK/], [{ temperature: -1 }, /temperature/], [{ repetitionPenalty: 0 }, /repetitionPenalty/], [{ seed: 1.5 }, /seed/]
-    ] satisfies Array<[TransformersJsTextProviderOptions, RegExp]>) {
+    ] satisfies Array<[TransformersJsTextModelOptions, RegExp]>) {
       await assert.rejects(adapter.structuredOutput({ chatOptions: { ...options(), modelOptions }, outputSchema: schema }), error)
       await assert.rejects(async () => { for await (const chunk of adapter.chatStream({ ...options(), modelOptions })) assert.ok(chunk) }, error)
     }
@@ -612,7 +612,7 @@ test("structuredOutputStream ends with RUN_ERROR on answers that aren't JSON, wo
   const { transformersJsText } = await import("./adapter.js")
   const { unloadModel } = await import("./client.js")
   const adapter = transformersJsText(MODEL)
-  const run = async (chatOptions: TextOptions<TransformersJsTextProviderOptions>) => {
+  const run = async (chatOptions: TextOptions<TransformersJsTextModelOptions>) => {
     const chunks = []
     for await (const chunk of adapter.structuredOutputStream({ chatOptions, outputSchema: schema })) chunks.push(chunk)
     assert.equal(chunks[0]?.type, "RUN_STARTED")

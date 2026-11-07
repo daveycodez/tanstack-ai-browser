@@ -4,7 +4,7 @@
  * and one model in it at a time: loading another frees the previous one.
  */
 import { claimMemory, releaseMemory, touchMemory } from "./model-memory.js"
-import { modelMeta } from "./model-meta.js"
+import { modelMeta, runsWithoutWebGpu } from "./catalog.js"
 import { createStore } from "./store.js"
 import type { Store } from "./store.js"
 import type {
@@ -176,10 +176,10 @@ let webGpu: Promise<boolean> | undefined
 /**
  * Whether models here run on WebGPU: the browser has it and gives a GPU
  * adapter. Where it doesn't, they run on the CPU through WebAssembly, which
- * needs a model with q4 weights (see `runsWithoutWebGpu`). The worker makes
- * the same check when it loads a model.
+ * needs a model with q4 weights (see `isSupported`). The worker makes the
+ * same check when it loads a model.
  */
-export function hasWebGpu(): Promise<boolean> {
+function hasWebGpu(): Promise<boolean> {
   webGpu ??= (async () => {
     const nav =
       typeof navigator === "undefined"
@@ -198,18 +198,32 @@ export function hasWebGpu(): Promise<boolean> {
 }
 
 /**
+ * Whether Transformers.js can run `model` in this browser: on WebGPU, or
+ * without it on the CPU through WebAssembly, which needs a model with q4
+ * weights (a listed model's `cpu`; any other Hugging Face id is taken to
+ * have them, and loading says if its repo doesn't). Without a model: whether
+ * it can run any model here.
+ */
+export async function isSupported(model?: string): Promise<boolean> {
+  if (await hasWebGpu()) return true
+  if (typeof WebAssembly === "undefined") return false
+  return model === undefined || runsWithoutWebGpu(model)
+}
+
+/**
  * Loads a model (downloading it the first time), replacing any other: a
  * listed model or any Hugging Face id: "owner/repo" for its latest version
- * (main), "owner/repo@commit" for that one. Without WebGPU the worker loads
- * its q4 weights on the CPU instead of `dtype`.
- * Chats may hold up to `contextLength` tokens: the model's own context
- * window by default.
+ * (main), "owner/repo@commit" for that one. `dtype` is the weights to load
+ * (a listed model's own by default, else "q4f16"); without WebGPU the worker
+ * loads its q4 weights on the CPU instead. Chats may hold up to
+ * `contextLength` tokens: the model's own context window by default.
  */
 export function loadModel(
   model: string,
-  dtype: WeightsDtype = modelMeta(model)?.dtype ?? "q4f16",
-  contextLength?: number
+  options: { dtype?: WeightsDtype; contextLength?: number } = {}
 ): Promise<void> {
+  const { contextLength } = options
+  const dtype = options.dtype ?? modelMeta(model)?.dtype ?? "q4f16"
   const modelId = model
   if (loaded?.modelId === modelId && loaded.contextLength === contextLength) {
     return loaded.load.promise
@@ -240,10 +254,12 @@ export function loadModel(
 
 /**
  * Frees the loaded model, all its GPU and WebAssembly memory with it, by
- * ending the worker (the next load starts a new one). Another runtime
- * loading a model past the memory budget calls it too.
+ * ending the worker (the next load starts a new one). Given a model, only if
+ * it's the one loaded (or loading). Another runtime loading a model past the
+ * memory budget calls it too.
  */
-export function unloadModel() {
+export async function unloadModel(model?: string): Promise<void> {
+  if (model !== undefined && loaded?.modelId !== model) return
   worker?.terminate()
   worker = null
   releaseMemory(OWNER)

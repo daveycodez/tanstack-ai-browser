@@ -90,7 +90,7 @@ type StreamEvent={type:string;name?:string;delta?:string;message?:string;value?:
 /** structuredOutputStream's events, its reasoning deltas, and the complete event and usage. */
 async function streamed(request:ReturnType<typeof options>){
  const chunks:Array<StreamEvent>=[]
- for await(const chunk of promptApiText().structuredOutputStream(request))chunks.push(chunk)
+ for await(const chunk of promptApiText("built-in").structuredOutputStream(request))chunks.push(chunk)
  const error=chunks.find(c=>c.type==="RUN_ERROR")
  if(error)throw new Error(error.message)
  const complete=chunks.find(c=>c.type==="CUSTOM"&&c.name==="structured-output.complete")
@@ -102,7 +102,7 @@ function reset(){model.busy=undefined;control.produced=0;control.sessions=[];con
 
 test("Prompt API off/omitted reasoning remains one native constrained pass",async()=>{
  for(const reasoning of [undefined,{level:"off",summary:true,budgetTokens:4}]){
-  reset();const response=await promptApiText().structuredOutput(options(reasoning))
+  reset();const response=await promptApiText("built-in").structuredOutput(options(reasoning))
   assert.deepEqual(response.data,{moveId:"b6-a5"})
   assert.equal(control.events.filter(e=>e.kind==="draft").length,0)
   assert.equal(control.events.filter(e=>e.kind==="final").length,1)
@@ -177,12 +177,12 @@ test("emulated thinking with no budget has no invented token ceiling",{timeout:5
 
 test("caller abort before or during draft prevents final generation, via request.signal or legacy abortController",{timeout:5000},async()=>{
  reset();caller().abort(new Error("cancelled before reasoning"))
- await assert.rejects(promptApiText().structuredOutput(options({level:"high",summary:true,budgetTokens:4})),/cancelled before reasoning/)
+ await assert.rejects(promptApiText("built-in").structuredOutput(options({level:"high",summary:true,budgetTokens:4})),/cancelled before reasoning/)
  assert.equal(control.events.length,0)
  assert.equal(control.sessions.length,0)
  for(const useRequestSignal of [false,true]){
   reset();control.abortDraft=true
-  await assert.rejects(promptApiText().structuredOutput(options({level:"high",summary:true,budgetTokens:50},useRequestSignal)),/caller cancelled draft/)
+  await assert.rejects(promptApiText("built-in").structuredOutput(options({level:"high",summary:true,budgetTokens:50},useRequestSignal)),/caller cancelled draft/)
   assert.equal(control.events.filter(e=>e.kind==="final").length,0)
   assert.ok(control.sessions.every(s=>s.destroyed))
  }
@@ -190,13 +190,13 @@ test("caller abort before or during draft prevents final generation, via request
 
 test("caller abort interrupts final generation after an emulated draft",{timeout:5000},async()=>{
  reset();control.abortFinal=true
- await assert.rejects(promptApiText().structuredOutput(options({level:"high",summary:true,budgetTokens:4})),/caller cancelled final/)
+ await assert.rejects(promptApiText("built-in").structuredOutput(options({level:"high",summary:true,budgetTokens:4})),/caller cancelled final/)
  assert.equal(control.events.filter(e=>e.kind==="final").length,1)
  assert.ok(control.sessions.every(s=>s.destroyed))
 })
 
 test("emulated draft preserves constrained tool selection and argument generation",async()=>{
- reset();const adapter=promptApiText({nativeTools:false})
+ reset();const adapter=promptApiText("built-in", {nativeTools:false})
  const base=options({level:"high",summary:true,budgetTokens:4}).chatOptions
  const chunks=[]
  for await(const chunk of adapter.chatStream({...base,tools:[{name:"lookup_weather",description:"Look up weather",inputSchema:{type:"object",properties:{city:{enum:["London"]}},required:["city"],additionalProperties:false}}],toolChoice:"required"}))chunks.push(chunk)
@@ -231,7 +231,7 @@ test("emulated stream keeps native tool calls and labels its reasoning usage",as
  class ToolValue { constructor(value:object){Object.assign(this,value)} }
  for(const key of keys)globals[key]=ToolValue
  try{
-  const adapter=promptApiText()
+  const adapter=promptApiText("built-in")
   const base=options({level:"high",summary:true,budgetTokens:4}).chatOptions
   const chunks=[]
   for await(const chunk of adapter.chatStream({...base,tools:[{name:"lookup_weather",description:"Weather",inputSchema:{type:"object",properties:{city:{enum:["London"]}},required:["city"],additionalProperties:false}}]}))chunks.push(chunk)
@@ -253,7 +253,7 @@ test("emulated stream keeps native tool calls and labels its reasoning usage",as
 test("off and omitted streamed calls preserve retained session behavior",async()=>{
  for(const reasoning of [undefined,{level:"off",summary:true,budgetTokens:4}]){
   reset();const chunks=[]
-  for await(const chunk of promptApiText().chatStream(options(reasoning).chatOptions))chunks.push(chunk)
+  for await(const chunk of promptApiText("built-in").chatStream(options(reasoning).chatOptions))chunks.push(chunk)
   assert.equal(control.leases[0].threadId,"retained-original")
   assert.equal(control.releases,1)
   assert.equal(control.events.filter(e=>e.kind==="draft").length,0)
@@ -264,7 +264,7 @@ test("off and omitted streamed calls preserve retained session behavior",async()
 
 test("shared TanStack chat forwards opt-in reasoning to the Prompt API adapter",async()=>{
  reset();const chunks:Array<StreamEvent>=[]
- for await(const chunk of chat({adapter:promptApiText(),threadId:"public-chat-reasoning",messages:[{role:"user",content:"Say hello"}],reasoning:{level:"high",budgetTokens:4},abortController:caller(),stream:true}))chunks.push(chunk)
+ for await(const chunk of chat({adapter:promptApiText("built-in"),threadId:"public-chat-reasoning",messages:[{role:"user",content:"Say hello"}],reasoning:{level:"high",budgetTokens:4},abortController:caller(),stream:true}))chunks.push(chunk)
  assert.equal(chunks.filter(c=>c.type==="REASONING_MESSAGE_CONTENT").map(c=>c.delta).join(""),"abcd")
  assert.equal(chunks.find(c=>c.type==="RUN_FINISHED")?.usage?.providerUsageDetails?.reasoningEmulated,true)
 })
@@ -272,14 +272,14 @@ test("shared TanStack chat forwards opt-in reasoning to the Prompt API adapter",
 test("invalid emulated budgets reject before leasing a native session",async()=>{
  for(const budgetTokens of [-1,1.5,NaN,Infinity,Number.MAX_SAFE_INTEGER+1]){
   reset()
-  await assert.rejects(promptApiText().structuredOutput(options({level:"high",summary:true,budgetTokens})),/nonnegative safe integer/)
+  await assert.rejects(promptApiText("built-in").structuredOutput(options({level:"high",summary:true,budgetTokens})),/nonnegative safe integer/)
   assert.equal(control.leases.length,0)
  }
 })
 
 test("Prompt API required one-tool calls skip the forced routing clone and constrain arguments once", async()=>{
  reset()
- const adapter=promptApiText({nativeTools:false})
+ const adapter=promptApiText("built-in", {nativeTools:false})
  const base=options().chatOptions
  const inputSchema={type:"object",properties:{city:{enum:["London"]}},required:["city"],additionalProperties:false}
  const chunks=[]
@@ -303,7 +303,7 @@ test("Prompt API auto and multiple required tools still need constrained routing
   const tool={name:"lookup_weather",description:"Weather",inputSchema}
   const tools=required?[tool,{...tool,name:"lookup_alerts"}]:[tool]
   const chunks=[]
-  for await(const chunk of promptApiText({nativeTools:false}).chatStream({...options().chatOptions,tools,toolChoice:required?"required":"auto"}))chunks.push(chunk)
+  for await(const chunk of promptApiText("built-in", {nativeTools:false}).chatStream({...options().chatOptions,tools,toolChoice:required?"required":"auto"}))chunks.push(chunk)
   assert.equal(control.events.filter(event=>event.kind==="clone").length,2)
   const generations=control.events.filter(event=>event.kind==="final")
   assert.equal(generations.length,2)
@@ -318,7 +318,7 @@ test("Prompt API forced one-tool argument cancellation cleans up its clone and l
  reset();control.abortFinal=true
  const tools=[{name:"lookup_weather",description:"Weather",inputSchema:{type:"object",properties:{city:{enum:["London"]}},required:["city"],additionalProperties:false}}]
  const chunks=[]
- for await(const chunk of promptApiText({nativeTools:false}).chatStream({...options().chatOptions,tools,toolChoice:"required"}))chunks.push(chunk)
+ for await(const chunk of promptApiText("built-in", {nativeTools:false}).chatStream({...options().chatOptions,tools,toolChoice:"required"}))chunks.push(chunk)
  assert.equal(control.events.filter(event=>event.kind==="clone").length,1)
  assert.equal(control.events.filter(event=>event.kind==="final").length,1)
  assert.equal(chunks.some(chunk=>chunk.type==="TOOL_CALL_END"),false)

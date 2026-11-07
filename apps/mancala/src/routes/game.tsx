@@ -1,6 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router"
 import { useEffect, useState } from "react"
-import { loadPromptApiModel } from "@tanstack-ai-browser/prompt-api"
+import { loadModel as loadPromptApiModel } from "@tanstack-ai-browser/prompt-api"
 import { Header, Footer } from "../components/chrome"
 import { MancalaBoard } from "../components/board"
 import { Dialog, Rules } from "../components/dialog"
@@ -122,7 +122,7 @@ function PlayView({
   async function change(settings: OpponentSettings) {
     if (busy) return
     if (settings.model === "prompt-api" && promptApiAvailable)
-      void loadPromptApiModel().catch((reason: unknown) =>
+      void loadPromptApiModel("built-in").catch((reason: unknown) =>
         setError(
           reason instanceof Error
             ? reason.message

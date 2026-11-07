@@ -1,38 +1,37 @@
 import { clampReasoningLevel, supportedReasoningLevels } from "@tanstack/ai"
 import type { ModelReasoning, ReasoningLevel } from "@tanstack/ai"
 import {
-  hasWebGpu,
   modelStatus,
-  runsWithoutWebGpu,
-  TRANSFORMERS_JS_MODEL_REASONING,
   transformersJsText
 } from "@tanstack-ai-browser/transformers-js"
-import type { TransformersJsListedModel } from "@tanstack-ai-browser/transformers-js"
+import {
+  TRANSFORMERS_JS_MODEL_META,
+  TRANSFORMERS_JS_MODEL_REASONING
+} from "@tanstack-ai-browser/transformers-js/model-meta"
+import type { TransformersJsChatModel } from "@tanstack-ai-browser/transformers-js/model-meta"
 import {
   modelStatus as wllamaModelStatus,
-  runsOnWebGpu as wllamaRunsOnWebGpu,
-  WLLAMA_MODEL_REASONING,
   wllamaText
 } from "@tanstack-ai-browser/wllama"
-import type { WllamaTextModel } from "@tanstack-ai-browser/wllama"
+import { WLLAMA_MODEL_REASONING } from "@tanstack-ai-browser/wllama/model-meta"
+import type { WllamaChatModel } from "@tanstack-ai-browser/wllama/model-meta"
 import {
   isSupported as webglSupported,
   modelStatus as webglModelStatus,
-  WEBGL_MODEL_REASONING,
   webgllmText
 } from "@tanstack-ai-browser/webgllm"
-import type { WebGlTextModel } from "@tanstack-ai-browser/webgllm"
+import { WEBGLLM_MODEL_REASONING } from "@tanstack-ai-browser/webgllm/model-meta"
+import type { WebGllmChatModel } from "@tanstack-ai-browser/webgllm/model-meta"
 import {
-  APFEL_BASE_URL,
   apfelText,
-  isApfelAvailable
+  isSupported as isApfelSupported
 } from "@tanstack-ai-browser/apfel"
 import {
-  promptApiAvailability,
-  promptApiModel,
-  promptApiStatus,
+  isSupported as promptApiSupported,
+  modelStatus as promptApiStatus,
   promptApiText
 } from "@tanstack-ai-browser/prompt-api"
+import { PROMPT_API_MODEL_META } from "@tanstack-ai-browser/prompt-api/model-meta"
 import { useSyncExternalStore } from "react"
 
 import { createStore } from "#/lib/store"
@@ -65,8 +64,7 @@ export type ModelId =
   | "qwen3.5-2b-gguf-webgl"
   | "built-in"
 
-/** Where the app reaches apfel on this Mac: its default address. */
-const APFEL_URL = APFEL_BASE_URL
+/** The app reaches apfel on this Mac at its default address. */
 const APPLE_MODEL = "apple-foundationmodel"
 
 /**
@@ -123,7 +121,7 @@ const makerIcon = (model: string) =>
 const repoName = (model: string) => model.slice(model.indexOf("/") + 1)
 
 /** A Transformers.js model of the package's list, in the picker. */
-const local = (id: ModelId, model: TransformersJsListedModel) => ({
+const local = (id: ModelId, model: TransformersJsChatModel) => ({
   id,
   name: repoName(model),
   icon: makerIcon(model),
@@ -134,7 +132,7 @@ const local = (id: ModelId, model: TransformersJsListedModel) => ({
   /** Its download and loading progress. */
   status: modelStatus(model) as ModelStatusStore | null,
   /** No CPU weights: it can't run where there's no WebGPU. */
-  needsWebGpu: !runsWithoutWebGpu(model),
+  needsWebGpu: !(TRANSFORMERS_JS_MODEL_META[model].cpu ?? false),
   reasoning: TRANSFORMERS_JS_MODEL_REASONING[model] as
     ModelReasoning | undefined
 })
@@ -143,7 +141,7 @@ const local = (id: ModelId, model: TransformersJsListedModel) => ({
  * A GGUF model of the wllama package's list, in the picker. llama.cpp runs
  * it on the CPU, so it needs no WebGPU.
  */
-const gguf = (id: ModelId, model: WllamaTextModel) => ({
+const gguf = (id: ModelId, model: WllamaChatModel) => ({
   id,
   name: repoName(model),
   icon: makerIcon(model),
@@ -158,14 +156,14 @@ const gguf = (id: ModelId, model: WllamaTextModel) => ({
  * with or without WebGPU. Where there's no WebGPU it still reads prompts on
  * the GPU: about three times as fast as the CPU on a Pixel 10 Pro.
  */
-const webgl = (id: ModelId, model: WebGlTextModel) => ({
+const webgl = (id: ModelId, model: WebGllmChatModel) => ({
   id,
   name: repoName(model),
   icon: makerIcon(model),
   adapter: webgllmText(model, iosContext()),
   status: webglModelStatus(model) as ModelStatusStore | null,
   needsWebGpu: false,
-  reasoning: WEBGL_MODEL_REASONING[model] as ModelReasoning | undefined
+  reasoning: WEBGLLM_MODEL_REASONING[model] as ModelReasoning | undefined
 })
 
 export const MODELS = [
@@ -174,7 +172,7 @@ export const MODELS = [
     name: "Apple Foundation Model",
     /** Provider logo in /public/icons (LobeHub icons, MIT). */
     icon: "/icons/apple.svg",
-    adapter: apfelText(APPLE_MODEL, { baseURL: APFEL_URL }),
+    adapter: apfelText(APPLE_MODEL),
     /** Runs outside the browser: nothing to download. */
     status: null,
     needsWebGpu: false,
@@ -183,14 +181,14 @@ export const MODELS = [
   {
     id: "built-in",
     /** The browser's own model: Gemini Nano in Chrome, Phi-4-mini in Edge. */
-    name: promptApiModel().name,
+    name: PROMPT_API_MODEL_META["built-in"].browserModel.name,
     icon:
-      promptApiModel().id === "phi-4-mini"
+      PROMPT_API_MODEL_META["built-in"].browserModel.id === "phi-4-mini"
         ? "/icons/microsoft.svg"
         : "/icons/gemini.svg",
-    adapter: promptApiText(),
+    adapter: promptApiText("built-in"),
     /** The browser downloads it, once for every site, with progress. */
-    status: promptApiStatus() as ModelStatusStore | null,
+    status: promptApiStatus("built-in") as ModelStatusStore | null,
     needsWebGpu: false,
     reasoning: undefined
   },
@@ -373,21 +371,43 @@ export const useIsMacOS = () =>
 const webGpu = createStore(
   typeof navigator === "undefined" || "gpu" in navigator
 )
-if (typeof window !== "undefined") void hasWebGpu().then(webGpu.set)
+
+/**
+ * Whether the browser has WebGPU and gives a GPU adapter: where it does,
+ * Transformers.js and wllama run models on it, else on the CPU in
+ * WebAssembly.
+ */
+async function hasWebGpu(): Promise<boolean> {
+  const gpu = (
+    navigator as Navigator & {
+      gpu?: { requestAdapter: () => Promise<unknown> }
+    }
+  ).gpu
+  if (!gpu) return false
+  try {
+    return (await gpu.requestAdapter()) !== null
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Whether wllama runs its models on WebGPU here (else on the CPU in
+ * WebAssembly), taken to be whether the browser has WebGPU. Null until
+ * checked, and on the server.
+ */
+const wllamaGpu = createStore<boolean | null>(null)
+if (typeof window !== "undefined") {
+  void hasWebGpu().then((gpu) => {
+    webGpu.set(gpu)
+    wllamaGpu.set(gpu)
+  })
+}
 
 export const hasWebGpuNow = webGpu.get
 
 export const useHasWebGpu = () =>
   useSyncExternalStore(webGpu.subscribe, webGpu.get, () => true)
-
-/**
- * Whether wllama runs its models on WebGPU here (else on the CPU in
- * WebAssembly). Null until checked, and on the server.
- */
-const wllamaGpu = createStore<boolean | null>(null)
-if (typeof window !== "undefined") {
-  void wllamaRunsOnWebGpu().then(wllamaGpu.set)
-}
 
 const useWllamaOnWebGpu = () =>
   useSyncExternalStore(wllamaGpu.subscribe, wllamaGpu.get, () => null)
@@ -413,7 +433,7 @@ export function useBackends(): Partial<Record<string, string>> {
  */
 const webGl2 = createStore(false)
 if (typeof window !== "undefined") {
-  void Promise.resolve().then(() => webGl2.set(webglSupported()))
+  void webglSupported().then(webGl2.set)
 }
 
 export const useHasWebGl2 = () =>
@@ -426,8 +446,11 @@ export const useHasWebGl2 = () =>
  * Testing has the API but says "downloading" forever, with no model.
  */
 const builtIn = createStore(false)
-if (typeof window !== "undefined" && promptApiModel().id !== "unknown") {
-  void promptApiAvailability().then((a) => builtIn.set(a !== "unavailable"))
+if (
+  typeof window !== "undefined" &&
+  PROMPT_API_MODEL_META["built-in"].browserModel.id !== "unknown"
+) {
+  void promptApiSupported().then(builtIn.set)
 }
 
 /** Subscribes a component to the built-in model check. */
@@ -492,4 +515,4 @@ export const afmStatus = createStore<"idle" | "checking" | "unavailable">(
  * user picks the Apple model.
  */
 export const checkAfm = () =>
-  isApfelAvailable(APPLE_MODEL, { baseURL: APFEL_URL })
+  isApfelSupported(APPLE_MODEL)
