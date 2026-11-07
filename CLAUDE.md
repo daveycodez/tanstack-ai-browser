@@ -93,14 +93,9 @@ The user's Pixel 10 Pro (Tensor G5, Imagination PowerVR GPU: WebGPU vendor `img-
 - Rest the phone a minute or two between long runs.
 
 **Browsers:**
-- In Chrome, wllama runs on WebGPU. On this GPU it uses the package's PowerVR engine, with speculative decoding and GPU top-k on by default.
+- In Chrome, wllama runs on WebGPU, on the official package's generic WebGPU backend (slow on this GPU: see ngxson/wllama#307).
 - Firefox (`org.mozilla.firefox`) has no JSPI, so wllama runs on the CPU there.
 - Don't run Transformers.js in Chrome on the Pixel unless the user asks: as of November 2026 it crashes the phone.
-
-**PowerVR engine work** (`packages/wllama/scripts/*powervr*`, `*logits-topk*`, `*speculative*`):
-- Greedy text must stay identical with speculative decoding on and off, and against the previous build.
-- Check llama.cpp's `test-backend-ops` against the CPU on the phone before shipping.
-- A full rebuild (`packages/wllama/scripts/build-wasm.sh`) takes 15–20 minutes. Don't edit the patches or the script while one is running.
 
 **Crashes and memory:**
 - `adb -s 57171FDCH00AT3 logcat -d | grep -iE "lowmemorykiller|lmkd|chromium.*crash"` shows tabs Android killed.

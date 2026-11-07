@@ -46,7 +46,7 @@ const twoCalls = [...call(0, "a", "Tokyo"), ...call(1, "b", "Paris"), { choices:
 
 async function run(modelOptions: Record<string, unknown>, withTools = true) {
   const chunks: Array<Chunk> = []
-  const adapter = wllamaText("LiquidAI/LFM3-1.7B-GGUF")
+  const adapter = wllamaText("unsloth/Qwen3.5-2B-GGUF")
   for await (const chunk of adapter.chatStream({
     logger, model: adapter.model, threadId: "parallel", messages: [{ role: "user", content: "Weather in Tokyo and Paris?" }],
     ...(withTools && { tools }), modelOptions

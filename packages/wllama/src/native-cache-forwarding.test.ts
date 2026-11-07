@@ -1,6 +1,5 @@
 import assert from "node:assert/strict"
 import { after, test } from "node:test"
-import { readFileSync } from "node:fs"
 import { mkdtemp, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
@@ -43,7 +42,7 @@ function invokeConsumer(module:Record<string,unknown>,adapter:unknown,promptCach
   // Identical consumer options for every provider: no adapter-specific cache flags.
   return (module.chat as (options:Record<string,unknown>)=>unknown)({adapter,threadId:"portable-cache",systemPrompts:["Stable instructions"],messages:[{role:"user",content:"Return alpha as the value"}],promptCache,reasoning:"off",...(stream?{stream:true}:{stream:false,outputSchema:schema("alpha")})})
 }
-const makeAdapter=(module:Record<string,unknown>)=>(module.wllamaText as (model:string)=>unknown)("LiquidAI/LFM3-1.7B-GGUF")
+const makeAdapter=(module:Record<string,unknown>)=>(module.wllamaText as (model:string)=>unknown)("unsloth/Qwen3.5-2B-GGUF")
 
 test("wllama: the same public chat promptCache matrix requires no provider-specific consumer options",async()=>{
   const module=await adapterPackage(),adapter=makeAdapter(module)
@@ -102,34 +101,4 @@ test("wllama structured requests preserve exact schema and current tool-result m
   assert.deepEqual(messages.map(message=>message.role),["system","user","assistant","tool"])
   assert.equal(messages.at(-1)?.content,history.at(-1)?.content)
   assert.equal(messages[0].content,"Stable instructions")
-})
-
-test("wllama skips managed prompt-state persistence when its effective native cache flag is false",async()=>{
-  const descriptor=Object.getOwnPropertyDescriptor(globalThis,"navigator")
-  let saves=0,storage=0
-  Object.defineProperty(globalThis,"navigator",{configurable:true,value:{storage:{async getDirectory(){storage++;throw Error("no test storage")}}}})
-  const source=readFileSync(join(root,"packages/wllama/src/client.ts"),"utf8")+`
-export {saveState as saveFixture};
-export const initFixture=(model)=>{state={model,build:"test"};};
-`
-  const outfile=join(temporary,"wllama-state.mjs")
-  try{
-    await build({stdin:{contents:source,resolveDir:join(root,"packages/wllama/src"),loader:"ts"},outfile,bundle:true,format:"esm",platform:"node",logLevel:"error",plugins:[{name:"native-state",setup(bundle){
-      bundle.onResolve({filter:/vendor\/wllama\/index\.js$/},()=>({path:"vendor",namespace:"contract"}))
-      bundle.onLoad({filter:/.*/,namespace:"contract"},()=>({contents:"export const LoggerWithoutDebug={};export class Wllama{}"}))
-    }}]})
-    const module=await import(pathToFileURL(outfile).href)
-    const model="LiquidAI/LFM3-1.7B-GGUF"
-    module.initFixture(model)
-    const native={async saveSlotState(){saves++;return new Uint8Array([1,2,3])}}
-    const request={messages:[{role:"user",content:"Independent task"}],cache_prompt:false}
-    await module.saveFixture(model,native,request)
-    assert.equal(saves,0);assert.equal(storage,0)
-    await module.saveFixture(model,native,{...request,cache_prompt:undefined})
-    assert.equal(saves,1);assert.equal(storage,1,"existing default persistence is unchanged")
-    await module.saveFixture(model,native,request)
-    assert.equal(saves,1);assert.equal(storage,1)
-    await module.saveFixture(model,native,{...request,cache_prompt:true})
-    assert.equal(saves,2);assert.equal(storage,2)
-  }finally{if(descriptor)Object.defineProperty(globalThis,"navigator",descriptor);else Reflect.deleteProperty(globalThis,"navigator")}
 })

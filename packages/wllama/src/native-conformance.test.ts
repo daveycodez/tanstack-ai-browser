@@ -42,7 +42,7 @@ function options(model: string, modelOptions: object = {}) {
 test("wllama delegates the exact schema, thinking switch and output cap, and rejects length completion", async () => {
   const { wllamaText } = await adapterPackage()
   control.requests = []; control.finish = "stop"
-  const adapter = wllamaText("LiquidAI/LFM3-1.7B-GGUF")
+  const adapter = wllamaText("unsloth/Qwen3.5-2B-GGUF")
   const request = options(adapter.model, { maxCompletionTokens: 8192, response_format: { type: "text" } })
   const result = await adapter.structuredOutput({ ...request, chatOptions: { ...request.chatOptions, reasoning: { level: "high", summary: true } } })
   assert.deepEqual(result.data, { moveId: "b6-a5" })
@@ -61,7 +61,7 @@ test("wllama delegates the exact schema, thinking switch and output cap, and rej
 test("wllama maps explicit thinking budgets through its public runtime option in both paths", async () => {
   const { wllamaText } = await adapterPackage()
   control.requests = [];control.finish = "stop"
-  const adapter = wllamaText("LiquidAI/LFM3-1.7B-GGUF")
+  const adapter = wllamaText("unsloth/Qwen3.5-2B-GGUF")
   const reasons = [undefined, { level: "high", summary: true, budgetTokens: 512 }, { level: "high", summary: true, budgetTokens: 0 }, { level: "off", summary: true, budgetTokens: 512 }, { level: "high", summary: true }]
   for (const reasoning of reasons) {
     const request = options(adapter.model)

@@ -23,22 +23,23 @@ test("Wllama caller aborts stop both loading waits, while the shared background 
   try {
     const outfile = join(temporary, "client.mjs")
     await build({ entryPoints: [join(root, "packages/wllama/src/client.ts")], outfile, bundle: true, format: "esm", platform: "node", logLevel: "error", plugins: [{ name: "public-wllama-runtime", setup(bundle) {
-      bundle.onResolve({ filter: /vendor\/wllama\/index\.js$/ }, () => ({ path: "vendor", namespace: "contract" }))
+      bundle.onResolve({ filter: /@wllama\/wllama\/esm\/index\.js$/ }, () => ({ path: "vendor", namespace: "contract" }))
       bundle.onResolve({ filter: /^\.\/model-memory\.js$/ }, () => ({ path: "memory", namespace: "contract" }))
       bundle.onLoad({ filter: /.*/, namespace: "contract" }, args => ({ contents: args.path === "memory" ? 'export const claimMemory=async()=>{};export const releaseMemory=()=>{};export const touchMemory=()=>{};' : `
         const control=globalThis.__wllamaCancel;
         export const LoggerWithoutDebug={};
         export class Wllama {
-          constructor(){control.instances++;this.modelManager={getModels:()=>control.loading};}
-          async loadModelFromUrl(_url,options){control.signal=options.signal;}
+          constructor(){control.instances++;this.modelManager={getModels:()=>control.loading,getModelOrDownload:async(_source,options)=>{control.signal=options.signal;return {size:0};}};}
+          async loadModel(){}
+          getLoadedContextInfo(){return {success:true};}
           async exit(){}
           async createChatCompletion(options){control.calls.push(options);return options.stream?(async function*(){yield {choices:[]}})():{choices:[{message:{content:'{}'},finish_reason:'stop'}]};}
         }
       ` }))
     } }] })
     const client = await import(pathToFileURL(outfile).href)
-    client.configureRuntime({ wasmUrl: "test.wasm", gpu: false, speculative: false, gpuTopK: false, relaxedSimdWasmUrl: false })
-    const model = "LiquidAI/LFM3-1.7B-GGUF"
+    client.configureRuntime({ wasmUrl: "test.wasm", gpu: false })
+    const model = "unsloth/Qwen3.5-2B-GGUF"
     const request = { messages: [{ role: "user", content: "hi" }] }
     const already = new AbortController(); already.abort(new Error("already cancelled"))
     await assert.rejects(client.completeChat(model, request, already.signal), /already cancelled/)

@@ -10,7 +10,7 @@ adb reverse tcp:8787 tcp:8787        # a phone over USB: localhost is a secure c
 ```
 
 - `HF_DIR`: `LiquidAI/LFM3-1.7B`'s `tokenizer.json`, `tokenizer_config.json`, `chat_template.jinja` (`compare.html` builds every runtime's prompt with it)
-- `MODELS_DIR`: local GGUFs (`tools.html`, `run=wllama`, the go/no-go page's `LFM3-1.7B-Q4_K_M.gguf`); also where `driver.html` reads its `job.json`
+- `MODELS_DIR`: local GGUFs (`tools.html`, `run=wllama`, the go/no-go page's `LFM2.5-1.2B-Instruct-Q4_K_M.gguf`: wllama 3.8.1 doesn't load LFM3); also where `driver.html` reads its `job.json`
 - `ONNX_COMMUNITY_DIR` (served at `/onnx-community/`): a copy of `onnx-community/LFM3-1.7B-ONNX`, for `tools.html`
 - `REF_DIR`: `tools.html`'s reference sets (`/ref/<set>/`, made by `tool-ref/`)
 - `ONNX_DIR` (`/onnx-web/`), `REF_ONNX_DIR` (`/ref-onnx/`): `tjs-quality.html`'s weights and onnxruntime reference tensors
@@ -20,7 +20,7 @@ Pages post their lines to `/log`, which the server prints as `[page] …`. On to
 
 - `/bundle/<path>.js`: this package's `<path>.ts` (`/bundle/bench/compare.js` is `bench/compare.ts`). `webgllm` and `webgllm/advanced` resolve to the installed npm package (`packages/webgllm/node_modules/webgllm`, its `dist/`).
 - `/bundle-webgllm/<path>.js`: the installed webgllm's `dist/<path>.js` with its dependencies (`@huggingface/jinja`, `@huggingface/tokenizers`, `llguidance`). Pages pass `/bundle-webgllm/worker.js` to `new WebGLLM({ worker })`, since a bundle can't follow webgllm's own `new URL("./worker.js", import.meta.url)`.
-- `/bundle-tjs/…`, `/bundle-wllama/…`: the transformers-js and wllama packages' sources; `/wllama/` and `/wasm/` serve wllama's JavaScript and builds.
+- `/bundle-tjs/…`, `/bundle-wllama/…`: the transformers-js and wllama packages' sources; `/wllama/` and `/wasm/` serve the official `@wllama/wllama`'s JavaScript and WebAssembly (the wllama package's dependency).
 
 ## compare.html
 
@@ -33,7 +33,7 @@ Pages post their lines to `/log`, which the server prints as `[page] …`. On to
 - `run=switch&models=a,b&rounds=5`: one `WebGLLM` switching models, unloading the last before loading the next, a short reply after each load.
 - `run=tjs` or `tjs-cpu`: Transformers.js on WebGPU (q4f16), or on the CPU (q4), through the transformers-js package's worker.
 - `run=wllama-pkg` or `wllama-pkg-cpu`: wllama through the wllama package's client, on WebGPU or the CPU only (`debug: true`, so llama.cpp's buffer lines reach the log).
-- `run=wllama` or `wllama-cpu`: wllama directly on a GGUF in `MODELS_DIR` (`model=` its file name, `wasm=` the build).
+- `run=wllama` or `wllama-cpu`: wllama directly on a GGUF in `MODELS_DIR` (`model=` its file name).
 - Options: `ctx=8192` (the load's context; left out, the model's whole window, except Transformers.js's 8,192), `len=512` (prompt tokens), `q=quote` or `q=capital` (other questions).
 
 `driver.html` runs these on a phone: open it once, then write `{"id":"<unique>","url":"/compare.html?…"}` to `$MODELS_DIR/job.json` for each job. `ios-tab.mjs` runs JavaScript in an iPhone Safari tab over `ios_webkit_debug_proxy`.

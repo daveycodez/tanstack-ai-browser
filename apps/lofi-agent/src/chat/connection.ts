@@ -18,7 +18,7 @@ import {
   statsFromUsage
 } from "./generation-stats"
 import { isReasoningLevel, selectedModel } from "./model"
-import { effortFor, isModelId, modelInfo } from "./models"
+import { currentModelId, effortFor, isModelId, modelInfo } from "./models"
 
 /**
  * Each model call's usage, as the adapter reports it when the call ends, to
@@ -53,7 +53,7 @@ const compactToolResults: ChatMiddleware = {
 
 /** The model a session forwarded with this run, if it's one we have. */
 function readModel(forwarded: Record<string, unknown> | undefined) {
-  const model = forwarded?.model
+  const model = currentModelId(forwarded?.model)
   return isModelId(model) ? model : selectedModel()
 }
 
