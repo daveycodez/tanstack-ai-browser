@@ -203,7 +203,7 @@ export function hasWebGpu(): Promise<boolean> {
  * (main), "owner/repo@commit" for that one. Without WebGPU the worker loads
  * its q4 weights on the CPU instead of `dtype`.
  * Chats may hold up to `contextLength` tokens: the model's own context
- * window by default. A different context length loads the model again.
+ * window by default.
  */
 export function loadModel(
   model: string,

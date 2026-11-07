@@ -58,6 +58,7 @@
     "esbuild": "0.28.2"
   },
   "dependencies": {
+    "@huggingface/transformers": "4.3.2",
     "llguidance": "0.2.1"
   }
 }

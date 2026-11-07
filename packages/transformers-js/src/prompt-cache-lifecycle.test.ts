@@ -73,7 +73,7 @@ const model={generation_config:{eos_token_id:0},config:{eos_token_id:0},
     return new Tensor("int64",[...ids,97n],[1,ids.length+1])
   }
 }
-worker.setFixture({modelId:"cache-fixture",runtime:Promise.resolve({tf,tokenizer,model,endTokens:/<eos>/g,device:"wasm",dtype:"q4",contextLength:8192})})
+worker.setFixture({modelId:"cache-fixture",runtime:Promise.resolve({tf,tokenizer,model,endTokens:/<eos>/g,device:"wasm",dtype:"q4",config:{max_position_embeddings:8192}})})
 async function run(id:string,cachePrompt?:boolean,long=false){
   control.id=id;control.forward=[];control.generation=[]
   const chat=[{role:"system",content:long?"Instruction ".repeat(30):"Short stable"},{role:"user",content:"Hello"}]
@@ -136,7 +136,7 @@ test("stop during model-runtime initialization is retained before a native crite
   control.forward = []; control.generation = []
   const result = run("cold-runtime", false)
   worker.stopFixture("cold-runtime")
-  ready({tf,tokenizer,model,endTokens:/<eos>/g,device:"wasm",dtype:"q4",contextLength:8192})
+  ready({tf,tokenizer,model,endTokens:/<eos>/g,device:"wasm",dtype:"q4",config:{max_position_embeddings:8192}})
   await assert.rejects(result, error => (error as Error).name === "AbortError")
   assert.equal(control.forward.length, 0)
   assert.equal(control.generation.length, 0)

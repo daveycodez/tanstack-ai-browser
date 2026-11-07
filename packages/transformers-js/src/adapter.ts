@@ -56,10 +56,8 @@ export type TransformersJsTextConfig = {
   toolFormat?: ToolFormat
   /**
    * Tokens a chat may hold, prompt and reply together: the model's whole
-   * context window by default (from its config). Less saves memory: the
-   * model's rotary tables are cut to it when it loads. On an iPhone, LFM
-   * models need 8,192 at most: past it, ONNX Runtime's buffer cache moves
-   * their attention memory to buffers larger than iPhone Safari allows.
+   * context window by default (from its config), never more. Less keeps
+   * the model's cache, which grows with the chat, smaller.
    */
   contextLength?: number
   /**
