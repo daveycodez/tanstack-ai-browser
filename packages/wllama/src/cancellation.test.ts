@@ -23,7 +23,7 @@ test("Wllama caller aborts stop both loading waits, while the shared background 
   try {
     const outfile = join(temporary, "client.mjs")
     await build({ entryPoints: [join(root, "packages/wllama/src/client.ts")], outfile, bundle: true, format: "esm", platform: "node", logLevel: "error", plugins: [{ name: "public-wllama-runtime", setup(bundle) {
-      bundle.onResolve({ filter: /vendor\/wllama\/index\.js$/ }, () => ({ path: "vendor", namespace: "contract" }))
+      bundle.onResolve({ filter: /@wllama\/wllama\/esm\/index\.js$/ }, () => ({ path: "vendor", namespace: "contract" }))
       bundle.onResolve({ filter: /^\.\/model-memory\.js$/ }, () => ({ path: "memory", namespace: "contract" }))
       bundle.onLoad({ filter: /.*/, namespace: "contract" }, args => ({ contents: args.path === "memory" ? 'export const claimMemory=async()=>{};export const releaseMemory=()=>{};export const touchMemory=()=>{};' : `
         const control=globalThis.__wllamaCancel;
@@ -37,7 +37,7 @@ test("Wllama caller aborts stop both loading waits, while the shared background 
       ` }))
     } }] })
     const client = await import(pathToFileURL(outfile).href)
-    client.configureRuntime({ wasmUrl: "test.wasm", gpu: false, speculative: false, gpuTopK: false, relaxedSimdWasmUrl: false })
+    client.configureRuntime({ wasmUrl: "test.wasm", gpu: false })
     const model = "LiquidAI/LFM3-1.7B-GGUF"
     const request = { messages: [{ role: "user", content: "hi" }] }
     const already = new AbortController(); already.abort(new Error("already cancelled"))

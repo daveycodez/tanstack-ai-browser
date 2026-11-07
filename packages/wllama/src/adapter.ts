@@ -25,8 +25,9 @@ import type {
 import type {
   ChatCompletionMessage,
   ChatCompletionTool,
-  ResultTimings
-} from "../vendor/wllama/index.js"
+  ResultTimings,
+  WllamaCompat
+} from "@wllama/wllama/esm/index.js"
 
 import {
   completeChat,
@@ -63,20 +64,23 @@ export type WllamaTextConfig = {
    */
   keepLoaded?: boolean
   /**
-   * Where the main build (`wasm/wllama.wasm`) is served, for bundlers that
-   * don't emit it from `new URL(…, import.meta.url)`. Applies to every model.
+   * Where wllama's WebAssembly file is served. By default, the installed
+   * `@wllama/wllama`'s own file on jsDelivr, at its version; serve
+   * `@wllama/wllama/esm/wasm/wllama.wasm` with the site and pass its URL to
+   * host it yourself. Applies to every model.
    */
   wasmUrl?: string
   /**
-   * Where the relaxed SIMD build (`wasm/wllama-relaxed.wasm`) is served, if
-   * not emitted by the bundler, or `false` to use the main build everywhere.
+   * @deprecated Ignored: the official wllama has one WebAssembly build
+   * (`wasmUrl`), without relaxed SIMD.
    */
   relaxedSimdWasmUrl?: string | false
   /**
-   * Where the compat build (for Safari, `wasm/wllama-compat.wasm` and
-   * `wasm/wllama-compat.js.txt`) is served, if not emitted by the bundler.
+   * Where wllama's compat build (for Safari: `@wllama/wllama-compat`'s
+   * `wasm/wllama.wasm` and `wasm/wllama.js`) is served, passed to
+   * `Wllama.setCompat`. By default, wllama's: the same version on jsDelivr.
    */
-  compat?: { wasm: string; worker: string }
+  compat?: WllamaCompat
   /** CPU threads. wllama's default otherwise: half the cores. */
   threads?: number
   /**
@@ -85,16 +89,13 @@ export type WllamaTextConfig = {
    */
   gpu?: boolean
   /**
-   * Speculative decoding (guessing the next few tokens from the conversation
-   * so far and checking them in one pass). By default on where it writes the
-   * same text and faster: WebGPU on Imagination PowerVR GPUs (Pixel 10).
-   * `true` turns it on everywhere, `false` off.
+   * @deprecated Ignored: speculative decoding without a draft model isn't in
+   * the official wllama's load options.
    */
   speculative?: boolean
   /**
-   * Sampling from the logits' top 128, found on the GPU, when the sampling
-   * settings allow it (the same tokens are sampled). By default on where it
-   * is faster: WebGPU on Imagination PowerVR GPUs (Pixel 10). `false` off.
+   * @deprecated Ignored: sampling from the logits' top k found on the GPU
+   * isn't in the official wllama.
    */
   gpuTopK?: boolean
   /** wllama's and llama.cpp's logs, in the console. */
@@ -389,16 +390,9 @@ export class WllamaTextAdapter<
     setKeepLoaded(model, config.keepLoaded ?? false)
     configureRuntime({
       ...(config.wasmUrl && { wasmUrl: config.wasmUrl }),
-      ...(config.relaxedSimdWasmUrl !== undefined && {
-        relaxedSimdWasmUrl: config.relaxedSimdWasmUrl
-      }),
       ...(config.compat && { compat: config.compat }),
       ...(config.threads && { threads: config.threads }),
       ...(config.gpu !== undefined && { gpu: config.gpu }),
-      ...(config.speculative !== undefined && {
-        speculative: config.speculative
-      }),
-      ...(config.gpuTopK !== undefined && { gpuTopK: config.gpuTopK }),
       ...(config.debug && { debug: true })
     })
   }
