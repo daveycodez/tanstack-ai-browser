@@ -259,8 +259,10 @@ const isTextModelFile = (path: string) =>
   path.startsWith("onnx/") && !/\/(?:vision|audio)_encoder/.test(path)
 
 /**
- * The model's ONNX files for this dtype and device, with their sizes and
- * whether Transformers.js has them cached, from its ModelRegistry.
+ * The model's ONNX files for this dtype and device, with their sizes where
+ * the Hub reports them, from Transformers.js's ModelRegistry. A size probe
+ * that fails leaves that file's size unknown rather than failing the load:
+ * from_pretrained reports a real problem itself.
  */
 async function modelFiles(
   tf: TransformersModule,
@@ -279,48 +281,72 @@ async function modelFiles(
   ).filter(isTextModelFile)
   const metadata = await Promise.all(
     paths.map((path) =>
-      tf.ModelRegistry.get_file_metadata(repo, path, { revision })
+      tf.ModelRegistry.get_file_metadata(repo, path, { revision }).catch(
+        () => null
+      )
     )
   )
   return paths.map((path, i) => ({
     path,
-    exists: metadata[i].exists,
-    size: metadata[i].size ?? 0,
-    cached: metadata[i].fromCache === true
+    /** False only when the Hub said the file isn't there. */
+    missing: metadata[i]?.exists === false,
+    size: metadata[i]?.size
   }))
 }
 
 /**
- * Removes the weights earlier versions of this package downloaded to the
- * Origin Private File System themselves (`*.onnx_data*` with their
- * `.done`/`.etag` markers and `weights.*.json` listings): Transformers.js
- * keeps the model's files in its own cache now. Once per worker.
+ * Whether every file the model loads is in Transformers.js's cache now. The
+ * registry's file metadata keeps what it saw first, so a model downloaded
+ * earlier in this worker would still read as a download.
  */
-let removedLegacyWeights = false
-
-async function removeLegacyWeights() {
-  if (removedLegacyWeights) return
-  removedLegacyWeights = true
+async function isCached(
+  tf: TransformersModule,
+  repo: string,
+  revision: string,
+  config: ModelConfig,
+  dtype: WeightsDtype,
+  device: Device
+) {
   try {
-    const dir = await navigator.storage.getDirectory()
-    const legacy: Array<string> = []
-    for await (const [name, entry] of (
-      dir as unknown as {
-        entries: () => AsyncIterable<[string, FileSystemHandle]>
-      }
-    ).entries()) {
-      if (entry.kind !== "file") continue
-      if (
-        /\.onnx_data(?:_\d+)?(?:\.done|\.etag)?$/.test(name) ||
-        /\.weights\.q4(?:f16)?\.json$/.test(name) ||
-        name.startsWith("lfm3-1.7b-")
-      ) {
-        legacy.push(name)
-      }
-    }
-    for (const name of legacy) await dir.removeEntry(name)
+    const status = await tf.ModelRegistry.is_cached_files(repo, {
+      revision,
+      config: config as never,
+      dtype,
+      device
+    })
+    return status.allCached
   } catch {
-    // Nothing to clean up.
+    return false
+  }
+}
+
+/**
+ * The bytes a model's memory claim assumes when the Hub doesn't report its
+ * weights' sizes: as much as the largest models here take.
+ */
+const UNKNOWN_MODEL_BYTES = 2.5e9
+
+/**
+ * The chat template a repo keeps in its own `chat_template.jinja`, which
+ * Transformers.js 4.3's AutoTokenizer doesn't read (until
+ * huggingface/transformers.js#1880 ships), from the same host and revision
+ * the model loads from. Null when the repo has none.
+ */
+async function standaloneChatTemplate(
+  tf: TransformersModule,
+  repo: string,
+  revision: string
+) {
+  const path = tf.env.remotePathTemplate
+    .replaceAll("{model}", repo)
+    .replaceAll("{revision}", encodeURIComponent(revision))
+  try {
+    const res = await fetchWithoutReferrer(
+      new URL(`${path}chat_template.jinja`, tf.env.remoteHost)
+    )
+    return res.ok ? await res.text() : null
+  } catch {
+    return null
   }
 }
 
@@ -421,18 +447,24 @@ async function loadRuntime(
   const { repo, revision } = parseModelId(modelId)
   const { Model, config } = await modelClass(tf, repo, revision)
   const files = await modelFiles(tf, repo, revision, config, dtype, device)
-  if (files.length === 0 || files.some((f) => !f.exists)) {
+  if (files.length === 0 || files.some((f) => f.missing)) {
     if (device === "webgpu") throw new Error(`${repo} has no ${dtype} ONNX weights.`)
     throw new Error(
       "This model needs WebGPU, which this browser doesn't have, and it has no weights for running on the CPU. Pick another model."
     )
   }
-  const cached = files.every((f) => f.cached)
-  const total = files.reduce((sum, f) => sum + f.size, 0)
+  const cached = await isCached(tf, repo, revision, config, dtype, device)
+  const sizes = files.map((f) => f.size)
+  const known = sizes.every((size) => typeof size === "number" && size > 0)
+  // Bytes to download, for progress: unknown when a size probe failed.
+  const total = known ? sizes.reduce<number>((sum, size) => sum + (size ?? 0), 0) : 0
   // Room for it first: the page unloads other runtimes' models past the
   // memory budget. On the GPU it takes about its weights (plus the cache);
   // on the CPU, ONNX Runtime's working buffers too.
-  await claimMemory(modelId, total * (device === "wasm" ? 1.3 : 1.15))
+  await claimMemory(
+    modelId,
+    (known ? total : UNKNOWN_MODEL_BYTES) * (device === "wasm" ? 1.3 : 1.15)
+  )
   ctx.postMessage({ type: "progress", modelId, progress: 0, cached })
   // Bytes downloaded per file, from Transformers.js's progress reports;
   // whole percents only.
@@ -457,6 +489,7 @@ async function loadRuntime(
   const tokenizer = (await tf.AutoTokenizer.from_pretrained(repo, {
     revision
   })) as unknown as Tokenizer
+  tokenizer.chat_template ||= await standaloneChatTemplate(tf, repo, revision)
   const model = (await Model.from_pretrained(repo, {
     revision,
     config,
@@ -515,7 +548,6 @@ function load(
     // The kept caches belong to the previous model.
     await discardSaved()
     await previous?.then((r) => r.model.dispose()).catch(() => undefined)
-    void removeLegacyWeights()
     return loadRuntime(modelId, dtype)
   })()
   current = { modelId, dtype, contextLength, runtime }

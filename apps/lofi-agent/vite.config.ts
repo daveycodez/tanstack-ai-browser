@@ -13,17 +13,24 @@ const CROSS_ORIGIN_ISOLATION = {
   "Cross-Origin-Embedder-Policy": "require-corp"
 }
 
+/**
+ * "@tanstack-ai-browser/source" points this repo's packages at their TypeScript sources,
+ * so the demo runs on them without building them first.
+ * "onnxruntime-web-use-extern-wasm" takes ONNX Runtime's build that fetches its WebAssembly
+ * (from jsDelivr, where Transformers.js points it) instead of the one that bundles it: the
+ * bundled file is 26.9 MB, past Cloudflare Workers' 25 MiB limit per static asset.
+ */
+const CONDITIONS = ["@tanstack-ai-browser/source", "onnxruntime-web-use-extern-wasm"]
+
 const config = defineConfig({
-  // "@tanstack-ai-browser/source" points this repo's packages at their TypeScript sources,
-  // so the demo runs on them without building them first.
   resolve: {
     tsconfigPaths: true,
-    conditions: ["@tanstack-ai-browser/source", ...defaultClientConditions]
+    conditions: [...CONDITIONS, ...defaultClientConditions]
   },
   ssr: {
-    resolve: { conditions: ["@tanstack-ai-browser/source", ...defaultServerConditions] }
+    resolve: { conditions: [...CONDITIONS, ...defaultServerConditions] }
   },
-  // Module workers, so the LFM3 worker can import Transformers.js from the CDN.
+  // Module workers, for the model workers.
   worker: { format: "es" },
   // The dev server also answers on the local network (http://<this mac>.local:3001)
   // and through ngrok tunnels, which give it the HTTPS that WebGPU needs.

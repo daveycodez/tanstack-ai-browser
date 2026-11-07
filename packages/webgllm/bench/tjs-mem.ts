@@ -1,9 +1,9 @@
 /**
- * Memory and speed of the transformers-js package's worker on one prompt:
- * loads a model with debug on, reads a chat prompt padded to about ?len=
- * tokens, writes ?max= tokens greedily, and prints the worker's memory log
- * with a summary per phase (GPU buffers at the load peak, after the prompt,
- * at the reply's peak and end; WebAssembly memory; speeds).
+ * Speed of the transformers-js package's worker on one prompt: loads a
+ * model with debug on, reads a chat prompt padded to about ?len= tokens,
+ * writes ?max= tokens greedily, and prints the load time and the prompt and
+ * writing speeds. For memory, measure the browser's processes (`footprint`
+ * on a Mac): the worker no longer counts it.
  *
  *   ?model=onnx-community/Qwen3.5-2B-ONNX&len=2048&max=128&ctx=8192&wait=0&runs=1
  *
@@ -54,38 +54,6 @@ async function promptText(model: string, length: number) {
   return `${pad}\n\n${QUESTION}`
 }
 
-/** Peaks and levels from the worker's "[memory]" lines, by phase (MB). */
-const summary = {
-  loadPeak: 0,
-  loaded: 0,
-  promptPeak: 0,
-  afterPrompt: 0,
-  replyPeak: 0,
-  end: 0,
-  wasm: 0
-}
-
-function readMemoryLine(text: string) {
-  const m =
-    /^\[memory\] (.*?): wasm (\d+) MB, GPU buffers (\d+) MB \(.*?peak (\d+) MB since the last line/.exec(
-      text
-    )
-  if (!m) return
-  const [, step, wasm, live, peak] = m
-  const mb = { live: Number(live), peak: Number(peak) }
-  summary.wasm = Math.max(summary.wasm, Number(wasm))
-  if (step.startsWith("loaded")) {
-    summary.loadPeak = mb.peak
-    summary.loaded = mb.live
-  } else if (step.startsWith("prompt read")) {
-    summary.promptPeak = Math.max(summary.promptPeak, mb.peak)
-    summary.afterPrompt = mb.live
-  } else if (step.startsWith("reply")) {
-    summary.replyPeak = Math.max(summary.replyPeak, mb.peak)
-    summary.end = mb.live
-  }
-}
-
 async function main() {
   log(navigator.userAgent)
   const model = params.get("model") ?? "onnx-community/Qwen3.5-2B-ONNX"
@@ -118,7 +86,6 @@ async function main() {
     else if (data.type === "load-error") failed(new Error(data.message))
     else if (data.type === "log") {
       log(`[worker] ${data.text}`)
-      readMemoryLine(data.text)
     } else if (data.type === "token") reply += data.text
     else if (data.type === "done") done(data.stats)
     else if (data.type === "error") failed(new Error(data.message))
@@ -152,7 +119,8 @@ async function main() {
         sampling: { temperature: 0, top_k: 1, repetition_penalty: 1 },
         maxTokens: max,
         contextLength,
-        thinkingOpen: "<think>"
+        thinkingOpen: "<think>",
+        thinkingClose: "</think>"
       })
     })
     const read = (stats.inputTokens ?? 0) - (stats.cachedTokens ?? 0)
@@ -164,10 +132,6 @@ async function main() {
     )
     log(`REPLY ${JSON.stringify(reply)}`)
   }
-  const s = summary
-  log(
-    `SUMMARY GPU buffers (MB): load peak ${s.loadPeak}, loaded ${s.loaded}; prompt peak ${s.promptPeak}, after it ${s.afterPrompt}; reply peak ${s.replyPeak}, end ${s.end}. WebAssembly ${s.wasm} MB`
-  )
   worker.terminate()
 }
 
