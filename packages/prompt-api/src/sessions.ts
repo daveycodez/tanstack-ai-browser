@@ -30,6 +30,8 @@ type Entry = {
 
 const entries = new Map<string, Entry>()
 const preparing = new Map<string, Promise<void>>()
+/** Counts unloads: a session created across one isn't cached. */
+let generation = 0
 
 const startsWith = (list: Array<string>, start: Array<string>) =>
   start.length <= list.length && start.every((key, i) => list[i] === key)
@@ -216,6 +218,7 @@ async function leasePooledSession({
   // this one gets a session of its own, freed when it ends.
   const shared = !entry?.busy
   if (entry && shared && cacheKey) drop(cacheKey, entry)
+  const startedIn = generation
   const started = performance.now()
   const created: Entry = {
     session: await createSession(system, prior, options, signal, media),
@@ -227,13 +230,15 @@ async function leasePooledSession({
   created.session.addEventListener("contextoverflow", () => {
     created.overflowed = true
   })
-  if (cacheKey && shared) {
+  // Unloaded while it was created: the call uses it, then it's freed.
+  const kept = cacheKey !== undefined && shared && startedIn === generation
+  if (kept) {
     entries.set(cacheKey, created)
     trimIdleSessions()
   }
   return {
     ...lease(
-      cacheKey && shared ? cacheKey : undefined,
+      kept ? cacheKey : undefined,
       created,
       0,
       performance.now() - started
@@ -326,9 +331,17 @@ async function createSession(
   }
 }
 
-/** Frees every session kept, as when the page no longer needs the model. */
+/**
+ * Frees every session kept, as when the page no longer needs the model.
+ * Sessions a call holds, or is still creating, finish that call and are
+ * freed when it ends instead of going back in the cache.
+ */
 export function destroyPromptApiSessions() {
-  for (const [id, entry] of entries) {
-    if (!entry.busy) drop(id, entry)
+  generation++
+  for (const [id, entry] of [...entries]) {
+    // A busy entry is only detached: its lease sees it's no longer the
+    // thread's and destroys the session on release.
+    if (entry.busy) entries.delete(id)
+    else drop(id, entry)
   }
 }

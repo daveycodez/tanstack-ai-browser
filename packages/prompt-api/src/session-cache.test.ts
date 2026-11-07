@@ -508,3 +508,31 @@ test("an explicit shared cache key never substitutes for compatible caller histo
   assert.equal(control.creates.length,2)
   assert.equal(bases()[0].destroyed,true)
 })
+
+test("unloading frees sessions in use and being created once their calls end, and keeps neither", async () => {
+  reset()
+  const lease = (threadId: string) => leaseSession({ threadId, system:"System", prior:[], options:{}, signal:undefined })
+  // A session a call holds survives the unload until the call ends, then is freed.
+  const busy = await lease("busy-thread")
+  destroyPromptApiSessions()
+  assert.equal(busy.session.destroyed, false, "the running call keeps its session")
+  busy.release([])
+  assert.equal(busy.session.destroyed, true, "a session in use at unload is freed when released")
+  // A session still being created at unload never enters the cache.
+  let open=()=>undefined as void,began=()=>undefined as void
+  control.createGate=new Promise<void>(resolve=>{open=resolve})
+  const started=new Promise<void>(resolve=>{began=resolve});control.onCreate=began
+  const pending = lease("pending-thread")
+  await started
+  destroyPromptApiSessions()
+  open()
+  const created = await pending
+  assert.equal(created.session.destroyed, false, "the pending call still gets its session")
+  created.release([])
+  assert.equal(created.session.destroyed, true, "a session created across the unload is freed when released")
+  // Neither thread reuses a session afterwards.
+  control.createGate=undefined; control.onCreate=undefined
+  const next = await lease("pending-thread")
+  assert.equal(next.reused, false)
+  next.release([])
+})

@@ -55,9 +55,9 @@ export function loadModel(
 }
 
 /**
- * Frees every session the adapter keeps (those running a call stay until it
- * ends), as when the page no longer needs the model. The browser keeps the
- * model itself.
+ * Frees every session the adapter keeps, as when the page no longer needs
+ * the model. Sessions a call holds or is still creating finish that call and
+ * are freed when it ends, not kept. The browser keeps the model itself.
  */
 export async function unloadModel(model?: PromptApiChatModel): Promise<void> {
   void model
