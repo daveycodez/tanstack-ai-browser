@@ -71,11 +71,6 @@ export type WllamaTextConfig = {
    */
   wasmUrl?: string
   /**
-   * @deprecated Ignored: the official wllama has one WebAssembly build
-   * (`wasmUrl`), without relaxed SIMD.
-   */
-  relaxedSimdWasmUrl?: string | false
-  /**
    * Where wllama's compat build (for Safari: `@wllama/wllama-compat`'s
    * `wasm/wllama.wasm` and `wasm/wllama.js`) is served, passed to
    * `Wllama.setCompat`. By default, wllama's: the same version on jsDelivr.
@@ -88,16 +83,6 @@ export type WllamaTextConfig = {
    * it can, and on the CPU elsewhere.
    */
   gpu?: boolean
-  /**
-   * @deprecated Ignored: speculative decoding without a draft model isn't in
-   * the official wllama's load options.
-   */
-  speculative?: boolean
-  /**
-   * @deprecated Ignored: sampling from the logits' top k found on the GPU
-   * isn't in the official wllama.
-   */
-  gpuTopK?: boolean
   /** wllama's and llama.cpp's logs, in the console. */
   debug?: boolean
 }
