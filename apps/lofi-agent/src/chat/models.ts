@@ -49,8 +49,6 @@ export type ModelId =
   | "lfm2-tool"
   | "lfm2.5-350m"
   | "qwen3.5-2b"
-  | "lfm3-gguf"
-  | "lfm3-web-gguf"
   | "lfm2.5-gguf"
   | "lfm2.5-thinking-gguf"
   | "lfm2.5-350m-gguf"
@@ -206,8 +204,6 @@ export const MODELS = [
   local("lfm2-tool", "onnx-community/LFM2-1.2B-Tool-ONNX"),
   local("lfm2.5-350m", "LiquidAI/LFM2.5-350M-ONNX"),
   local("qwen3.5-2b", "onnx-community/Qwen3.5-2B-ONNX"),
-  gguf("lfm3-gguf", "LiquidAI/LFM3-1.7B-GGUF"),
-  gguf("lfm3-web-gguf", "daveycodez/LFM3-1.7B-Web-GGUF"),
   gguf("lfm2.5-gguf", "LiquidAI/LFM2.5-1.2B-Instruct-GGUF"),
   gguf("lfm2.5-thinking-gguf", "LiquidAI/LFM2.5-1.2B-Thinking-GGUF"),
   gguf("lfm2.5-350m-gguf", "LiquidAI/LFM2.5-350M-GGUF"),
@@ -342,6 +338,21 @@ export const isModelId = (value: unknown): value is ModelId =>
   MODELS.some((m) => m.id === value)
 
 /**
+ * Models the picker no longer offers, and the same model on another runtime
+ * to use instead when a setting or a session still names one. wllama 3.8.1's
+ * llama.cpp predates LFM3's architecture, so LFM3's GGUFs don't load there:
+ * Liquid's GGUF runs on the WebGL engine, LFM3 Web on Transformers.js.
+ */
+const RETIRED_MODELS: Readonly<Record<string, ModelId>> = {
+  "lfm3-gguf": "lfm3-webgl",
+  "lfm3-web-gguf": "lfm3-web"
+}
+
+/** A saved model id, with a retired one replaced by its stand-in. */
+export const currentModelId = (value: unknown): unknown =>
+  (typeof value === "string" && RETIRED_MODELS[value]) || value
+
+/**
  * Apple's model is reached through apfel, a server on the Mac: macOS only.
  * iPadOS reports itself as a Mac too, so a touch screen rules it out.
  */
@@ -439,17 +450,19 @@ const canRun = (id: ModelId, isMac: boolean, hasGpu: boolean) =>
  * WebGL, else LFM3 Web on WebGPU, else LFM2 1.2B Tool on the CPU.
  */
 export const offered = (
-  id: ModelId,
+  saved: string,
   isMac: boolean,
   hasGpu: boolean
-): ModelId =>
-  canRun(id, isMac, hasGpu)
+): ModelId => {
+  const id = currentModelId(saved)
+  return isModelId(id) && canRun(id, isMac, hasGpu)
     ? id
     : canRun(DEFAULT_MODEL, isMac, hasGpu)
       ? DEFAULT_MODEL
       : hasGpu
         ? DEFAULT_GPU_MODEL
         : DEFAULT_CPU_MODEL
+}
 
 /** Models to offer in the picker on this device. */
 export function useModels() {
