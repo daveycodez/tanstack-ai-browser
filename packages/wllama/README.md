@@ -97,7 +97,7 @@ Actual reuse comes from llama.cpp's `timings.cache_n`, forwarded as
 Reuse lasts as long as the loaded model: llama.cpp keeps what it has read in memory, and
 a reload of the page or the model reads the prompt again.
 
-**Downloads:** `loadModel(model)` downloads and loads a model ahead of time, `unloadModel(model?)` frees it, and `modelStatus(model)` is a store of its loading progress (with bytes downloaded and the total while it downloads). `isSupported()` is true wherever the browser has WebAssembly.
+**Downloads:** `loadModel(model)` downloads and loads a model ahead of time, `unloadModel(model?)` frees it, and `modelStatus(model)` is a store of its loading progress (with bytes downloaded and the total while it downloads). `isSupported()` is true wherever the browser has WebAssembly, Web Workers and the Origin Private File System (not on a server).
 
 ## How it runs
 

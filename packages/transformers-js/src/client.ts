@@ -201,12 +201,13 @@ function hasWebGpu(): Promise<boolean> {
  * Whether Transformers.js can run `model` in this browser: on WebGPU, or
  * without it on the CPU through WebAssembly, which needs a model with q4
  * weights (a listed model's `cpu`; any other Hugging Face id is taken to
- * have them, and loading says if its repo doesn't). Without a model: whether
- * it can run any model here.
+ * have them, and loading says if its repo doesn't). Either way the model
+ * runs in a Web Worker on ONNX Runtime's WebAssembly, so it needs both (false
+ * on a server). Without a model: whether it can run any model here.
  */
 export async function isSupported(model?: string): Promise<boolean> {
+  if (typeof Worker === "undefined" || typeof WebAssembly === "undefined") return false
   if (await hasWebGpu()) return true
-  if (typeof WebAssembly === "undefined") return false
   return model === undefined || runsWithoutWebGpu(model)
 }
 

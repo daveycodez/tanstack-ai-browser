@@ -11,12 +11,19 @@ export type { ModelStatus } from "./client.js"
 
 /**
  * Whether wllama can run `model` (any listed model) in this browser: llama.cpp
- * runs in WebAssembly, on WebGPU where wllama can drive it and on the CPU
- * elsewhere, so wherever the browser has WebAssembly.
+ * runs in WebAssembly in a Web Worker, on WebGPU where wllama can drive it and
+ * on the CPU elsewhere, and wllama keeps models in the Origin Private File
+ * System. So wherever the browser has WebAssembly, workers and OPFS (false on
+ * a server).
  */
 export function isSupported(model?: WllamaChatModel): boolean {
   void model
-  return typeof WebAssembly !== "undefined"
+  return (
+    typeof WebAssembly !== "undefined" &&
+    typeof Worker !== "undefined" &&
+    typeof navigator !== "undefined" &&
+    typeof navigator.storage?.getDirectory === "function"
+  )
 }
 
 /**

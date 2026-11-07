@@ -5,7 +5,7 @@
 - Exported names changed: the package now exposes the same API shape as `@tanstack/ai-openrouter`'s text adapter, and the same as the other adapter packages here. The root entry has the adapter (its class and factory, and its config, model options and usage types) and the runtime functions (`isSupported`, `loadModel`, `unloadModel`, `modelStatus`, `setMemoryBudget` where they apply); the model catalog moved to the new `@tanstack-ai-browser/wllama/model-meta` subpath. Behaviour is unchanged apart from the renames below.
   - `WllamaTextConfig` → `WllamaConfig`
   - `WllamaTextProviderOptions` → `WllamaTextModelOptions`
-  - `runsOnWebGpu()` → `isSupported(model?)`: whether wllama runs here at all (WebAssembly); which backend it picks is no longer exported
+  - `runsOnWebGpu()` → `isSupported(model?)`: whether wllama runs here at all (WebAssembly, Web Workers and the Origin Private File System; false on a server); which backend it picks is no longer exported
   - `loadModel(model)` now resolves to nothing instead of wllama's instance
   - `unloadModel()` → `unloadModel(model?)`; given a model, only if it's the one loaded
   - `WLLAMA_TEXT_MODELS` → `WLLAMA_CHAT_MODELS`, in `/model-meta`

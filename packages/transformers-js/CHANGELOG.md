@@ -5,7 +5,7 @@
 - Exported names changed: the package now exposes the same API shape as `@tanstack/ai-openrouter`'s text adapter, and the same as the other adapter packages here. The root entry has the adapter (its class and factory, and its config, model options and usage types) and the runtime functions (`isSupported`, `loadModel`, `unloadModel`, `modelStatus`, `setMemoryBudget` where they apply); the model catalog moved to the new `@tanstack-ai-browser/transformers-js/model-meta` subpath. Behaviour is unchanged apart from the renames below.
   - `TransformersJsTextConfig` → `TransformersJsConfig`
   - `TransformersJsTextProviderOptions` → `TransformersJsTextModelOptions`
-  - `hasWebGpu()` and `runsWithoutWebGpu(model)` → `isSupported(model?)`: whether the model runs here, on WebGPU or from its CPU weights
+  - `hasWebGpu()` and `runsWithoutWebGpu(model)` → `isSupported(model?)`: whether the model runs here, in a Web Worker on WebGPU or from its CPU weights (false on a server)
   - `loadModel(model, dtype?, contextLength?)` → `loadModel(model, { dtype?, contextLength? })`
   - `unloadModel()` → `unloadModel(model?)`, returning a promise; given a model, only if it's the one loaded
   - `TRANSFORMERS_JS_TEXT_MODELS` → `TRANSFORMERS_JS_CHAT_MODELS`, in `/model-meta`
