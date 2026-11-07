@@ -39,7 +39,7 @@ test("Wllama caller aborts stop both loading waits, while the shared background 
     } }] })
     const client = await import(pathToFileURL(outfile).href)
     client.configureRuntime({ wasmUrl: "test.wasm", gpu: false })
-    const model = "LiquidAI/LFM3-1.7B-GGUF"
+    const model = "unsloth/Qwen3.5-2B-GGUF"
     const request = { messages: [{ role: "user", content: "hi" }] }
     const already = new AbortController(); already.abort(new Error("already cancelled"))
     await assert.rejects(client.completeChat(model, request, already.signal), /already cancelled/)

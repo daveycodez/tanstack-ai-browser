@@ -42,7 +42,7 @@ function invokeConsumer(module:Record<string,unknown>,adapter:unknown,promptCach
   // Identical consumer options for every provider: no adapter-specific cache flags.
   return (module.chat as (options:Record<string,unknown>)=>unknown)({adapter,threadId:"portable-cache",systemPrompts:["Stable instructions"],messages:[{role:"user",content:"Return alpha as the value"}],promptCache,reasoning:"off",...(stream?{stream:true}:{stream:false,outputSchema:schema("alpha")})})
 }
-const makeAdapter=(module:Record<string,unknown>)=>(module.wllamaText as (model:string)=>unknown)("LiquidAI/LFM3-1.7B-GGUF")
+const makeAdapter=(module:Record<string,unknown>)=>(module.wllamaText as (model:string)=>unknown)("unsloth/Qwen3.5-2B-GGUF")
 
 test("wllama: the same public chat promptCache matrix requires no provider-specific consumer options",async()=>{
   const module=await adapterPackage(),adapter=makeAdapter(module)

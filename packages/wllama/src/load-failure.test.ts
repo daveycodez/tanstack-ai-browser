@@ -39,8 +39,8 @@ test("a load llama.cpp reports as failed rejects, frees its worker and memory, a
     } }] })
     const client = await import(pathToFileURL(outfile).href)
     client.configureRuntime({ gpu: false })
-    const model = "LiquidAI/LFM3-1.7B-GGUF"
-    await assert.rejects(client.loadModel(model), /couldn't load LiquidAI\/LFM3-1\.7B-GGUF/)
+    const model = "unsloth/Qwen3.5-2B-GGUF"
+    await assert.rejects(client.loadModel(model), /couldn't load unsloth\/Qwen3\.5-2B-GGUF/)
     await new Promise(resolve => setTimeout(resolve, 0))
     assert.equal(client.modelStatus(model).get().state, "error")
     assert.equal(control.exits, 1, "the failed load's worker is ended")
