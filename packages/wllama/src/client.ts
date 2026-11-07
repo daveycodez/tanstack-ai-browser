@@ -234,6 +234,39 @@ async function removeSavedStates() {
   }
 }
 
+/**
+ * Memory a model takes, as multiples of its GGUF file's size, while it loads
+ * and once loaded. wllama 3.8.1 keeps the whole file in the worker's
+ * WebAssembly memory for as long as the model is loaded, and on WebGPU
+ * llama.cpp holds the weights on the GPU as well, so a model on WebGPU takes
+ * about three times its file. Measured with macOS `footprint` (page and GPU
+ * process) in Chrome on an M3 Ultra, at 8,192 tokens, peak and loaded:
+ * Qwen3.5 2B (1.28 GB) 3.3-3.4x and 3.0x on WebGPU, 1.8x and 1.25x on the
+ * CPU; LFM2.5 1.2B (731 MB) 2.7x and 2.2x on WebGPU, 1.6x and 1.25x on the
+ * CPU. The factors are a little above the largest of each.
+ */
+const MEMORY_FACTORS = {
+  gpu: { loading: 3.5, loaded: 3.1 },
+  cpu: { loading: 1.9, loaded: 1.35 }
+}
+
+/**
+ * How long wllama may take to start and load a model once its file is
+ * downloaded: a minute, plus a minute per GB of file. wllama 3.8.1 never
+ * settles a load whose WebAssembly fails to load or compile (a 404, say);
+ * without a deadline it would hold the model slot forever.
+ */
+const startupDeadline = (fileBytes: number) => 60_000 + (fileBytes / 1e9) * 60_000
+
+/** Rejects with `message` if `promise` hasn't settled after `ms`. */
+function withDeadline<T>(promise: Promise<T>, ms: number, message: string) {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const deadline = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(message)), ms)
+  })
+  return Promise.race([promise, deadline]).finally(() => clearTimeout(timer))
+}
+
 async function startLoad(
   model: WllamaTextModel,
   wllama: Wllama,
@@ -243,6 +276,7 @@ async function startLoad(
   const status = modelStatus(model)
   const url = modelUrl(model)
   const meta = modelMeta(model)
+  const factors = MEMORY_FACTORS[(await runsOnWebGpu()) ? "gpu" : "cpu"]
   void removeSavedStates()
   // A model already in storage loads from it, without the network.
   const saved = await wllama.modelManager.getModels()
@@ -256,44 +290,69 @@ async function startLoad(
   }
   status.set({ state: "loading", progress: 0, cached })
   // Room for it first: other runtimes' models past the memory budget are
-  // unloaded. It takes about its file's size, plus the attention cache.
+  // unloaded, by what it takes while it loads; once loaded, its claim drops
+  // to what it keeps.
   const fileBytes =
-    saved.find((m) => m.url === url)?.size ?? (await remoteSize(url, signal))
-  await claimMemory({
-    owner: OWNER,
-    model,
-    bytes: (fileBytes ?? 0) * 1.15,
-    keepLoaded: keepLoaded.has(model),
-    unload: unloadModel
-  })
-  await wllama.loadModelFromUrl(url, {
-    // The caller's context, else 0: llama.cpp's "the model's training
-    // context" (wllama's own default is 1,024 tokens, less than a system
-    // prompt with tools). llama.cpp reserves the attention cache for all of
-    // it now.
-    n_ctx: contextLength ?? 0,
-    // wllama's default otherwise: WebGPU where the browser has it.
-    ...(options.gpu === false && { n_gpu_layers: 0 }),
-    // The whole context in sliding-window layers' cache (LFM3's), not just
-    // the window, so a follow-up can reuse what was read before: otherwise
-    // LFM3 rereads the whole prompt after a tool call. +65 MB for LFM3;
-    // nothing for models without such layers.
-    swa_full: true,
-    ...(options.threads && { n_threads: options.threads }),
-    signal,
-    progressCallback: ({ loaded: bytes, total }) => {
-      if (cached) return
-      // (0 until the server says the file's size.)
-      const totalBytes = total
-      status.set({
-        state: "loading",
-        progress: totalBytes ? Math.min(bytes / totalBytes, 1) : 0,
-        cached: false,
-        loadedBytes: bytes,
-        totalBytes
-      })
+    saved.find((m) => m.url === url)?.size ?? (await remoteSize(url, signal)) ?? 0
+  const claim = (bytes: number) =>
+    claimMemory({
+      owner: OWNER,
+      model,
+      bytes,
+      keepLoaded: keepLoaded.has(model),
+      unload: unloadModel
+    })
+  await claim(fileBytes * factors.loading)
+  // The download first, then wllama's start and the load, which has a
+  // deadline of its own (see startupDeadline).
+  const file = await wllama.modelManager.getModelOrDownload(
+    { url },
+    {
+      signal,
+      progressCallback: ({ loaded: bytes, total }) => {
+        if (cached) return
+        // (0 until the server says the file's size.)
+        status.set({
+          state: "loading",
+          progress: total ? Math.min(bytes / total, 1) : 0,
+          cached: false,
+          loadedBytes: bytes,
+          totalBytes: total
+        })
+      }
     }
-  })
+  )
+  signal.throwIfAborted()
+  await withDeadline(
+    wllama.loadModel(file, {
+      // The caller's context, else 0: llama.cpp's "the model's training
+      // context" (wllama's own default is 1,024 tokens, less than a system
+      // prompt with tools). llama.cpp reserves the attention cache for all
+      // of it now.
+      n_ctx: contextLength ?? 0,
+      // wllama's default otherwise: WebGPU where the browser has it.
+      ...(options.gpu === false && { n_gpu_layers: 0 }),
+      // The whole context in sliding-window layers' cache (LFM3's), not just
+      // the window, so a follow-up can reuse what was read before: otherwise
+      // LFM3 rereads the whole prompt after a tool call. +65 MB for LFM3;
+      // nothing for models without such layers.
+      swa_full: true,
+      ...(options.threads && { n_threads: options.threads })
+    }),
+    startupDeadline(file.size > 0 ? file.size : fileBytes),
+    `wllama didn't start or load ${meta.name} in time (is its WebAssembly file at ${wasmUrl()}?).`
+  )
+  // wllama 3.8.1 resolves the load even when llama.cpp couldn't load the
+  // model or create its context (an unknown architecture, too little memory
+  // for the cache), with `success: false` in the context info, and the first
+  // request then aborts: https://github.com/ngxson/wllama/issues/311.
+  const info = wllama.getLoadedContextInfo() as { success?: boolean }
+  if (info.success === false) {
+    throw new Error(
+      `llama.cpp couldn't load ${meta.name} or create its context: its architecture may be newer than wllama's llama.cpp, or a smaller contextLength may fit (see the console).`
+    )
+  }
+  await claim(fileBytes * factors.loaded)
   return wllama
 }
 
@@ -314,9 +373,11 @@ export function loadModel(model: WllamaTextModel): Promise<Wllama> {
   const abort = new AbortController()
   const promise = (async () => {
     if (previous) {
-      // Stop its download, if it's still downloading, and free it.
+      // Stop its download, if it's still downloading, and free it: exit()
+      // ends its worker at once. A load that would never settle (see
+      // startupDeadline) isn't waited for past a moment.
       previous.abort.abort()
-      await previous.promise.catch(() => undefined)
+      await withDeadline(previous.promise, 2_000, "").catch(() => undefined)
       await previous.wllama.exit().catch(() => undefined)
     }
     return startLoad(model, wllama, abort.signal, contextLength)
@@ -326,8 +387,12 @@ export function loadModel(model: WllamaTextModel): Promise<Wllama> {
   promise.then(
     () => {
       if (loaded === current) status.set({ state: "ready" })
+      // Superseded while it loaded, after the next load stopped waiting:
+      // free it now.
+      else void wllama.exit().catch(() => undefined)
     },
     (error: unknown) => {
+      // Superseded: the next load frees it.
       if (loaded !== current) return
       loaded = null
       releaseMemory(OWNER)

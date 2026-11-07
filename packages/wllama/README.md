@@ -62,7 +62,7 @@ const nextConfig: NextConfig = {
 | `LiquidAI/LFM2.5-350M-GGUF`          | none                            | Q4_K_M, 229 MB  |
 | `unsloth/Qwen3.5-2B-GGUF`            | on or off (`"high"` or `"off"`) | Q4_K_M, 1.28 GB |
 
-LFM3 and LFM3 Web need a llama.cpp newer than the one wllama 3.8.1 is built on: llama.cpp there reports `unknown model architecture: 'lfm3'`, and since wllama 3.8.1 doesn't report a failed load, the first request fails instead. They'll load once a wllama release updates llama.cpp. LFM2.5 and Qwen3.5 load.
+LFM3 and LFM3 Web need a llama.cpp newer than the one wllama 3.8.1 is built on: llama.cpp there reports `unknown model architecture: 'lfm3'`, and `loadModel` (or the first call) fails with an error. They'll load once a wllama release updates llama.cpp. LFM2.5 and Qwen3.5 load.
 
 Liquid's models are Q4_K_M: on a Pixel 10 Pro in Firefox, LFM2.5 350M read prompts at 55 tokens/s in Q4_K_M, 40 in Q8_0 and 15 in Q4_0 with wllama's own build. In Chrome on an M3 Ultra, Qwen3.5 2B on WebGPU read about 850 prompt tokens/s and wrote about 60 tokens/s (with other work on the machine).
 
@@ -76,7 +76,7 @@ LFM3 Web ([daveycodez/LFM3-1.7B-Web-GGUF](https://huggingface.co/daveycodez/LFM3
 
 **Structured output:** `chat({ outputSchema })` constrains the answer to the schema with llama.cpp's JSON Schema grammar. With `stream: true` it streams as OpenRouter's does (`structuredOutputStream`): `RUN_STARTED`, the thinking as `REASONING_*` events, the raw JSON as `TEXT_MESSAGE_*` deltas, then a `CUSTOM` `structured-output.complete` event with `{ object, raw, reasoning? }` and `RUN_FINISHED` with usage; a failure (or the output limit) ends with `RUN_ERROR`.
 
-**Context:** `wllamaText(model, { contextLength })` sets how many tokens a chat may hold, prompt and reply together. By default it's the model's whole context window, read from its GGUF (262,144 for LFM3, 128,000 for LFM2.5). Unlike Transformers.js and the WebGL engine, which grow their attention memory as a chat fills it, llama.cpp reserves it for the whole context when the model loads: about 12 KB a token for LFM3, so 3 GB for its full window. Fine on a desktop; on an iPhone set 8,192. On the CPU, where that memory is WebAssembly's (4 GB at most), set it too: a model whose whole window doesn't fit there (Qwen3.5 2B's 262,144 tokens take 3 GB) fails to load, and wllama 3.8.1 doesn't report that failure, so the first request fails instead. Changing it loads the model again.
+**Context:** `wllamaText(model, { contextLength })` sets how many tokens a chat may hold, prompt and reply together. By default it's the model's whole context window, read from its GGUF (262,144 for LFM3, 128,000 for LFM2.5). Unlike Transformers.js and the WebGL engine, which grow their attention memory as a chat fills it, llama.cpp reserves it for the whole context when the model loads: about 12 KB a token for LFM3, so 3 GB for its full window. Fine on a desktop; on an iPhone set 8,192. On the CPU, where that memory is WebAssembly's (4 GB at most), set it too: a model whose whole window doesn't fit there (Qwen3.5 2B's 262,144 tokens take 3 GB) fails to load with an error. Changing it loads the model again.
 
 **Usage** is in each call's `RUN_FINISHED` event, as with any TanStack AI adapter: `promptTokens`, `completionTokens`, `totalTokens`, and `promptTokensDetails.cachedTokens` for the start of the prompt llama.cpp reused from an earlier call. Timings are in `usage.providerUsageDetails` (`WllamaProviderUsageDetails`: `firstTokenMs`, `promptMs`, `decodeMs`, `decodeTokens`).
 

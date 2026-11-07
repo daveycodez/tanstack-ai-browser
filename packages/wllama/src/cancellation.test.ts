@@ -29,8 +29,9 @@ test("Wllama caller aborts stop both loading waits, while the shared background 
         const control=globalThis.__wllamaCancel;
         export const LoggerWithoutDebug={};
         export class Wllama {
-          constructor(){control.instances++;this.modelManager={getModels:()=>control.loading};}
-          async loadModelFromUrl(_url,options){control.signal=options.signal;}
+          constructor(){control.instances++;this.modelManager={getModels:()=>control.loading,getModelOrDownload:async(_source,options)=>{control.signal=options.signal;return {size:0};}};}
+          async loadModel(){}
+          getLoadedContextInfo(){return {success:true};}
           async exit(){}
           async createChatCompletion(options){control.calls.push(options);return options.stream?(async function*(){yield {choices:[]}})():{choices:[{message:{content:'{}'},finish_reason:'stop'}]};}
         }
