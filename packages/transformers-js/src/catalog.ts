@@ -299,24 +299,44 @@ export const UNLISTED_MODEL_REASONING: ModelReasoning = THINKING_SWITCH
 
 const LISTED: ReadonlySet<string> = new Set(TRANSFORMERS_JS_CHAT_MODELS)
 
-/** A listed model's metadata, or undefined for any other id. */
+/** A listed model's id, or one pinned to a revision ("owner/repo@commit"). */
+export type TransformersJsListedId =
+  | TransformersJsChatModel
+  | `${TransformersJsChatModel}@${string}`
+
+/**
+ * The listed model an id names, its revision ("@commit") left out: a pinned
+ * listed model is still that model. Undefined for any other id.
+ */
+export const listedModel = (
+  model: string
+): TransformersJsChatModel | undefined => {
+  const at = model.indexOf("@")
+  const name = at < 0 ? model : model.slice(0, at)
+  return LISTED.has(name) ? (name as TransformersJsChatModel) : undefined
+}
+
+/** A listed model's metadata (pinned or not), or undefined for any other id. */
 export const modelMeta = (
   model: string
-): TransformersJsModelMeta | undefined =>
-  LISTED.has(model)
-    ? TRANSFORMERS_JS_MODEL_META[model as TransformersJsChatModel]
-    : undefined
+): TransformersJsModelMeta | undefined => {
+  const name = listedModel(model)
+  return name ? TRANSFORMERS_JS_MODEL_META[name] : undefined
+}
 
 /**
  * Whether a model runs without WebGPU, on the CPU: a listed model that has
  * q4 weights. Another Hugging Face id may too; it isn't known here, so the
  * answer is yes, and loading says if its repo has no q4 weights.
  */
-export const runsWithoutWebGpu = (model: string): boolean =>
-  LISTED.has(model) ? (modelMeta(model)?.cpu ?? false) : true
+export const runsWithoutWebGpu = (model: string): boolean => {
+  const meta = modelMeta(model)
+  return meta ? (meta.cpu ?? false) : true
+}
 
 /** A model's reasoning data: listed, none for a listed non-reasoner, else the toggle. */
-export const modelReasoning = (model: string): ModelReasoning | undefined =>
-  TRANSFORMERS_JS_MODEL_REASONING[model] ??
-  (LISTED.has(model) ? undefined : UNLISTED_MODEL_REASONING)
+export const modelReasoning = (model: string): ModelReasoning | undefined => {
+  const name = listedModel(model)
+  return name ? TRANSFORMERS_JS_MODEL_REASONING[name] : UNLISTED_MODEL_REASONING
+}
 

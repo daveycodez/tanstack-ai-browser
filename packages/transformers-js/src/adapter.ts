@@ -26,7 +26,7 @@ import { generate, loadModel, setDebug, setKeepLoaded } from "./client.js"
 import { modelMeta, modelReasoning } from "./catalog.js"
 import type {
   Sampling,
-  TransformersJsChatModel,
+  TransformersJsListedId,
   TransformersJsModelReasoningByName
 } from "./catalog.js"
 import type {
@@ -77,7 +77,7 @@ export type TransformersJsConfig = {
 
 /** The config a model takes: any other model than a listed one names its tool format. */
 export type TransformersJsConfigFor<TModel extends string> =
-  TModel extends TransformersJsChatModel
+  TModel extends TransformersJsListedId
     ? TransformersJsConfig
     : TransformersJsConfig & { toolFormat: ToolFormat }
 
@@ -137,14 +137,17 @@ export type TransformersJsProviderUsageDetails = {
 /**
  * The reasoning levels of a model, for `chat({ reasoning })`. A model this
  * package doesn't list gets the on/off toggle (the chat template's
- * `enable_thinking`). `never`: a listed model that doesn't reason.
+ * `enable_thinking`). `never`: a listed model that doesn't reason. A listed
+ * model pinned to a revision ("@commit") reasons as the model does.
  */
 type ResolveReasoning<TModel extends string> =
   TModel extends keyof TransformersJsModelReasoningByName
     ? TransformersJsModelReasoningByName[TModel]
-    : TModel extends TransformersJsChatModel
-      ? never
-      : { levels: "off" | "high"; budget: true }
+    : TModel extends `${infer Name extends keyof TransformersJsModelReasoningByName}@${string}`
+      ? TransformersJsModelReasoningByName[Name]
+      : TModel extends TransformersJsListedId
+        ? never
+        : { levels: "off" | "high"; budget: true }
 
 /** Sampling for a model this package doesn't list. */
 const DEFAULT_SAMPLING: Sampling = {
@@ -962,7 +965,7 @@ export class TransformersJsTextAdapter<
  */
 export function transformersJsText<TModel extends string>(
   model: TModel,
-  ...[config]: TModel extends TransformersJsChatModel
+  ...[config]: TModel extends TransformersJsListedId
     ? [config?: TransformersJsConfigFor<TModel>]
     : [config: TransformersJsConfigFor<TModel>]
 ): TransformersJsTextAdapter<TModel> {
