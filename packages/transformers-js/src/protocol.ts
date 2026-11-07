@@ -70,6 +70,8 @@ export type WeightsDtype = "q4f16" | "q4"
 export type WorkerRequest =
   | {
       type: "load"
+      /** This load, in the replies about it (a later load supersedes it). */
+      loadId: number
       modelId: string
       dtype: WeightsDtype
       /**
@@ -112,6 +114,7 @@ export type WorkerRequest =
 export type WorkerResponse =
   | {
       type: "progress"
+      loadId: number
       modelId: string
       progress: number
       cached: boolean
@@ -120,14 +123,14 @@ export type WorkerResponse =
       /** Bytes of all the model's files, while downloading. */
       totalBytes?: number
     }
-  | { type: "ready"; modelId: string }
+  | { type: "ready"; loadId: number; modelId: string }
   /**
    * The model takes about `bytes` once loaded: the page makes room for it
    * (unloading other runtimes' models past the memory budget, see
    * model-memory.ts) and answers "claimed".
    */
-  | { type: "claim"; modelId: string; bytes: number }
-  | { type: "load-error"; modelId: string; message: string }
+  | { type: "claim"; loadId: number; modelId: string; bytes: number }
+  | { type: "load-error"; loadId: number; modelId: string; message: string }
   | { type: "token"; id: string; text: string }
   | { type: "done"; id: string; stats: RunTimings }
   | { type: "error"; id: string; message: string }

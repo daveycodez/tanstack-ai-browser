@@ -14,7 +14,7 @@ class FakeWorker {
   constructor() { FakeWorker.last = this }
   postMessage(request: WorkerRequest) {
     this.posted.push(request)
-    if (request.type === "load" && FakeWorker.ready) setTimeout(() => this.send({ type: "ready", modelId: request.modelId }), 0)
+    if (request.type === "load" && FakeWorker.ready) setTimeout(() => this.send({ type: "ready", loadId: request.loadId, modelId: request.modelId }), 0)
     if (request.type === "generate") FakeWorker.generate(this, request)
   }
   send(data: WorkerResponse) { this.onmessage?.({ data }) }
@@ -632,4 +632,28 @@ test("structuredOutputStream ends with RUN_ERROR on answers that aren't JSON, wo
     assert.equal((await run({ ...options(), abortController: controller })).code, "aborted")
     assert.match((await run({ ...options(), modelOptions: { stop: "x" } })).message, /stop sequences/)
   } finally { unloadModel() }
+})
+
+test("a load with other weights at the same context loads again, and replies about a superseded load are ignored", { timeout: 2000 }, async () => {
+  const { loadModel, modelStatus, unloadModel } = await import("./client.js")
+  await unloadModel(); FakeWorker.ready = false
+  try {
+    const first = loadModel(MODEL, { dtype: "q4f16", contextLength: 4096 })
+    const second = loadModel(MODEL, { dtype: "q4", contextLength: 4096 })
+    await assert.rejects(first, /Switched to another model/)
+    const loads = FakeWorker.last.posted.filter((request): request is Extract<WorkerRequest, { type: "load" }> => request.type === "load")
+    assert.deepEqual(loads.map(request => request.dtype), ["q4f16", "q4"])
+    assert.notEqual(loads[0].loadId, loads[1].loadId)
+    let settled = false
+    void second.then(() => { settled = true }, () => { settled = true })
+    // The worker answers the first load late: it neither settles the second nor changes its status.
+    FakeWorker.last.send({ type: "ready", loadId: loads[0].loadId, modelId: MODEL })
+    FakeWorker.last.send({ type: "load-error", loadId: loads[0].loadId, modelId: MODEL, message: "stale" })
+    await new Promise(resolve => setTimeout(resolve, 0))
+    assert.equal(settled, false)
+    assert.equal(modelStatus(MODEL).get().state, "loading")
+    FakeWorker.last.send({ type: "ready", loadId: loads[1].loadId, modelId: MODEL })
+    await second
+    assert.equal(modelStatus(MODEL).get().state, "ready")
+  } finally { FakeWorker.ready = true; await unloadModel() }
 })

@@ -61,12 +61,18 @@ type Pending = {
   resolve: () => void
   reject: (error: Error) => void
 }
-/** The model the worker holds (or is loading), and its load promise. */
+/**
+ * The model the worker holds (or is loading), as loaded: its weights and
+ * context, and the load (its id in the worker's replies, and its promise).
+ */
 let loaded: {
+  id: number
   modelId: string
+  dtype: WeightsDtype
   contextLength: number | undefined
   load: Pending
 } | null = null
+let loads = 0
 
 let worker: Worker | null = null
 let debug = false
@@ -95,7 +101,14 @@ export function setDebug(on: boolean) {
 }
 
 function handleMessage({ data }: MessageEvent<WorkerResponse>) {
+  // Replies about a load a later one superseded are stale.
+  const current =
+    (data.type === "progress" || data.type === "ready" || data.type === "load-error") &&
+    loaded?.id === data.loadId
+      ? loaded
+      : null
   if (data.type === "progress") {
+    if (!current) return
     if (!data.cached) keepDownloads()
     modelStatus(data.modelId).set({
       state: "loading",
@@ -116,15 +129,15 @@ function handleMessage({ data }: MessageEvent<WorkerResponse>) {
       unload: unloadModel
     }).then(() => post({ type: "claimed" }))
   } else if (data.type === "ready") {
+    if (!current) return
     modelStatus(data.modelId).set({ state: "ready" })
-    if (loaded?.modelId === data.modelId) loaded.load.resolve()
+    current.load.resolve()
   } else if (data.type === "load-error") {
+    if (!current) return
     modelStatus(data.modelId).set({ state: "error", message: data.message })
-    if (loaded?.modelId === data.modelId) {
-      loaded.load.reject(new Error(data.message))
-      loaded = null
-      releaseMemory(OWNER)
-    }
+    current.load.reject(new Error(data.message))
+    loaded = null
+    releaseMemory(OWNER)
   } else if (data.type === "token") {
     generations.get(data.id)?.onToken(data.text)
   } else if (data.type === "log") {
@@ -226,7 +239,11 @@ export function loadModel(
   const { contextLength } = options
   const dtype = options.dtype ?? modelMeta(model)?.dtype ?? "q4f16"
   const modelId = model
-  if (loaded?.modelId === modelId && loaded.contextLength === contextLength) {
+  if (
+    loaded?.modelId === modelId &&
+    loaded.dtype === dtype &&
+    loaded.contextLength === contextLength
+  ) {
     return loaded.load.promise
   }
   if (loaded) {
@@ -241,15 +258,25 @@ export function loadModel(
     reject = rej
   })
   promise.catch(() => undefined)
-  loaded = { modelId, contextLength, load: { promise, resolve, reject } }
+  const id = ++loads
+  loaded = { id, modelId, dtype, contextLength, load: { promise, resolve, reject } }
   // The worker reports whether this is a download or a cached load.
   modelStatus(modelId).set({ state: "loading", progress: 0, cached: true })
-  post({
-    type: "load",
-    modelId,
-    dtype,
-    ...(contextLength !== undefined && { contextLength })
-  })
+  try {
+    post({
+      type: "load",
+      loadId: id,
+      modelId,
+      dtype,
+      ...(contextLength !== undefined && { contextLength })
+    })
+  } catch (error) {
+    // No worker here (a server, say): the load fails at once.
+    const message = error instanceof Error ? error.message : String(error)
+    modelStatus(modelId).set({ state: "error", message })
+    loaded = null
+    reject(new Error(message))
+  }
   return promise
 }
 

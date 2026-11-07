@@ -402,10 +402,10 @@ async function modelClass(
 let claimed: (() => void) | null = null
 
 /** Asks the page to make room for the model, and waits until it has. */
-function claimMemory(modelId: string, bytes: number) {
+function claimMemory(loadId: number, modelId: string, bytes: number) {
   return new Promise<void>((resolve) => {
     claimed = resolve
-    ctx.postMessage({ type: "claim", modelId, bytes: Math.round(bytes) })
+    ctx.postMessage({ type: "claim", loadId, modelId, bytes: Math.round(bytes) })
   })
 }
 
@@ -434,6 +434,7 @@ function contextFor(config: ModelConfig, requested: number | undefined) {
 }
 
 async function loadRuntime(
+  loadId: number,
   modelId: string,
   requested: WeightsDtype
 ): Promise<Runtime> {
@@ -462,10 +463,11 @@ async function loadRuntime(
   // memory budget. On the GPU it takes about its weights (plus the cache);
   // on the CPU, ONNX Runtime's working buffers too.
   await claimMemory(
+    loadId,
     modelId,
     (known ? total : UNKNOWN_MODEL_BYTES) * (device === "wasm" ? 1.3 : 1.15)
   )
-  ctx.postMessage({ type: "progress", modelId, progress: 0, cached })
+  ctx.postMessage({ type: "progress", loadId, modelId, progress: 0, cached })
   // Bytes downloaded per file, from Transformers.js's progress reports;
   // whole percents only.
   const loaded = new Map<string, number>()
@@ -479,6 +481,7 @@ async function loadRuntime(
     lastPercent = percent
     ctx.postMessage({
       type: "progress",
+      loadId,
       modelId,
       progress: percent / 100,
       cached: false,
@@ -530,6 +533,7 @@ async function loadRuntime(
  * again: the length is the runs' default.
  */
 function load(
+  loadId: number,
   modelId: string,
   dtype: WeightsDtype,
   contextLength: number | undefined
@@ -538,8 +542,9 @@ function load(
     current.contextLength = contextLength
     const { runtime } = current
     runtime.then(
-      () => ctx.postMessage({ type: "ready", modelId }),
-      () => undefined
+      () => ctx.postMessage({ type: "ready", loadId, modelId }),
+      (error: unknown) =>
+        ctx.postMessage({ type: "load-error", loadId, modelId, message: errorMessage(error) })
     )
     return runtime
   }
@@ -548,17 +553,18 @@ function load(
     // The kept caches belong to the previous model.
     await discardSaved()
     await previous?.then((r) => r.model.dispose()).catch(() => undefined)
-    return loadRuntime(modelId, dtype)
+    return loadRuntime(loadId, modelId, dtype)
   })()
   current = { modelId, dtype, contextLength, runtime }
   runtime.then(
     () => {
-      ctx.postMessage({ type: "ready", modelId })
+      ctx.postMessage({ type: "ready", loadId, modelId })
     },
     (error: unknown) => {
       if (current?.runtime === runtime) current = null
       ctx.postMessage({
         type: "load-error",
+        loadId,
         modelId,
         message: errorMessage(error)
       })
@@ -1649,7 +1655,7 @@ ctx.onmessage = ({ data }) => {
     claimed?.()
     claimed = null
   } else if (data.type === "load") {
-    load(data.modelId, data.dtype, data.contextLength).catch(() => undefined)
+    load(data.loadId, data.modelId, data.dtype, data.contextLength).catch(() => undefined)
   } else if (data.type === "generate") {
     generate(
       data.id,
