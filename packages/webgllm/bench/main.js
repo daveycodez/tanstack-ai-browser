@@ -78,7 +78,7 @@ async function runCpu() {
   // Served by bench/server.mjs from the workspace's @wllama/wllama.
   const wllamaUrl = "/wllama/index.js"
   const { Wllama, LoggerWithoutDebug } = await import(wllamaUrl)
-  const model = params.get("model") ?? "LFM3-1.7B-Q4_K_M.gguf"
+  const model = params.get("model") ?? "LFM2.5-1.2B-Instruct-Q4_K_M.gguf"
   const wasm = params.get("wasm") ?? "wllama.wasm"
   log(
     `--- CPU: wllama ${wasm}, ${model}, threads ${Math.floor((navigator.hardwareConcurrency || 1) / 2)} of ${navigator.hardwareConcurrency}, isolated ${crossOriginIsolated}`

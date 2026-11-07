@@ -98,7 +98,7 @@ async function runWllamaPackage(text: string, gpu = true) {
       exit: () => Promise<void>
     }>
   }
-  const model = params.get("model") ?? "LiquidAI/LFM3-1.7B-GGUF"
+  const model = params.get("model") ?? "LiquidAI/LFM2.5-1.2B-Instruct-GGUF"
   // llama.cpp's own load log says where the model runs (layers offloaded,
   // the WebGPU device): its lines about that go to this page's log.
   const relevant = /offload|webgpu|WebGPU|ggml_wgpu|backend|CPU_REPACK|compat|n_ctx|KV buffer|kv_cache|llama_kv|compute buffer/i
@@ -480,7 +480,7 @@ async function runWllama(text: string, gpu = true) {
     }
     LoggerWithoutDebug: unknown
   }
-  const model = params.get("model") ?? "LFM3-1.7B-QAD-Q4_0.gguf"
+  const model = params.get("model") ?? "LFM2.5-1.2B-Instruct-Q4_K_M.gguf"
   const wasm = params.get("wasm") ?? "wllama.wasm"
   const debug = params.get("debug") === "1"
   const wllama = new Wllama(

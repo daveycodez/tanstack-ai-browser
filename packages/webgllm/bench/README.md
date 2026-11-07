@@ -10,7 +10,7 @@ adb reverse tcp:8787 tcp:8787        # a phone over USB: localhost is a secure c
 ```
 
 - `HF_DIR`: `LiquidAI/LFM3-1.7B`'s `tokenizer.json`, `tokenizer_config.json`, `chat_template.jinja` (`compare.html` builds every runtime's prompt with it)
-- `MODELS_DIR`: local GGUFs (`tools.html`, `run=wllama`, the go/no-go page's `LFM3-1.7B-Q4_K_M.gguf`); also where `driver.html` reads its `job.json`
+- `MODELS_DIR`: local GGUFs (`tools.html`, `run=wllama`, the go/no-go page's `LFM2.5-1.2B-Instruct-Q4_K_M.gguf`: wllama 3.8.1 doesn't load LFM3); also where `driver.html` reads its `job.json`
 - `ONNX_COMMUNITY_DIR` (served at `/onnx-community/`): a copy of `onnx-community/LFM3-1.7B-ONNX`, for `tools.html`
 - `REF_DIR`: `tools.html`'s reference sets (`/ref/<set>/`, made by `tool-ref/`)
 - `ONNX_DIR` (`/onnx-web/`), `REF_ONNX_DIR` (`/ref-onnx/`): `tjs-quality.html`'s weights and onnxruntime reference tensors
