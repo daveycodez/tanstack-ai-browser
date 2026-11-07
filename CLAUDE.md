@@ -23,8 +23,7 @@ The WebGL 2 engine is the `webgllm` npm package, developed in its own repo, `/Us
 4. Read the result in the server's output: each page line is printed as `[page] ...`. `RESULT ...` is the median of 3 runs; `ALL DONE` ends a page; `ERROR:` or `(ABORT)` is a failure.
    - A loop that waits for `ALL DONE` must also stop on `ERROR`, an abort and a dead server.
 5. Keep the port the same between runs: a page's origin holds its downloaded models (OPFS), and a new port downloads them again.
-6. Measure memory three ways:
-   - Transformers.js debug logs (`[memory]` lines: WebAssembly memory and GPU buffers).
+6. Measure memory two ways:
    - llama.cpp's own buffer lines: wllama with `debug: true`.
    - macOS `footprint -p <pid>` of the desktop app's `Claude Helper` renderer and GPU processes.
    - On a Mac, use the iPhone's `ctx=8192`, or llama.cpp reserves the cache for the whole window.

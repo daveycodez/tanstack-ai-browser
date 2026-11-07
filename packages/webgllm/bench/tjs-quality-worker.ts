@@ -8,28 +8,6 @@
  */
 const log = (text: string) => postMessage({ type: "log", text })
 
-const TRANSFORMERS =
-  "https://cdn.jsdelivr.net/npm/@huggingface/transformers@4.3.2/dist/transformers.web.min.js"
-/** The ONNX Runtime the app's Transformers.js worker uses (see its worker.ts). */
-const ORT = "https://cdn.jsdelivr.net/npm/onnxruntime-web@1.31.1/dist/ort.webgpu.bundle.min.mjs"
-
-/** Transformers.js on ONNX Runtime 1.31.1, imported as the app imports it. */
-async function importTransformers() {
-  const [transformers, ort] = await Promise.all(
-    [TRANSFORMERS, ORT].map(async (url) => (await fetch(url)).text())
-  )
-  const blobUrl = (code: string) =>
-    URL.createObjectURL(new Blob([code], { type: "text/javascript" }))
-  const ortModule = blobUrl(ort)
-  const url = blobUrl(
-    transformers.replace(
-      /from\s*"onnxruntime-(?:web\/webgpu|common)"/g,
-      `from"${ortModule}"`
-    )
-  )
-  return import(/* @vite-ignore */ url) as Promise<unknown>
-}
-
 type Tensor = {
   type: string
   dims: Array<number>
@@ -98,7 +76,7 @@ function asFloat32(t: Tensor): Float32Array {
 }
 
 async function main() {
-  const tf = (await importTransformers()) as {
+  const tf = (await import("@huggingface/transformers")) as unknown as {
     env: {
       allowLocalModels: boolean
       allowRemoteModels: boolean

@@ -127,11 +127,6 @@ async function webgl(params: Params): Promise<Runner> {
   }
 }
 
-const TRANSFORMERS =
-  "https://cdn.jsdelivr.net/npm/@huggingface/transformers@4.3.2/dist/transformers.web.min.js"
-/** The ONNX Runtime the app's Transformers.js worker uses (see its worker.ts). */
-const ORT = "https://cdn.jsdelivr.net/npm/onnxruntime-web@1.31.1/dist/ort.webgpu.bundle.min.mjs"
-
 type Tensor = { type: string; dims: Array<number>; data: ArrayLike<number> | BigInt64Array }
 
 function halfToFloat(h: number) {
@@ -164,17 +159,7 @@ type ModelClass = {
 }
 
 async function tjs(params: Params): Promise<Runner> {
-  const [transformers, ort] = await Promise.all(
-    [TRANSFORMERS, ORT].map(async (url) => (await fetch(url)).text())
-  )
-  const blobUrl = (code: string) =>
-    URL.createObjectURL(new Blob([code], { type: "text/javascript" }))
-  const ortModule = blobUrl(ort)
-  const tf = (await import(
-    /* @vite-ignore */ blobUrl(
-      transformers.replace(/from\s*"onnxruntime-(?:web\/webgpu|common)"/g, `from"${ortModule}"`)
-    )
-  )) as {
+  const tf = (await import("@huggingface/transformers")) as unknown as {
     env: {
       allowLocalModels: boolean
       allowRemoteModels: boolean
