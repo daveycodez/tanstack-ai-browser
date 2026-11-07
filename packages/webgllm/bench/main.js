@@ -79,7 +79,7 @@ async function runCpu() {
   const wllamaUrl = "/wllama/index.js"
   const { Wllama, LoggerWithoutDebug } = await import(wllamaUrl)
   const model = params.get("model") ?? "LFM3-1.7B-Q4_K_M.gguf"
-  const wasm = params.get("wasm") ?? "wllama-relaxed.wasm"
+  const wasm = params.get("wasm") ?? "wllama.wasm"
   log(
     `--- CPU: wllama ${wasm}, ${model}, threads ${Math.floor((navigator.hardwareConcurrency || 1) / 2)} of ${navigator.hardwareConcurrency}, isolated ${crossOriginIsolated}`
   )

@@ -20,7 +20,7 @@ Pages post their lines to `/log`, which the server prints as `[page] …`. On to
 
 - `/bundle/<path>.js`: this package's `<path>.ts` (`/bundle/bench/compare.js` is `bench/compare.ts`). `webgllm` and `webgllm/advanced` resolve to the installed npm package (`packages/webgllm/node_modules/webgllm`, its `dist/`).
 - `/bundle-webgllm/<path>.js`: the installed webgllm's `dist/<path>.js` with its dependencies (`@huggingface/jinja`, `@huggingface/tokenizers`, `llguidance`). Pages pass `/bundle-webgllm/worker.js` to `new WebGLLM({ worker })`, since a bundle can't follow webgllm's own `new URL("./worker.js", import.meta.url)`.
-- `/bundle-tjs/…`, `/bundle-wllama/…`: the transformers-js and wllama packages' sources; `/wllama/` and `/wasm/` serve wllama's JavaScript and builds.
+- `/bundle-tjs/…`, `/bundle-wllama/…`: the transformers-js and wllama packages' sources; `/wllama/` and `/wasm/` serve the official `@wllama/wllama`'s JavaScript and WebAssembly (the wllama package's dependency).
 
 ## compare.html
 
@@ -33,7 +33,7 @@ Pages post their lines to `/log`, which the server prints as `[page] …`. On to
 - `run=switch&models=a,b&rounds=5`: one `WebGLLM` switching models, unloading the last before loading the next, a short reply after each load.
 - `run=tjs` or `tjs-cpu`: Transformers.js on WebGPU (q4f16), or on the CPU (q4), through the transformers-js package's worker.
 - `run=wllama-pkg` or `wllama-pkg-cpu`: wllama through the wllama package's client, on WebGPU or the CPU only (`debug: true`, so llama.cpp's buffer lines reach the log).
-- `run=wllama` or `wllama-cpu`: wllama directly on a GGUF in `MODELS_DIR` (`model=` its file name, `wasm=` the build).
+- `run=wllama` or `wllama-cpu`: wllama directly on a GGUF in `MODELS_DIR` (`model=` its file name).
 - Options: `ctx=8192` (the load's context; left out, the model's whole window, except Transformers.js's 8,192), `len=512` (prompt tokens), `q=quote` or `q=capital` (other questions).
 
 `driver.html` runs these on a phone: open it once, then write `{"id":"<unique>","url":"/compare.html?…"}` to `$MODELS_DIR/job.json` for each job. `ios-tab.mjs` runs JavaScript in an iPhone Safari tab over `ios_webkit_debug_proxy`.

@@ -77,9 +77,10 @@ function summarize(
 }
 
 /**
- * wllama through the wllama package's own client, as the app runs it: its
- * llama.cpp builds (the compat build where the browser needs it, as Safari
- * does), its model files from Hugging Face, WebGPU or (`gpu` false) the CPU.
+ * wllama through the wllama package's own client, as the app runs it: the
+ * official @wllama/wllama with its WebAssembly from jsDelivr (and its compat
+ * build where the browser needs it, as Safari does), its model files from
+ * Hugging Face, WebGPU or (`gpu` false) the CPU.
  */
 async function runWllamaPackage(text: string, gpu = true) {
   const url = "/bundle-wllama/src/client.js"
@@ -480,7 +481,7 @@ async function runWllama(text: string, gpu = true) {
     LoggerWithoutDebug: unknown
   }
   const model = params.get("model") ?? "LFM3-1.7B-QAD-Q4_0.gguf"
-  const wasm = params.get("wasm") ?? "wllama-relaxed.wasm"
+  const wasm = params.get("wasm") ?? "wllama.wasm"
   const debug = params.get("debug") === "1"
   const wllama = new Wllama(
     { default: `/wasm/${wasm}` },
