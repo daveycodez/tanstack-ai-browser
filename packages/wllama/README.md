@@ -1,6 +1,6 @@
 # @tanstack-ai-browser/wllama
 
-A [TanStack AI](https://tanstack.com/ai) adapter for GGUF models that run in the browser, with [wllama](https://github.com/ngxson/wllama): llama.cpp compiled to WebAssembly, in a Web Worker. It runs on WebGPU where the browser has it, and on the CPU elsewhere, so it runs in any browser with WebAssembly SIMD: Firefox on Android and iPhone Safari included.
+A [TanStack AI](https://tanstack.com/ai) adapter for GGUF models that run in the browser, with [wllama](https://github.com/ngxson/wllama): llama.cpp compiled to WebAssembly, in a Web Worker. It runs on WebGPU where the browser has it, and on the CPU elsewhere, so it runs in any browser with WebAssembly SIMD: Firefox on Android and iPhone Safari included. It runs the official [`@wllama/wllama`](https://www.npmjs.com/package/@wllama/wllama) package (3.8.1) as published, through its public API and options, with its own WebAssembly builds: no patched, vendored or rebuilt copy of wllama or llama.cpp. A wllama or llama.cpp bug is fixed here when a wllama release with the fix is out.
 
 ```sh
 npm install @tanstack-ai-browser/wllama @tanstack/ai
@@ -19,11 +19,9 @@ const stream = chat({
 
 ## Setup
 
-- **Vite and Next.js:** install and go. They emit the package's WebAssembly files, in development and in builds, with Turbopack or webpack.
-- **No other dependency:** wllama's JavaScript ships in the package (`vendor/wllama/`), built with its WebAssembly files, rather than from `@wllama/wllama`, whose JavaScript can't load them.
-- **Storage:** models download to the browser's Origin Private File System, and so does what each model has read of the system prompt and tools (10 to 22 MB a model), so the first message after a reload starts in about a second (see [How it runs](#how-it-runs)). Nothing to set up.
-- **Threads (optional):** serve the site cross-origin isolated (`Cross-Origin-Opener-Policy: same-origin` and `Cross-Origin-Embedder-Policy: require-corp`) and wllama runs on half the cores; otherwise on one. Set the headers on your host, and in development (below). With `require-corp`, cross-origin images and other resources load only with CORS (`<img crossOrigin="anonymous">`) or a `Cross-Origin-Resource-Policy` header.
-- **Other bundlers:** serve the files in the package's `wasm/` and pass their URLs (see [Bundlers](#bundlers)).
+- **Any bundler:** install and go. wllama's WebAssembly file loads from jsDelivr by default, at the installed wllama's version, and Safari's compat build too (wllama's own default); nothing is emitted into your build. To host them yourself, see [Self-hosting the WebAssembly](#self-hosting-the-webassembly).
+- **Storage:** wllama downloads models to the browser's Origin Private File System. Nothing to set up.
+- **Threads (optional):** serve the site cross-origin isolated (`Cross-Origin-Opener-Policy: same-origin` and `Cross-Origin-Embedder-Policy: require-corp`) and wllama runs on half the cores; otherwise on one. Set the headers on your host, and in development (below). With `require-corp`, cross-origin images and other resources load only with CORS (`<img crossOrigin="anonymous">`) or a `Cross-Origin-Resource-Policy` header (jsDelivr sends both).
 
 ```ts
 // vite.config.ts
@@ -62,8 +60,11 @@ const nextConfig: NextConfig = {
 | `LiquidAI/LFM2.5-1.2B-Instruct-GGUF` | none                            | Q4_K_M, 731 MB  |
 | `LiquidAI/LFM2.5-1.2B-Thinking-GGUF` | always (`"high"`)               | Q4_K_M, 731 MB  |
 | `LiquidAI/LFM2.5-350M-GGUF`          | none                            | Q4_K_M, 229 MB  |
+| `unsloth/Qwen3.5-2B-GGUF`            | on or off (`"high"` or `"off"`) | Q4_K_M, 1.28 GB |
 
-Liquid's models are Q4_K_M: on a Pixel 10 Pro in Firefox, LFM2.5 350M read prompts at 55 tokens/s in Q4_K_M, 40 in Q8_0 and 15 in Q4_0 with wllama's own build. With this package's faster build (below), LFM2.5 1.2B reads about 400 prompt tokens/s and writes 90 tokens/s in Chrome on an M3 Ultra (16 threads). LFM3 1.7B, with its system prompt and tools, reads about 180 prompt tokens/s and writes 70 tokens/s there.
+LFM3 and LFM3 Web need a llama.cpp newer than the one wllama 3.8.1 is built on: llama.cpp there reports `unknown model architecture: 'lfm3'`, and `loadModel` (or the first call) fails with an error. They'll load once a wllama release updates llama.cpp. LFM2.5 and Qwen3.5 load.
+
+Liquid's models are Q4_K_M: on a Pixel 10 Pro in Firefox, LFM2.5 350M read prompts at 55 tokens/s in Q4_K_M, 40 in Q8_0 and 15 in Q4_0 with wllama's own build. In Chrome on an M3 Ultra, Qwen3.5 2B on WebGPU read about 850 prompt tokens/s and wrote about 60 tokens/s (with other work on the machine).
 
 LFM3 Web ([daveycodez/LFM3-1.7B-Web-GGUF](https://huggingface.co/daveycodez/LFM3-1.7B-Web-GGUF)) is LFM3 with the smaller vocabulary of the Transformers.js LFM3 Web build, in Q4_K with an importance matrix: 188 MB smaller than Liquid's Q4_K_M, it loads about 27% faster and writes about 6% faster, with the same quality in English and the same tool calls. Other languages take 1.6 to 4.2 times as many tokens, so prefer Liquid's build for them.
 
@@ -75,7 +76,7 @@ LFM3 Web ([daveycodez/LFM3-1.7B-Web-GGUF](https://huggingface.co/daveycodez/LFM3
 
 **Structured output:** `chat({ outputSchema })` constrains the answer to the schema with llama.cpp's JSON Schema grammar. With `stream: true` it streams as OpenRouter's does (`structuredOutputStream`): `RUN_STARTED`, the thinking as `REASONING_*` events, the raw JSON as `TEXT_MESSAGE_*` deltas, then a `CUSTOM` `structured-output.complete` event with `{ object, raw, reasoning? }` and `RUN_FINISHED` with usage; a failure (or the output limit) ends with `RUN_ERROR`.
 
-**Context:** `wllamaText(model, { contextLength })` sets how many tokens a chat may hold, prompt and reply together. By default it's the model's whole context window, read from its GGUF (262,144 for LFM3, 128,000 for LFM2.5). Unlike Transformers.js and the WebGL engine, which grow their attention memory as a chat fills it, llama.cpp reserves it for the whole context when the model loads: about 12 KB a token for LFM3, so 3 GB for its full window. Fine on a desktop; on an iPhone set 8,192. On the CPU, where that memory is WebAssembly's (4 GB at most), a model whose whole window doesn't fit loads with 32,768 tokens instead, else 8,192 (Qwen3.5 2B and LFM3 settle on 32,768), unless you set `contextLength`: then the load fails with an error. Changing it loads the model again.
+**Context:** `wllamaText(model, { contextLength })` sets how many tokens a chat may hold, prompt and reply together. By default it's the model's whole context window, read from its GGUF (262,144 for LFM3, 128,000 for LFM2.5). Unlike Transformers.js and the WebGL engine, which grow their attention memory as a chat fills it, llama.cpp reserves it for the whole context when the model loads: about 12 KB a token for LFM3, so 3 GB for its full window. Fine on a desktop; on an iPhone set 8,192. On the CPU, where that memory is WebAssembly's (4 GB at most), set it too: a model whose whole window doesn't fit there (Qwen3.5 2B's 262,144 tokens take 3 GB) fails to load with an error. Changing it loads the model again.
 
 **Usage** is in each call's `RUN_FINISHED` event, as with any TanStack AI adapter: `promptTokens`, `completionTokens`, `totalTokens`, and `promptTokensDetails.cachedTokens` for the start of the prompt llama.cpp reused from an earlier call. Timings are in `usage.providerUsageDetails` (`WllamaProviderUsageDetails`: `firstTokenMs`, `promptMs`, `decodeMs`, `decodeTokens`).
 
@@ -86,18 +87,14 @@ cache option is needed. Structured output passes its exact schema through native
 `response_format.json_schema`, separately from the conversation; schemas are not
 inserted into caller/system messages.
 
-`"none"` maps internally to llama.cpp's public `cache_prompt: false` and skips this
-wrapper's post-call `saveSlotState` persistence. Omitted, `"short"`, and `"long"`
-policies preserve native runtime defaults and introduce no TTL. The standard key has
-no advertised native slot/session equivalent, so the adapter does not invent one.
+`"none"` maps internally to llama.cpp's public `cache_prompt: false`. Omitted, `"short"`,
+and `"long"` policies preserve native runtime defaults and introduce no TTL. The standard
+key has no advertised native slot/session equivalent, so the adapter does not invent one.
 Actual reuse comes from llama.cpp's `timings.cache_n`, forwarded as
 `promptTokensDetails.cachedTokens`; enabling caching alone does not prove a hit.
 
-This controls prompt reuse, not model-file downloads or the KV state needed during
-one generation. It does not delete existing state files or guarantee native eviction:
-model initialization can restore a compatible saved slot before the per-call policy
-is known. The native runtime controls whether that state is reused. Model/template
-changes, edited prefixes, and eviction can require fresh prompt processing.
+Reuse lasts as long as the loaded model: llama.cpp keeps what it has read in memory, and
+a reload of the page or the model reads the prompt again.
 
 **Downloads:** `loadModel(model)` downloads and loads a model ahead of time, and `modelStatus(model)` is a store of its loading progress (with bytes downloaded and the total while it downloads).
 
@@ -106,36 +103,25 @@ changes, edited prefixes, and eviction can require fresh prompt processing.
 `chat()` runs tools and the agent loop; each model call is one chat completion from llama.cpp's OpenAI-compatible API (`createChatCompletion`), in wllama's worker. llama.cpp writes the prompt with the model's chat template, reads thinking and tool calls back, and reuses whatever start of the prompt it has already read. wllama's defaults apply, except:
 
 - **Context:** each model's own (8,192 tokens), not wllama's 1,024, which a system prompt with tools outgrows.
-- **WebGPU or CPU:** wllama's default: on WebGPU where the browser has it (Chrome, Edge, Safari's compat build), on the CPU elsewhere (Firefox, which has no JSPI, and browsers without WebGPU). In Chrome on an M3 Ultra, LFM3 1.7B Web read 575 prompt tokens/s and wrote 70 tokens/s on WebGPU, against 47 and 27 on the CPU (4 threads). `wllamaText(model, { gpu: false })` runs on the CPU only. This package's builds use llama.cpp's subgroup shaders only where the browser also has WGSL's `subgroup_id`; without that check, Chrome 141 couldn't compile them and the model didn't load. They also patch llama.cpp's WebGPU backend for Imagination PowerVR GPUs (the Pixel 10's), where it was unusably slow: matrix products of Q4_K and Q6_K weights and attention go through shaders that read through read-only bindings, which those GPUs read about 3x faster; for a prompt, the weights are dequantized to f16 in a texture, which those GPUs write about 3x faster than a buffer, and multiplied by a register-tiled shader (about 800 GFLOPS) with the feed-forward SwiGLU fused in; and redundant GPU waits are skipped. For writing, the matrix-vector shader takes up to 8 tokens at once, each token computed exactly as alone, and the feed-forward gate, up and SwiGLU, a product and the residual add after it, a norm and the copy of its output, and LFM3's post-norm, residual add and next norm each run as one dispatch. Q4_K and Q6_K weights are rearranged as they load, in place (no more memory), so that those GPUs read them with aligned loads, neighbouring rows next to each other; every product computes the same values as before, bit for bit. The logits are read back with one GPU wait instead of two. LFM2 and LFM3's short convolution on a few tokens (seven or more dispatches per layer) runs as one, with the same results bit for bit. Sampling with the model card's settings (top-k after repeat penalties) reads back only each token's 128 largest logits, found on the GPU, and samples from those: the same tokens, seed for seed, since it checks per token that they include everything top-k would keep. Requests with tools, a JSON schema or thinking sample from them too: a token the grammar rejects is redrawn from all the logits, as before, and so is one the reasoning budget forces. Other GPUs run llama.cpp's code unchanged. In Chrome on a Pixel 10 Pro, LFM2.5 350M (Q4_K_M) went from 40 to 700 prompt tokens/s (800 for a 3,000-token prompt) and from 2.5 to 38 tokens/s written (26 before the rearranged weights, 35 before the GPU top-k and fused convolution), and LFM3 1.7B Web from 10 to 160 and from 1.2 to 13.8 (10.4 before). Against the CPU in the same Chrome, it depends on how warm the phone is. Cool, with a short prompt, the CPU writes 65 tokens/s with LFM2.5 350M and 16 with LFM3 1.7B Web, faster than WebGPU. Warm from use, over our ten chat tests, the CPU slows to 33 and 7.2 while WebGPU holds 37.5 and 13.2, so WebGPU writes faster (and more so with speculative decoding, below). WebGPU reads prompts four times as fast either way.
-- **Speculative decoding:** on WebGPU on PowerVR GPUs, generation also checks guesses of the next tokens taken from the conversation so far, all in one pass (llama.cpp's n-gram drafter: what followed the last 4 to 1 tokens before, up to 7 tokens). How many it drafts is decided by cost: how likely each guess is right, learnt as the reply goes on for each length of match, against how long a pass of that many tokens takes, measured as it goes; it drafts nothing when no draft would pay, or when earlier occurrences of the match were followed by different tokens. There it writes the same text as without it, since each token of a batch is computed exactly as alone (products of weights the PowerVR shaders don't take run a token at a time). On the Pixel 10 Pro, over our ten chat tests, LFM2.5 350M averaged 46 tokens/s (37.5 without, and 38.6 with the earlier fixed-length drafter): it rewrote code at 73, answered from search results at 51 and extracted from an article at 47, and free-form replies, which have little to copy, write at about the speed without it (the earlier drafter lost up to 15% there); LFM3 1.7B Web rewrote code at 19.6 instead of 13.2 and extracted at 20, and averaged 14.7 (13.2 without, 12.7 with the earlier drafter). Elsewhere it's off by default: a batch is computed in another order there, so the text may differ slightly. `wllamaText(model, { speculative })` turns it on or off.
-- **Full sliding-window cache:** `swa_full: true`, so LFM3 reuses what it has read after a tool call (626 of 670 prompt tokens in our test) instead of rereading the whole prompt (0 reused by default). It costs 65 MB more for LFM3 at 8,192 tokens, and nothing for models without sliding-window layers.
-- **Saved prompt across reloads:** after a chat, the model's state (what it has read, as llama.cpp's slot save file) is saved to the Origin Private File System, one per model, and saved again only when the system prompt or tools change. Loading the model restores it, so the first message after a reload reads only the new message: in Chrome on an M3 Ultra (4 threads), with a system prompt and five tools, LFM3 1.7B answered in 0.9 s instead of 15.6 s (698 of 722 prompt tokens reused), LFM2.5 1.2B in 0.5 s instead of 11.9 s (773 of 795). llama.cpp compares the restored tokens with the prompt as usual, so a state that doesn't match is just not reused; one from another build of wllama isn't restored. Saving takes about 0.1 s after a reply; the state is 22 MB for LFM3 and 11 MB for LFM2.5.
-- **This package's builds of wllama:** wllama 3.8.1, built on a newer llama.cpp (`19cce69`, the commit that added LFM3) with llama.cpp's WebAssembly SIMD kernels, which wllama's own builds leave out (Emscripten reports the CPU as `x86`, so llama.cpp falls back to generic code), faster model loading (tensors read in file order, 64 MB read-ahead), less memory (GPU weights staged through one 16 MB buffer rather than one as big as each tensor, the worker letting go of the last file read, and a tied token embedding kept on the GPU only: in Chrome on an M3 Ultra, Qwen3.5 2B on WebGPU takes 0.45 GB of page memory once loaded instead of 1.94, and 0.55 GB at most while loading instead of 3.65; on PowerVR GPUs the weights load as before), slot state save and restore (`Wllama.saveSlotState()` and `restoreSlotState()`, for the saved prompt above), and context checkpoints at user messages, so LFM2.5, which can't roll its memory back, reuses a shared system prompt in a new chat (773 of 795 tokens instead of 274). wllama's JavaScript, in `vendor/wllama/`, is built from the same patched source, since the main builds' glue changes with them. Three builds ship in `wasm/`: `wllama-relaxed.wasm`, the main build with relaxed SIMD dot products as well, for Chrome and Firefox, which have WebAssembly relaxed SIMD; `wllama.wasm`, the main build without them, for other browsers; and `wllama-compat.wasm` with its JavaScript glue `wllama-compat.js.txt` (a `.txt` so bundlers emit it as is), the compat build, for Safari. Prompts read about twice as fast as with wllama's own build: on a Pixel 10 Pro in Firefox, LFM2.5 1.2B went from 16 to 32 tokens/s and its first token from 38 to 19 s. `scripts/build-wasm.sh` rebuilds them and `vendor/wllama/` (the patches it applies are next to it), and checks both main builds' glue is the one in that JavaScript; `wllamaText(model, { relaxedSimdWasmUrl: false })` uses the main build without relaxed SIMD.
+- **WebGPU or CPU:** wllama's default: on WebGPU where the browser has it and wllama can drive it (Chrome and Edge with JSPI, Safari through wllama's compat build), on the CPU elsewhere (Firefox, which has no JSPI, and browsers without WebGPU). `wllamaText(model, { gpu: false })` runs on the CPU only. llama.cpp's WebGPU and CPU code are wllama 3.8.1's, unchanged.
+- **Full sliding-window cache:** `swa_full: true`, so a model with sliding-window layers reuses what it has read after a tool call instead of rereading the whole prompt. It costs a little memory, and nothing for models without such layers.
 - **Threads:** wllama's default, half the cores, where the page is cross-origin isolated (`Cross-Origin-Opener-Policy: same-origin` with `Cross-Origin-Embedder-Policy: require-corp`; Safari and Firefox on Android ignore `credentialless`); one elsewhere. `wllamaText(model, { threads })` sets a number.
 
 The GGUF file is saved to the Origin Private File System by wllama, and loads from there afterwards, offline too.
 
-### Bundlers
+### Self-hosting the WebAssembly
 
-The package starts wllama with `new URL("../wasm/wllama.wasm", import.meta.url)` and `new URL("../wasm/wllama-relaxed.wasm", import.meta.url)`, which Vite and Next.js (Turbopack and webpack) resolve and emit as assets, in development and builds alike; nothing to configure. (Vite's dev server pre-bundles the package, which moves those URLs where it serves no files, so the package then loads them from `/node_modules/@tanstack-ai-browser/wllama/wasm/`.) With a bundler that doesn't, serve those files from the package's `wasm/` yourself and pass their URLs:
+By default wllama loads its WebAssembly file from jsDelivr, at the version this package depends on (`https://cdn.jsdelivr.net/npm/@wllama/wllama@3.8.1/src/wasm/wllama.wasm`), as wllama loads its compat build for Safari. To serve them with your site (offline use, no third-party request), copy `@wllama/wllama/esm/wasm/wllama.wasm` and, for Safari, `@wllama/wllama-compat`'s `wasm/wllama.wasm` and `wasm/wllama.js` (same version), and pass their URLs. The file must match the installed wllama's JavaScript, so copy it from the same version.
 
 ```ts
 wllamaText("LiquidAI/LFM2.5-350M-GGUF", {
   wasmUrl: "/wllama.wasm",
-  relaxedSimdWasmUrl: "/wllama-relaxed.wasm"
+  compat: { wasm: "/wllama-compat.wasm", worker: "/wllama-compat.js" }
 })
 ```
 
-`wasmUrl` alone loads that file in every browser that runs the main build.
-
-Browsers that can't compile 64-bit WebAssembly memory or lack JSPI (Safari, on iPhone too) run the compat build instead, emitted the same way: `new URL("../wasm/wllama-compat.wasm", import.meta.url)` and `…/wllama-compat.js.txt`. It's slower. Elsewhere, serve both files and pass their URLs:
-
-```ts
-wllamaText("LiquidAI/LFM2.5-350M-GGUF", {
-  compat: { wasm: "/wllama-compat.wasm", worker: "/wllama-compat.js.txt" }
-})
-```
+`compat` goes to wllama's `setCompat`.
 
 **Status:** early (0.x); the API may change. See the [repository README](https://github.com/daveycodez/tanstack-ai-browser#readme).
 
-Thinking-capable models accept `reasoning: { level: "high", budgetTokens: 512 }` through TanStack AI. The adapter forwards an explicit budget through wllama's public `reasoning_budget_tokens` option, alongside the template's thinking switch. Omitting the budget preserves the runtime default; `level: "off"` ignores a valid budget on models that support switching thinking off. Zero is forwarded unchanged. Negative, fractional, non-finite, and unsafe budgets fail before inference. No vendor patch is required for this mapping.
+Thinking-capable models accept `reasoning: { level: "high", budgetTokens: 512 }` through TanStack AI. The adapter forwards an explicit budget through wllama's public `reasoning_budget_tokens` option, alongside the template's thinking switch. Omitting the budget preserves the runtime default; `level: "off"` ignores a valid budget on models that support switching thinking off. Zero is forwarded unchanged. Negative, fractional, non-finite, and unsafe budgets fail before inference.

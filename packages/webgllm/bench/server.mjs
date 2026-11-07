@@ -42,12 +42,10 @@ const port = Number(process.argv[2] ?? 8787)
 const resultsFile = process.env.RESULTS_FILE ?? join(here, "results.jsonl")
 
 const roots = {
-  // The wllama package's own wllama JavaScript, from the same build as its
-  // wasm/ (npm's @wllama/wllama doesn't match those builds).
-  "/wllama/": join(repo, "packages/wllama/vendor/wllama/"),
-  "/wasm/": join(repo, "packages/wllama/wasm/"),
-  // The wllama package's builds, next to its bundled client (/bundle-wllama/).
-  "/bundle-wllama/wasm/": join(repo, "packages/wllama/wasm/"),
+  // The official @wllama/wllama the wllama package depends on: its built
+  // JavaScript, and its WebAssembly file next to it.
+  "/wllama/": join(repo, "packages/wllama/node_modules/@wllama/wllama/esm/"),
+  "/wasm/": join(repo, "packages/wllama/node_modules/@wllama/wllama/esm/wasm/"),
   "/models/": process.env.MODELS_DIR ?? join(here, "models/"),
   "/ref/": process.env.REF_DIR ?? join(here, "ref/"),
   "/ref-onnx/": process.env.REF_ONNX_DIR ?? join(here, "ref-onnx/"),

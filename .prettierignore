@@ -9,4 +9,3 @@ pnpm-lock.yaml
 **/.tanstack
 **/.wrangler
 **/.output
-packages/wllama/vendor
