@@ -49,7 +49,6 @@ let transformers: Promise<TransformersModule> | null = null
 function importTransformers(device: Device) {
   transformers ??= import("@huggingface/transformers").then((tf) => {
     tf.env.fetch = fetchWithoutReferrer
-    pickWasmBuild(tf, device)
     return tf
   })
   return transformers
@@ -95,29 +94,6 @@ type ModelConfig = {
   architectures?: Array<string>
   max_position_embeddings?: number
   text_config?: { max_position_embeddings?: number }
-}
-
-/*
- * ONNX Runtime ships its WebGPU build twice: with Asyncify (Transformers.js's
- * default) and with JSPI. Asyncify rewrites the WebAssembly so it can pause
- * for the GPU, which leaves functions of over 1 MB; Safari's optimizing
- * compiler spent seconds and hundreds of MB on each of them while a reply
- * was generated. The JSPI build is smaller and runs the same code, so on the
- * GPU it is used wherever the browser has JSPI (Safari 27 and recent
- * Chrome). On the CPU, Transformers.js's own choice stands.
- */
-function pickWasmBuild(tf: TransformersModule, device: Device) {
-  const onnx = tf.env.backends.onnx
-  const version = onnx.versions?.web
-  if (device !== "webgpu" || !version || !onnx.wasm) return
-  if (!("Suspending" in WebAssembly)) return
-  const dist = `https://cdn.jsdelivr.net/npm/onnxruntime-web@${version}/dist/`
-  // Named as an object, Transformers.js keeps both files in its cache, for
-  // loading offline.
-  onnx.wasm.wasmPaths = {
-    mjs: `${dist}ort-wasm-simd-threaded.jspi.mjs`,
-    wasm: `${dist}ort-wasm-simd-threaded.jspi.wasm`
-  }
 }
 
 /*
@@ -212,187 +188,6 @@ async function watchDevice(tf: TransformersModule) {
   })
 }
 
-/*
- * Dev-only memory logging. iPhone Safari kills the page at 2 GB, and it has
- * no memory API, so this counts what it can, without changing what anything
- * does: ONNX Runtime's WebAssembly memory (the WebAssembly memories created
- * here) and the WebGPU buffers it makes and destroys, and other GPU work.
- */
-const counts = {
-  liveBytes: 0,
-  peakBytes: 0,
-  /** The peak since the last memory log line. */
-  linePeakBytes: 0,
-  buffers: 0,
-  bufferBytes: 0,
-  bindGroups: 0,
-  /** Bind groups the garbage collector has freed. */
-  bindGroupsFreed: 0,
-  encoders: 0,
-  submits: 0,
-  maps: 0,
-  uploadBytes: 0
-}
-
-/** Every live buffer and its size, for the memory log's breakdown. */
-const liveBuffers = new Map<GPUBuffer, number>()
-
-/** Sizes and usages of large buffers created since the last memory log. */
-let createdSizes: Array<string> = []
-
-/** Live buffer memory by size, largest totals first: "12x8.4MB=101MB". */
-function liveBreakdown() {
-  const totals = new Map<number, { count: number; bytes: number }>()
-  for (const size of liveBuffers.values()) {
-    const entry = totals.get(size) ?? { count: 0, bytes: 0 }
-    entry.count++
-    entry.bytes += size
-    totals.set(size, entry)
-  }
-  return [...totals]
-    .sort((a, b) => b[1].bytes - a[1].bytes)
-    .slice(0, 8)
-    .map(
-      ([size, t]) =>
-        `${t.count}x${(size / 1e6).toFixed(2)}MB=${Math.round(t.bytes / 1e6)}MB`
-    )
-    .join(" ")
-}
-
-/**
- * Counts calls to a method, then calls it as it was, with the same
- * arguments, returning what it returns.
- */
-function countCalls<T extends object, K extends keyof T>(
-  target: T,
-  name: K,
-  onCall: (self: unknown, args: Array<unknown>, result: unknown) => void
-) {
-  const original = target[name] as unknown as (
-    ...args: Array<unknown>
-  ) => unknown
-  ;(target as Record<K, unknown>)[name] = function (
-    this: unknown,
-    ...args: Array<unknown>
-  ) {
-    const result = original.apply(this, args)
-    onCall(this, args, result)
-    return result
-  }
-}
-
-function countGpuWork() {
-  const scope = globalThis as unknown as {
-    GPUDevice?: { prototype: GPUDevice }
-    GPUQueue?: { prototype: GPUQueue }
-    GPUBuffer?: { prototype: GPUBuffer }
-  }
-  const device = scope.GPUDevice?.prototype
-  const queue = scope.GPUQueue?.prototype
-  const buffer = scope.GPUBuffer?.prototype
-  if (!device || !queue || !buffer) return
-  countCalls(device, "createBuffer", (_, args, created) => {
-    const { size, usage } = args[0] as GPUBufferDescriptor
-    counts.buffers++
-    counts.bufferBytes += size
-    if (size >= 256 * 1024) {
-      createdSizes.push(`${(size / 1e6).toFixed(1)}MB/u${usage}`)
-    }
-    liveBuffers.set(created as GPUBuffer, size)
-    counts.liveBytes += size
-    counts.peakBytes = Math.max(counts.peakBytes, counts.liveBytes)
-    counts.linePeakBytes = Math.max(counts.linePeakBytes, counts.liveBytes)
-  })
-  countCalls(buffer, "destroy", (self) => {
-    const size = liveBuffers.get(self as GPUBuffer)
-    if (size === undefined) return
-    liveBuffers.delete(self as GPUBuffer)
-    counts.liveBytes -= size
-  })
-  // Bind groups have no destroy(): their memory goes when they're collected.
-  const collected = new FinalizationRegistry(() => counts.bindGroupsFreed++)
-  countCalls(device, "createBindGroup", (_, __, bindGroup) => {
-    counts.bindGroups++
-    collected.register(bindGroup as object, null)
-  })
-  countCalls(device, "createCommandEncoder", () => counts.encoders++)
-  countCalls(queue, "submit", () => counts.submits++)
-  countCalls(buffer, "mapAsync", () => counts.maps++)
-  countCalls(queue, "writeBuffer", (_, args) => {
-    const data = args[2] as ArrayBufferView | ArrayBuffer | undefined
-    // A size is in elements of a typed array, else bytes.
-    const size = args[4] as number | undefined
-    const unit =
-      (data as { BYTES_PER_ELEMENT?: number } | undefined)
-        ?.BYTES_PER_ELEMENT ?? 1
-    counts.uploadBytes +=
-      size === undefined ? (data?.byteLength ?? 0) : size * unit
-  })
-}
-
-const wasmMemories = new Set<WebAssembly.Memory>()
-
-function trackWasm() {
-  const wasm = WebAssembly as unknown as Record<string, unknown>
-  const Memory = WebAssembly.Memory
-  wasm.Memory = new Proxy(Memory, {
-    construct(target, args: [WebAssembly.MemoryDescriptor]) {
-      const memory = Reflect.construct(target, args) as WebAssembly.Memory
-      wasmMemories.add(memory)
-      return memory
-    }
-  })
-  for (const name of ["instantiate", "instantiateStreaming"]) {
-    const original = wasm[name] as
-      ((...args: Array<unknown>) => Promise<unknown>) | undefined
-    if (!original) continue
-    wasm[name] = async function (this: unknown, ...args: Array<unknown>) {
-      const result = (await original.apply(this, args)) as {
-        instance?: WebAssembly.Instance
-        exports?: WebAssembly.Exports
-      }
-      const exports = result.instance?.exports ?? result.exports ?? {}
-      for (const value of Object.values(exports)) {
-        if (value instanceof Memory) wasmMemories.add(value)
-      }
-      return result
-    }
-  }
-}
-
-if (DEBUG) {
-  countGpuWork()
-  trackWasm()
-}
-
-let lastCounts = { ...counts }
-
-/** Logs memory use to the page's console, in dev only. */
-function logMemory(step: string) {
-  if (!DEBUG) return
-  const mb = (bytes: number) => Math.round(bytes / 1e6)
-  let wasmBytes = 0
-  for (const memory of wasmMemories) wasmBytes += memory.buffer.byteLength
-  // What was made and sent since the last line.
-  const d = (key: keyof typeof counts) => counts[key] - lastCounts[key]
-  const sizes = new Map<string, number>()
-  for (const size of createdSizes) sizes.set(size, (sizes.get(size) ?? 0) + 1)
-  createdSizes = []
-  const largest = [...sizes]
-    .sort((a, b) => parseFloat(b[0]) - parseFloat(a[0]))
-    .slice(0, 6)
-    .map(([size, n]) => `${n}x${size}`)
-    .join(" ")
-  const since = `+${d("buffers")} buffers (${mb(d("bufferBytes"))} MB), +${d("bindGroups")} bind groups, +${d("encoders")} encoders, +${d("submits")} submits, +${d("maps")} reads, ${mb(d("uploadBytes"))} MB uploaded; large: ${largest || "none"}`
-  lastCounts = { ...counts }
-  const alive = counts.bindGroups - counts.bindGroupsFreed
-  ctx.postMessage({
-    type: "log",
-    text: `[memory] ${step}: wasm ${mb(wasmBytes)} MB, GPU buffers ${mb(counts.liveBytes)} MB (peak ${mb(counts.linePeakBytes)} MB since the last line, ${mb(counts.peakBytes)} MB in all), ${alive} bind groups not yet collected; since last: ${since}`
-  })
-  counts.linePeakBytes = counts.liveBytes
-}
-
 /** Called when the GPU device is lost. */
 const lostWaiters = new Set<() => void>()
 
@@ -419,29 +214,9 @@ async function unlessGpuLost<T>(work: Promise<T>): Promise<T> {
   }
 }
 
-/**
- * WebKit frees a WebGPU bind group's memory only when its JavaScript object
- * is garbage-collected (there is no destroy()). ONNX Runtime makes hundreds
- * of bind groups per generated token while the worker's own heap barely
- * grows, so collections rarely ran and iPhone Safari's page grew with every
- * token of a long reply. Allocating throwaway memory makes the engine
- * collect.
- */
-function nudgeGarbageCollector(device: Device) {
-  // Only WebGPU's bind groups need it; on the CPU it's just churn.
-  if (device !== "webgpu") return 0
-  const junk = Array.from({ length: 32 }, () => new ArrayBuffer(1 << 20))
-  return junk.length
-}
-
 /** What the GPU looked like when something failed, for the error message. */
 function gpuReport() {
-  const mb = (bytes: number) => Math.round(bytes / 1e6)
   return [
-    // Buffers are only counted with diagnostics on.
-    DEBUG &&
-      gpu.device &&
-      `GPU buffers: ${mb(counts.liveBytes)} MB in use, ${mb(counts.peakBytes)} MB peak`,
     `prompt: ${gpu.promptTokens} tokens`,
     gpu.lost && `device lost: ${gpu.lost}`,
     gpu.error && `GPU error: ${gpu.error}`
@@ -689,14 +464,7 @@ async function loadRuntime(
     device,
     progress_callback: onProgress,
     session_options: {
-      // ONNX Runtime destroys each step's working buffers when the step
-      // ends ("lazyRelease") instead of keeping every size it has made
-      // in its buffer cache.
-      executionProviders: [
-        device === "webgpu"
-          ? { name: "webgpu", storageBufferCacheMode: "lazyRelease" }
-          : device
-      ],
+      executionProviders: [device],
       // No constant folding: LFM exports read the tied embedding's 4-bit
       // weights into the output layer through a Reshape, and folding it
       // copied the whole table into ONNX Runtime's WebAssembly memory
@@ -752,7 +520,6 @@ function load(
   current = { modelId, dtype, contextLength, runtime }
   runtime.then(
     () => {
-      logMemory(`loaded ${modelId}`)
       ctx.postMessage({ type: "ready", modelId })
     },
     (error: unknown) => {
@@ -1504,13 +1271,8 @@ async function readPrompt(
     if (cache) cache.update(entries)
     else cache = new tf.DynamicCache(entries)
     if (stops.includes(stop)) onStop(cache, stop)
-    nudgeGarbageCollector(device)
-    logMemory(
-      `prompt read ${stop} of ${length} tokens (${size} in ${Math.round(ms)} ms)`
-    )
     at = stop
   }
-  logMemory("prompt read")
   return cache
 }
 
@@ -1704,10 +1466,6 @@ async function generateRun(
         lastToken = performance.now()
         firstToken ??= lastToken
         outputTokens += tokens.length
-        if (outputTokens % 16 === 0) nudgeGarbageCollector(device)
-        if (outputTokens % 32 === 0) {
-          logMemory(`reply ${outputTokens} tokens (prompt ${gpu.promptTokens})`)
-        }
       },
       onText: (raw: string) => {
         const text = raw.replace(endTokens, "")
@@ -1831,13 +1589,6 @@ async function generateRun(
       } else if (cache) {
         checkpoints.forEach(disposeCheckpoint)
         await cache.dispose().catch(() => undefined)
-      }
-      logMemory(`reply finished, ${outputTokens} tokens`)
-      if (DEBUG) {
-        ctx.postMessage({
-          type: "log",
-          text: `[memory] live buffers: ${liveBreakdown()}`
-        })
       }
     }
     // Cut off by the context limit, not by the reply's own length limit.

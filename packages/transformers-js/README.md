@@ -75,7 +75,7 @@ Omitted/`"short"`/`"long"` retention keeps the existing cache budgets and lifeti
 these hints do not create new TTLs. `promptCache.key` does not select KV ownership or route a worker cache: exact token
 matching controls reuse.
 
-**Memory** is what Transformers.js and ONNX Runtime take for the model: the weights, ONNX Runtime's working buffers (it destroys each step's buffers when the step ends, its `lazyRelease` mode) and the model's cache. Steps are sized by time, the same way for every model and device, to take 1.5 s each.
+**Memory** is what Transformers.js and ONNX Runtime take for the model: the weights, ONNX Runtime's working buffers and the model's cache. Steps are sized by time, the same way for every model and device, to take 1.5 s each.
 
 The model runs in a module Web Worker that the package starts with `new Worker(new URL("./worker.js", import.meta.url))`. Bundlers that understand that pattern (Vite, webpack 5, Rollup with a worker plugin) emit the worker file for you. With Vite, leave the package out of dependency pre-bundling, so the worker's URL still points at a real file:
 
