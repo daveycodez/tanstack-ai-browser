@@ -465,13 +465,14 @@ async function loadRuntime(
     progress_callback: onProgress,
     session_options: {
       executionProviders: [device],
-      // No constant folding: LFM exports read the tied embedding's 4-bit
-      // weights into the output layer through a Reshape, and folding it
-      // copied the whole table into ONNX Runtime's WebAssembly memory
-      // (which never shrinks) and, on the GPU, uploaded a second copy.
-      // LFM3: 408 MB of WebAssembly memory and 131 MB of GPU memory;
-      // LFM2-1.2B-Tool: 819 MB. Without it: 17 MB, the same replies and
-      // speed, and a load from disk in 1.5 s instead of 21 on a Mac.
+      // No constant folding: LFM exports read the tied embedding's weights
+      // into the output layer through a Reshape (LFM3) or Transpose
+      // (LFM2), and folding it adds a whole second copy of the table in
+      // ONNX Runtime's WebAssembly memory (which never shrinks) and, on
+      // the GPU, uploads it too. LFM3: 407 MB of WebAssembly memory and
+      // 131 MB of GPU memory; LFM2-1.2B-Tool: 818 MB and 268 MB. Without
+      // it: 17 MB, with bit-identical outputs. Until microsoft/onnxruntime#33793
+      // is fixed.
       extra: {
         "optimization.disable_specified_optimizers": "ConstantFolding"
       }
