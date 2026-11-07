@@ -28,8 +28,12 @@ export function isSupported(model?: WllamaChatModel): boolean {
 
 /**
  * Loads a model (downloading it the first time), replacing any other. The
- * promise settles when it's ready to generate.
+ * promise settles when it's ready to generate. Callers may leave it: a
+ * failure is in `modelStatus(model)` too, so an unawaited rejection is
+ * handled here.
  */
-export async function loadModel(model: WllamaChatModel): Promise<void> {
-  await load(model)
+export function loadModel(model: WllamaChatModel): Promise<void> {
+  const promise = load(model).then(() => undefined)
+  promise.catch(() => undefined)
+  return promise
 }

@@ -367,10 +367,20 @@ export function loadModel(model: WllamaChatModel): Promise<Wllama> {
   if (loaded?.model === model && loaded.contextLength === contextLength) {
     return loaded.promise
   }
+  const status = modelStatus(model)
+  let wllama: Wllama
+  try {
+    wllama = createWllama(options.debug ? console : LoggerWithoutDebug)
+  } catch (error) {
+    // wllama refuses to start here (no storage it can use, say): the model
+    // loaded before, if any, stays.
+    status.set({ state: "error", message: errorText(error) })
+    const failed = Promise.reject(error instanceof Error ? error : new Error(errorText(error)))
+    failed.catch(() => undefined)
+    return failed
+  }
   const previous = loaded
   if (previous) modelStatus(previous.model).set({ state: "idle" })
-  const wllama = createWllama(options.debug ? console : LoggerWithoutDebug)
-  const status = modelStatus(model)
   status.set({ state: "loading", progress: 0, cached: true })
   const abort = new AbortController()
   const promise = (async () => {
