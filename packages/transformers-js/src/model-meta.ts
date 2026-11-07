@@ -39,8 +39,10 @@ export type TransformersJsModelMeta = {
   /** The weights to load: "q4f16" unless the model needs fp32 activations. */
   dtype?: WeightsDtype
   /**
-   * The repo also has q4 weights (float32 activations), so the model runs
-   * on the CPU through WebAssembly where there's no WebGPU.
+   * The repo also has q4 weights (float32 activations) that run on the CPU
+   * through WebAssembly where there's no WebGPU. Not for q4 graphs whose
+   * embedding is GatherBlockQuantized: the ONNX Runtime build Transformers.js
+   * imports has no CPU kernel for it (microsoft/onnxruntime#33961).
    */
   cpu?: boolean
   /** Sampling from the model card, used unless `modelOptions` overrides it. */
@@ -149,8 +151,7 @@ const LFM3_1_7B = {
   size: "1.7b",
   reasoning: THINKING_SWITCH,
   toolFormat: "lfm3",
-  sampling: LFM3_SAMPLING,
-  cpu: true
+  sampling: LFM3_SAMPLING
 } as const satisfies TransformersJsModelMeta
 
 const LFM2_5_1_2B = {
@@ -158,8 +159,7 @@ const LFM2_5_1_2B = {
   supports: TOOLS,
   size: "1.2b",
   toolFormat: "lfm2",
-  sampling: LFM2_5_SAMPLING,
-  cpu: true
+  sampling: LFM2_5_SAMPLING
 } as const satisfies TransformersJsModelMeta
 
 const LFM2_5_1_2B_THINKING = {
@@ -168,8 +168,7 @@ const LFM2_5_1_2B_THINKING = {
   size: "1.2b",
   reasoning: ALWAYS_THINKS,
   toolFormat: "lfm2",
-  sampling: LFM2_5_THINKING_SAMPLING,
-  cpu: true
+  sampling: LFM2_5_THINKING_SAMPLING
 } as const satisfies TransformersJsModelMeta
 
 /**
@@ -196,14 +195,13 @@ const LFM2_5_350M = {
   supports: TOOLS,
   size: "350m",
   toolFormat: "lfm2",
-  sampling: LFM2_5_SAMPLING,
-  cpu: true
+  sampling: LFM2_5_SAMPLING
 } as const satisfies TransformersJsModelMeta
 
 /**
  * Qwen3.5 2B: linear-attention layers with a full-attention layer every
  * fourth, in onnx-community's build. Its text model only: the embedding and
- * decoder, 1.38 GB in q4f16 (1.53 GB in q4, for the CPU). Thinking is off
+ * decoder, 1.38 GB in q4f16. Thinking is off
  * unless turned on.
  */
 const QWEN_3_5_2B = {
@@ -212,8 +210,7 @@ const QWEN_3_5_2B = {
   size: "2b",
   reasoning: THINKING_SWITCH,
   toolFormat: "qwen3.5",
-  sampling: QWEN_3_5_SAMPLING,
-  cpu: true
+  sampling: QWEN_3_5_SAMPLING
 } as const satisfies TransformersJsModelMeta
 
 /**

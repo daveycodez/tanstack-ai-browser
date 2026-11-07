@@ -270,7 +270,8 @@ async function runTjs(text: string, cpu = false) {
         maxTokens,
         // (?ctx= for longer prompts.)
         contextLength: Number(params.get("ctx") ?? 8192),
-        thinkingOpen: "<think>"
+        thinkingOpen: "<think>",
+        thinkingClose: "</think>"
       })
     })
   await generate("Hi", 4)

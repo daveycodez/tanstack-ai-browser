@@ -74,8 +74,8 @@ export type WorkerRequest =
       dtype: WeightsDtype
       /**
        * Tokens a chat may hold, prompt and reply together: the model's own
-       * context window when left out, and never more. The model's rotary
-       * tables are cut to it, so a different value loads the model again.
+       * context window when left out, and never more. The worker holds
+       * chats to it; the same model with another value isn't loaded again.
        */
       contextLength?: number
     }

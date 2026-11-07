@@ -72,9 +72,9 @@ Qwen3.5 2B, the same prompts with thinking off, 96-token replies (`?set=qwen&ste
 
 The q4f16 build talks before one call, and answers "sort [5, 3, 9, 1] with Python" with a code block (that doesn't sort) instead of a call.
 
-## tjs-mem.html: the Transformers.js worker's memory
+## tjs-mem.html: the Transformers.js worker's speed
 
-`?model=onnx-community/Qwen3.5-2B-ONNX&len=2048&max=128&ctx=8192`: the transformers-js package's worker (debug on) loads the model, reads a chat prompt padded to about `len` tokens (counted with the model's own tokenizer from Hugging Face) and writes `max` tokens greedily. It prints the worker's memory log, then a summary: GPU buffers at the load peak, after the prompt and at the reply's peak and end, WebAssembly memory, and the prompt and writing speeds. `&wait=` ms between load and prompt, `&runs=` prompts in a row.
+`?model=onnx-community/Qwen3.5-2B-ONNX&len=2048&max=128&ctx=8192`: the transformers-js package's worker (debug on) loads the model, reads a chat prompt padded to about `len` tokens (counted with the model's own tokenizer from Hugging Face) and writes `max` tokens greedily. It prints the load time and the prompt and writing speeds. The worker no longer counts memory: measure the browser's processes instead (`footprint` on a Mac). `&wait=` ms between load and prompt, `&runs=` prompts in a row.
 
 ## tjs-quality.html
 

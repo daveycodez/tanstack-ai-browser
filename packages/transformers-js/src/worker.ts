@@ -1,17 +1,18 @@
-import { createConstraint } from "./constraint/index.js"
-import { GenerationControl, thinkingControlTokens } from "./generation-control.js"
-import { createSampler } from "./sampling.js"
 /**
  * Runs a local model with Transformers.js on WebGPU, off the main thread so
  * the page stays smooth while it loads and generates. One model at a time:
- * loading another frees the previous one. Transformers.js comes from the CDN
- * at runtime so its native Node dependencies never enter the app build.
+ * loading another frees the previous one. Transformers.js is the official
+ * `@huggingface/transformers` package, used as published: it downloads and
+ * caches the model's files, and runs them on its own ONNX Runtime.
  *
  * Without WebGPU (Firefox on Android, say), the same models run on the CPU
  * through ONNX Runtime's WebAssembly backend, from their q4 weights (float32
  * activations, which the CPU kernels want): slower, but the same features,
  * prompt caching in memory and on disk included.
  */
+import { createConstraint } from "./constraint/index.js"
+import { GenerationControl, thinkingControlTokens } from "./generation-control.js"
+import { createSampler } from "./sampling.js"
 import type {
   ChatTurn,
   RunTimings,
@@ -21,7 +22,6 @@ import type {
   WorkerRequest,
   WorkerResponse
 } from "./protocol.js"
-import { pooledSize, SparePool } from "./buffer-pool.js"
 import {
   MIN_PROMPT_STEP,
   nextPromptStep,
@@ -29,18 +29,6 @@ import {
 } from "./prompt-steps.js"
 import { checkpointsToDrop } from "./checkpoints.js"
 import { reusablePrefixLength, systemPrefixTokens } from "./prompt-prefix.js"
-import { embedRows } from "./disk-embedding.js"
-import {
-  chunkLargeMatMulNBits,
-  foldScanTransposes,
-  matVecInScanBodies,
-  moveScansToCpu,
-  readQuantizedEmbedding,
-  scoreLastTokenOnly,
-  sinkTransposesThroughConcat,
-  trimRotaryTables
-} from "./onnx-graph.js"
-import type { QuantizedEmbedding } from "./onnx-graph.js"
 
 /**
  * Diagnostics (memory and cache logs, error stacks) when the page started
@@ -50,239 +38,29 @@ import type { QuantizedEmbedding } from "./onnx-graph.js"
 const DEBUG =
   (globalThis as { name?: string }).name?.endsWith(":debug") ?? false
 
-const TRANSFORMERS_URL =
-  "https://cdn.jsdelivr.net/npm/@huggingface/transformers@4.3.2/dist/transformers.web.min.js"
+type TransformersModule = typeof import("@huggingface/transformers")
 
 /**
- * ONNX Runtime 1.31.1 instead of the September 14 dev build Transformers.js
- * 4.3.2 pins: its WebGPU mixture-of-experts kernel (QMoE) takes a separate
- * gate projection ("FC3"), which Gemma 4's experts use.
+ * Transformers.js, imported when the first model loads (so a page that
+ * never loads one never downloads it), and set up once.
  */
-const ORT_DIST = "https://cdn.jsdelivr.net/npm/onnxruntime-web@1.31.1/dist/"
+let transformers: Promise<TransformersModule> | null = null
 
-/**
- * The runtime bundle for a device. On the CPU it's the plain WebAssembly
- * build: the WebGPU builds have no CPU kernel for GatherBlockQuantized,
- * the 4-bit embedding lookup most q4 files use, and the plain build is
- * half the size (14.8 MB of WebAssembly against 29).
- */
-const ortUrl = (device: Device) =>
-  `${ORT_DIST}${device === "wasm" ? "ort.wasm.bundle.min.mjs" : "ort.webgpu.bundle.min.mjs"}`
-
-/**
- * The Cache Storage Transformers.js keeps model files and ONNX Runtime's
- * WebAssembly in. The runtime's own scripts are kept there too, so a model
- * that has loaded once loads again offline.
- */
-const RUNTIME_CACHE = "transformers-cache"
-
-/**
- * A file's text from the cache, else from the network (then cached). For
- * files whose URL names their version, which never change.
- */
-async function cachedText(url: string) {
-  const cache = await caches.open(RUNTIME_CACHE).catch(() => null)
-  const hit = await cache?.match(url)
-  if (hit) return hit.text()
-  const res = await fetchWithoutReferrer(url)
-  if (!res.ok) throw new Error(`Couldn't load ${url} (HTTP ${res.status}).`)
-  await cache?.put(url, res.clone()).catch(() => undefined)
-  return res.text()
-}
-
-const moduleUrl = (code: string) =>
-  URL.createObjectURL(new Blob([code], { type: "text/javascript" }))
-
-/**
- * Transformers.js's browser build, on the ONNX Runtime above, both from the
- * cache. The build imports ONNX Runtime by package name
- * (`onnxruntime-web/webgpu`, and `onnxruntime-common` for its Tensor class);
- * both are pointed at the one runtime bundle, so Transformers.js and ONNX
- * Runtime share one Tensor class too.
- */
-async function importTransformers(device: Device) {
-  const [transformers, ort] = await Promise.all([
-    cachedText(TRANSFORMERS_URL),
-    cachedText(ortUrl(device))
-  ])
-  const ortModule = moduleUrl(ort)
-  const url = moduleUrl(
-    transformers.replace(
-      /from\s*"onnxruntime-(?:web\/webgpu|common)"/g,
-      `from"${ortModule}"`
-    )
-  )
-  try {
-    const tf = (await import(/* @vite-ignore */ url)) as TransformersModule
-    // The same module instance Transformers.js imported.
-    editModels(await import(/* @vite-ignore */ ortModule))
+function importTransformers(device: Device) {
+  transformers ??= import("@huggingface/transformers").then((tf) => {
+    tf.env.fetch = fetchWithoutReferrer
     return tf
-  } finally {
-    URL.revokeObjectURL(url)
-    URL.revokeObjectURL(ortModule)
-  }
+  })
+  return transformers
 }
 
-/**
- * The largest 4-bit matrix multiply, as float32 weights, that a model on the
- * CPU runs in one piece. ONNX Runtime's WebAssembly build has no 4-bit
- * kernel: every MatMulNBits call dequantizes its whole weight matrix into a
- * float32 buffer. LFM3's output layer (2,048 x 128,000) needed 1 GB for it,
- * on top of the 1.3 GB model, and WebAssembly memory never shrinks: past an
- * iPhone tab's 2 GB limit. LFM3's layers are 63 MB at most.
- */
-const CPU_MATMUL_BYTES = 64 * 1024 * 1024
-
-/** The edits for the model being loaded, set before its sessions are created. */
-let modelEdits: {
-  modelId: string
-  chunkMatMuls: boolean
-  positions: number
-} | null = null
-
-/** onnxruntime-web, as far as editModels uses it. */
-type Ort = {
-  InferenceSession: { create: (model: unknown, ...rest: Array<unknown>) => unknown }
-  Tensor: new (type: "float32", data: Float32Array, dims: Array<number>) => unknown
-}
-
-/**
- * Has ONNX Runtime create sessions from edited models: rotary tables cut to
- * the context the model is loaded for, scores computed for the last token
- * only, and on the CPU, large multiplies split (see CPU_MATMUL_BYTES). A
- * 4-bit embedding session is replaced by a lookup on disk
- * (diskEmbeddingSession). On the GPU, Transposes around Scan loops are
- * folded into the loops' axes or cancelled, the loops' vector-matrix
- * products become MatMuls, and the loops and the float32 work around them
- * stay on the CPU (withCpuNodes).
- */
-function editModels(ort: Ort) {
-  const session = ort.InferenceSession
-  const create = session.create.bind(session)
-  session.create = (model, ...rest) => {
-    if (!(model instanceof Uint8Array) || !modelEdits) return create(model, ...rest)
-    const table = readQuantizedEmbedding(model)
-    if (table) {
-      if (DEBUG) {
-        ctx.postMessage({
-          type: "log",
-          text: `[model] embedding read from disk (${(table.codes.length / 1e6).toFixed(0)} MB not loaded)`
-        })
-      }
-      return Promise.resolve(diskEmbeddingSession(ort, table, modelEdits.modelId))
-    }
-    let edited = model
-    const trimmed = trimRotaryTables(edited, modelEdits.positions)
-    if (trimmed) edited = trimmed
-    const lastOnly = scoreLastTokenOnly(edited)
-    if (lastOnly) edited = lastOnly
-    const chunked = modelEdits.chunkMatMuls
-      ? chunkLargeMatMulNBits(edited, CPU_MATMUL_BYTES)
-      : null
-    if (chunked) edited = chunked
-    const folded = foldScanTransposes(edited)
-    if (folded) edited = folded
-    const sunk = sinkTransposesThroughConcat(edited)
-    if (sunk) edited = sunk
-    const matVec = matVecInScanBodies(edited)
-    if (matVec) edited = matVec
-    const placed = moveScansToCpu(edited)
-    if (placed) edited = placed.model
-    const cpuNodes = placed?.cpuNodeNames ?? []
-    if (DEBUG && (trimmed || lastOnly || chunked || cpuNodes.length > 0)) {
-      ctx.postMessage({
-        type: "log",
-        text: `[model]${trimmed ? ` rotary tables cut to ${modelEdits.positions.toLocaleString("en-US")} positions;` : ""}${lastOnly ? " scores for the last token only;" : ""}${chunked ? " large matrix multiplies split for the CPU;" : ""}${folded ? " Transposes folded into Scan axes;" : ""}${sunk ? " Transposes moved below Concats;" : ""}${matVec ? " Scan bodies' vector-matrix products as MatMuls;" : ""}${cpuNodes.length > 0 ? ` ${cpuNodes.length} nodes of Scan loops on the CPU` : ""}`
-      })
-    }
-    const [options, ...more] = rest
-    return create(edited, withCpuNodes(options, cpuNodes), ...more)
-  }
-}
-
-/**
- * Session options with `names` kept on the CPU by the WebGPU provider: the
- * nodes of Scan loops, and the float32 work around them (moveScansToCpu).
- * ONNX Runtime runs the Scan itself on the CPU, and with the body on the GPU
- * every step of the loop uploaded the state (1 MB per Qwen3.5 layer) and
- * read it back: 82 GB of buffers for a 2,048-token prompt, read at 36
- * tokens/s on a Mac. With the body on the CPU: 1.9 GB, at 340 tokens/s.
- */
-function withCpuNodes(options: unknown, names: Array<string>) {
-  const session = options as
-    | { executionProviders?: Array<string | { name: string }> }
-    | undefined
-  if (names.length === 0 || !session?.executionProviders) return options
-  return {
-    ...session,
-    executionProviders: session.executionProviders.map((provider) => {
-      const entry = typeof provider === "string" ? { name: provider } : provider
-      return entry.name === "webgpu"
-        ? { ...entry, forceCpuNodeNames: names }
-        : provider
-    })
-  }
-}
-
-/**
- * Stands in for an `embed_tokens` session: looks its tokens' rows up in the
- * weights file instead of holding the table in memory (see
- * disk-embedding.ts). The file is opened on first use: until the model has
- * loaded, the loader holds its only access handle.
- */
-function diskEmbeddingSession(
-  ort: Ort,
-  table: QuantizedEmbedding,
-  modelId: string
-) {
-  let file: Awaited<ReturnType<typeof openWeights>> | null = null
-  return {
-    inputNames: [table.input],
-    outputNames: [table.output],
-    async run(
-      feeds: Record<string, { data: ArrayLike<bigint>; dims: ReadonlyArray<number> }>
-    ) {
-      const ids = feeds[table.input]
-      file ??= await openWeights(modelId, table.codes.location)
-      const { data } = file
-      const rows = embedRows(table, ids.data, (offset, length) =>
-        data.subarray(offset, offset + length)
-      )
-      return {
-        [table.output]: new ort.Tensor("float32", rows, [...ids.dims, table.K])
-      }
-    },
-    async release() {
-      file?.close()
-      file = null
-    }
-  }
-}
-
-/* Minimal shapes of the Transformers.js APIs used here. */
-/** An onnxruntime-web tensor, as Transformers.js tensors hold them. */
-type OrtTensor = {
-  type: string
-  dims: ReadonlyArray<number>
-  gpuBuffer?: GPUBuffer
-}
-type Tensor = {
-  dims: Array<number>
-  location?: string
-  data: ArrayLike<number | bigint>
-  ort_tensor: OrtTensor
-  slice: (...ranges: Array<null | [number, number]>) => Tensor
-  dispose: () => void
-}
+/* Minimal shapes of the Transformers.js objects used here. */
+type Tensor = InstanceType<TransformersModule["Tensor"]>
 /**
  * The model's memory of the text so far: attention keys/values
  * ("past_key_values.*") and conv states ("past_conv.*"), by input name.
  */
-type Cache = Record<string, Tensor> & {
-  update: (entries: Record<string, Tensor>) => void
-  get_seq_length: () => number
-  dispose: () => Promise<void>
-}
+type Cache = InstanceType<TransformersModule["DynamicCache"]>
 type Tokenizer = {
   chat_template?: string | null
   eos_token_id?: number
@@ -309,7 +87,7 @@ type ModelClass = {
   from_pretrained: (
     id: string,
     options: Record<string, unknown>
-  ) => Promise<Model>
+  ) => Promise<unknown>
 }
 /** The parts of a model's config.json read here. */
 type ModelConfig = {
@@ -317,82 +95,14 @@ type ModelConfig = {
   max_position_embeddings?: number
   text_config?: { max_position_embeddings?: number }
 }
-type TransformersModule = Record<string, unknown> & {
-  AutoConfig: {
-    from_pretrained: (
-      id: string,
-      options?: Record<string, unknown>
-    ) => Promise<ModelConfig>
-  }
-  AutoTokenizer: {
-    from_pretrained: (
-      id: string,
-      options?: Record<string, unknown>
-    ) => Promise<Tokenizer>
-  }
-  AutoModelForCausalLM: ModelClass
-  TextStreamer: new (
-    tokenizer: Tokenizer,
-    options: Record<string, unknown>
-  ) => unknown
-  InterruptableStoppingCriteria: new () => StoppingCriteria
-  DynamicCache: new (entries: Record<string, Tensor>) => Cache
-  Tensor: {
-    new (type: string, data: unknown, dims: Array<number>): Tensor
-    new (gpu: {
-      location: "gpu-buffer"
-      gpuBuffer: GPUBuffer
-      type: string
-      dims: Array<number>
-      dispose: () => void
-    }): Tensor
-  }
-  ones: (dims: Array<number>) => Tensor
-  env: {
-    fetch: typeof fetch
-    backends: {
-      onnx: {
-        versions: { web: string }
-        wasm: {
-          wasmPaths?: string | { mjs: string; wasm: string }
-          numThreads?: number
-        }
-      }
-    }
-  }
-}
-
-/*
- * ONNX Runtime ships its WebGPU build twice: with Asyncify (the default) and
- * with JSPI. Asyncify rewrites the WebAssembly so it can pause for the GPU,
- * which leaves functions of over 1 MB; Safari's optimizing compiler spent
- * seconds and hundreds of MB on each of them while a reply was generated
- * (on a Mac, the tab peaked at 2,273 MB during a follow-up after a web
- * search, against 1,543 MB with JSPI, and generated ~15% slower). The JSPI
- * build is 16.8 MB instead of 26.9 MB and runs the same code, so it is used
- * wherever the browser has JSPI (Safari 27 and recent Chrome).
- */
-function pickWasmBuild(tf: TransformersModule, device: Device) {
-  const onnx = tf.env.backends.onnx
-  const dist = `https://cdn.jsdelivr.net/npm/onnxruntime-web@${onnx.versions.web}/dist/`
-  // On the CPU, the plain build that goes with the plain bundle above.
-  const build =
-    device === "wasm" ? "" : "Suspending" in WebAssembly ? ".jspi" : ".asyncify"
-  // Named as an object, Transformers.js keeps both files in its cache, for
-  // loading offline.
-  onnx.wasm.wasmPaths = {
-    mjs: `${dist}ort-wasm-simd-threaded${build}.mjs`,
-    wasm: `${dist}ort-wasm-simd-threaded${build}.wasm`
-  }
-}
 
 /*
  * Hugging Face answers requests referred from *.workers.dev with a 404 and no
  * CORS headers, which the browser reports as "Failed to fetch". The page's
  * no-referrer meta tag doesn't reach workers, so every request from here
- * leaves the referrer out itself.
+ * leaves the referrer out itself (Transformers.js's `env.fetch`).
  */
-const fetchWithoutReferrer: typeof fetch = (input, init) =>
+const fetchWithoutReferrer = (input: string | URL, init?: RequestInit) =>
   fetch(input, { ...init, referrerPolicy: "no-referrer" })
 
 /** Where a model runs: the GPU, or the CPU through WebAssembly. */
@@ -407,8 +117,8 @@ type Runtime = {
   device: Device
   /** The weights loaded: q4 on the CPU, whatever was asked for on the GPU. */
   dtype: WeightsDtype
-  /** Tokens a chat may hold: what the model was loaded for. */
-  contextLength: number
+  /** The model's config, for its context window. */
+  config: ModelConfig
 }
 
 /**
@@ -445,457 +155,37 @@ const ctx = globalThis as unknown as {
 }
 
 /*
- * GPU diagnostics, added to generation errors. Safari has no API for memory
- * use, so this counts the WebGPU buffers created and destroyed (nearly all of
- * the model's memory), and records why the device was lost and any GPU error
- * it reported, if those happen.
+ * GPU state, for the prompt cache's copies and for error messages: ONNX
+ * Runtime's GPU device (from its public `env.webgpu.device`), why it was
+ * lost and any GPU error it reported, if those happen.
  */
-/** Every live buffer and its size (dev only), for the memory log's breakdown. */
-const liveBuffers = new Map<GPUBuffer, number>()
-
-/** Live buffer memory by size, largest totals first: "12x8.4MB=101MB". */
-function liveBreakdown() {
-  const totals = new Map<number, { count: number; bytes: number }>()
-  for (const size of liveBuffers.values()) {
-    const entry = totals.get(size) ?? { count: 0, bytes: 0 }
-    entry.count++
-    entry.bytes += size
-    totals.set(size, entry)
-  }
-  return [...totals]
-    .sort((a, b) => b[1].bytes - a[1].bytes)
-    .slice(0, 8)
-    .map(
-      ([size, t]) =>
-        `${t.count}x${(size / 1e6).toFixed(2)}MB=${Math.round(t.bytes / 1e6)}MB`
-    )
-    .join(" ")
-}
-
-/** Sizes and usages of large buffers created since the last memory log. */
-let createdSizes: Array<string> = []
-
 const gpu = {
-  /** ONNX Runtime's GPU device, once it has one. */
+  /** ONNX Runtime's GPU device, once a model has loaded on it. */
   device: null as GPUDevice | null,
-  liveBytes: 0,
-  peakBytes: 0,
-  /** The peak since the last memory log line (dev only). */
-  linePeakBytes: 0,
   lost: null as string | null,
   error: null as string | null,
-  promptTokens: 0,
-  /** Running totals of GPU work, for the dev memory log. */
-  churn: {
-    buffers: 0,
-    bufferBytes: 0,
-    /** Buffer requests served from the pool. */
-    reused: 0,
-    bindGroups: 0,
-    /** Bind groups the garbage collector has freed. */
-    bindGroupsFreed: 0,
-    encoders: 0,
-    submits: 0,
-    maps: 0,
-    uploadBytes: 0
-  }
+  promptTokens: 0
 }
 
-/*
- * GPU buffers between model steps. ONNX Runtime's default buffer cache
- * ("bucket") keeps the buffers of every size it has made, up to a count per
- * size: after a 2,048-token Qwen3.5 reply it held ~180 MB of sizes it had
- * outgrown, and for sizes past its counts it destroyed a buffer every token
- * (LFM3: 8.4 MB per token at a ~3,000-token prompt, which iPhone Safari
- * reclaimed so late that the page passed its 2 GB limit ~350 tokens into a
- * reply; microsoft/onnxruntime#33751). So ONNX Runtime runs in its
- * "lazyRelease" mode, destroying each step's buffers when the step ends,
- * and the worker keeps them instead (see buffer-pool.ts): the next step
- * takes them back, with sizes rounded up so that a request growing a token
- * at a time keeps its buffer, and what it leaves goes for good. Without the
- * pool, lazyRelease destroys and makes ~41 MB of buffers per Qwen3.5 token.
- */
+/** Devices already watched for loss and errors. */
+const watched = new WeakSet<GPUDevice>()
 
-/** GPUBufferUsage.MAP_READ | GPUBufferUsage.MAP_WRITE. */
-const MAP_READ_OR_WRITE = 0x1 | 0x2
-/** GPUBufferUsage.STORAGE. */
-const STORAGE_USAGE = 0x80
-
-/** Set while the worker makes a buffer of its own (createOwnBuffer). */
-let creatingOwnBuffer = false
-
-/**
- * A buffer for the worker itself (copies of cache tensors): the exact size,
- * and destroyed for real when it goes, never kept as a spare.
- */
-function createOwnBuffer(device: GPUDevice, descriptor: GPUBufferDescriptor) {
-  creatingOwnBuffer = true
-  try {
-    return device.createBuffer(descriptor)
-  } finally {
-    creatingOwnBuffer = false
-  }
-}
-
-/**
- * Whether a buffer request goes through the pool: ONNX Runtime's storage
- * buffers once the model is loaded (not its weights, which stay, nor
- * buffers for mapping).
- */
-const pooled = (descriptor: GPUBufferDescriptor) =>
-  !creatingOwnBuffer &&
-  modelEdits === null &&
-  (descriptor.usage & STORAGE_USAGE) !== 0 &&
-  (descriptor.usage & MAP_READ_OR_WRITE) === 0 &&
-  !descriptor.mappedAtCreation
-
-/** Spare buffers by device: a lost device's spares are useless to the next. */
-const sparePools = new WeakMap<GPUDevice, SparePool<GPUBuffer>>()
-
-/** Ends a model step (a prompt step, a token): drops the spares it left. */
-function endGpuStep() {
-  if (gpu.device) sparePools.get(gpu.device)?.endStep()
-}
-
-/**
- * Destroys every spare buffer: a reply is done, or the next step's buffers
- * are of other sizes. Prompt steps make buffers in proportion to their
- * tokens, so the spares of a 512-token step don't fit a 724-token one:
- * kept, they sat beside its buffers until it ended, and the last step's
- * stayed through the reply's first token (Qwen3.5-2B, 2,048-token prompt:
- * GPU buffers peaked at 1,506 MB, against 1,397 with them dropped).
- */
-function dropSpareBuffers() {
-  if (gpu.device) sparePools.get(gpu.device)?.clear()
-}
-
-/** Bytes held as spares. */
-const spareBytes = () =>
-  (gpu.device && sparePools.get(gpu.device)?.bytes) || 0
-
-/*
- * Weights go to the GPU in pieces. ONNX Runtime uploads each weight from
- * the weights file through a mapped staging buffer as large as the weight,
- * copied into place and destroyed: up to 254 MB more GPU memory for a
- * moment (Qwen3.5's output layer), and depending on the upload order a
- * load peaked at up to 1,337 MB of GPU buffers against the model's 1,090,
- * with the mapped copies in the page's memory too. While a model loads,
- * that staging buffer is a stand-in instead: its mapped range is the
- * buffer the weight was just read into from disk (loadScratch), and the
- * copy out of it becomes writeBuffer calls of UPLOAD_CHUNK bytes, which the
- * GPU process stages a piece at a time. Only while a model loads: a
- * writeBuffer runs ahead of command buffers recorded before it, which a
- * weight's fresh buffer doesn't mind, but done during a reply it garbled
- * the text.
- */
-const UPLOAD_CHUNK = 8 * 1024 * 1024
-/** GPUBufferUsage.MAP_WRITE | COPY_SRC: ONNX Runtime's upload staging. */
-const UPLOAD_USAGE = 0x2 | 0x4
-
-/**
- * The buffer weights are read into while a model loads, grown to its
- * largest tensor and shared by every weights file. ONNX Runtime copies each
- * slice out (to the GPU, or its own memory) as soon as it gets it. New
- * buffers per slice left the whole file's worth of them for the garbage
- * collector, which iPhone Safari seemed to keep around, compressed,
- * counting against the tab's memory limit.
- */
-let loadScratch = new ArrayBuffer(0)
-
-/** The weight just read into loadScratch, for the staging buffer that follows. */
-let weightRead: { bytes: number } | null = null
-
-/** Staging stand-ins (see UPLOAD_CHUNK): their device and weight's size. */
-const weightStagings = new WeakMap<
-  object,
-  { device: GPUDevice; bytes: number }
->()
-
-/**
- * A stand-in for the staging buffer ONNX Runtime asks for right after
- * reading a weight, while a model loads; null for any other request.
- */
-function weightStaging(owner: GPUDevice, descriptor: GPUBufferDescriptor) {
-  const read = weightRead
-  weightRead = null
-  if (
-    !read ||
-    modelEdits === null ||
-    !descriptor.mappedAtCreation ||
-    descriptor.usage !== UPLOAD_USAGE ||
-    descriptor.size < read.bytes ||
-    descriptor.size > loadScratch.byteLength
-  ) {
-    return null
-  }
-  const { size, usage } = descriptor
-  const staging = {
-    size,
-    usage,
-    label: descriptor.label ?? "",
-    mapState: "mapped",
-    getMappedRange: (offset = 0) => {
-      if (offset !== 0) throw new Error("Unexpected weight upload.")
-      return loadScratch
-    },
-    unmap: () => undefined,
-    destroy: () => undefined
-  }
-  weightStagings.set(staging, { device: owner, bytes: read.bytes })
-  return staging as unknown as GPUBuffer
-}
-
-/** Writes a staged weight to its buffer, UPLOAD_CHUNK bytes at a time. */
-function uploadWeight(
-  staged: { device: GPUDevice; bytes: number },
-  destination: GPUBuffer,
-  destinationOffset: number,
-  size: number
-) {
-  // The staging buffer is a multiple of 16 bytes; what's past the weight
-  // was zeros in ONNX Runtime's.
-  new Uint8Array(loadScratch, staged.bytes, size - staged.bytes).fill(0)
-  for (let at = 0; at < size; at += UPLOAD_CHUNK) {
-    staged.device.queue.writeBuffer(
-      destination,
-      destinationOffset + at,
-      loadScratch,
-      at,
-      Math.min(UPLOAD_CHUNK, size - at)
-    )
-  }
-}
-
-function trackGpu() {
-  const scope = globalThis as unknown as {
-    GPUDevice?: { prototype: GPUDevice }
-    GPUBuffer?: { prototype: GPUBuffer }
-    GPUAdapter?: { prototype: GPUAdapter }
-    GPUCommandEncoder?: { prototype: GPUCommandEncoder }
-  }
-  const device = scope.GPUDevice?.prototype
-  const buffer = scope.GPUBuffer?.prototype
-  const adapter = scope.GPUAdapter?.prototype
-  const encoder = scope.GPUCommandEncoder?.prototype
-  if (!device || !buffer || !adapter || !encoder) return
-  const sizes = new WeakMap<GPUBuffer, number>()
-  /** Pooled buffers: their device and pool key. */
-  const owners = new WeakMap<GPUBuffer, { device: GPUDevice; key: string }>()
-  /** Buffers sitting in a pool, which ONNX Runtime has destroyed. */
-  const spares = new WeakSet<GPUBuffer>()
-  const destroy = buffer.destroy
-  /** Destroys a buffer for real. */
-  const release = (target: GPUBuffer) => {
-    owners.delete(target)
-    spares.delete(target)
-    const size = sizes.get(target)
-    if (size !== undefined) {
-      gpu.liveBytes -= size
-      sizes.delete(target)
-      liveBuffers.delete(target)
-    }
-    destroy.call(target)
-  }
-  const poolFor = (owner: GPUDevice) => {
-    let pool = sparePools.get(owner)
-    if (!pool) sparePools.set(owner, (pool = new SparePool(release)))
-    return pool
-  }
-  const createBuffer = device.createBuffer
-  device.createBuffer = function (requested) {
-    const staging = weightStaging(this, requested)
-    if (staging) return staging
-    let descriptor = requested
-    let key: string | null = null
-    if (pooled(descriptor)) {
-      descriptor = { ...descriptor, size: pooledSize(descriptor.size) }
-      key = `${descriptor.size}/${descriptor.usage}`
-      const spare = poolFor(this).take(key)
-      if (spare) {
-        spares.delete(spare)
-        gpu.churn.reused++
-        return spare
-      }
-    }
-    const created = createBuffer.call(this, descriptor)
-    if (key) owners.set(created, { device: this, key })
-    gpu.churn.buffers++
-    gpu.churn.bufferBytes += descriptor.size
-    if (DEBUG && descriptor.size >= 256 * 1024) {
-      createdSizes.push(
-        `${(descriptor.size / 1e6).toFixed(1)}MB/u${descriptor.usage}`
-      )
-    }
-    sizes.set(created, descriptor.size)
-    if (DEBUG) liveBuffers.set(created, descriptor.size)
-    gpu.liveBytes += descriptor.size
-    gpu.peakBytes = Math.max(gpu.peakBytes, gpu.liveBytes)
-    gpu.linePeakBytes = Math.max(gpu.linePeakBytes, gpu.liveBytes)
-    return created
-  }
-  const copyBufferToBuffer = encoder.copyBufferToBuffer as (
-    ...args: Array<unknown>
-  ) => void
-  encoder.copyBufferToBuffer = function (
-    this: GPUCommandEncoder,
-    ...args: Array<unknown>
-  ) {
-    const staged = weightStagings.get(args[0] as object)
-    if (!staged) return copyBufferToBuffer.apply(this, args)
-    // (source, destination, size?) or (source, sourceOffset, destination,
-    // destinationOffset, size?); ONNX Runtime copies a whole staging buffer.
-    const [destination, destinationOffset, size, sourceOffset] =
-      typeof args[1] === "number"
-        ? [args[2], args[3], args[4], args[1]]
-        : [args[1], 0, args[2], 0]
-    const source = args[0] as GPUBuffer
-    if (sourceOffset !== 0) throw new Error("Unexpected weight upload.")
-    uploadWeight(
-      staged,
-      destination as GPUBuffer,
-      destinationOffset as number,
-      (size as number | undefined) ?? source.size
-    )
-  } as GPUCommandEncoder["copyBufferToBuffer"]
-  buffer.destroy = function () {
-    // Already a spare: ONNX Runtime destroyed it twice.
-    if (spares.has(this)) return
-    const owner = owners.get(this)
-    if (!owner) return release(this)
-    spares.add(this)
-    poolFor(owner.device).put(owner.key, this, sizes.get(this) ?? 0)
-  }
-  if (DEBUG) countGpuWork()
-  const requestDevice = adapter.requestDevice
-  adapter.requestDevice = async function (descriptor) {
-    const requested = await requestDevice.call(this, descriptor)
-    gpu.device = requested
-    void requested.lost.then((info) => {
-      gpu.lost = `${info.reason}${info.message ? `: ${info.message}` : ""}`
-      for (const notify of lostWaiters) notify()
-    })
-    requested.addEventListener("uncapturederror", (event) => {
-      gpu.error = (event as GPUUncapturedErrorEvent).error.message
-    })
-    return requested
-  }
-}
-trackGpu()
-
-/*
- * Dev-only memory logging. iPhone Safari kills the page at 2 GB, and it has
- * no memory API, so this counts what it can: ONNX Runtime's WebAssembly
- * memory (the WebAssembly memories created here) and the WebGPU buffers.
- */
-const wasmMemories = new Set<WebAssembly.Memory>()
-
-function trackWasm() {
-  const wasm = WebAssembly as unknown as Record<string, unknown>
-  const Memory = WebAssembly.Memory
-  wasm.Memory = new Proxy(Memory, {
-    construct(target, args: [WebAssembly.MemoryDescriptor]) {
-      const memory = Reflect.construct(target, args) as WebAssembly.Memory
-      wasmMemories.add(memory)
-      return memory
-    }
+/** Takes ONNX Runtime's GPU device once a model has loaded on it. */
+async function watchDevice(tf: TransformersModule) {
+  const device = await tf.env.backends.onnx.webgpu?.device
+  if (!device) return
+  gpu.device = device
+  if (watched.has(device)) return
+  watched.add(device)
+  gpu.lost = null
+  gpu.error = null
+  void device.lost.then((info) => {
+    gpu.lost = `${info.reason}${info.message ? `: ${info.message}` : ""}`
+    for (const notify of lostWaiters) notify()
   })
-  for (const name of ["instantiate", "instantiateStreaming"]) {
-    const original = wasm[name] as
-      ((...args: Array<unknown>) => Promise<unknown>) | undefined
-    if (!original) continue
-    wasm[name] = async function (this: unknown, ...args: Array<unknown>) {
-      const result = (await original.apply(this, args)) as {
-        instance?: WebAssembly.Instance
-        exports?: WebAssembly.Exports
-      }
-      const exports = result.instance?.exports ?? result.exports ?? {}
-      for (const value of Object.values(exports)) {
-        if (value instanceof Memory) wasmMemories.add(value)
-      }
-      return result
-    }
-  }
-}
-if (DEBUG) trackWasm()
-
-/** Counts WebGPU objects made and work sent, which buffer sizes don't show. */
-function countGpuWork() {
-  const scope = globalThis as unknown as {
-    GPUDevice?: { prototype: GPUDevice }
-    GPUQueue?: { prototype: GPUQueue }
-    GPUBuffer?: { prototype: GPUBuffer }
-  }
-  const device = scope.GPUDevice?.prototype
-  const queue = scope.GPUQueue?.prototype
-  const buffer = scope.GPUBuffer?.prototype
-  if (!device || !queue || !buffer) return
-  const count = <T extends object, K extends keyof T>(
-    target: T,
-    name: K,
-    onCall: (args: Array<unknown>) => void
-  ) => {
-    const original = target[name] as unknown as (
-      ...args: Array<unknown>
-    ) => unknown
-    ;(target as Record<K, unknown>)[name] = function (
-      this: unknown,
-      ...args: Array<unknown>
-    ) {
-      onCall(args)
-      return original.apply(this, args)
-    }
-  }
-  // Bind groups have no destroy(): their memory goes when they're collected.
-  const collected = new FinalizationRegistry(() => gpu.churn.bindGroupsFreed++)
-  const createBindGroup = device.createBindGroup
-  device.createBindGroup = function (descriptor) {
-    const bindGroup = createBindGroup.call(this, descriptor)
-    gpu.churn.bindGroups++
-    collected.register(bindGroup, null)
-    return bindGroup
-  }
-  count(device, "createCommandEncoder", () => gpu.churn.encoders++)
-  count(queue, "submit", () => gpu.churn.submits++)
-  count(buffer, "mapAsync", () => gpu.churn.maps++)
-  count(queue, "writeBuffer", (args) => {
-    const data = args[2] as ArrayBufferView | ArrayBuffer | undefined
-    // A size is in elements of a typed array, else bytes.
-    const size = args[4] as number | undefined
-    const unit =
-      (data as { BYTES_PER_ELEMENT?: number } | undefined)
-        ?.BYTES_PER_ELEMENT ?? 1
-    gpu.churn.uploadBytes +=
-      size === undefined ? (data?.byteLength ?? 0) : size * unit
+  device.addEventListener("uncapturederror", (event) => {
+    gpu.error = (event as GPUUncapturedErrorEvent).error.message
   })
-}
-
-let lastChurn = { ...gpu.churn }
-
-/** Logs memory use to the page's console, in dev only. */
-function logMemory(step: string) {
-  if (!DEBUG) return
-  const mb = (bytes: number) => Math.round(bytes / 1e6)
-  let wasmBytes = 0
-  for (const memory of wasmMemories) wasmBytes += memory.buffer.byteLength
-  // What was made and sent since the last line.
-  const c = gpu.churn
-  const d = (key: keyof typeof c) => c[key] - lastChurn[key]
-  const sizes = new Map<string, number>()
-  for (const size of createdSizes) sizes.set(size, (sizes.get(size) ?? 0) + 1)
-  createdSizes = []
-  const largest = [...sizes]
-    .sort((a, b) => parseFloat(b[0]) - parseFloat(a[0]))
-    .slice(0, 6)
-    .map(([size, n]) => `${n}x${size}`)
-    .join(" ")
-  const since = `+${d("buffers")} buffers (${mb(d("bufferBytes"))} MB), ${d("reused")} reused, +${d("bindGroups")} bind groups, +${d("encoders")} encoders, +${d("submits")} submits, +${d("maps")} reads, ${mb(d("uploadBytes"))} MB uploaded; large: ${largest || "none"}`
-  lastChurn = { ...c }
-  const alive = c.bindGroups - c.bindGroupsFreed
-  ctx.postMessage({
-    type: "log",
-    text: `[memory] ${step}: wasm ${mb(wasmBytes)} MB, GPU buffers ${mb(gpu.liveBytes)} MB (${mb(spareBytes())} MB of them spares; peak ${mb(gpu.linePeakBytes)} MB since the last line, ${mb(gpu.peakBytes)} MB in all), ${alive} bind groups not yet collected; since last: ${since}`
-  })
-  gpu.linePeakBytes = gpu.liveBytes
 }
 
 /** Called when the GPU device is lost. */
@@ -924,150 +214,15 @@ async function unlessGpuLost<T>(work: Promise<T>): Promise<T> {
   }
 }
 
-/**
- * WebKit frees a WebGPU bind group's memory only when its JavaScript object
- * is garbage-collected (there is no destroy()), and until late 2026 a bind
- * group also kept destroyed buffers it pointed at. ONNX Runtime makes ~300
- * bind groups per generated token while the worker's own heap barely grows,
- * so collections rarely ran: iPhone Safari's page grew with every token of a
- * long reply until it passed its 2 GB limit. Allocating throwaway memory
- * makes the engine collect.
- */
-function nudgeGarbageCollector() {
-  // Only WebGPU's bind groups need it; on the CPU it's just churn.
-  if (!gpu.device) return 0
-  const junk = Array.from({ length: 32 }, () => new ArrayBuffer(1 << 20))
-  return junk.length
-}
-
 /** What the GPU looked like when something failed, for the error message. */
 function gpuReport() {
-  const mb = (bytes: number) => Math.round(bytes / 1e6)
   return [
-    // Nothing to say about the GPU for a model on the CPU.
-    gpu.device &&
-      `GPU buffers: ${mb(gpu.liveBytes)} MB in use, ${mb(gpu.peakBytes)} MB peak`,
     `prompt: ${gpu.promptTokens} tokens`,
     gpu.lost && `device lost: ${gpu.lost}`,
     gpu.error && `GPU error: ${gpu.error}`
   ]
     .filter(Boolean)
     .join("; ")
-}
-
-/*
- * The model's weights (`onnx/*_q4f16.onnx_data*`: one 0.76-1.09 GB file for
- * the LFM builds, several ~2 GB parts for larger models) are cached in the
- * Origin Private File System instead of Transformers.js's Cache Storage:
- * Transformers.js 4.3 holds each whole download in memory and copies it
- * again to cache it, which goes past iPhone Safari's 2 GB page limit.
- * Downloading straight to disk and streaming it back in slice by slice
- * avoids both. Transformers.js still fetches and caches the small files.
- */
-
-/** A dtype's weights files, by name in the repo's `onnx` folder. */
-const weightsPattern = (dtype: WeightsDtype) =>
-  new RegExp(`^[\\w.-]+_${dtype}\\.onnx_data(?:_\\d+)?$`)
-
-/** A weights file of the model, and its size in bytes. */
-type WeightsFile = { name: string; size: number }
-
-/**
- * A text model's weights: not a multimodal build's vision or audio encoder,
- * which aren't loaded (see modelClass).
- */
-const isTextWeights = ({ name }: WeightsFile) =>
-  !/^(?:vision|audio)_encoder_/.test(name)
-
-/**
- * A model id is a Hugging Face repo, optionally pinned to a commit:
- * "owner/repo@revision". Pinning makes browsers fetch that version's files
- * instead of reusing cached ones from an older version.
- */
-function parseModelId(modelId: string) {
-  const [repo, revision = "main"] = modelId.split("@")
-  return { repo, revision }
-}
-
-/**
- * Files on disk are named by repo and, for a pinned model, by revision, so
- * a new version is downloaded fresh rather than reusing what an older one
- * saved.
- */
-const repoFilePrefix = (repo: string) => `${repo.replace(/[^\w.-]+/g, "_")}.`
-
-const filePrefix = (modelId: string) => {
-  const { repo, revision } = parseModelId(modelId)
-  const version = revision === "main" ? "" : `${revision.slice(0, 12)}.`
-  return `${repoFilePrefix(repo)}${version}`
-}
-
-const weightsFile = (modelId: string, name: string) => {
-  const { repo, revision } = parseModelId(modelId)
-  const file = `${filePrefix(modelId)}${name}`
-  return {
-    url: `https://huggingface.co/${repo}/resolve/${revision}/onnx/${name}`,
-    file,
-    /** Written once the download is complete. */
-    done: `${file}.done`,
-    /**
-     * The version (ETag) of a download in progress, so it resumes only
-     * from the same version of the file.
-     */
-    etag: `${file}.etag`
-  }
-}
-
-/**
- * The model's weights files: listed once by Hugging Face's API, then kept
- * on disk with them, so a downloaded model loads without the network.
- */
-async function listWeights(
-  modelId: string,
-  dtype: WeightsDtype
-): Promise<Array<WeightsFile>> {
-  const dir = await navigator.storage.getDirectory()
-  const saved = `${filePrefix(modelId)}weights.${dtype}.json`
-  try {
-    const file = await (await dir.getFileHandle(saved)).getFile()
-    // (Listings saved before encoders were left out still name them.)
-    return (JSON.parse(await file.text()) as Array<WeightsFile>).filter(
-      isTextWeights
-    )
-  } catch {
-    // Not listed yet.
-  }
-  const { repo, revision } = parseModelId(modelId)
-  const res = await fetchWithoutReferrer(
-    `https://huggingface.co/api/models/${repo}/tree/${revision}/onnx`
-  )
-  if (!res.ok) {
-    throw new Error(`Couldn't list the model's files (HTTP ${res.status}).`)
-  }
-  const entries = (await res.json()) as Array<{
-    type: string
-    path: string
-    size: number
-  }>
-  const files = entries
-    .filter((e) => e.type === "file")
-    .map((e) => ({ name: e.path.replace(/^onnx\//, ""), size: e.size }))
-    .filter((f) => weightsPattern(dtype).test(f.name) && isTextWeights(f))
-    .sort((a, b) => a.name.localeCompare(b.name, "en", { numeric: true }))
-  if (files.length === 0) {
-    throw new Error(`${repo} has no ${dtype} ONNX weights.`)
-  }
-  const handle = await openSync(
-    await dir.getFileHandle(saved, { create: true })
-  )
-  try {
-    handle.truncate(0)
-    handle.write(new TextEncoder().encode(JSON.stringify(files)), { at: 0 })
-    handle.flush()
-  } finally {
-    handle.close()
-  }
-  return files
 }
 
 /** OPFS sync access handles (worker-only, not in the DOM typings). */
@@ -1086,334 +241,112 @@ const openSync = (file: FileSystemFileHandle) =>
     }
   ).createSyncAccessHandle()
 
-async function hasFile(dir: FileSystemDirectoryHandle, name: string) {
-  try {
-    await dir.getFileHandle(name)
-    return true
-  } catch {
-    return false
-  }
-}
-
-/** Whether every weights file is already downloaded to disk. */
-async function isDownloaded(modelId: string, weights: Array<WeightsFile>) {
-  try {
-    const dir = await navigator.storage.getDirectory()
-    for (const { name } of weights) {
-      if (!(await hasFile(dir, weightsFile(modelId, name).done))) return false
-    }
-    return true
-  } catch {
-    return false
-  }
+/**
+ * A model id is a Hugging Face repo, optionally pinned to a commit:
+ * "owner/repo@revision". Pinning makes browsers fetch that version's files
+ * instead of reusing cached ones from an older version.
+ */
+function parseModelId(modelId: string) {
+  const [repo, revision = "main"] = modelId.split("@")
+  return { repo, revision }
 }
 
 /**
- * Downloads the weights files to disk, one after another, writing each
- * network chunk as it arrives. Progress is in bytes across all of them.
+ * A text model's ONNX files: not a multimodal build's vision or audio
+ * encoder, which aren't loaded (see modelClass).
  */
-async function downloadWeights(
-  modelId: string,
-  weights: Array<WeightsFile>,
-  onProgress: (loaded: number, total: number) => void
-) {
-  const dir = await navigator.storage.getDirectory()
-  const total = weights.reduce((sum, w) => sum + w.size, 0)
-  let before = 0
-  for (const file of weights) {
-    await downloadFile(
-      modelId,
-      file,
-      (written) => {
-        if (total) onProgress(before + written, total)
-      },
-      dir
-    )
-    before += file.size
-  }
-}
-
-/** Tries per weights file before a download fails. */
-const DOWNLOAD_ATTEMPTS = 6
-
-class HttpError extends Error {}
+const isTextModelFile = (path: string) =>
+  path.startsWith("onnx/") && !/\/(?:vision|audio)_encoder/.test(path)
 
 /**
- * Downloads one weights file to disk, unless it's there already. A broken
- * connection (common over several GB) doesn't start it over: it retries,
- * with a growing wait, and asks only for the bytes still missing. A file an
- * earlier visit left half-done is continued the same way.
+ * The model's ONNX files for this dtype and device, with their sizes where
+ * the Hub reports them, from Transformers.js's ModelRegistry. A size probe
+ * that fails leaves that file's size unknown rather than failing the load:
+ * from_pretrained reports a real problem itself.
  */
-/** A small text file's contents, or "" if there's none. */
-async function readText(dir: FileSystemDirectoryHandle, name: string) {
-  try {
-    return await (await (await dir.getFileHandle(name)).getFile()).text()
-  } catch {
-    return ""
-  }
-}
-
-async function writeText(
-  dir: FileSystemDirectoryHandle,
-  name: string,
-  text: string
-) {
-  const handle = await openSync(await dir.getFileHandle(name, { create: true }))
-  try {
-    handle.truncate(0)
-    handle.write(new TextEncoder().encode(text), { at: 0 })
-    handle.flush()
-  } finally {
-    handle.close()
-  }
-}
-
-async function downloadFile(
-  modelId: string,
-  { name, size: listedSize }: WeightsFile,
-  onWritten: (bytes: number) => void,
-  dir: FileSystemDirectoryHandle
-) {
-  const files = weightsFile(modelId, name)
-  if (await hasFile(dir, files.done)) return
-  let handle = await openSync(
-    await dir.getFileHandle(files.file, { create: true })
-  )
-  /**
-   * The bytes on disk, through a new handle if the browser closed this one
-   * (Safari can, mid-download): retries would otherwise write to the closed
-   * one and fail at once. The file is looked up again from the storage root,
-   * and made again if it's gone: iPhone Safari sometimes deletes a site's
-   * whole storage a few seconds into a page (WebsiteDataStore::removeData in
-   * the device log), and the download then starts over.
-   */
-  const onDisk = async () => {
-    try {
-      return handle.getSize()
-    } catch {
-      try {
-        handle.close()
-      } catch {
-        // Already closed.
-      }
-      dir = await navigator.storage.getDirectory()
-      handle = await openSync(
-        await dir.getFileHandle(files.file, { create: true })
-      )
-      return handle.getSize()
-    }
-  }
-  // The listed size, until the server sends the file and says its own: a
-  // model followed at main can change between listing and download.
-  let size = listedSize
-  let written = handle.getSize()
-  if (size && written > size) {
-    handle.truncate(0)
-    written = 0
-  }
-  // Download speed goes to the console every tenth of the file and at the
-  // end, to tell a slow network from a slow phone.
-  const started = performance.now()
-  const resumedAt = written
-  const logSpeed = (label: string) => {
-    const seconds = (performance.now() - started) / 1000
-    ctx.postMessage({
-      type: "log",
-      text: `[download] ${name} ${label}: ${Math.round(written / 1e6)} of ${Math.round(size / 1e6)} MB, ${((written - resumedAt) / 1e6 / seconds).toFixed(1)} MB/s`
-    })
-  }
-  try {
-    let nextLog = written + size / 10
-    // Failures in a row with no bytes gained: a retry that made progress
-    // starts the count over.
-    let attempt = 1
-    // The version on disk, for resuming only from the same version: with
-    // If-Range, a server sends the rest if the file is unchanged and the
-    // whole new file if it changed.
-    let etag = written > 0 ? await readText(dir, files.etag) : ""
-    while (!size || written < size) {
-      const start = written
-      try {
-        const headers: Record<string, string> = {}
-        if (written > 0) {
-          headers.Range = `bytes=${written}-`
-          if (etag) headers["If-Range"] = etag
-        }
-        const res = await fetchWithoutReferrer(files.url, { headers })
-        if (!res.ok || !res.body) {
-          throw new HttpError(
-            `Couldn't download the model (HTTP ${res.status}).`
-          )
-        }
-        if (written > 0 && res.status !== 206) {
-          // The whole file: the server ignores ranges, or the file changed.
-          handle.truncate(0)
-          written = 0
-        } else if (written > 0) {
-          // A range starting anywhere else would put its bytes in the
-          // wrong place: start over instead.
-          const range = /^bytes (\d+)-/.exec(
-            res.headers.get("Content-Range") ?? ""
-          )
-          if (range && Number(range[1]) !== written) {
-            void res.body.cancel().catch(() => undefined)
-            handle.truncate(0)
-            written = 0
-            etag = ""
-            continue
-          }
-        }
-        if (written === 0) {
-          // A download from the start: this version's ETag and size.
-          etag = res.headers.get("ETag") ?? ""
-          await writeText(dir, files.etag, etag)
-          const length = Number(res.headers.get("Content-Length"))
-          if (length > 0) size = length
-        }
-        const reader = res.body.getReader()
-        try {
-          for (;;) {
-            const { done, value } = await reader.read()
-            if (done) break
-            written += handle.write(value, { at: written })
-            onWritten(written)
-            if (size && written >= nextLog && written < size) {
-              logSpeed(`${Math.round((written / size) * 100)}%`)
-              nextLog += size / 10
-            }
-          }
-        } catch (error) {
-          // (A write failed: stop the response rather than let it run on.)
-          reader.cancel().catch(() => undefined)
-          throw error
-        }
-        if (!size) break
-      } catch (error) {
-        if (error instanceof HttpError) throw error
-        // Go on from what's on disk (a new handle if this one was closed).
-        let reopen = ""
-        try {
-          written = await onDisk()
-        } catch (reopenError) {
-          // Reopening failed too: counted as a failed try.
-          reopen = `, couldn't reopen the file: ${errorMessage(reopenError)}`
-        }
-        attempt = written > start ? 1 : attempt + 1
-        if (attempt > DOWNLOAD_ATTEMPTS) throw error
-        const { usage = 0, quota = 0 } = await navigator.storage
-          .estimate()
-          .catch(() => ({ usage: 0, quota: 0 }))
-        logSpeed(
-          `interrupted (${errorMessage(error)}${reopen}; storage ${Math.round(usage / 1e6)} of ${Math.round(quota / 1e6)} MB used), try ${attempt}`
-        )
-        await new Promise((resolve) => setTimeout(resolve, 1000 * 2 ** attempt))
-      }
-    }
-    handle.truncate(written)
-    handle.flush()
-    logSpeed("done")
-  } finally {
-    handle.close()
-  }
-  await dir.getFileHandle(files.done, { create: true })
-  await dir.removeEntry(files.etag).catch(() => undefined)
-}
-
-/**
- * Opens the weights on disk as a stand-in for the whole buffer. ONNX Runtime
- * only asks it for its size and for one tensor's slice at a time, so each
- * slice is read from disk when asked and the file never sits in memory.
- * Call close() once the model is created.
- */
-async function openWeights(modelId: string, name: string) {
-  const dir = await navigator.storage.getDirectory()
-  const handle = await openSync(
-    await dir.getFileHandle(weightsFile(modelId, name).file)
-  )
-  const size = handle.getSize()
-  const view = new Uint8Array(0)
-  Object.defineProperties(view, {
-    byteLength: { get: () => size },
-    length: { get: () => size },
-    subarray: {
-      value: (begin = 0, end = size) => {
-        const length = end - begin
-        // Room for the staging buffer's rounding to 16 bytes too.
-        if (loadScratch.byteLength < length) {
-          loadScratch = new ArrayBuffer(Math.ceil(length / 16) * 16)
-        }
-        const slice = new Uint8Array(loadScratch, 0, length)
-        handle.read(slice, { at: begin })
-        weightRead = { bytes: length }
-        return slice
-      }
-    }
-  })
-  return {
-    data: view,
-    close: () => {
-      handle.close()
-      loadScratch = new ArrayBuffer(0)
-    }
-  }
-}
-
-/**
- * Removes weights earlier versions of the app stored elsewhere, and saved
- * files of other versions of this model.
- */
-async function removeOldCopies(modelId: string) {
-  try {
-    const cache = await caches.open("transformers-cache")
-    await cache.delete(weightsFile(modelId, "model_q4f16.onnx_data").url)
-    const { repo } = parseModelId(modelId)
-    const current = filePrefix(modelId)
-    const repoPrefix = repoFilePrefix(repo)
-    const dir = await navigator.storage.getDirectory()
-    for await (const name of (
-      dir as unknown as { keys: () => AsyncIterable<string> }
-    ).keys()) {
-      // Files of another pinned version ("repo.<commit>.name"); at main,
-      // the model's files are "repo.name".
-      const pinned = /^[0-9a-f]{12}\./.test(name.slice(repoPrefix.length))
-      const otherVersion =
-        name.startsWith(repoPrefix) &&
-        (current === repoPrefix ? pinned : !name.startsWith(current))
-      if (name.startsWith("lfm3-1.7b-") || otherVersion) {
-        await dir.removeEntry(name)
-      }
-    }
-  } catch {
-    // Nothing to clean up.
-  }
-}
-
-/**
- * Removes this model's files of another dtype (the q4f16 weights once it
- * loads q4, say), which would otherwise sit on disk unused.
- */
-async function removeOtherWeights(
-  modelId: string,
+async function modelFiles(
+  tf: TransformersModule,
+  repo: string,
+  revision: string,
+  config: ModelConfig,
   dtype: WeightsDtype,
-  weights: Array<WeightsFile>
+  device: Device
+) {
+  const paths = (
+    await tf.ModelRegistry.get_model_files(repo, {
+      config: config as never,
+      dtype,
+      device
+    })
+  ).filter(isTextModelFile)
+  const metadata = await Promise.all(
+    paths.map((path) =>
+      tf.ModelRegistry.get_file_metadata(repo, path, { revision }).catch(
+        () => null
+      )
+    )
+  )
+  return paths.map((path, i) => ({
+    path,
+    /** False only when the Hub said the file isn't there. */
+    missing: metadata[i]?.exists === false,
+    size: metadata[i]?.size
+  }))
+}
+
+/**
+ * Whether every file the model loads is in Transformers.js's cache now. The
+ * registry's file metadata keeps what it saw first, so a model downloaded
+ * earlier in this worker would still read as a download.
+ */
+async function isCached(
+  tf: TransformersModule,
+  repo: string,
+  revision: string,
+  config: ModelConfig,
+  dtype: WeightsDtype,
+  device: Device
 ) {
   try {
-    const prefix = filePrefix(modelId)
-    const keep = new Set([`${prefix}weights.${dtype}.json`])
-    for (const { name } of weights) {
-      const files = weightsFile(modelId, name)
-      keep.add(files.file).add(files.done).add(files.etag)
-    }
-    const dir = await navigator.storage.getDirectory()
-    const other: Array<string> = []
-    for await (const name of (
-      dir as unknown as { keys: () => AsyncIterable<string> }
-    ).keys()) {
-      if (name.startsWith(prefix) && !keep.has(name)) other.push(name)
-    }
-    for (const name of other) await dir.removeEntry(name)
+    const status = await tf.ModelRegistry.is_cached_files(repo, {
+      revision,
+      config: config as never,
+      dtype,
+      device
+    })
+    return status.allCached
   } catch {
-    // Nothing to clean up.
+    return false
+  }
+}
+
+/**
+ * The bytes a model's memory claim assumes when the Hub doesn't report its
+ * weights' sizes: as much as the largest models here take.
+ */
+const UNKNOWN_MODEL_BYTES = 2.5e9
+
+/**
+ * The chat template a repo keeps in its own `chat_template.jinja`, which
+ * Transformers.js 4.3's AutoTokenizer doesn't read (until
+ * huggingface/transformers.js#1880 ships), from the same host and revision
+ * the model loads from. Null when the repo has none.
+ */
+async function standaloneChatTemplate(
+  tf: TransformersModule,
+  repo: string,
+  revision: string
+) {
+  const path = tf.env.remotePathTemplate
+    .replaceAll("{model}", repo)
+    .replaceAll("{revision}", encodeURIComponent(revision))
+  try {
+    const res = await fetchWithoutReferrer(
+      new URL(`${path}chat_template.jinja`, tf.env.remoteHost)
+    )
+    return res.ok ? await res.text() : null
+  } catch {
+    return null
   }
 }
 
@@ -1440,40 +373,29 @@ function endTokens(tokenizer: Tokenizer, model: Model) {
 
 /**
  * The class to load the model with. This package runs text only, so a
- * multimodal build (`Gemma4ForConditionalGeneration`,
- * `Qwen3_5ForConditionalGeneration`) loads with its family's causal-LM
- * class, which Transformers.js gives just the embedding and decoder, not
- * the vision and audio encoders. Otherwise its own class from the config.
- * A text-only export of a multimodal family
- * (`Gemma4ForCausalLM` with separate `embed_tokens` and
- * `decoder_model_merged` files, no encoders) is loaded the way
- * Transformers.js loads a multimodal model's text part: with the causal-LM
- * class, and a config naming the multimodal architecture, so it reads just
- * those two files.
+ * multimodal build (`Qwen3_5ForConditionalGeneration`, say) loads with its
+ * family's causal-LM class, which Transformers.js gives just the embedding
+ * and decoder, not the vision and audio encoders. Otherwise its own class
+ * from the config.
  */
 async function modelClass(
   tf: TransformersModule,
   repo: string,
-  revision: string,
-  weights: Array<WeightsFile>
+  revision: string
 ) {
-  const config = await tf.AutoConfig.from_pretrained(repo, { revision })
+  const config = (await tf.AutoConfig.from_pretrained(repo, {
+    revision
+  })) as unknown as ModelConfig
+  const classes = tf as unknown as Record<string, ModelClass | undefined>
   const arch = config.architectures?.[0]
   const textModel = arch?.endsWith("ForConditionalGeneration")
-    ? (tf[arch.replace(/ForConditionalGeneration$/, "ForCausalLM")] as
-        | ModelClass
-        | undefined)
+    ? classes[arch.replace(/ForConditionalGeneration$/, "ForCausalLM")]
     : undefined
-  if (textModel) return { Model: textModel, config }
-  const split =
-    weights.some((w) => w.name.startsWith("embed_tokens")) &&
-    weights.some((w) => w.name.startsWith("decoder_model_merged"))
-  if (arch?.endsWith("ForCausalLM") && split) {
-    const multimodal = arch.replace(/ForCausalLM$/, "ForConditionalGeneration")
-    if (tf[multimodal]) config.architectures = [multimodal]
+  const own = arch ? classes[arch] : undefined
+  return {
+    Model: textModel ?? own ?? (tf.AutoModelForCausalLM as ModelClass),
+    config
   }
-  const own = arch ? (tf[arch] as ModelClass | undefined) : undefined
-  return { Model: own ?? tf.AutoModelForCausalLM, config }
 }
 
 /** Resolves when the page answers a "claim" (see claimMemory). */
@@ -1490,6 +412,7 @@ function claimMemory(modelId: string, bytes: number) {
 let current: {
   modelId: string
   dtype: WeightsDtype
+  /** Tokens a chat may hold by default, as the load asked. */
   contextLength: number | undefined
   runtime: Promise<Runtime>
 } | null = null
@@ -1512,28 +435,46 @@ function contextFor(config: ModelConfig, requested: number | undefined) {
 
 async function loadRuntime(
   modelId: string,
-  requested: WeightsDtype,
-  requestedContext: number | undefined
+  requested: WeightsDtype
 ): Promise<Runtime> {
   const device = await pickDevice()
   // The CPU kernels want float32 activations: q4 weights.
   const dtype: WeightsDtype = device === "wasm" ? "q4" : requested
-  let weights: Array<WeightsFile>
-  try {
-    weights = await listWeights(modelId, dtype)
-  } catch (error) {
-    if (device === "webgpu") throw error
+  const tf = await importTransformers(device)
+  if (device === "wasm" && tf.env.backends.onnx.wasm) {
+    tf.env.backends.onnx.wasm.numThreads = cpuThreads()
+  }
+  const { repo, revision } = parseModelId(modelId)
+  const { Model, config } = await modelClass(tf, repo, revision)
+  const files = await modelFiles(tf, repo, revision, config, dtype, device)
+  if (files.length === 0 || files.some((f) => f.missing)) {
+    if (device === "webgpu") throw new Error(`${repo} has no ${dtype} ONNX weights.`)
     throw new Error(
       "This model needs WebGPU, which this browser doesn't have, and it has no weights for running on the CPU. Pick another model."
     )
   }
-  void removeOtherWeights(modelId, dtype, weights)
-  const cached = await isDownloaded(modelId, weights)
+  const cached = await isCached(tf, repo, revision, config, dtype, device)
+  const sizes = files.map((f) => f.size)
+  const known = sizes.every((size) => typeof size === "number" && size > 0)
+  // Bytes to download, for progress: unknown when a size probe failed.
+  const total = known ? sizes.reduce<number>((sum, size) => sum + (size ?? 0), 0) : 0
+  // Room for it first: the page unloads other runtimes' models past the
+  // memory budget. On the GPU it takes about its weights (plus the cache);
+  // on the CPU, ONNX Runtime's working buffers too.
+  await claimMemory(
+    modelId,
+    (known ? total : UNKNOWN_MODEL_BYTES) * (device === "wasm" ? 1.3 : 1.15)
+  )
   ctx.postMessage({ type: "progress", modelId, progress: 0, cached })
-  // Whole percents only; the download stream reports every chunk.
+  // Bytes downloaded per file, from Transformers.js's progress reports;
+  // whole percents only.
+  const loaded = new Map<string, number>()
   let lastPercent = -1
-  await downloadWeights(modelId, weights, (loaded, total) => {
-    const percent = Math.floor((loaded / total) * 100)
+  const onProgress = (info: { status: string; file?: string; loaded?: number }) => {
+    if (cached || info.status !== "progress" || !info.file || !total) return
+    loaded.set(info.file, info.loaded ?? 0)
+    const bytes = [...loaded.values()].reduce((sum, b) => sum + b, 0)
+    const percent = Math.min(100, Math.floor((bytes / total) * 100))
     if (percent === lastPercent) return
     lastPercent = percent
     ctx.postMessage({
@@ -1541,122 +482,77 @@ async function loadRuntime(
       modelId,
       progress: percent / 100,
       cached: false,
-      loadedBytes: loaded,
+      loadedBytes: Math.min(bytes, total),
       totalBytes: total
     })
-  })
-  ctx.postMessage({ type: "progress", modelId, progress: 0, cached: true })
-  // Room for it first: the page unloads other runtimes' models past the
-  // memory budget. On the GPU it takes about its weights (plus the cache);
-  // on the CPU, ONNX Runtime's working buffers too.
-  const weightBytes = weights.reduce((sum, w) => sum + w.size, 0)
-  await claimMemory(modelId, weightBytes * (device === "wasm" ? 1.3 : 1.15))
-  const tf = await importTransformers(device)
-  tf.env.fetch = fetchWithoutReferrer
-  pickWasmBuild(tf, device)
-  if (device === "wasm") tf.env.backends.onnx.wasm.numThreads = cpuThreads()
-  const { repo, revision } = parseModelId(modelId)
-  const tokenizer = await tf.AutoTokenizer.from_pretrained(repo, { revision })
-  // Newer repos keep the chat template in its own file, which Transformers.js
-  // 4.3 doesn't read.
-  if (!tokenizer.chat_template) {
-    tokenizer.chat_template = await cachedText(
-      `https://huggingface.co/${repo}/resolve/${revision}/chat_template.jinja`
-    ).catch(() => null)
   }
-  const { Model, config } = await modelClass(tf, repo, revision, weights)
-  const contextLength = contextFor(config, requestedContext)
-  modelEdits = {
-    modelId,
-    chunkMatMuls: device === "wasm",
-    positions: contextLength
-  }
-  const opened: Array<Awaited<ReturnType<typeof openWeights>>> = []
-  try {
-    for (const { name } of weights)
-      opened.push(await openWeights(modelId, name))
-    const model = await Model.from_pretrained(repo, {
-      revision,
-      config,
-      dtype,
-      device,
-      // Weights come from disk (above), not Transformers.js's download. Every
-      // session gets every file: a decoder may read the embedding's file too.
-      use_external_data_format: 0,
-      session_options: {
-        externalData: weights.map(({ name }, i) => ({
-          path: name,
-          data: opened[i].data
-        })),
-        // ONNX Runtime destroys each step's buffers when the step ends
-        // ("lazyRelease"), and the worker's pool keeps them for the next
-        // step (see sparePools). On its own, lazyRelease made and destroyed
-        // ~27 MB of buffers per LFM3 token, which WebKit reclaims late: a
-        // long reply climbed past an iPhone's memory limit.
-        executionProviders: [
-          device === "webgpu"
-            ? { name: "webgpu", storageBufferCacheMode: "lazyRelease" }
-            : device
-        ],
-        // No constant folding: LFM exports read the tied embedding's 4-bit
-        // weights into the output layer through a Reshape, and folding it
-        // copied the whole table into ONNX Runtime's WebAssembly memory
-        // (which never shrinks) and, on the GPU, uploaded a second copy.
-        // LFM3: 408 MB of WebAssembly memory and 131 MB of GPU memory, past
-        // an iPhone tab's 2 GB limit; LFM2-1.2B-Tool: 819 MB. Without it:
-        // 17 MB, the same replies and speed, and a load from disk in 1.5 s
-        // instead of 21 on a Mac. On the CPU it would also fold the slices
-        // chunkModels adds into copies of the weights.
-        extra: {
-          "optimization.disable_specified_optimizers": "ConstantFolding"
-        }
+  const tokenizer = (await tf.AutoTokenizer.from_pretrained(repo, {
+    revision
+  })) as unknown as Tokenizer
+  tokenizer.chat_template ||= await standaloneChatTemplate(tf, repo, revision)
+  const model = (await Model.from_pretrained(repo, {
+    revision,
+    config,
+    dtype,
+    device,
+    progress_callback: onProgress,
+    session_options: {
+      executionProviders: [device],
+      // No constant folding: LFM exports read the tied embedding's weights
+      // into the output layer through a Reshape (LFM3) or Transpose
+      // (LFM2), and folding it adds a whole second copy of the table in
+      // ONNX Runtime's WebAssembly memory (which never shrinks) and, on
+      // the GPU, uploads it too. LFM3: 407 MB of WebAssembly memory and
+      // 131 MB of GPU memory; LFM2-1.2B-Tool: 818 MB and 268 MB. Without
+      // it: 17 MB, with bit-identical outputs. Until microsoft/onnxruntime#33793
+      // is fixed.
+      extra: {
+        "optimization.disable_specified_optimizers": "ConstantFolding"
       }
-    })
-    return {
-      tf,
-      tokenizer,
-      model,
-      endTokens: endTokens(tokenizer, model),
-      device,
-      dtype,
-      contextLength
     }
-  } finally {
-    modelEdits = null
-    for (const weightsData of opened) weightsData.close()
+  })) as Model
+  if (device === "webgpu") await watchDevice(tf)
+  return {
+    tf,
+    tokenizer,
+    model,
+    endTokens: endTokens(tokenizer, model),
+    device,
+    dtype,
+    config
   }
 }
 
 /**
- * Loads `modelId` for chats of up to `contextLength` tokens (the model's
- * own context window by default), freeing whichever model was loaded
- * before. A different context length loads the model again: its rotary
- * tables are cut to it.
+ * Loads `modelId` for chats of up to `contextLength` tokens by default (the
+ * model's own context window when left out), freeing whichever model was
+ * loaded before. The same model with another context length isn't loaded
+ * again: the length is the runs' default.
  */
 function load(
   modelId: string,
   dtype: WeightsDtype,
   contextLength: number | undefined
 ) {
-  if (
-    current?.modelId === modelId &&
-    current.dtype === dtype &&
-    current.contextLength === contextLength
-  ) {
-    return current.runtime
+  if (current?.modelId === modelId && current.dtype === dtype) {
+    current.contextLength = contextLength
+    const { runtime } = current
+    runtime.then(
+      () => ctx.postMessage({ type: "ready", modelId }),
+      () => undefined
+    )
+    return runtime
   }
   const previous = current?.runtime
   const runtime = (async () => {
     // The kept caches belong to the previous model.
     await discardSaved()
     await previous?.then((r) => r.model.dispose()).catch(() => undefined)
-    void removeOldCopies(modelId)
-    return loadRuntime(modelId, dtype, contextLength)
+    return loadRuntime(modelId, dtype)
   })()
   current = { modelId, dtype, contextLength, runtime }
   runtime.then(
     () => {
-      logMemory(`loaded ${modelId}`)
       ctx.postMessage({ type: "ready", modelId })
     },
     (error: unknown) => {
@@ -1673,8 +569,6 @@ function load(
 
 const running = new Map<string, StoppingCriteria>()
 const requests = new Map<string, AbortController>()
-
-/** Below this much room for a reply, the chat is too long to answer. */
 
 /** A chat past the context limit: shown as is, without GPU diagnostics. */
 class ContextLimitError extends Error {}
@@ -1759,7 +653,7 @@ function copyCacheTensor(
     from = tokens * size * bytes
     to = length * size * bytes
   }
-  const buffer = createOwnBuffer(device, {
+  const buffer = device.createBuffer({
     size: pieces * to,
     usage: CACHE_BUFFER_USAGE
   })
@@ -1772,10 +666,13 @@ function copyCacheTensor(
 }
 
 /**
- * A tensor over a GPU buffer, which it destroys when disposed. Made from
- * plain fields rather than onnxruntime-web's Tensor.fromGpuBuffer: the
- * Transformers.js bundle has two copies of that class, and wrapping a
- * tensor of the other copy made its dispose() call itself forever.
+ * A tensor over a GPU buffer, which it destroys when disposed. Transformers.js
+ * hands anything that isn't an ONNX Runtime tensor to ONNX Runtime's Tensor
+ * constructor, which takes a GPU buffer's location, type, dims and dispose
+ * as one object (its typings list only `(type, data, dims)` and an ONNX
+ * Runtime tensor, hence the cast). Not Tensor.fromGpuBuffer: Transformers.js
+ * imports `onnxruntime-common`'s Tensor class beside the one bundled in
+ * `onnxruntime-web`, and a tensor of the other class isn't recognised.
  */
 const gpuTensor = (
   tf: TransformersModule,
@@ -1783,7 +680,13 @@ const gpuTensor = (
   type: string,
   dims: Array<number>
 ) =>
-  new tf.Tensor({
+  new (tf.Tensor as unknown as new (fields: {
+    location: "gpu-buffer"
+    gpuBuffer: GPUBuffer
+    type: string
+    dims: Array<number>
+    dispose: () => void
+  }) => Tensor)({
     location: "gpu-buffer",
     gpuBuffer,
     type,
@@ -2338,10 +1241,10 @@ async function loadFromDisk(
       const bytes = buffer.slice(dataStart + t.offset, dataStart + t.offset + t.size)
       const data =
         t.type === "float16" ? new Uint16Array(bytes) : new Float32Array(bytes)
-      entries[t.name] = new tf.Tensor(t.type, data, t.dims)
+      entries[t.name] = new tf.Tensor(t.type as Tensor["type"], data, t.dims)
       continue
     }
-    const gpuBuffer = createOwnBuffer(device, {
+    const gpuBuffer = device.createBuffer({
       size: t.size,
       usage: CACHE_BUFFER_USAGE
     })
@@ -2369,7 +1272,8 @@ async function readPrompt(
   start: Cache | null,
   stopping: StoppingCriteria,
   stops: Array<number>,
-  onStop: (cache: Cache, at: number) => void
+  onStop: (cache: Cache, at: number) => void,
+  device: Device
 ) {
   const length = inputIds.dims[1]
   // At least one token is left for generate(), which skips what the cache
@@ -2377,15 +1281,10 @@ async function readPrompt(
   const end = length - 1
   let cache = start
   let step: number | null = null
-  let lastSize = 0
   for (let at = from; at < end && !stopping.interrupted;) {
     step = nextPromptStep(step, promptRate)
     const stop = promptStepEnd(at, step, end, stops)
     const size = stop - at
-    // A step of another size takes buffers of other sizes: the last step's
-    // spares would only sit beside them until it ends (see dropSpareBuffers).
-    if (size !== lastSize) dropSpareBuffers()
-    lastSize = size
     const began = performance.now()
     const outputs = await model.forward({
       input_ids: inputIds.slice(null, [at, stop]),
@@ -2405,16 +1304,8 @@ async function readPrompt(
     if (cache) cache.update(entries)
     else cache = new tf.DynamicCache(entries)
     if (stops.includes(stop)) onStop(cache, stop)
-    endGpuStep()
-    nudgeGarbageCollector()
-    logMemory(
-      `prompt read ${stop} of ${length} tokens (${size} in ${Math.round(ms)} ms)`
-    )
     at = stop
   }
-  // Nor does a reply's first token take a prompt step's buffers.
-  dropSpareBuffers()
-  logMemory("prompt read, spare buffers dropped")
   return cache
 }
 
@@ -2519,10 +1410,11 @@ async function generateRun(
   const { tf, tokenizer, model, endTokens, device, dtype, ...runtime } =
     await loaded.runtime
   signal?.throwIfAborted()
-  // Never past what the model was loaded for (its rotary tables end there).
+  // Never past what the model was loaded for, which is also the default.
+  const loadedContext = contextFor(runtime.config, loaded.contextLength)
   const contextLength = Math.min(
-    requestedContext ?? runtime.contextLength,
-    runtime.contextLength
+    requestedContext ?? loadedContext,
+    loadedContext
   )
   // The model's caches, in memory and on disk, are by model and the dtype
   // loaded: the dtype decides the cache's tensor types (float16 on the GPU,
@@ -2607,11 +1499,6 @@ async function generateRun(
         lastToken = performance.now()
         firstToken ??= lastToken
         outputTokens += tokens.length
-        endGpuStep()
-        if (outputTokens % 16 === 0) nudgeGarbageCollector()
-        if (outputTokens % 32 === 0) {
-          logMemory(`reply ${outputTokens} tokens (prompt ${gpu.promptTokens})`)
-        }
       },
       onText: (raw: string) => {
         const text = raw.replace(endTokens, "")
@@ -2682,7 +1569,8 @@ async function generateRun(
           cache,
           stopping,
           stops,
-          addCheckpoint
+          addCheckpoint,
+          device
         )
       )
       if (stopping.interrupted) return timings()
@@ -2734,14 +1622,6 @@ async function generateRun(
       } else if (cache) {
         checkpoints.forEach(disposeCheckpoint)
         await cache.dispose().catch(() => undefined)
-      }
-      dropSpareBuffers()
-      logMemory(`reply finished, ${outputTokens} tokens`)
-      if (DEBUG) {
-        ctx.postMessage({
-          type: "log",
-          text: `[memory] live buffers: ${liveBreakdown()}`
-        })
       }
     }
     // Cut off by the context limit, not by the reply's own length limit.

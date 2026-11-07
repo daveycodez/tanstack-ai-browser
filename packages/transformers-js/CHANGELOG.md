@@ -1,3 +1,19 @@
+## Unreleased
+
+### 🚀 Features
+
+- The worker runs the official `@huggingface/transformers` 4.3.2 npm package, now a dependency, unmodified and through its public API, on the ONNX Runtime it ships (onnxruntime-web 1.31.0-dev.20260914). It no longer downloads Transformers.js from a CDN, swaps in onnxruntime-web 1.31.1, or edits models or browser APIs. Removed with it:
+  - ONNX model rewrites before each session: rotary tables cut to the context length, scores for the last token only, CPU MatMulNBits chunking, Scan transpose folding, Scan bodies' vector-matrix products as MatMuls, and Scan loops (with the float32 work around them) kept on the CPU.
+  - The 4-bit embedding read from disk a row at a time instead of held in memory.
+  - The GPU buffer pool and `lazyRelease` buffer mode, and chunked weight uploads through a stand-in staging buffer: ONNX Runtime's default buffer cache is used.
+  - The JSPI WebAssembly build on the GPU: Transformers.js's own choice of build is used.
+  - The garbage-collection nudge for WebGPU bind groups, and the debug-only `[memory]` log lines that counted GPU buffers and WebAssembly memory.
+  - The worker's own weights download to the Origin Private File System: Transformers.js downloads and caches the model's files, and reports progress. Weights an earlier version saved there are deleted.
+  - Reading `chat_template.jinja` when the tokenizer config has no template, and loading text-only split Gemma 4 exports under the multimodal architecture.
+- Memory and speed are now Transformers.js's and ONNX Runtime's: more GPU and WebAssembly memory (Qwen3.5 holds its embedding on the GPU, prompt steps score every token), slower prompt reading for Qwen3.5, and long replies may pass iPhone Safari's memory limit.
+- Gemma 4 26B-A4B won't run (QMoE with FC3), and E4B/E2B may be affected by the sliding-window attention bug ([transformers.js#1839](https://github.com/huggingface/transformers.js/issues/1839)), until a Transformers.js release pins onnxruntime-web 1.31.1 ([transformers.js#1879](https://github.com/huggingface/transformers.js/pull/1879)). On the CPU, q4 models whose embedding is GatherBlockQuantized may fail: ONNX Runtime's WebGPU build, which Transformers.js imports, has no CPU kernel for it.
+- `contextLength` no longer reloads the model when it changes.
+
 ## 0.1.0 (2026-10-30)
 
 ### 🚀 Features

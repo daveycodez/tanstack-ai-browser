@@ -6,6 +6,8 @@ allowBuilds:
   esbuild: true
   lightningcss: true
   nx: true
+  onnxruntime-node: false
+  protobufjs: false
   sharp: true
   workerd: true
 minimumReleaseAgeExclude:
