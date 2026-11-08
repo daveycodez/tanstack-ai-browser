@@ -32,9 +32,12 @@ Universal Sentence Encoder as MediaPipe publishes it for its TextEmbedder: a 6.1
 
 `mediaPipeEmbedding(model = "universal-sentence-encoder", config?)` takes the load options (`MediaPipeEmbeddingConfig`):
 
-- `delegate`: `"CPU"` or `"GPU"`, MediaPipe's `baseOptions.delegate`. MediaPipe 1.2.2 runs this model on the CPU either way (TFLite's XNNPACK in WebAssembly): with `"GPU"` it still creates the CPU delegate and returns the same vectors, in the worker and on the page alike.
+- `delegate`: `"CPU"` (MediaPipe's default) or `"GPU"`, MediaPipe's `baseOptions.delegate`. MediaPipe 1.2.2 runs this model on the CPU either way (TFLite's XNNPACK in WebAssembly): with `"GPU"` it still creates the CPU delegate and returns the same vectors, in the worker and on the page alike.
 - `modelAssetPath`: the model's TFLite file, to serve it yourself, or another MediaPipe text embedder model.
 - `wasmPath`: the folder MediaPipe's WebAssembly is served from (see below).
+- `cacheWasm`: `false` to have MediaPipe load its WebAssembly straight from `wasmPath` instead of from Cache Storage through `blob:` URLs, for a strict Content Security Policy (see below). True by default.
+
+Relative paths in `modelAssetPath` and `wasmPath` are relative to the page (its `document.baseURI`), not to the worker's script. Load options are compared by their effective values (absolute URLs, the CPU for an unset `delegate`), so adapters whose options come to the same thing share one worker.
 
 Per call, `embed()`'s `modelOptions` (`MediaPipeEmbeddingProviderOptions`) maps to MediaPipe's embedder options:
 
@@ -48,9 +51,9 @@ MediaPipe takes these at creation and through `TextEmbedder.setOptions()`, so th
 ## The runtime
 
 - `isSupported(model?)` says, synchronously, whether MediaPipe runs here: WebAssembly with SIMD (MediaPipe has no build without it) and Web Workers. False on a server.
-- `loadModel(model, config?)` downloads (the first time) and loads the embedder ahead of the first `embed()`, replacing any other; `embed()` loads it otherwise. Loading another model or the same with other load options ends the previous worker. The promise is fine to leave unawaited (a failure is in `modelStatus`); awaited, it rejects on failure.
+- `loadModel(model, config?)` downloads (the first time) and loads the embedder ahead of the first `embed()`, replacing any other; `embed()` loads it otherwise. Loading another model or the same with other load options replaces the worker; requests already waiting on the previous one finish on it first, and it ends once they're done. The promise is fine to leave unawaited (a failure is in `modelStatus`); awaited, it rejects on failure.
 - `modelStatus(model)` is a store of the model's loading, in the same shape as the other adapters' (`idle`, `loading` with `progress` 0 to 1, `cached`, `loadedBytes` and `totalBytes`, `ready`, `error`). Progress is across the model's file.
-- `unloadModel(model?)` ends the worker, freeing the embedder; given a model, only if it's the one loaded.
+- `unloadModel(model?)` ends the worker at once, freeing the embedder (requests waiting on it fail); given a model, only if it's the one loaded.
 
 The model is 6.1 MB and MediaPipe's WebAssembly 7 MB, so there's no memory budget to set here, unlike the language model packages.
 
@@ -61,7 +64,24 @@ The model is 6.1 MB and MediaPipe's WebAssembly 7 MB, so there's no memory budge
 
 Both load on cross-origin isolated pages (`Cross-Origin-Embedder-Policy: require-corp`): Google's storage sends CORS (`Access-Control-Allow-Origin: *`) and the worker fetches with CORS, and jsDelivr sends CORS and `Cross-Origin-Resource-Policy: cross-origin`.
 
-The worker downloads the three files once and keeps them in Cache Storage (`tanstack-ai-browser-mediapipe`), then hands them to MediaPipe from memory (the model as `modelAssetBuffer`, the WebAssembly as blob URLs in its fileset), so later loads work offline: about 0.25 s from the cache, against 0.6 to 1.6 s downloading. Files of other MediaPipe versions on jsDelivr are removed from the cache. Without Cache Storage (an insecure context), they're downloaded each load.
+The worker downloads the three files once and keeps them in Cache Storage (`tanstack-ai-browser-mediapipe`), then hands them to MediaPipe from memory (the model as `modelAssetBuffer`, the WebAssembly as blob URLs in its fileset), so later loads work offline: about 0.25 s from the cache, against 0.6 to 1.6 s downloading. Files are kept only once MediaPipe has loaded them, so a bad response (an error or captive-portal page with a 200) is never kept; if a load from the cache fails, its files are deleted from the cache and the load is tried once more from the network. Files of other MediaPipe versions on jsDelivr are removed from the cache. Without Cache Storage (an insecure context), they're downloaded each load.
+
+## Content Security Policy
+
+The worker is a module worker from the package's `worker.js`, so `worker-src` (or `script-src`) has to allow the site's own scripts, and MediaPipe compiles WebAssembly, which needs `'wasm-unsafe-eval'` in `script-src`. A worker takes its policy from its own script's response headers.
+
+- By default MediaPipe's loader and WebAssembly come from Cache Storage as `blob:` URLs, so the worker's policy needs `blob:` in `script-src` and `connect-src`, and the hosts of the files it downloads in `connect-src` (`storage.googleapis.com` and `cdn.jsdelivr.net` by default).
+- Under a policy without `blob:`, such as `script-src 'self' 'wasm-unsafe-eval'; connect-src 'self'`, serve the model and `node_modules/@mediapipe/tasks-text/wasm` from your site and pass `cacheWasm: false`:
+
+```ts
+mediaPipeEmbedding("universal-sentence-encoder", {
+  modelAssetPath: "/models/universal_sentence_encoder.tflite",
+  wasmPath: "/mediapipe/wasm",
+  cacheWasm: false
+})
+```
+
+MediaPipe then imports its loader and fetches its WebAssembly from `wasmPath` itself (the browser's HTTP cache keeps them); the model is still kept in Cache Storage.
 
 Measured in Chromium on an M3 Ultra, in the worker: about 50 ms per short sentence once warm (5 sentences in 225 to 290 ms; the first batch 350 to 400 ms).
 

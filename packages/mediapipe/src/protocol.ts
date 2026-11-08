@@ -3,11 +3,13 @@
 /** What the worker loads: MediaPipe's WebAssembly and the model's file. */
 export type LoadRequest = {
   type: "load"
-  /** The folder of MediaPipe's WebAssembly files. */
+  /** The folder of MediaPipe's WebAssembly files (an absolute URL). */
   wasmPath: string
-  /** The model's TFLite file. */
+  /** The model's TFLite file (an absolute URL). */
   modelUrl: string
-  delegate?: "CPU" | "GPU"
+  delegate: "CPU" | "GPU"
+  /** Keep MediaPipe's WebAssembly in Cache Storage and load it from blob URLs. */
+  cacheWasm: boolean
 }
 
 /** Texts to embed, one vector each, with MediaPipe's embedder options. */

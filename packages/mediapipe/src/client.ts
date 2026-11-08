@@ -1,12 +1,13 @@
 /**
  * The page's side of the embedder: MediaPipe's TextEmbedder runs in a Web
  * Worker of its own (worker.ts). One embedder at a time: loading another
- * model, or the same with other load options, ends the previous worker.
+ * model, or the same with other load options, replaces the worker, once the
+ * requests already on the previous one are done.
  */
 import { MEDIAPIPE_MODEL_META } from "./model-meta.js"
 import type { MediaPipeEmbeddingModel } from "./model-meta.js"
 import type { MediaPipeEmbeddingConfig } from "./options.js"
-import type { WorkerRequest, WorkerResponse } from "./protocol.js"
+import type { LoadRequest, WorkerRequest, WorkerResponse } from "./protocol.js"
 import { createStore } from "./store.js"
 import type { Store } from "./store.js"
 import { MEDIAPIPE_WASM_URL } from "./version.js"
@@ -44,33 +45,57 @@ type Pending = {
   reject: (error: Error) => void
 }
 
-/** An embedder's worker, its load, and the requests waiting on it. */
-type Loaded = {
+/** An embedder's worker, its load, and the requests using it. */
+type Embedder = {
   model: MediaPipeEmbeddingModel
-  /** The load options it was loaded with, as a key. */
+  /** Its load request, as a key: the same key shares the worker. */
   key: string
   worker: Worker
   promise: Promise<void>
-  fail: (error: Error) => void
+  settle: { resolve: () => void; reject: (error: Error) => void }
   pending: Map<number, Pending>
+  /** embed calls using it, from their load to their reply. */
+  users: number
+  /** Replaced by another load: ended once its users are done. */
+  retired: boolean
+  /** Ended: failed, unloaded, or retired and done. */
+  ended: boolean
 }
 
-let loaded: Loaded | null = null
+let loaded: Embedder | null = null
 
 let nextId = 0
 
 const errorText = (error: unknown) =>
   error instanceof Error ? error.message : String(error)
 
+const toError = (error: unknown) =>
+  error instanceof Error ? error : new Error(errorText(error))
+
 /** A rejected promise that's fine to leave unawaited. */
 function rejected(error: unknown) {
-  const promise = Promise.reject(error instanceof Error ? error : new Error(errorText(error)))
+  const promise = Promise.reject(toError(error))
   promise.catch(() => undefined)
   return promise
 }
 
-/** What the worker loads, for a model and its load options. */
-function loadRequest(model: MediaPipeEmbeddingModel, config: MediaPipeEmbeddingConfig) {
+/** The page's URL, which relative paths are relative to. */
+function pageUrl(): string | undefined {
+  if (typeof document !== "undefined" && document.baseURI) return document.baseURI
+  return (globalThis as { location?: { href?: string } }).location?.href
+}
+
+/**
+ * What the worker loads, for a model and its load options, with their
+ * effective values, so equivalent options share a worker: paths resolved
+ * against `base` (the page; the worker's own URL is elsewhere), and
+ * MediaPipe's default delegate, the CPU.
+ */
+export function loadRequest(
+  model: MediaPipeEmbeddingModel,
+  config: MediaPipeEmbeddingConfig,
+  base: string | undefined = pageUrl()
+): LoadRequest {
   const meta = MEDIAPIPE_MODEL_META[model] as
     | (typeof MEDIAPIPE_MODEL_META)[MediaPipeEmbeddingModel]
     | undefined
@@ -79,17 +104,37 @@ function loadRequest(model: MediaPipeEmbeddingModel, config: MediaPipeEmbeddingC
       `Unknown MediaPipe embedding model "${model}": the models are ${Object.keys(MEDIAPIPE_MODEL_META).join(", ")}.`
     )
   }
+  const resolve = (path: string) => (base ? new URL(path, base).href : path)
   return {
     type: "load",
-    wasmPath: config.wasmPath ?? MEDIAPIPE_WASM_URL,
-    modelUrl: config.modelAssetPath ?? meta.file,
-    ...(config.delegate && { delegate: config.delegate })
-  } satisfies WorkerRequest
+    wasmPath: resolve(config.wasmPath ?? MEDIAPIPE_WASM_URL),
+    modelUrl: resolve(config.modelAssetPath ?? meta.file),
+    delegate: config.delegate ?? "CPU",
+    cacheWasm: config.cacheWasm ?? true
+  }
+}
+
+/** Ends an embedder's worker; its load and requests fail with `error`. */
+function end(embedder: Embedder, error: Error) {
+  if (embedder.ended) return
+  embedder.ended = true
+  embedder.worker.terminate()
+  embedder.settle.reject(error)
+  for (const request of embedder.pending.values()) request.reject(error)
+  embedder.pending.clear()
+}
+
+/** Ends a replaced embedder once no request is using it. */
+function endIfUnused(embedder: Embedder) {
+  if (embedder.retired && embedder.users === 0) {
+    end(embedder, new Error("Another MediaPipe model load replaced this one."))
+  }
 }
 
 /**
  * Frees the loaded embedder (ending its worker, and its download if it's
  * downloading). Given a model, only if it's the one loaded (or loading).
+ * Requests waiting on it fail.
  */
 export async function unloadModel(model?: MediaPipeEmbeddingModel) {
   if (model !== undefined && loaded?.model !== model) return
@@ -97,8 +142,7 @@ export async function unloadModel(model?: MediaPipeEmbeddingModel) {
   if (!current) return
   loaded = null
   modelStatus(current.model).set({ state: "idle" })
-  current.worker.terminate()
-  current.fail(new Error("The model was unloaded."))
+  end(current, new Error("The model was unloaded."))
 }
 
 /**
@@ -118,47 +162,65 @@ export function loadModel(
 }
 
 /** The embedder for `model` with `config`, loaded or loading. Throws if it can't start. */
-function load(model: MediaPipeEmbeddingModel, config: MediaPipeEmbeddingConfig): Loaded {
+function load(model: MediaPipeEmbeddingModel, config: MediaPipeEmbeddingConfig): Embedder {
   const request = loadRequest(model, config)
   const key = JSON.stringify(request)
   if (loaded?.model === model && loaded.key === key) return loaded
   const status = modelStatus(model)
-  if (typeof Worker === "undefined" || typeof WebAssembly === "undefined") {
-    const message = "MediaPipe needs WebAssembly and Web Workers, which this environment doesn't have."
-    status.set({ state: "error", message })
-    throw new Error(message)
+  let worker: Worker
+  try {
+    if (typeof Worker === "undefined" || typeof WebAssembly === "undefined") {
+      throw new Error(
+        "MediaPipe needs WebAssembly and Web Workers, which this environment doesn't have."
+      )
+    }
+    worker = new Worker(new URL("./worker.js", import.meta.url), {
+      type: "module",
+      name: "mediapipe"
+    })
+  } catch (error) {
+    // (A page's policy can refuse the worker.) The embedder loaded before,
+    // if any, stays.
+    status.set({ state: "error", message: errorText(error) })
+    throw toError(error)
   }
-  void unloadModel()
+
+  // The previous embedder ends once the requests using it are done.
+  const previous = loaded
+  if (previous) {
+    if (previous.model !== model) modelStatus(previous.model).set({ state: "idle" })
+    previous.retired = true
+    endIfUnused(previous)
+  }
   status.set({ state: "loading", progress: 0, cached: true })
 
-  const worker = new Worker(new URL("./worker.js", import.meta.url), {
-    type: "module",
-    name: "mediapipe"
-  })
-  const pending = new Map<number, Pending>()
-  let settle!: { resolve: () => void; reject: (error: Error) => void }
+  let settle!: Embedder["settle"]
   const promise = new Promise<void>((resolve, reject) => {
     settle = { resolve, reject }
   })
   promise.catch(() => undefined)
-  const fail = (error: Error) => {
-    settle.reject(error)
-    for (const request of pending.values()) request.reject(error)
-    pending.clear()
+  const embedder: Embedder = {
+    model,
+    key,
+    worker,
+    promise,
+    settle,
+    pending: new Map(),
+    users: 0,
+    retired: false,
+    ended: false
   }
-  const current: Loaded = { model, key, worker, promise, fail, pending }
-  loaded = current
+  loaded = embedder
 
   const failLoad = (message: string) => {
-    if (loaded !== current) return
+    end(embedder, new Error(message))
+    if (loaded !== embedder) return
     loaded = null
-    worker.terminate()
     status.set({ state: "error", message })
-    fail(new Error(message))
   }
   worker.onmessage = ({ data }: MessageEvent<WorkerResponse>) => {
-    if (loaded !== current) return
     if (data.type === "progress") {
+      if (loaded !== embedder) return
       const { cached, loadedBytes, totalBytes } = data
       status.set({
         state: "loading",
@@ -167,28 +229,29 @@ function load(model: MediaPipeEmbeddingModel, config: MediaPipeEmbeddingConfig):
         ...(!cached && { loadedBytes, ...(totalBytes && { totalBytes }) })
       })
     } else if (data.type === "ready") {
-      status.set({ state: "ready" })
+      if (loaded === embedder) status.set({ state: "ready" })
       settle.resolve()
     } else if (data.type === "load-error") {
       failLoad(data.message)
     } else {
-      const request = pending.get(data.id)
-      pending.delete(data.id)
-      if (data.type === "embedded") request?.resolve(data.vectors)
-      else request?.reject(new Error(data.message))
+      const pending = embedder.pending.get(data.id)
+      embedder.pending.delete(data.id)
+      if (data.type === "embedded") pending?.resolve(data.vectors)
+      else pending?.reject(new Error(data.message))
     }
   }
   worker.onerror = (event) => {
     event.preventDefault()
     failLoad(`MediaPipe's worker failed: ${event.message || "it couldn't start"}.`)
   }
-  worker.postMessage(request)
-  return current
+  worker.postMessage(request satisfies WorkerRequest)
+  return embedder
 }
 
 /**
  * One vector per text from `model`, loading it first (with `config`). The
- * embedder options apply to this request.
+ * embedder options apply to this request. A load with other options in the
+ * meantime doesn't cut it off: its worker is kept until it's done.
  */
 export async function embedTexts(
   model: MediaPipeEmbeddingModel,
@@ -196,12 +259,26 @@ export async function embedTexts(
   texts: Array<string>,
   options: { l2Normalize: boolean; quantize: boolean }
 ): Promise<Array<Float32Array>> {
-  const current = load(model, config)
-  await current.promise
-  if (loaded !== current) throw new Error("The model was unloaded.")
-  const id = nextId++
-  return new Promise((resolve, reject) => {
-    current.pending.set(id, { resolve, reject })
-    current.worker.postMessage({ type: "embed", id, texts, ...options } satisfies WorkerRequest)
-  })
+  const embedder = load(model, config)
+  embedder.users++
+  try {
+    await embedder.promise
+    const id = nextId++
+    return await new Promise<Array<Float32Array>>((resolve, reject) => {
+      if (embedder.ended) {
+        reject(new Error("The model was unloaded."))
+        return
+      }
+      embedder.pending.set(id, { resolve, reject })
+      embedder.worker.postMessage({
+        type: "embed",
+        id,
+        texts,
+        ...options
+      } satisfies WorkerRequest)
+    })
+  } finally {
+    embedder.users--
+    endIfUnused(embedder)
+  }
 }

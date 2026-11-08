@@ -19,9 +19,20 @@ export type MediaPipeEmbeddingConfig = {
   /**
    * The folder MediaPipe's WebAssembly files are served from: the
    * `wasm/` folder of `@mediapipe/tasks-text`. By default, the installed
-   * version's own folder on jsDelivr.
+   * version's own folder on jsDelivr. A relative path is relative to the
+   * page, as is `modelAssetPath`.
    */
   wasmPath?: string
+  /**
+   * Keep MediaPipe's WebAssembly in Cache Storage with the model, so loads
+   * work offline (true by default). MediaPipe then loads it from `blob:`
+   * URLs, which a Content Security Policy has to allow (`script-src blob:`
+   * in the worker). `false` has MediaPipe load it straight from `wasmPath`
+   * (through the browser's HTTP cache), so a policy of `script-src 'self'
+   * 'wasm-unsafe-eval'` works with the files served by the site. The model
+   * is kept in Cache Storage either way.
+   */
+  cacheWasm?: boolean
 }
 
 /** Options for one `embed()` call, as its `modelOptions`. */

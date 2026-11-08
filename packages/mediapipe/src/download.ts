@@ -1,7 +1,9 @@
 /**
- * Downloads a file once and keeps it in Cache Storage, so later loads read it
- * from there, offline too. Where there's no Cache Storage (an insecure
- * context), it's downloaded each time.
+ * Downloads files once and keeps them in Cache Storage, so later loads read
+ * them from there, offline too. A file is kept only once MediaPipe has
+ * loaded it, so a bad response (an error page with a 200) is never kept.
+ * Where there's no Cache Storage (an insecure context), files are
+ * downloaded each time.
  */
 
 /** The Cache Storage cache the adapter keeps its files in. */
@@ -15,6 +17,16 @@ export type DownloadProgress = {
   totalBytes?: number
 }
 
+/** A file's bytes, and where they came from. */
+export type Download = {
+  url: string
+  bytes: Uint8Array<ArrayBuffer>
+  /** True when they came from the cache. */
+  cached: boolean
+  /** The response's Content-Type. */
+  type: string
+}
+
 /** The adapter's cache, or undefined where there's no Cache Storage. */
 export async function openCache(): Promise<Cache | undefined> {
   if (typeof caches === "undefined") return undefined
@@ -25,17 +37,18 @@ export async function openCache(): Promise<Cache | undefined> {
   }
 }
 
-/** The bytes of `url`, from `cache` if it has them, else downloaded into it. */
-export async function cachedDownload(
+/** The bytes of `url`, from `cache` if it has them, else from the network. */
+export async function download(
   url: string,
   cache: Cache | undefined,
   onProgress?: (progress: DownloadProgress) => void
-): Promise<Uint8Array<ArrayBuffer>> {
+): Promise<Download> {
   const hit = await cache?.match(url).catch(() => undefined)
   if (hit) {
     const bytes = new Uint8Array(await hit.arrayBuffer())
     onProgress?.({ cached: true, loadedBytes: bytes.byteLength, totalBytes: bytes.byteLength })
-    return bytes
+    const type = hit.headers.get("Content-Type") ?? "application/octet-stream"
+    return { url, bytes, cached: true, type }
   }
   const response = await fetch(url)
   if (!response.ok) {
@@ -63,11 +76,49 @@ export async function cachedDownload(
     offset += chunk.byteLength
   }
   const type = response.headers.get("Content-Type") ?? "application/octet-stream"
-  // A full disk only means it downloads again next time.
-  await cache
-    ?.put(url, new Response(bytes, { headers: { "Content-Type": type } }))
-    .catch(() => undefined)
-  return bytes
+  return { url, bytes, cached: false, type }
+}
+
+/**
+ * Downloads `urls` (from `cache` where it has them) and loads them with
+ * `create`. Once that succeeds, the files that came from the network are
+ * kept in the cache. If it fails with files from the cache, they're deleted
+ * from it and the load is tried once more from the network.
+ */
+export async function loadWithCache<T>(
+  urls: ReadonlyArray<string>,
+  cache: Cache | undefined,
+  create: (files: Array<Download>) => Promise<T>,
+  onProgress?: (url: string, progress: DownloadProgress) => void
+): Promise<T> {
+  const attempt = async (from: Cache | undefined) => {
+    const files = await Promise.all(
+      urls.map((url) => download(url, from, (progress) => onProgress?.(url, progress)))
+    )
+    try {
+      return { files, ok: true as const, value: await create(files) }
+    } catch (error) {
+      return { files, ok: false as const, error }
+    }
+  }
+  let outcome = await attempt(cache)
+  if (!outcome.ok && outcome.files.some((file) => file.cached)) {
+    // A file kept by an earlier load may be the bad one: forget them all.
+    await Promise.all(urls.map((url) => cache?.delete(url).catch(() => undefined)))
+    outcome = await attempt(undefined)
+  }
+  if (!outcome.ok) throw outcome.error
+  // A full disk only means downloading again next time.
+  await Promise.all(
+    outcome.files
+      .filter((file) => !file.cached)
+      .map((file) =>
+        cache
+          ?.put(file.url, new Response(file.bytes, { headers: { "Content-Type": file.type } }))
+          .catch(() => undefined)
+      )
+  )
+  return outcome.value
 }
 
 /**
