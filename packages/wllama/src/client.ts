@@ -92,13 +92,25 @@ export const WLLAMA_WASM_URL = `https://cdn.jsdelivr.net/npm/@wllama/wllama@${WL
 /** The WebAssembly file to load (see `RuntimeOptions.wasmUrl`). */
 const wasmUrl = () => options.wasmUrl ?? WLLAMA_WASM_URL
 
-/** A new wllama, set up with the runtime options. */
-function createWllama(logger: WllamaLogger) {
+/**
+ * What a load runs with: the runtime options and the model's context
+ * length, as they were when the load was asked for. A load with other
+ * settings loads the model again.
+ */
+type LoadSettings = RuntimeOptions & { contextLength: number | undefined }
+
+/** The settings a load of `model` asked for now would run with. */
+function loadSettings(model: WllamaChatModel): LoadSettings {
+  return { ...options, wasmUrl: wasmUrl(), contextLength: contextLengths.get(model) }
+}
+
+/** A new wllama, set up with the runtime options (the current ones by default). */
+function createWllama(logger: WllamaLogger, settings: RuntimeOptions = options) {
   const wllama = new Wllama(
-    { default: wasmUrl() },
-    { logger, suppressNativeLog: !options.debug }
+    { default: settings.wasmUrl ?? WLLAMA_WASM_URL },
+    { logger, suppressNativeLog: !settings.debug }
   )
-  if (options.compat) wllama.setCompat(options.compat)
+  if (settings.compat) wllama.setCompat(settings.compat)
   return wllama
 }
 
@@ -114,6 +126,8 @@ const silent: WllamaLogger = {
 let loaded: {
   model: WllamaChatModel
   contextLength: number | undefined
+  /** Its settings (see LoadSettings), as a key: the same key shares the load. */
+  key: string
   wllama: Wllama
   promise: Promise<Wllama>
   abort: AbortController
@@ -199,12 +213,12 @@ const errorText = (error: unknown) =>
  * `gpu: false`. Elsewhere (Firefox without JSPI, browsers without WebGPU)
  * llama.cpp runs on the CPU in WebAssembly.
  */
-export async function runsOnWebGpu(): Promise<boolean> {
-  if (options.gpu === false || typeof navigator === "undefined") return false
+export async function runsOnWebGpu(settings: RuntimeOptions = options): Promise<boolean> {
+  if (settings.gpu === false || typeof navigator === "undefined") return false
   if (!("gpu" in navigator)) return false
   if (
     !("Suspending" in WebAssembly) &&
-    !createWllama(silent).getWorkerResources().compat
+    !createWllama(silent, settings).getWorkerResources().compat
   ) {
     return false
   }
@@ -269,15 +283,20 @@ async function startLoad(
   model: WllamaChatModel,
   wllama: Wllama,
   signal: AbortSignal,
-  contextLength: number | undefined,
+  settings: LoadSettings,
   progress: DownloadProgressCallback
 ) {
+  const { contextLength } = settings
   const url = modelUrl(model)
   const meta = modelMeta(model)
-  const factors = MEMORY_FACTORS[(await runsOnWebGpu()) ? "gpu" : "cpu"]
+  // A canceled load stops at each step, before claiming memory (which
+  // could unload another runtime's model) and before downloading.
+  const factors = MEMORY_FACTORS[(await runsOnWebGpu(settings)) ? "gpu" : "cpu"]
+  signal.throwIfAborted()
   void removeSavedStates()
   // A model already in storage loads from it, without the network.
   const saved = await wllama.modelManager.getModels()
+  signal.throwIfAborted()
   const cached = saved.some((m) => m.url === url)
   // Copies earlier versions of this package saved at a pinned commit.
   const base = `https://huggingface.co/${meta.name}/resolve/`
@@ -291,14 +310,20 @@ async function startLoad(
   // to what it keeps.
   const fileBytes =
     saved.find((m) => m.url === url)?.size ?? (await remoteSize(url, signal)) ?? 0
-  const claim = (bytes: number) =>
-    claimMemory({
+  signal.throwIfAborted()
+  // Canceled while other models are unloaded for it, the claim stops there
+  // and records nothing.
+  const claim = async (bytes: number) => {
+    await claimMemory({
       owner: OWNER,
       model,
       bytes,
       keepLoaded: keepLoaded.has(model),
-      unload: unloadModel
+      unload: unloadModel,
+      signal
     })
+    signal.throwIfAborted()
+  }
   await claim(fileBytes * factors.loading)
   // The download first, then wllama's start and the load, which has a
   // deadline of its own (see startupDeadline).
@@ -324,16 +349,16 @@ async function startLoad(
       // of it now.
       n_ctx: contextLength ?? 0,
       // wllama's default otherwise: WebGPU where the browser has it.
-      ...(options.gpu === false && { n_gpu_layers: 0 }),
+      ...(settings.gpu === false && { n_gpu_layers: 0 }),
       // The whole context in sliding-window layers' cache (LFM3's), not just
       // the window, so a follow-up can reuse what was read before: otherwise
       // LFM3 rereads the whole prompt after a tool call. +65 MB for LFM3;
       // nothing for models without such layers.
       swa_full: true,
-      ...(options.threads && { n_threads: options.threads })
+      ...(settings.threads && { n_threads: settings.threads })
     }),
     startupDeadline(file.size > 0 ? file.size : fileBytes),
-    `wllama didn't start or load ${meta.name} in time (is its WebAssembly file at ${wasmUrl()}?).`
+    `wllama didn't start or load ${meta.name} in time (is its WebAssembly file at ${settings.wasmUrl}?).`
   )
   // wllama 3.8.1 resolves the load even when llama.cpp couldn't load the
   // model or create its context (an unknown architecture, too little memory
@@ -380,8 +405,12 @@ export function loadModel(
     signal,
     ...(chatWait && { cancels: false, reason: (aborted: AbortSignal) => aborted.reason })
   }
-  const contextLength = contextLengths.get(model)
-  if (loaded?.model === model && loaded.contextLength === contextLength) {
+  // Snapshotted now: options another adapter sets while this loads apply
+  // to the next load, not this one.
+  const settings = loadSettings(model)
+  const { contextLength } = settings
+  const key = JSON.stringify(settings)
+  if (loaded?.model === model && loaded.key === key) {
     if (!loaded.ready || signal?.aborted) return loaded.waiters.wait(loaded.promise, waitOptions)
     // Every caller hears 1 at once if the model is ready already.
     if (onDownloadProgress && !chatWait) call(onDownloadProgress, 1)
@@ -393,7 +422,7 @@ export function loadModel(
   }
   let wllama: Wllama
   try {
-    wllama = createWllama(options.debug ? console : LoggerWithoutDebug)
+    wllama = createWllama(settings.debug ? console : LoggerWithoutDebug, settings)
   } catch (error) {
     // wllama refuses to start here (no storage it can use, say): the model
     // loaded before, if any, stays.
@@ -418,11 +447,12 @@ export function loadModel(
       await withDeadline(previous.promise, 2_000, "").catch(() => undefined)
       await previous.wllama.exit().catch(() => undefined)
     }
-    return startLoad(model, wllama, abort.signal, contextLength, report)
+    return startLoad(model, wllama, abort.signal, settings, report)
   })()
   const current = {
     model,
     contextLength,
+    key,
     wllama,
     promise,
     abort,

@@ -52,6 +52,10 @@ type Control = {
   /** Memory claims, with their keepLoaded flag, and each load's n_ctx. */
   claims: Array<boolean>
   contexts: Array<number>
+  /** Each load's native options. */
+  loadOptions: Array<Record<string, unknown>>
+  /** Holds wllama's storage listing (getModels) until it resolves. */
+  listGate?: Promise<void>
 }
 
 /**
@@ -73,7 +77,8 @@ async function withClient(name: string, body: (client: Built, control: Control, 
     calls: [],
     exits: 0,
     claims: [],
-    contexts: []
+    contexts: [],
+    loadOptions: []
   }
   ;(globalThis as { __wllamaAvailability?: Control }).__wllamaAvailability = control
   const define = (key: string, value: unknown) => Object.defineProperty(globalThis, key, { configurable: true, writable: true, value })
@@ -89,14 +94,14 @@ async function withClient(name: string, body: (client: Built, control: Control, 
       bundle.onResolve({ filter: /@wllama\/wllama\/esm\/index\.js$/ }, () => ({ path: "wllama", namespace: "fake" }))
       bundle.onResolve({ filter: /^\.\/model-memory\.js$/ }, () => ({ path: "memory", namespace: "fake" }))
       bundle.onLoad({ filter: /.*/, namespace: "fake" }, args => ({ contents: args.path === "memory"
-        ? "export const claimMemory=async(m)=>{globalThis.__wllamaAvailability.claims.push(m.keepLoaded)};export const releaseMemory=()=>{};export const touchMemory=()=>{};"
+        ? "export const claimMemory=async(m)=>{if(m.signal?.aborted)return false;globalThis.__wllamaAvailability.claims.push(m.keepLoaded);return true};export const releaseMemory=()=>{};export const touchMemory=()=>{};"
         : `
         const control=globalThis.__wllamaAvailability;
         export const LoggerWithoutDebug={};
         export class ModelManager { constructor(){control.calls.push("new ModelManager")} async getModels(){ control.calls.push("ModelManager.getModels"); return control.stored } }
         export class Wllama {
           constructor(){control.calls.push("new Wllama");this.modelManager={
-            getModels:async()=>{control.calls.push("modelManager.getModels");return control.stored},
+            getModels:async()=>{control.calls.push("modelManager.getModels");if(control.listGate)await control.listGate;return control.stored},
             getModelOrDownload:async(source,{progressCallback,signal})=>{
               control.download={signal,progress:progressCallback};
               progressCallback({loaded:250,total:1000});
@@ -108,7 +113,7 @@ async function withClient(name: string, body: (client: Built, control: Control, 
             }
           };}
           getWorkerResources(){return {compat:false}}
-          async loadModel(_file,options){control.contexts.push(options.n_ctx)}
+          async loadModel(_file,options){control.contexts.push(options.n_ctx);control.loadOptions.push(options)}
           getLoadedContextInfo(){return {success:true,n_ctx:0,n_ctx_train:0};}
           async exit(){control.exits++}
         }
@@ -256,6 +261,75 @@ test("create's signal: aborted before, nothing starts; the only waiter aborting 
       process.off("unhandledRejection", onUnhandled)
     }
   })
+})
+
+test("a load canceled while wllama lists its storage claims no memory and downloads nothing", { timeout: 5000 }, async () => {
+  await withClient("cancel-before-claim", async (client, control, release) => {
+    release()
+    let list!: () => void
+    control.listGate = new Promise<void>((resolve) => { list = resolve })
+    const controller = new AbortController()
+    const loading = client.loadModel(MODEL, undefined, { signal: controller.signal })
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    controller.abort()
+    await assert.rejects(loading, { name: "AbortError" })
+    list()
+    await new Promise((resolve) => setTimeout(resolve, 10))
+    assert.deepEqual(control.claims, [], "no memory claimed, so nothing evicted")
+    assert.equal(control.download, undefined, "no download started")
+  })
+})
+
+test("a load with other native options (gpu, threads) loads the model again, with the options as they were when it was asked for", { timeout: 5000 }, async () => {
+  await withClient("native-options", async (client, control, release) => {
+    release()
+    await client.wllamaText(MODEL, { gpu: true, threads: 4 }).create()
+    assert.equal(control.loadOptions.at(-1)?.n_threads, 4)
+    assert.equal(control.loadOptions.at(-1)?.n_gpu_layers, undefined)
+    const cpu = client.wllamaText(MODEL, { gpu: false, threads: 1 })
+    await cpu.create()
+    assert.equal(control.loadOptions.length, 2, "loaded again for the CPU")
+    assert.equal(control.loadOptions.at(-1)?.n_threads, 1)
+    assert.equal(control.loadOptions.at(-1)?.n_gpu_layers, 0)
+    await cpu.create()
+    assert.equal(control.loadOptions.length, 2, "the same options share the load")
+    // Options another adapter sets while a load runs don't change it.
+    await cpu.destroySession()
+    control.stored = []
+    let gate!: () => void
+    control.gate = new Promise<void>((resolve) => { gate = resolve })
+    const progressed = new Promise<void>((resolve) => { control.progressed = resolve })
+    const loading = client.wllamaText(MODEL, { threads: 2 }).create()
+    await progressed
+    client.configureRuntime({ threads: 8 })
+    gate()
+    await loading
+    assert.equal(control.loadOptions.at(-1)?.n_threads, 2)
+  })
+})
+
+test("claimMemory canceled while another runtime's model unloads stops there and records nothing", async () => {
+  const { claimMemory, setMemoryBudget } = await import("./model-memory.js")
+  setMemoryBudget(100)
+  const held = (globalThis as unknown as Record<symbol, { held: Map<string, unknown> }>)[Symbol.for("@tanstack-ai-browser/model-memory")]!.held
+  let finish!: () => void
+  const unloading = new Promise<void>((resolve) => { finish = resolve })
+  let secondUnloaded = false
+  held.set("a", { owner: "a", model: "a", bytes: 60, keepLoaded: false, lastUsed: 0, unload: () => unloading })
+  held.set("b", { owner: "b", model: "b", bytes: 30, keepLoaded: false, lastUsed: 1, unload: () => { secondUnloaded = true } })
+  try {
+    const controller = new AbortController()
+    const claiming = claimMemory({ owner: "wllama", model: MODEL, bytes: 90, keepLoaded: false, unload: () => undefined, signal: controller.signal })
+    controller.abort()
+    finish()
+    assert.equal(await claiming, false)
+    assert.equal(held.has("wllama"), false, "nothing recorded")
+    assert.equal(secondUnloaded, false, "no other model unloaded after the cancel")
+    assert.equal(await claimMemory({ owner: "wllama", model: MODEL, bytes: 1, keepLoaded: false, unload: () => undefined, signal: AbortSignal.abort() }), false)
+  } finally {
+    for (const owner of ["a", "b", "wllama"]) held.delete(owner)
+    setMemoryBudget(undefined)
+  }
 })
 
 test("availability() lists wllama's storage only: no fetch, worker or engine calls", async () => {

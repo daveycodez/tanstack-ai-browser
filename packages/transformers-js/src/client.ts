@@ -49,6 +49,8 @@ type Pending = {
   reject: (error: Error) => void
   /** The callers waiting on it, with their download progress callbacks. */
   waiters: LoadWaiters
+  /** Aborted once the load is canceled, replaced or failed: its memory claim lapses. */
+  cancel: AbortController
   /** Resolved: the model is ready. */
   ready: boolean
 }
@@ -104,14 +106,29 @@ function handleMessage({ data }: MessageEvent<WorkerResponse>) {
     downloading.add(data.modelId)
     current.load.waiters.report(data.progress)
   } else if (data.type === "claim") {
+    // Recorded only for the load the page still wants: a claim for a
+    // canceled or replaced load records nothing (and, if it's canceled
+    // while other models are unloaded for it, stops there). The answer goes
+    // to the worker that asked, never to a newer one: a replaced load's
+    // worker still needs it to move on to the next load; an ended one is
+    // gone.
+    const from = worker
+    const claiming = loaded?.id === data.loadId ? loaded : null
+    if (!claiming) {
+      from?.postMessage({ type: "claimed" })
+      return
+    }
     const { modelId, bytes } = data
     void claimMemory({
       owner: OWNER,
       model: modelId,
       bytes,
       keepLoaded: keepLoaded.has(modelId),
-      unload: unloadModel
-    }).then(() => post({ type: "claimed" }))
+      unload: unloadModel,
+      signal: claiming.load.cancel.signal
+    }).then(() => {
+      if (worker === from) from?.postMessage({ type: "claimed" })
+    })
   } else if (data.type === "ready") {
     if (!current) return
     downloading.delete(data.modelId)
@@ -123,6 +140,7 @@ function handleMessage({ data }: MessageEvent<WorkerResponse>) {
     if (!current) return
     downloading.delete(data.modelId)
     current.load.waiters.settle()
+    current.load.cancel.abort()
     current.load.reject(new Error(data.message))
     loaded = null
     releaseMemory(OWNER)
@@ -300,6 +318,7 @@ export function loadModel(
     // The worker frees the previous model before loading this one.
     downloading.delete(loaded.modelId)
     loaded.load.waiters.settle()
+    loaded.load.cancel.abort()
     loaded.load.reject(new Error("Switched to another model."))
   }
   let resolve!: () => void
@@ -319,7 +338,7 @@ export function loadModel(
     modelId,
     dtype,
     contextLength,
-    load: { promise, resolve, reject, waiters, ready: false }
+    load: { promise, resolve, reject, waiters, cancel: new AbortController(), ready: false }
   }
   const waiting = waiters.wait(promise, waitOptions)
   try {
@@ -354,6 +373,7 @@ export async function unloadModel(model?: string): Promise<void> {
   if (loaded) {
     downloading.delete(loaded.modelId)
     loaded.load.waiters.settle()
+    loaded.load.cancel.abort()
     loaded.load.reject(new Error("The model was unloaded."))
     loaded = null
   }

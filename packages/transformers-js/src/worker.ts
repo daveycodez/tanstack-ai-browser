@@ -338,17 +338,29 @@ async function standaloneChatTemplate(
   repo: string,
   revision: string
 ) {
-  const path = tf.env.remotePathTemplate
-    .replaceAll("{model}", repo)
-    .replaceAll("{revision}", encodeURIComponent(revision))
+  const url = repoFileUrl(tf, repo, revision, "chat_template.jinja")
+  // Kept in Transformers.js's cache with the model's other files, so a
+  // later load (and availability()) needs no network for it.
+  const cache = typeof caches === "undefined" ? null : await caches.open(tf.env.cacheKey).catch(() => null)
   try {
-    const res = await fetchWithoutReferrer(
-      new URL(`${path}chat_template.jinja`, tf.env.remoteHost)
-    )
-    return res.ok ? await res.text() : null
+    const cached = await cache?.match(url)
+    if (cached) return await cached.text()
+    const res = await fetchWithoutReferrer(url)
+    if (!res.ok) return null
+    const text = await res.text()
+    await cache?.put(url, new Response(text)).catch(() => undefined)
+    return text
   } catch {
     return null
   }
+}
+
+/** A file of the repo at `revision`, as Transformers.js's cache keys it. */
+function repoFileUrl(tf: TransformersModule, repo: string, revision: string, file: string) {
+  const path = tf.env.remotePathTemplate
+    .replaceAll("{model}", repo)
+    .replaceAll("{revision}", encodeURIComponent(revision))
+  return new URL(`${path}${file}`, tf.env.remoteHost).href
 }
 
 const escapeRegExp = (text: string) =>
@@ -516,15 +528,21 @@ async function loadRuntime(
     }
   })) as Model
   if (device === "webgpu") await watchDevice(tf)
-  // For availability(): the weights files this load used, as cache keys.
-  const path = tf.env.remotePathTemplate
-    .replaceAll("{model}", repo)
-    .replaceAll("{revision}", encodeURIComponent(revision))
+  // For availability(): the files this load read, as cache keys: the
+  // config, the tokenizer and the weights, and the generation config and
+  // chat template where the repo has them.
+  const url = (file: string) => repoFileUrl(tf, repo, revision, file)
   void saveRecord(
     modelId,
     dtype,
-    files.map((f) => new URL(`${path}${f.path}`, tf.env.remoteHost).href),
-    tf.env.cacheKey
+    [
+      url("config.json"),
+      url("tokenizer.json"),
+      url("tokenizer_config.json"),
+      ...files.map((f) => url(f.path))
+    ],
+    tf.env.cacheKey,
+    [url("generation_config.json"), url("chat_template.jinja")]
   )
   return {
     tf,

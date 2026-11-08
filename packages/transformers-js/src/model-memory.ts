@@ -66,6 +66,7 @@ export function setMemoryBudget(bytes: number | undefined) {
  * Makes room for `owner`'s model of about `bytes`, unloading other runtimes'
  * models, least recently used first, until it fits the budget (models kept
  * loaded stay), then records it in place of `owner`'s previous one.
+ * Resolves to false, recording nothing, if `signal` aborted meanwhile.
  */
 export async function claimMemory(model: {
   owner: string
@@ -73,20 +74,29 @@ export async function claimMemory(model: {
   bytes: number
   keepLoaded: boolean
   unload: () => unknown
-}) {
+  /**
+   * The load the claim is for: once it's aborted (canceled or replaced),
+   * nothing more is unloaded for it and nothing is recorded.
+   */
+  signal?: AbortSignal
+}): Promise<boolean> {
+  const { signal, ...entry } = model
+  if (signal?.aborted) return false
   const { held, budget } = registry()
   const limit = budget ?? defaultMemoryBudget()
-  held.delete(model.owner)
+  held.delete(entry.owner)
   const others = [...held.values()].sort((a, b) => a.lastUsed - b.lastUsed)
-  let total = others.reduce((sum, h) => sum + h.bytes, model.bytes)
+  let total = others.reduce((sum, h) => sum + h.bytes, entry.bytes)
   for (const other of others) {
     if (total <= limit) break
     if (other.keepLoaded) continue
     held.delete(other.owner)
     total -= other.bytes
     await other.unload()
+    if (signal?.aborted) return false
   }
-  held.set(model.owner, { ...model, lastUsed: Date.now() })
+  held.set(entry.owner, { ...entry, lastUsed: Date.now() })
+  return true
 }
 
 /** Marks `owner`'s model as just used (for least recently used order). */

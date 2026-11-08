@@ -3,9 +3,10 @@
  * the device from one to download without starting a worker, importing
  * Transformers.js or touching the network.
  *
- * After a load succeeds, the worker records the URLs of the model's weights
- * files (Transformers.js's cache keys) in a small Cache Storage entry of its
- * own. `availability()` then checks that each of those URLs is still in
+ * After a load succeeds, the worker records the URLs of the files it read
+ * (Transformers.js's cache keys: the config, the tokenizer, the weights, and
+ * the generation config and chat template where the repo has them) in a
+ * small Cache Storage entry of its own. `availability()` then checks that each of those URLs is still in
  * Transformers.js's cache, which the browser or the user may have cleared.
  */
 import type { WeightsDtype } from "./protocol.js"
@@ -23,13 +24,16 @@ const cacheStorage = () => (typeof caches === "undefined" ? null : caches)
 
 /**
  * Records `urls` as the files `modelId` loaded with `dtype`, if every one of
- * them is in `cacheName` (so a model loaded from elsewhere isn't recorded).
+ * them is in `cacheName` (so a model loaded from elsewhere isn't recorded),
+ * with those of `optional` (files a load reads when the repo has them) that
+ * are in it too.
  */
 export async function saveRecord(
   modelId: string,
   dtype: WeightsDtype,
   urls: ReadonlyArray<string>,
-  cacheName = TRANSFORMERS_CACHE
+  cacheName = TRANSFORMERS_CACHE,
+  optional: ReadonlyArray<string> = []
 ) {
   const storage = cacheStorage()
   if (!storage || urls.length === 0) return
@@ -38,10 +42,16 @@ export async function saveRecord(
     for (const url of urls) {
       if (!(await files.match(url))) return
     }
+    const present: Array<string> = []
+    for (const url of optional) {
+      if (await files.match(url)) present.push(url)
+    }
     const records = await storage.open(RECORDS)
     await records.put(
       recordUrl(modelId, dtype),
-      new Response(JSON.stringify(urls), { headers: { "Content-Type": "application/json" } })
+      new Response(JSON.stringify([...urls, ...present]), {
+        headers: { "Content-Type": "application/json" }
+      })
     )
   } catch {
     // Without a record, availability() says "downloadable": still correct to load.

@@ -286,8 +286,8 @@ export async function loadPromptApiModel(options: LoadOptions = {}): Promise<voi
   const { signal } = options
   if (signal?.aborted) throw abortError()
   if (status.get().state === "ready") {
-    const availability = await promptApiAvailability(options.languages)
-    if (signal?.aborted) throw abortError()
+    // The browser's answer, unless the caller stops waiting first.
+    const availability = await untilAborted(promptApiAvailability(options.languages), signal)
     if (availability === "available") {
       report(options.onDownloadProgress, 1)
       return
@@ -302,8 +302,13 @@ function startModel(options: LoadOptions): Promise<void> {
   const { signal, onDownloadProgress } = options
   if (!loading) {
     const controller = new AbortController()
-    // The last caller waiting gave up: abort the browser's create().
-    const waiters = new LoadWaiters(() => controller.abort(abortError()))
+    // The last caller waiting gave up: abort the browser's create(), and
+    // let the next call start afresh rather than join the canceled one
+    // (the browser may take a while to settle it).
+    const waiters = new LoadWaiters(() => {
+      controller.abort(abortError())
+      if (loading?.waiters === waiters) loading = null
+    })
     const promise = createLanguageModel(
       baseOptions(options.languages),
       controller.signal,
@@ -311,11 +316,22 @@ function startModel(options: LoadOptions): Promise<void> {
     )
       .then((session) => session.destroy())
       .finally(() => {
-        if (loading?.promise === promise) loading = null
+        if (loading?.waiters === waiters) loading = null
         waiters.settle()
       })
     promise.catch(() => undefined)
     loading = { promise, waiters }
   }
   return loading.waiters.wait(loading.promise, { onDownloadProgress, signal })
+}
+
+/** `promise`'s result, or an AbortError as soon as `signal` aborts. */
+function untilAborted<T>(promise: Promise<T>, signal: AbortSignal | undefined): Promise<T> {
+  if (!signal) return promise
+  if (signal.aborted) return Promise.reject(abortError())
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = () => reject(abortError())
+    signal.addEventListener("abort", onAbort, { once: true })
+    promise.then(resolve, reject).finally(() => signal.removeEventListener("abort", onAbort))
+  })
 }

@@ -724,6 +724,20 @@ test("availability: unavailable without WebGPU or CPU weights; downloadable; dow
     assert.equal(await adapter.availability(), "available", "on the device: its files stay in the cache")
     cache.store(TRANSFORMERS_CACHE).delete(url)
     assert.equal(await adapter.availability(), "downloadable", "a cleared cache needs the download again")
+    // The record covers the config, the tokenizer and, where present, the generation config and chat template too.
+    const base = `https://huggingface.co/${CPU_MODEL}/resolve/main/`
+    const required = ["config.json", "tokenizer.json", "tokenizer_config.json", "onnx/model_q4.onnx"].map((file) => base + file)
+    for (const file of required) cache.store(TRANSFORMERS_CACHE).set(file, new Response("x"))
+    cache.store(TRANSFORMERS_CACHE).set(`${base}generation_config.json`, new Response("{}"))
+    await saveRecord(CPU_MODEL, "q4", required, TRANSFORMERS_CACHE, [`${base}generation_config.json`, `${base}chat_template.jinja`])
+    assert.equal(await adapter.availability(), "available")
+    cache.store(TRANSFORMERS_CACHE).delete(`${base}tokenizer.json`)
+    assert.equal(await adapter.availability(), "downloadable", "the tokenizer is gone: a load needs the network")
+    cache.store(TRANSFORMERS_CACHE).set(`${base}tokenizer.json`, new Response("x"))
+    cache.store(TRANSFORMERS_CACHE).delete(`${base}generation_config.json`)
+    assert.equal(await adapter.availability(), "downloadable", "a recorded generation config is needed too")
+    cache.store(TRANSFORMERS_CACHE).set(`${base}generation_config.json`, new Response("{}"))
+    assert.equal(await adapter.availability(), "available", "a chat template the repo doesn't have isn't needed")
   } finally {
     FakeWorker.ready = true
     await adapter.destroySession()
@@ -862,6 +876,64 @@ test("constructing an adapter changes nothing shared; keepLoaded and debug apply
   } finally {
     FakeWorker.ready = true
     await plain.destroySession()
+  }
+})
+
+test("a load canceled while its memory claim waits for another runtime records no reservation and starts no new worker", { timeout: 2000 }, async () => {
+  const { transformersJsText } = await import("./adapter.js")
+  const { setMemoryBudget } = await import("./model-memory.js")
+  const CPU_MODEL = "onnx-community/LFM2-1.2B-Tool-ONNX"
+  const held = (globalThis as unknown as Record<symbol, { held: Map<string, unknown> }>)[Symbol.for("@tanstack-ai-browser/model-memory")]!.held
+  const adapter = transformersJsText(CPU_MODEL)
+  await adapter.destroySession(); FakeWorker.ready = false
+  let finishUnload!: () => void
+  const unloading = new Promise<void>((resolve) => { finishUnload = resolve })
+  setMemoryBudget(100)
+  held.set("other-runtime", { owner: "other-runtime", model: "m", bytes: 80, keepLoaded: false, lastUsed: 0, unload: () => unloading })
+  try {
+    const controller = new AbortController()
+    const loading = adapter.create({ signal: controller.signal })
+    const worker = FakeWorker.last
+    const load = worker.posted.filter((request): request is Extract<WorkerRequest, { type: "load" }> => request.type === "load").at(-1)!
+    worker.send({ type: "claim", loadId: load.loadId, modelId: CPU_MODEL, bytes: 50 })
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    controller.abort()
+    await assert.rejects(loading, { name: "AbortError" })
+    assert.equal(worker.terminated, true)
+    finishUnload()
+    await new Promise((resolve) => setTimeout(resolve, 10))
+    assert.equal(held.has("transformers-js"), false, "the canceled load's reservation isn't recorded")
+    assert.equal(FakeWorker.last, worker, "no new worker was started to answer it")
+    assert.equal(worker.posted.some((request) => request.type === "claimed"), false)
+  } finally {
+    held.delete("other-runtime")
+    setMemoryBudget(undefined)
+    FakeWorker.ready = true
+    await adapter.destroySession()
+  }
+})
+
+test("a claim for a replaced load records nothing, and is still answered to its own worker so it can move on", { timeout: 2000 }, async () => {
+  const { loadModel, unloadModel } = await import("./client.js")
+  const CPU_MODEL = "onnx-community/LFM2-1.2B-Tool-ONNX"
+  const held = (globalThis as unknown as Record<symbol, { held: Map<string, unknown> }>)[Symbol.for("@tanstack-ai-browser/model-memory")]!.held
+  await unloadModel(); FakeWorker.ready = false
+  try {
+    const first = loadModel(CPU_MODEL, { dtype: "q4f16" })
+    const worker = FakeWorker.last
+    const firstLoad = worker.posted.filter((request): request is Extract<WorkerRequest, { type: "load" }> => request.type === "load").at(-1)!
+    const second = loadModel(CPU_MODEL, { dtype: "q4" })
+    await assert.rejects(first, /Switched/)
+    worker.send({ type: "claim", loadId: firstLoad.loadId, modelId: CPU_MODEL, bytes: 50 })
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    assert.equal(held.has("transformers-js"), false)
+    assert.equal(worker.posted.filter((request) => request.type === "claimed").length, 1, "answered to the same worker")
+    const secondLoad = worker.posted.filter((request): request is Extract<WorkerRequest, { type: "load" }> => request.type === "load").at(-1)!
+    worker.send({ type: "ready", loadId: secondLoad.loadId, modelId: CPU_MODEL })
+    await second
+  } finally {
+    FakeWorker.ready = true
+    await unloadModel()
   }
 })
 

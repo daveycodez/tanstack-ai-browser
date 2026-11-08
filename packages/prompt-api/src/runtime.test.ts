@@ -147,3 +147,56 @@ test("create's signal: aborted before, create() isn't called; the only waiter ab
     delete scope.LanguageModel
   }
 })
+
+test("after the last caller aborts, a new create() starts afresh even while the browser is still settling the canceled create(); a warm create() stops waiting on the availability probe when aborted", async () => {
+  const creates: Array<{ signal: AbortSignal; finish: () => void }> = []
+  let answer: Availability = "downloadable"
+  let probe: Promise<void> | null = null
+  const scope = globalThis as { LanguageModel?: unknown }
+  scope.LanguageModel = {
+    availability: async () => {
+      if (probe) await probe
+      return answer
+    },
+    // A browser that takes its time to settle an aborted create(): it ignores the signal.
+    create: (options: { signal: AbortSignal; monitor?: (monitor: EventTarget) => void }) =>
+      new Promise((resolve) => {
+        options.monitor?.(new EventTarget())
+        creates.push({
+          signal: options.signal,
+          finish: () => {
+            answer = "available"
+            resolve({ contextWindow: 9216, destroy: () => undefined })
+          }
+        })
+      })
+  }
+  const tick = () => new Promise((resolve) => setTimeout(resolve, 0))
+  try {
+    const adapter = promptApiText("built-in")
+    const controller = new AbortController()
+    const canceled = adapter.create({ signal: controller.signal })
+    await tick()
+    controller.abort()
+    await assert.rejects(canceled, { name: "AbortError" })
+    assert.equal(creates[0]!.signal.aborted, true)
+    const retry = adapter.create()
+    await tick()
+    assert.equal(creates.length, 2, "a fresh native create(), not the canceled one")
+    creates[1]!.finish()
+    assert.equal(await retry, adapter)
+    creates[0]!.finish()
+
+    // Warm: the model started; the availability probe is slow.
+    let answerProbe!: () => void
+    probe = new Promise<void>((resolve) => { answerProbe = resolve })
+    const warm = new AbortController()
+    const waiting = adapter.create({ signal: warm.signal })
+    await tick()
+    warm.abort()
+    await assert.rejects(waiting, { name: "AbortError" })
+    answerProbe()
+  } finally {
+    delete scope.LanguageModel
+  }
+})
