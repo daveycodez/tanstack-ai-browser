@@ -51,21 +51,30 @@ export function ConversationContent({
 }
 
 /**
- * An empty conversation: a heading in the middle of the space, with whatever
- * starts one (the composer) at the bottom, where the chat keeps it once it
- * starts. Laid out like TanStack AI's chatbot example.
+ * An empty conversation: a welcome in the middle of the space, laid out as
+ * HeroUI Pro's EmptyState (medium: a round icon, a title and a muted line),
+ * with whatever starts the chat (the composer) at the bottom, where it stays
+ * once the chat starts, as in TanStack AI's chatbot example.
  */
 export function ConversationEmptyState({
+  icon,
   title,
+  description,
   children
 }: {
+  icon: ReactNode
   title: string
+  description: string
   children?: ReactNode
 }) {
   return (
     <div className="flex h-full flex-col">
-      <div className="flex min-h-0 flex-1 items-center justify-center px-6">
-        <h2 className="text-center text-2xl font-semibold">{title}</h2>
+      <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-2 px-6 text-center">
+        <div className="mb-2 flex size-12 shrink-0 items-center justify-center rounded-full bg-default text-foreground [&_svg]:size-5">
+          {icon}
+        </div>
+        <h2 className="text-base font-semibold text-foreground">{title}</h2>
+        <p className="max-w-xs text-sm text-pretty text-muted">{description}</p>
       </div>
       {children}
     </div>

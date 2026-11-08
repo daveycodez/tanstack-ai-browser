@@ -3,6 +3,7 @@
  * you're at the bottom, and the prompt input under it. An empty session
  * centers a welcome, with the starter chips and prompt input at the bottom.
  */
+import Comments from "@gravity-ui/icons/Comments"
 import { Skeleton } from "@heroui/react"
 import type { LayoutProps } from "@tanstack/ai-react/ui"
 import { useEffect, useMemo, useState } from "react"
@@ -24,6 +25,13 @@ import { PendingReply } from "./message"
 import { ReplyStatsLine } from "./reply-stats"
 import { TranscriptContext, useThread } from "./thread-context"
 import { useChatContext } from "./ui-components"
+
+/** A new session's welcome, with the sidebar's app icon. */
+const WELCOME = {
+  icon: <Comments />,
+  title: "How can I help you today?",
+  description: "The model runs on your device. Ask anything, or pick a prompt below."
+}
 
 /** Under the transcript, or an empty session's heading: the composer. */
 const COMPOSER_AREA =
@@ -151,7 +159,7 @@ function EmptyState({
 }) {
   const { send } = useThread()
   return (
-    <ConversationEmptyState title="How can I help you today?">
+    <ConversationEmptyState {...WELCOME}>
       <div className={COMPOSER_AREA}>
         <StarterPrompts onSend={send} />
         <Input />
@@ -191,7 +199,7 @@ export function ThreadSkeleton({
 }) {
   if (isNew) {
     return (
-      <ConversationEmptyState title="How can I help you today?">
+      <ConversationEmptyState {...WELCOME}>
         <div className={COMPOSER_AREA}>
           <StarterPrompts />
           <PromptInputSkeleton />
