@@ -17,6 +17,7 @@ import {
   startReply,
   statsFromUsage
 } from "./generation-stats"
+import { ABORTED, untilAborted } from "./abortable"
 import { isReasoningLevel, selectedModel } from "./model"
 import { currentModelId, effortFor, isModelId, modelInfo, prepareModel } from "./models"
 
@@ -84,9 +85,11 @@ async function* reply(
   signal?.addEventListener("abort", () => abortController.abort(), {
     once: true
   })
-  // The model first, with its download's progress.
-  const failed = await prepareModel(model)
-  if (abortController.signal.aborted) return
+  // The model first, with its download's progress. stop() returns at
+  // once; the download goes on (other runs may share it), and the adapter's
+  // next call picks the model up.
+  const failed = await untilAborted(prepareModel(model), abortController.signal)
+  if (failed === ABORTED || abortController.signal.aborted) return
   if (failed) throw failed
   yield* chat({
     adapter: modelInfo(model).adapter,
