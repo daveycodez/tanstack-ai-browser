@@ -111,11 +111,13 @@ async function getJson<T>(url: string, signal?: AbortSignal): Promise<T> {
   return (await response.json()) as T
 }
 
-/** A city's weather now and for the next five days. */
-export async function lookUpWeather(
-  city: string,
-  signal?: AbortSignal
-): Promise<WeatherReport> {
+/** Where to look up: a city by name, or a point (from get_current_location). */
+export type WeatherPlace =
+  | { city: string }
+  | { latitude: number; longitude: number }
+
+/** A city's coordinates and its name, such as "Kyoto, Japan". */
+async function findCity(city: string, signal?: AbortSignal) {
   const geo = await getJson<Geocoded>(
     `https://geocoding-api.open-meteo.com/v1/search?${new URLSearchParams({
       name: city,
@@ -127,6 +129,26 @@ export async function lookUpWeather(
   )
   const place = geo.results?.[0]
   if (!place) throw new Error(`No place called "${city}" was found.`)
+  // The region too where it isn't the city's own name.
+  const name = [
+    place.name,
+    place.admin1 !== place.name ? place.admin1 : undefined,
+    place.country
+  ]
+    .filter(Boolean)
+    .join(", ")
+  return { latitude: place.latitude, longitude: place.longitude, name }
+}
+
+/** A place's weather now and for the next five days. */
+export async function lookUpWeather(
+  where: WeatherPlace,
+  signal?: AbortSignal
+): Promise<WeatherReport> {
+  const place =
+    "city" in where
+      ? await findCity(where.city, signal)
+      : { ...where, name: "Your location" }
 
   const fahrenheit = usesFahrenheit()
   const forecast = await getJson<Forecast>(
@@ -145,16 +167,8 @@ export async function lookUpWeather(
 
   const { current, daily } = forecast
   const [condition, summary] = conditionOf(current.weather_code)
-  // "Kyoto, Japan"; the region too where it isn't the city's own name.
-  const location = [
-    place.name,
-    place.admin1 !== place.name ? place.admin1 : undefined,
-    place.country
-  ]
-    .filter(Boolean)
-    .join(", ")
   return {
-    location,
+    location: place.name,
     unit: fahrenheit ? "°F" : "°C",
     windUnit: fahrenheit ? "mph" : "km/h",
     current: {
@@ -183,23 +197,27 @@ export async function lookUpWeather(
 export const weatherTool = toolDefinition({
   name: WEATHER_TOOL,
   description:
-    "Get the current weather and a 5-day forecast for a city. Use this for any question about weather, temperature or rain.",
+    "Get the current weather and a 5-day forecast for a city, or for a latitude and longitude (such as the user's location from get_current_location). Use this for any question about weather, temperature or rain.",
   inputSchema: {
     type: "object",
     properties: {
       city: {
         type: "string",
         description: "The city, such as \"Kyoto\" or \"Paris, France\"."
-      }
-    },
-    required: ["city"]
+      },
+      latitude: { type: "number", description: "Instead of a city." },
+      longitude: { type: "number", description: "Instead of a city." }
+    }
   }
 }).server(async (args, context) => {
-  const city = (args as { city?: unknown }).city
-  if (typeof city !== "string" || !city.trim()) {
-    throw new Error("A city is needed.")
+  const { city, latitude, longitude } = args as Record<string, unknown>
+  if (typeof latitude === "number" && typeof longitude === "number") {
+    return lookUpWeather({ latitude, longitude }, context?.abortSignal)
   }
-  return lookUpWeather(city.trim(), context?.abortSignal)
+  if (typeof city === "string" && city.trim()) {
+    return lookUpWeather({ city: city.trim() }, context?.abortSignal)
+  }
+  throw new Error("A city, or a latitude and longitude, is needed.")
 })
 
 /** A tool result as a weather report, if it is one. */

@@ -12,6 +12,7 @@ import { stream } from "@tanstack/ai-react"
 import { getMcpClients, reportMcpDiscoveryError } from "#/lib/mcp"
 import { currentSystemPrompt } from "#/lib/settings"
 import { compactToolResult, shorten } from "#/lib/sources"
+import { locationToolDefinition, locationToolSetting } from "#/lib/location"
 import { weatherTool, weatherToolSetting } from "#/lib/weather"
 import {
   recordGeneration,
@@ -103,8 +104,13 @@ async function* reply(
     ...(params.resume && { resume: params.resume }),
     // The user's system prompt from Settings, then the date.
     systemPrompts: [currentSystemPrompt()],
-    // The built-in weather tool, unless turned off in Settings.
-    tools: weatherToolSetting.get() ? [weatherTool] : [],
+    // The built-in tools, unless turned off in Settings. The location tool
+    // is a client tool: only its definition here, so the run pauses for
+    // useChat to run its browser part (components/chat/thread.tsx).
+    tools: [
+      ...(weatherToolSetting.get() ? [weatherTool] : []),
+      ...(locationToolSetting.get() ? [locationToolDefinition] : [])
+    ],
     // The MCP servers' tools, Exa's web search first. The clients stay open
     // between runs; a server that fails to list its tools is left out.
     mcp: {

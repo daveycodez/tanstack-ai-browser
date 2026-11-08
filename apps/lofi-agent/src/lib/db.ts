@@ -47,6 +47,8 @@ export type Settings = {
   sidebarOpen: boolean
   /** Whether models get the built-in weather tool (lib/weather.ts). */
   weatherTool: boolean
+  /** Whether models get the built-in location tool (lib/location.ts). */
+  locationTool: boolean
 }
 
 export type SettingKey = keyof Settings

@@ -19,6 +19,7 @@ import {
   useMcpApprovalTools,
   useMcpSettled
 } from "#/lib/mcp"
+import { locationTool, locationToolSetting } from "#/lib/location"
 import { touchThread } from "#/lib/threads"
 import { ThreadSkeleton } from "./layout"
 import { ComposerProvider, ThreadContext } from "./thread-context"
@@ -77,8 +78,14 @@ function ThreadChat({ threadId, onSend }: ThreadProps) {
     [model, effort]
   )
   // MCP tools that ask first: the chat client needs their definitions to
-  // accept an approval (src/lib/mcp.ts).
-  const tools = useMcpApprovalTools()
+  // accept an approval (src/lib/mcp.ts). And the location tool's browser
+  // part, which the chat client runs when a run pauses on it.
+  const approvalTools = useMcpApprovalTools()
+  const location = locationToolSetting.use()
+  const tools = useMemo(
+    () => [...approvalTools, ...(location ? [locationTool] : [])],
+    [approvalTools, location]
+  )
   const chat = useChat({ ...chatOptions, threadId, forwardedProps, tools })
 
   // The sidebar shimmers the title of a session that is replying.

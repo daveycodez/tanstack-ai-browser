@@ -1,6 +1,6 @@
 /**
  * The Settings modal: a custom system prompt for every model, the built-in
- * weather tool, and deleting every session.
+ * weather and location tools, and deleting every session.
  */
 import TrashBin from "@gravity-ui/icons/TrashBin"
 import {
@@ -18,6 +18,7 @@ import { useState } from "react"
 
 import { threadsCollection } from "#/lib/db"
 import { systemPromptSetting } from "#/lib/settings"
+import { locationToolSetting } from "#/lib/location"
 import { weatherToolSetting } from "#/lib/weather"
 import { deleteAllThreads } from "#/lib/threads"
 
@@ -64,6 +65,7 @@ function SettingsForm({
 }) {
   const [systemPrompt, setSystemPrompt] = useState(systemPromptSetting.get)
   const [weatherTool, setWeatherTool] = useState(weatherToolSetting.get)
+  const [locationTool, setLocationTool] = useState(locationToolSetting.get)
   return (
     <>
       <Modal.CloseTrigger />
@@ -101,6 +103,20 @@ function SettingsForm({
             </Switch.Control>
           </Switch.Content>
         </Switch>
+        <Switch isSelected={locationTool} onChange={setLocationTool}>
+          <Switch.Content className="w-full justify-between gap-4">
+            <div className="flex min-w-0 flex-col gap-0.5">
+              <Label>Location</Label>
+              <Description>
+                Lets models ask for your current location, to the nearest
+                kilometer. Your browser asks you before sharing it.
+              </Description>
+            </div>
+            <Switch.Control className="shrink-0">
+              <Switch.Thumb />
+            </Switch.Control>
+          </Switch.Content>
+        </Switch>
         <DeleteAllSessions onDeleted={onAllDeleted} />
       </Modal.Body>
       <Modal.Footer>
@@ -111,6 +127,7 @@ function SettingsForm({
           onPress={() => {
             systemPromptSetting.set(systemPrompt)
             weatherToolSetting.set(weatherTool)
+            locationToolSetting.set(locationTool)
             onDone()
           }}
         >

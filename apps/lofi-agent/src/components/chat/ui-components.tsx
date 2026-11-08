@@ -21,6 +21,8 @@ import { StructuredOutputPart } from "./structured-output"
 import { TextPart } from "./text-part"
 import { ThinkingPart } from "./thinking-part"
 import { WeatherTool } from "./weather-tool"
+import { LocationTool } from "./location-tool"
+import { LOCATION_TOOL } from "#/lib/location"
 import { WEATHER_TOOL } from "#/lib/weather"
 
 /**
@@ -55,8 +57,11 @@ export const ChatUI = createChatUI(chatOptions, {
     fallback: FallbackPart
   },
   // MCP tools are only known at runtime: one widget for every tool name,
-  // and the weather card for the built-in weather tool.
-  toolsComponents: everyTool(McpTool, { [WEATHER_TOOL]: WeatherTool }),
+  // and their own for the built-in weather and location tools.
+  toolsComponents: everyTool(McpTool, {
+    [WEATHER_TOOL]: WeatherTool,
+    [LOCATION_TOOL]: LocationTool
+  }),
   interruptsComponents: {
     // Approvals show in the layout's `Interrupts` list, as in TanStack's
     // example, one widget for every tool that asks first.
