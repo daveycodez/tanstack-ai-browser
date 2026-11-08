@@ -1,4 +1,3 @@
-import ChevronDown from "@gravity-ui/icons/ChevronDown"
 import {
   Button,
   Header,
@@ -44,9 +43,9 @@ function ModelLogo({ src }: { src: string }) {
 /**
  * A model picker for the prompt input's toolbar: a tertiary Button opening a
  * Popover with a single-selection ListBox, one section per provider. For a
- * model with thinking effort levels, a "Thinking" row under the list picks
- * one, and the button shows it after the model's name (as assistant-ui's
- * model selector does).
+ * model with reasoning effort levels, a "Reasoning" row under the list picks
+ * one, and the button shows it after the model's name, as in webgllm's demo
+ * (after assistant-ui's model selector).
  */
 export function ModelSelector({
   sections,
@@ -65,7 +64,7 @@ export function ModelSelector({
   efforts?: Array<EffortOption>
   /** The level the picked model runs at. */
   effort?: string
-  /** Shown muted after the model's name, such as "Thinking" or "High". */
+  /** Shown muted after the model's name, such as "High". */
   effortLabel?: string
   onEffortChange?: (id: string) => void
   /** A short note beside the button, such as a check in progress. */
@@ -94,19 +93,17 @@ export function ModelSelector({
           {effortLabel && (
             <span className="shrink-0 text-muted">{effortLabel}</span>
           )}
-          {/* Buttons pull icons in by 2px; keep the caret 8px from the label. */}
-          <ChevronDown className="ms-0 shrink-0" />
         </Button>
         <Popover.Content placement="bottom start">
           {/* Within the room the popover gets: the list scrolls, the
-              Thinking row stays in view under it. */}
+              Reasoning row stays in view under it. */}
           <Popover.Dialog
             aria-label="Model"
             className="flex max-h-[inherit] flex-col p-1"
           >
             <ListBox
               aria-label="Model"
-              // Scrolls right up to the Thinking row's line; its own padding
+              // Scrolls right up to the Reasoning row's line; its own padding
               // is the gap under the last model.
               className="min-h-0 overflow-y-auto"
               selectionMode="single"
@@ -152,9 +149,9 @@ export function ModelSelector({
             </ListBox>
             {efforts.length > 0 && (
               <div className="flex shrink-0 items-center justify-between gap-3 border-t border-separator px-2 pt-2 pb-1">
-                <span className="text-xs text-muted">Thinking</span>
+                <span className="text-xs text-muted">Reasoning</span>
                 <ToggleButtonGroup
-                  aria-label="Thinking effort"
+                  aria-label="Reasoning effort"
                   size="sm"
                   isDetached
                   selectionMode="single"

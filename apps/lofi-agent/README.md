@@ -36,7 +36,7 @@ The picker's WebGL section runs models on `@tanstack-ai-browser/webgllm`, built 
 
 The GGUF models are in the picker's wllama section. They run on the CPU, WebGPU or not: on half the cores (wllama's default) where the page is cross-origin isolated (see `src/start.ts`), in every browser, Safari and Firefox included, since the site's headers use `Cross-Origin-Embedder-Policy: require-corp`. LFM3's GGUFs aren't there: wllama 3.8.1's llama.cpp predates LFM3, so they run on the WebGL engine instead, and a saved pick of one moves there (Liquid's) or to LFM3 Web on Transformers.js.
 
-The "Web" builds are published under [`daveycodez` on Hugging Face](https://huggingface.co/daveycodez). Models download their repository's latest version (main). Models whose thinking can be switched on and off (LFM3, its GGUF build included, and Gemma 4) get a Thinking row in the model picker, Off or On, on by default; the picker's button says "Thinking" while it's on. A model that declared more reasoning levels would offer each of them by name.
+The "Web" builds are published under [`daveycodez` on Hugging Face](https://huggingface.co/daveycodez). Models download their repository's latest version (main). Models whose thinking can be switched on and off (LFM3, its GGUF build included, and Gemma 4) get a Reasoning row at the bottom of the model picker, Off or High, High by default, as in webgllm's demo; the picker's button shows the level after the model's name while reasoning is on. A model that declared more reasoning levels would offer each of them by name.
 
 ## Features
 
