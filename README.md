@@ -11,6 +11,7 @@
 | [`@tanstack-ai-browser/wllama`](packages/wllama)                   | GGUF models on the CPU with [wllama](https://github.com/ngxson/wllama) (llama.cpp in WebAssembly), no WebGPU needed                |
 | [`@tanstack-ai-browser/prompt-api`](packages/prompt-api)           | The browser's built-in model through the Prompt API: Gemini Nano in Chrome, Phi-4-mini in Edge                                     |
 | [`@tanstack-ai-browser/apfel`](packages/apfel)                     | Apple's on-device Foundation Model, served on a Mac by [apfel](https://apfel.franzai.com)                                          |
+| [`@tanstack-ai-browser/mediapipe`](packages/mediapipe)             | Text embeddings for `embed()`: Universal Sentence Encoder on Google's [MediaPipe](https://ai.google.dev/edge/mediapipe) TextEmbedder |
 
 **Status:** early (0.x); the API may change. The [lofi-agent](apps/lofi-agent) demo app runs on them.
 
@@ -48,6 +49,7 @@ packages/apfel/                 @tanstack-ai-browser/apfel
 packages/webgllm/               @tanstack-ai-browser/webgllm
 packages/wllama/                @tanstack-ai-browser/wllama
 packages/prompt-api/            @tanstack-ai-browser/prompt-api
+packages/mediapipe/             @tanstack-ai-browser/mediapipe
 apps/lofi-agent/                the demo app, hosted on Cloudflare Workers
 ```
 
