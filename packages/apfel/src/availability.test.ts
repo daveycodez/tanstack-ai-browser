@@ -19,7 +19,7 @@ test("available when apfel lists the model at the adapter's baseURL; it reports 
   assert.equal(await adapter.availability(), "available")
   assert.deepEqual(asked[0], { url: `${baseURL}/models`, headers: { Authorization: "Bearer t" } })
   const progress: Array<number> = []
-  assert.equal(await adapter.createSessionWithProgress((value) => progress.push(value)), adapter)
+  assert.equal(await adapter.createSessionWithProgress({ onDownloadProgress: (value) => progress.push(value) }), adapter)
   assert.deepEqual(progress, [1])
   await adapter.destroySession()
 })
@@ -56,11 +56,11 @@ test("createSessionWithProgress's signal: aborted before, nothing is asked; abor
     return new Promise<Response>(() => undefined)
   }) as typeof fetch
   const adapter = apfelText("apple-foundationmodel", { baseURL })
-  await assert.rejects(adapter.createSessionWithProgress(undefined, { signal: AbortSignal.abort() }), (error: unknown) => error instanceof DOMException && error.name === "AbortError")
+  await assert.rejects(adapter.createSessionWithProgress({ signal: AbortSignal.abort() }), (error: unknown) => error instanceof DOMException && error.name === "AbortError")
   assert.equal(asked, 0)
   const heard: Array<number> = []
   const controller = new AbortController()
-  const checking = adapter.createSessionWithProgress((value) => heard.push(value), { signal: controller.signal })
+  const checking = adapter.createSessionWithProgress({ onDownloadProgress: (value) => heard.push(value), signal: controller.signal })
   controller.abort()
   await assert.rejects(checking, { name: "AbortError" })
   assert.equal(requestSignal?.aborted, true, "the request was stopped")

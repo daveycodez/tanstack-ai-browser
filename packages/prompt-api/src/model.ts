@@ -8,6 +8,7 @@ import { createStore } from "./store.js"
 import { languageModel } from "./types.js"
 import type {
   Availability,
+  DownloadProgressCallback,
   DownloadProgressEvent,
   LanguageModelCoreOptions,
   LanguageModelCreateOptions,
@@ -152,7 +153,7 @@ const asksForMedia = (options: LanguageModelCreateOptions) =>
 export async function createLanguageModel(
   options: LanguageModelCreateOptions,
   signal?: AbortSignal,
-  onDownloadProgress?: (progress: number) => void
+  onDownloadProgress?: DownloadProgressCallback
 ): Promise<LanguageModelSession> {
   const api = languageModel()
   if (!api) {
@@ -266,7 +267,7 @@ let loading: { promise: Promise<void>; waiters: LoadWaiters } | null = null
 type LoadOptions = {
   languages?: ReadonlyArray<string>
   signal?: AbortSignal
-  onDownloadProgress?: (progress: number) => void
+  onDownloadProgress?: DownloadProgressCallback
 }
 
 /**

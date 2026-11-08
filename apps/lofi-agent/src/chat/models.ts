@@ -554,7 +554,7 @@ export async function prepareModel(
         status.set({ state: "loading", progress: 0, downloading: false })
       }
     }
-    await adapter.createSessionWithProgress(undefined, signal ? { signal } : {})
+    await adapter.createSessionWithProgress(signal ? { signal } : {})
     status.set({ state: "ready" })
     return undefined
   } catch (error) {

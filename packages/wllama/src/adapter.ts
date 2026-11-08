@@ -419,9 +419,9 @@ export class WllamaTextAdapter<
    * cancelled and the model left unloaded.
    */
   createSessionWithProgress(
-    onDownloadProgress?: DownloadProgressCallback,
-    options: { signal?: AbortSignal } = {}
+    options: { onDownloadProgress?: DownloadProgressCallback; signal?: AbortSignal } = {}
   ): Promise<this> {
+    const { onDownloadProgress } = options
     const own = this.onDownloadProgress
     const ready = loadModel(
       this.model,

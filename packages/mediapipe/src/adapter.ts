@@ -74,9 +74,9 @@ export class MediaPipeEmbeddingAdapter<
    * ends, its download with it, and the model is left unloaded.
    */
   createSessionWithProgress(
-    onDownloadProgress?: DownloadProgressCallback,
-    options: { signal?: AbortSignal } = {}
+    options: { onDownloadProgress?: DownloadProgressCallback; signal?: AbortSignal } = {}
   ): Promise<this> {
+    const { onDownloadProgress } = options
     const own = this.loadConfig.onDownloadProgress
     const ready = loadModel(
       this.model,

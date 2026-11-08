@@ -49,19 +49,19 @@ test("availability is the browser's own answer for the adapter's languages and i
     answer = "downloading"
     assert.equal(await adapter.availability(), "downloading")
     const progress: Array<number> = []
-    assert.equal(await adapter.createSessionWithProgress((value) => progress.push(value)), adapter)
+    assert.equal(await adapter.createSessionWithProgress({ onDownloadProgress: (value) => progress.push(value) }), adapter)
     assert.deepEqual(progress, [0.5, 1], "the browser's download, then 1 once the model started")
     assert.equal(destroyed, 1, "the session made to start the model is freed")
     assert.equal(await adapter.availability(), "available")
     const late: Array<number> = []
-    await promptApiText("built-in").createSessionWithProgress((value) => late.push(value))
+    await promptApiText("built-in").createSessionWithProgress({ onDownloadProgress: (value) => late.push(value) })
     assert.deepEqual(late, [1], "a model already started reports 1 at once")
     await adapter.destroySession()
     assert.equal(await adapter.availability(), "available", "the browser keeps its model")
     // The browser removes its model (to free space, say): a load asks again and starts it again.
     answer = "downloadable"
     const again: Array<number> = []
-    await promptApiText("built-in").createSessionWithProgress((value) => again.push(value))
+    await promptApiText("built-in").createSessionWithProgress({ onDownloadProgress: (value) => again.push(value) })
     assert.deepEqual(again, [0.5, 1], "downloaded again, not a stale 1")
     assert.equal(destroyed, 2, "create() was called again")
     assert.equal(await adapter.availability(), "available")
@@ -100,13 +100,13 @@ test("createSessionWithProgress's signal: aborted before, create() isn't called;
   process.on("unhandledRejection", onUnhandled)
   try {
     const adapter = promptApiText("built-in")
-    await assert.rejects(adapter.createSessionWithProgress(undefined, { signal: AbortSignal.abort() }), (error: unknown) => error instanceof DOMException && error.name === "AbortError")
+    await assert.rejects(adapter.createSessionWithProgress({ signal: AbortSignal.abort() }), (error: unknown) => error instanceof DOMException && error.name === "AbortError")
     assert.equal(creates.length, 0, "create() isn't called")
 
     // The only waiter aborts mid-download: the browser's create() is aborted.
     const heard: Array<number> = []
     const controller = new AbortController()
-    const alone = adapter.createSessionWithProgress((value) => heard.push(value), { signal: controller.signal })
+    const alone = adapter.createSessionWithProgress({ onDownloadProgress: (value) => heard.push(value), signal: controller.signal })
     await tick()
     progress(0, 0.3)
     controller.abort()
@@ -120,8 +120,8 @@ test("createSessionWithProgress's signal: aborted before, create() isn't called;
     const leaving: Array<number> = []
     const staying: Array<number> = []
     const leave = new AbortController()
-    const first = adapter.createSessionWithProgress((value) => leaving.push(value), { signal: leave.signal })
-    const second = adapter.createSessionWithProgress((value) => staying.push(value))
+    const first = adapter.createSessionWithProgress({ onDownloadProgress: (value) => leaving.push(value), signal: leave.signal })
+    const second = adapter.createSessionWithProgress({ onDownloadProgress: (value) => staying.push(value) })
     await tick()
     assert.equal(creates.length, 2, "one native create() for both")
     progress(1, 0.2)
@@ -137,7 +137,7 @@ test("createSessionWithProgress's signal: aborted before, create() isn't called;
 
     const ignored = new AbortController()
     answer = "downloadable"
-    void promptApiText("built-in").createSessionWithProgress(undefined, { signal: ignored.signal })
+    void promptApiText("built-in").createSessionWithProgress({ signal: ignored.signal })
     await tick()
     ignored.abort()
     await tick()

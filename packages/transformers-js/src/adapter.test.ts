@@ -668,7 +668,7 @@ test("availability: unavailable without WebGPU or CPU weights, downloadable unti
   try {
     assert.equal(await adapter.availability(), "downloadable")
     const progress: Array<number> = []
-    const ready = adapter.createSessionWithProgress((value) => progress.push(value))
+    const ready = adapter.createSessionWithProgress({ onDownloadProgress: (value) => progress.push(value) })
     const load = FakeWorker.last.posted.filter((request): request is Extract<WorkerRequest, { type: "load" }> => request.type === "load").at(-1)
     assert.ok(load)
     FakeWorker.last.send({ type: "progress", loadId: load.loadId, modelId: CPU_MODEL, progress: 0, cached: false })
@@ -681,7 +681,7 @@ test("availability: unavailable without WebGPU or CPU weights, downloadable unti
     assert.equal(await other.availability(), "available", "adapters of one model share it")
     assert.equal(await transformersJsText(CPU_MODEL, { dtype: "q4" }).availability(), "downloadable", "other weights aren't loaded")
     const late: Array<number> = []
-    await other.createSessionWithProgress((value) => late.push(value))
+    await other.createSessionWithProgress({ onDownloadProgress: (value) => late.push(value) })
     assert.deepEqual(late, [1], "a model already ready reports 1 at once, without loading again")
     assert.equal(FakeWorker.last.posted.filter((request) => request.type === "load").length, 1)
     await other.destroySession()
@@ -699,20 +699,20 @@ test("the same progress callback hears 1 on every call: once for a shared load, 
   await adapter.destroySession(); FakeWorker.ready = false
   try {
     const heard: Array<number> = []
-    const onProgress = (value: number) => heard.push(value)
-    const first = adapter.createSessionWithProgress(onProgress)
-    const second = adapter.createSessionWithProgress(onProgress)
+    const callback = (value: number) => heard.push(value)
+    const first = adapter.createSessionWithProgress({ onDownloadProgress: callback })
+    const second = adapter.createSessionWithProgress({ onDownloadProgress: callback })
     const load = FakeWorker.last.posted.filter((request): request is Extract<WorkerRequest, { type: "load" }> => request.type === "load").at(-1)
     assert.ok(load)
     FakeWorker.last.send({ type: "progress", loadId: load.loadId, modelId: CPU_MODEL, progress: 0.5, cached: false })
     FakeWorker.last.send({ type: "ready", loadId: load.loadId, modelId: CPU_MODEL })
     await Promise.all([first, second])
     assert.deepEqual(heard, [0.5, 1], "one load: its progress and its 1, once")
-    await adapter.createSessionWithProgress(onProgress)
-    await adapter.createSessionWithProgress(onProgress)
+    await adapter.createSessionWithProgress({ onDownloadProgress: callback })
+    await adapter.createSessionWithProgress({ onDownloadProgress: callback })
     assert.deepEqual(heard, [0.5, 1, 1, 1], "each call on the ready model hears 1")
     const { loadModel } = await import("./client.js")
-    await loadModel(CPU_MODEL, { onDownloadProgress: onProgress, chatWait: true })
+    await loadModel(CPU_MODEL, { onDownloadProgress: callback, chatWait: true })
     assert.deepEqual(heard, [0.5, 1, 1, 1])
   } finally {
     FakeWorker.ready = true
@@ -733,14 +733,14 @@ test("createSessionWithProgress with a signal: aborted before, it rejects withou
     // Aborted before: rejects at once, nothing starts.
     const worker = FakeWorker.last
     const before = loadsPosted().length
-    await assert.rejects(adapter.createSessionWithProgress(undefined, { signal: AbortSignal.abort() }), { name: "AbortError" })
+    await assert.rejects(adapter.createSessionWithProgress({ signal: AbortSignal.abort() }), { name: "AbortError" })
     assert.equal(FakeWorker.last, worker)
     assert.equal(loadsPosted().length, before, "no load posted")
 
     // The only waiter aborts mid-download: the worker ends, the model is left unloaded.
     const heard: Array<number> = []
     const controller = new AbortController()
-    const alone = adapter.createSessionWithProgress((value) => heard.push(value), { signal: controller.signal })
+    const alone = adapter.createSessionWithProgress({ onDownloadProgress: (value) => heard.push(value), signal: controller.signal })
     const loading = FakeWorker.last
     const load = loadsPosted().at(-1)!
     loading.send({ type: "progress", loadId: load.loadId, modelId: CPU_MODEL, progress: 0.3, cached: false })
@@ -755,8 +755,8 @@ test("createSessionWithProgress with a signal: aborted before, it rejects withou
     const leaving: Array<number> = []
     const staying: Array<number> = []
     const leave = new AbortController()
-    const first = adapter.createSessionWithProgress((value) => leaving.push(value), { signal: leave.signal })
-    const second = adapter.createSessionWithProgress((value) => staying.push(value))
+    const first = adapter.createSessionWithProgress({ onDownloadProgress: (value) => leaving.push(value), signal: leave.signal })
+    const second = adapter.createSessionWithProgress({ onDownloadProgress: (value) => staying.push(value) })
     const next = loadsPosted().at(-1)!
     FakeWorker.last.send({ type: "progress", loadId: next.loadId, modelId: CPU_MODEL, progress: 0.2, cached: false })
     leave.abort()
@@ -772,7 +772,7 @@ test("createSessionWithProgress with a signal: aborted before, it rejects withou
     // A chat waiting on the load counts as a waiter: a session caller aborting doesn't cancel it.
     await adapter.destroySession()
     const session = new AbortController()
-    const preload = adapter.createSessionWithProgress(undefined, { signal: session.signal })
+    const preload = adapter.createSessionWithProgress({ signal: session.signal })
     const { loadModel } = await import("./client.js")
     const chat = loadModel(CPU_MODEL, { chatWait: true })
     const third = loadsPosted().at(-1)!
@@ -784,7 +784,7 @@ test("createSessionWithProgress with a signal: aborted before, it rejects withou
     // A caller that ignores its promise raises no unhandled rejection.
     const ignored = new AbortController()
     await adapter.destroySession()
-    void adapter.createSessionWithProgress(undefined, { signal: ignored.signal })
+    void adapter.createSessionWithProgress({ signal: ignored.signal })
     ignored.abort()
     await new Promise((resolve) => setTimeout(resolve, 20))
     assert.deepEqual(unhandled, [])

@@ -9,4 +9,4 @@ export type {
   PromptApiProviderUsageDetails,
   PromptApiTextModelOptions
 } from "./adapter.js"
-export type { Availability } from "./types.js"
+export type { Availability, DownloadProgressCallback } from "./types.js"

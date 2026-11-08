@@ -124,19 +124,19 @@ test("the same progress callback hears 1 on every load call: once for a shared l
   globals.Worker = FakeWorker
   FakeWorker.manual = true
   const heard: Array<number> = []
-  const onProgress = (value: number) => heard.push(value)
-  const first = loadModel(MODEL, {}, onProgress)
-  const second = loadModel(MODEL, {}, onProgress)
+  const callback = (value: number) => heard.push(value)
+  const first = loadModel(MODEL, {}, callback)
+  const second = loadModel(MODEL, {}, callback)
   const worker = FakeWorker.created[0]
   worker.reply({ type: "progress", cached: false, loadedBytes: 50, totalBytes: 100 })
   worker.reply({ type: "ready" })
   await Promise.all([first, second])
   assert.deepEqual(heard, [0.5, 1], "one load: its progress and its 1, once")
-  await loadModel(MODEL, {}, onProgress)
-  await loadModel(MODEL, {}, onProgress)
+  await loadModel(MODEL, {}, callback)
+  await loadModel(MODEL, {}, callback)
   assert.deepEqual(heard, [0.5, 1, 1, 1], "each call on the ready model hears 1")
   FakeWorker.manual = false
-  await embedTexts(MODEL, {}, ["a"], OPTIONS, onProgress)
+  await embedTexts(MODEL, {}, ["a"], OPTIONS, callback)
   assert.deepEqual(heard, [0.5, 1, 1, 1])
   assert.equal(FakeWorker.created.length, 1)
 })
@@ -197,7 +197,7 @@ test("a load's signal: aborted before, no worker starts; the only waiter abortin
     // Through the adapter, unawaited: no unhandled rejection.
     await unloadModel(MODEL)
     const ignored = new AbortController()
-    void mediaPipeEmbedding(MODEL).createSessionWithProgress(undefined, { signal: ignored.signal })
+    void mediaPipeEmbedding(MODEL).createSessionWithProgress({ signal: ignored.signal })
     ignored.abort()
     await new Promise((resolve) => setTimeout(resolve, 20))
     assert.deepEqual(unhandled, [])

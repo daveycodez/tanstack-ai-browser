@@ -12,6 +12,9 @@
 export type Availability =
   "unavailable" | "downloadable" | "downloading" | "available"
 
+/** A download's progress, from 0 to 1. */
+export type DownloadProgressCallback = (progress: number) => void
+
 /** Sampling presets, for web pages (the raw `temperature` and `topK` are for extensions). */
 export type SamplingMode =
   | "most-predictable"

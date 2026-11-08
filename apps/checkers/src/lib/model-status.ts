@@ -25,7 +25,10 @@ export type LoadingStore = {
 /** What the status needs of an adapter: the runtime methods every package's adapters have. */
 export type LoadableAdapter = {
   availability: () => Promise<"unavailable" | "downloadable" | "downloading" | "available">
-  createSessionWithProgress: (onDownloadProgress?: (progress: number) => void) => Promise<unknown>
+  createSessionWithProgress: (options?: {
+    onDownloadProgress?: (progress: number) => void
+    signal?: AbortSignal
+  }) => Promise<unknown>
 }
 
 type Status = LoadingStore & { set: (next: ModelStatus) => void }
@@ -79,8 +82,10 @@ export function loadWithStatus(key: string, adapter: LoadableAdapter): Promise<v
         status.set({ state: "loading", progress: 0, downloading: false })
       }
     }
-    await adapter.createSessionWithProgress((progress) => {
-      if (progress < 1) status.set({ state: "loading", progress, downloading: true })
+    await adapter.createSessionWithProgress({
+      onDownloadProgress: (progress) => {
+        if (progress < 1) status.set({ state: "loading", progress, downloading: true })
+      }
     })
     status.set({ state: "ready" })
   })()

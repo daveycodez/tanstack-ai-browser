@@ -55,6 +55,7 @@ import {
 } from "./tools.js"
 import { languageModel } from "./types.js"
 import type {
+  DownloadProgressCallback,
   LanguageModelContent,
   LanguageModelCreateOptions,
   LanguageModelInput,
@@ -93,7 +94,7 @@ export type PromptApiConfig = {
    * say) starts it; then 1 once the first session starts. To download it
    * ahead of time with progress, see `createSessionWithProgress`.
    */
-  onDownloadProgress?: (progress: number) => void
+  onDownloadProgress?: DownloadProgressCallback
 }
 
 /**
@@ -422,9 +423,9 @@ export class PromptApiTextAdapter extends BaseTextAdapter<
    * no other call still waits on it.
    */
   createSessionWithProgress(
-    onDownloadProgress?: (progress: number) => void,
-    options: { signal?: AbortSignal } = {}
+    options: { onDownloadProgress?: DownloadProgressCallback; signal?: AbortSignal } = {}
   ): Promise<this> {
+    const { onDownloadProgress } = options
     const own = this.onDownloadProgress
     const ready = loadPromptApiModel({
       languages: this.languages,

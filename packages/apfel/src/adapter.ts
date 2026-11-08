@@ -47,7 +47,7 @@ export type ApfelConfig = {
    * on the Mac already, so nothing downloads: `createSessionWithProgress`
    * reports 1 once apfel answers.
    */
-  onDownloadProgress?: (progress: number) => void
+  onDownloadProgress?: DownloadProgressCallback
 }
 
 /**
@@ -61,6 +61,9 @@ export type Availability =
   | "downloadable"
   | "downloading"
   | "available"
+
+/** A download's progress, from 0 to 1 (apfel's model never downloads: it hears 1). */
+export type DownloadProgressCallback = (progress: number) => void
 
 /**
  * Timings of one model call, in milliseconds, in `RUN_FINISHED`'s
@@ -521,9 +524,9 @@ export class ApfelTextAdapter<TModel extends string> extends BaseTextAdapter<
    * nothing.
    */
   createSessionWithProgress(
-    onDownloadProgress?: (progress: number) => void,
-    options: { signal?: AbortSignal } = {}
+    options: { onDownloadProgress?: DownloadProgressCallback; signal?: AbortSignal } = {}
   ): Promise<this> {
+    const { onDownloadProgress } = options
     const { signal } = options
     const aborted = () => new DOMException("The check was aborted.", "AbortError")
     const ready = new Promise<Availability>((resolve, reject) => {

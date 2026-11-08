@@ -333,9 +333,9 @@ export class WebGllmTextAdapter<TModel extends WebGllmChatModel> extends BaseTex
    * load, webgllm cancels it and the model is left unloaded.
    */
   createSessionWithProgress(
-    onDownloadProgress?: DownloadProgressCallback,
-    options: { signal?: AbortSignal } = {}
+    options: { onDownloadProgress?: DownloadProgressCallback; signal?: AbortSignal } = {}
   ): Promise<this> {
+    const { onDownloadProgress } = options
     const own = this.onDownloadProgress
     const ready = loadModel(this.model, {
       contextLength: this.contextLength,

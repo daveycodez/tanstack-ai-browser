@@ -486,9 +486,9 @@ export class TransformersJsTextAdapter<
    * the worker ends and the model is left unloaded.
    */
   createSessionWithProgress(
-    onDownloadProgress?: DownloadProgressCallback,
-    options: { signal?: AbortSignal } = {}
+    options: { onDownloadProgress?: DownloadProgressCallback; signal?: AbortSignal } = {}
   ): Promise<this> {
+    const { onDownloadProgress } = options
     const ready = loadModel(this.model, {
       dtype: this.dtype,
       contextLength: this.contextLength,

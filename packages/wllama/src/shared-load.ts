@@ -7,7 +7,7 @@
  */
 
 /** A download's progress, from 0 to 1. */
-type ProgressCallback = (progress: number) => void
+type DownloadProgressCallback = (progress: number) => void
 
 /** What an aborted `createSessionWithProgress()` rejects with. */
 export function abortError(): DOMException {
@@ -15,7 +15,7 @@ export function abortError(): DOMException {
 }
 
 /** Calls a progress callback; one that throws doesn't stop the load. */
-export function callProgress(listener: ProgressCallback, progress: number) {
+export function callProgress(listener: DownloadProgressCallback, progress: number) {
   try {
     listener(progress)
   } catch (error) {
@@ -24,7 +24,7 @@ export function callProgress(listener: ProgressCallback, progress: number) {
 }
 
 export type WaitOptions = {
-  onDownloadProgress?: ProgressCallback
+  onDownloadProgress?: DownloadProgressCallback
   signal?: AbortSignal
   /**
    * Whether this caller aborting last cancels the load (true by default).
@@ -38,7 +38,7 @@ export type WaitOptions = {
 
 export class LoadWaiters {
   /** Each callback, with how many waiting callers use it: called once per report. */
-  private readonly callbacks = new Map<ProgressCallback, number>()
+  private readonly callbacks = new Map<DownloadProgressCallback, number>()
   private waiting = 0
   private settled = false
 

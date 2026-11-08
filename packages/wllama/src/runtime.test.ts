@@ -139,18 +139,18 @@ test("availability: downloadable (also while loading, and with the file stored),
 test("the same progress callback hears 1 on every load call: once for a shared load, then at once on the ready model; a chat's own wait reports nothing more", { timeout: 5000 }, async () => {
   await withClient("same-callback", async (client, control, release) => {
     const heard: Array<number> = []
-    const onProgress = (value: number) => heard.push(value)
+    const callback = (value: number) => heard.push(value)
     const progressed = new Promise<void>((resolve) => { control.progressed = resolve })
-    const first = client.loadModel(MODEL, onProgress)
-    const second = client.loadModel(MODEL, onProgress)
+    const first = client.loadModel(MODEL, callback)
+    const second = client.loadModel(MODEL, callback)
     await progressed
     release()
     await Promise.all([first, second])
     assert.deepEqual(heard, [0.25, 1, 1], "one load: its progress and its 1, once")
-    await client.loadModel(MODEL, onProgress)
-    await client.loadModel(MODEL, onProgress)
+    await client.loadModel(MODEL, callback)
+    await client.loadModel(MODEL, callback)
     assert.deepEqual(heard, [0.25, 1, 1, 1, 1], "each call on the ready model hears 1")
-    await client.waitForModel(MODEL, undefined, onProgress)
+    await client.waitForModel(MODEL, undefined, callback)
     assert.deepEqual(heard, [0.25, 1, 1, 1, 1])
   })
 })
@@ -219,8 +219,8 @@ test("createSessionWithProgress's signal: aborted before, nothing starts; the on
       await chat
 
       // Through the adapter (the server-side copy of the client here): an aborted signal rejects, unawaited it raises nothing.
-      void wllamaText(MODEL).createSessionWithProgress(undefined, { signal: AbortSignal.abort() })
-      await assert.rejects(wllamaText(MODEL).createSessionWithProgress(undefined, { signal: AbortSignal.abort() }), { name: "AbortError" })
+      void wllamaText(MODEL).createSessionWithProgress({ signal: AbortSignal.abort() })
+      await assert.rejects(wllamaText(MODEL).createSessionWithProgress({ signal: AbortSignal.abort() }), { name: "AbortError" })
       await new Promise((resolve) => setTimeout(resolve, 20))
       assert.deepEqual(unhandled, [])
     } finally {

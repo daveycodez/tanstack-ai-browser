@@ -322,7 +322,7 @@ test("availability (downloadable until loaded, available once ready) and downloa
   let open!: () => void
   fake.loadGate = new Promise<void>((resolve) => (open = resolve))
   const progress: Array<number> = []
-  const loading = adapter.createSessionWithProgress((value) => progress.push(value))
+  const loading = adapter.createSessionWithProgress({ onDownloadProgress: (value) => progress.push(value) })
   await new Promise((resolve) => setTimeout(resolve, 0))
   emit("progress", { model: MODEL, phase: "download", progress: 0.36, cached: false, loadedBytes: 4, totalBytes: 10 })
   emit("progress", { model: MODEL, phase: "download", progress: 0.9, cached: false })
@@ -337,7 +337,7 @@ test("availability (downloadable until loaded, available once ready) and downloa
 
   // The same context is already loaded: it reports 1 at once; another loads it again.
   const late: Array<number> = []
-  await other.createSessionWithProgress((value) => late.push(value))
+  await other.createSessionWithProgress({ onDownloadProgress: (value) => late.push(value) })
   assert.deepEqual(late, [1])
   assert.equal(fake.loads.length, 1)
   await loadModel(MODEL, { contextLength: 8192 })
@@ -406,7 +406,7 @@ test("createSessionWithProgress's signal: aborted before, nothing loads; the onl
   const onUnhandled = (reason: unknown) => unhandled.push(reason)
   process.on("unhandledRejection", onUnhandled)
   try {
-    await assert.rejects(adapter.createSessionWithProgress(undefined, { signal: AbortSignal.abort() }), (error: unknown) => error instanceof DOMException && error.name === "AbortError")
+    await assert.rejects(adapter.createSessionWithProgress({ signal: AbortSignal.abort() }), (error: unknown) => error instanceof DOMException && error.name === "AbortError")
     assert.equal(fake.loads.length, 0, "nothing loaded")
 
     // The only waiter aborts mid-download.
@@ -414,7 +414,7 @@ test("createSessionWithProgress's signal: aborted before, nothing loads; the onl
     fake.loadGate = new Promise<void>((resolve) => (open = resolve))
     const heard: Array<number> = []
     const controller = new AbortController()
-    const alone = adapter.createSessionWithProgress((value) => heard.push(value), { signal: controller.signal })
+    const alone = adapter.createSessionWithProgress({ onDownloadProgress: (value) => heard.push(value), signal: controller.signal })
     await new Promise((resolve) => setTimeout(resolve, 0))
     emit("progress", { model: MODEL, phase: "download", progress: 0.27, cached: false, loadedBytes: 3, totalBytes: 10 })
     controller.abort()
@@ -431,8 +431,8 @@ test("createSessionWithProgress's signal: aborted before, nothing loads; the onl
     const leaving: Array<number> = []
     const staying: Array<number> = []
     const leave = new AbortController()
-    const first = adapter.createSessionWithProgress((value) => leaving.push(value), { signal: leave.signal })
-    const second = adapter.createSessionWithProgress((value) => staying.push(value))
+    const first = adapter.createSessionWithProgress({ onDownloadProgress: (value) => leaving.push(value), signal: leave.signal })
+    const second = adapter.createSessionWithProgress({ onDownloadProgress: (value) => staying.push(value) })
     await new Promise((resolve) => setTimeout(resolve, 0))
     emit("progress", { model: MODEL, phase: "download", progress: 0.18, cached: false, loadedBytes: 2, totalBytes: 10 })
     leave.abort()
@@ -448,7 +448,7 @@ test("createSessionWithProgress's signal: aborted before, nothing loads; the onl
     await adapter.destroySession()
     fake.loadGate = new Promise<void>((resolve) => (open = resolve))
     const session = new AbortController()
-    const preload = adapter.createSessionWithProgress(undefined, { signal: session.signal })
+    const preload = adapter.createSessionWithProgress({ signal: session.signal })
     const chat = ensureModel(MODEL, undefined)
     await new Promise((resolve) => setTimeout(resolve, 0))
     session.abort()
@@ -459,7 +459,7 @@ test("createSessionWithProgress's signal: aborted before, nothing loads; the onl
 
     await adapter.destroySession()
     const ignored = new AbortController()
-    void adapter.createSessionWithProgress(undefined, { signal: ignored.signal })
+    void adapter.createSessionWithProgress({ signal: ignored.signal })
     ignored.abort()
     await new Promise((resolve) => setTimeout(resolve, 20))
     assert.deepEqual(unhandled, [])
@@ -472,10 +472,10 @@ test("waiters sharing one progress callback: one leaving keeps it for the other,
   let open!: () => void
   fake.loadGate = new Promise<void>((resolve) => (open = resolve))
   const heard: Array<number> = []
-  const onProgress = (value: number) => heard.push(value)
+  const callback = (value: number) => heard.push(value)
   const controller = new AbortController()
-  const leaving = ensureModel(MODEL, undefined, controller.signal, onProgress)
-  const staying = ensureModel(MODEL, undefined, undefined, onProgress)
+  const leaving = ensureModel(MODEL, undefined, controller.signal, callback)
+  const staying = ensureModel(MODEL, undefined, undefined, callback)
   await new Promise((resolve) => setTimeout(resolve, 0))
   emit("progress", { model: MODEL, phase: "download", progress: 0.18, cached: false, loadedBytes: 2, totalBytes: 10 })
   controller.abort()
