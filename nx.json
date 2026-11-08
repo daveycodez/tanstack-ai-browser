@@ -50,9 +50,11 @@
     "version": {
       "conventionalCommits": true,
       "adjustSemverBumpsForZeroMajorVersion": true,
+      "fallbackCurrentVersionResolver": "disk",
       "preVersionCommand": "pnpm nx run-many -t build -p apfel mediapipe prompt-api transformers-js webgllm wllama"
     },
     "changelog": {
+      "automaticFromRef": true,
       "projectChangelogs": {
         "createRelease": "github"
       }
