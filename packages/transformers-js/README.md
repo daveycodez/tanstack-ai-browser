@@ -56,7 +56,7 @@ Any other Hugging Face ONNX model works too, given how it writes tool calls and 
 
 **Downloads:** each adapter has the runtime methods of this project's adapters, with the Prompt API's values:
 
-- `adapter.availability()` resolves to `"unavailable"` (above), `"downloading"` while this page downloads the model, `"available"` when every file it loads (for the adapter's `dtype`, on this device) is in Transformers.js's cache (its `ModelRegistry.is_cached_files`, checked in the worker, which is ended afterwards if no model is loaded), else `"downloadable"`.
+- `adapter.availability()` resolves to `"unavailable"` (above), `"downloading"` while this page downloads the model, `"available"` when the model is loaded, or when every weights file a past load on this device used (for the adapter's `dtype`) is still in Transformers.js's cache, else `"downloadable"`. It reads Cache Storage only: no worker, no Transformers.js import, no network. A model downloaded by an earlier version of this package, or by Transformers.js directly, reads as `"downloadable"` until it's loaded once (which reads it from the cache, no download).
 - `adapter.createSessionWithProgress(onDownloadProgress?)` downloads and loads the model ahead of time, with the download's progress, 0 to 1, then 1 once it's ready (at once if it already is). It resolves to the adapter, and rejects on failure; it's fine to leave unawaited. The config's `onDownloadProgress` hears a download the first `chat()` starts too.
 - `adapter.destroySession()` unloads the model, freeing its memory, if it's the one loaded; its files stay cached.
 

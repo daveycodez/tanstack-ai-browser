@@ -3,6 +3,7 @@
  * runs the model off the main thread so the page stays smooth. One worker,
  * and one model in it at a time: loading another frees the previous one.
  */
+import { recordedFilesCached } from "./cache-record.js"
 import { claimMemory, releaseMemory, touchMemory } from "./model-memory.js"
 import { modelMeta, runsWithoutWebGpu } from "./catalog.js"
 import type {
@@ -122,15 +123,6 @@ function handleMessage({ data }: MessageEvent<WorkerResponse>) {
     current.load.reject(new Error(data.message))
     loaded = null
     releaseMemory(OWNER)
-  } else if (data.type === "cached") {
-    checks.get(data.id)?.(data.cached)
-    checks.delete(data.id)
-    // A worker started only to check the cache is ended once it has: it
-    // holds Transformers.js, which a page that never loads a model needn't keep.
-    if (!loaded && checks.size === 0 && generations.size === 0) {
-      worker?.terminate()
-      worker = null
-    }
   } else if (data.type === "token") {
     generations.get(data.id)?.onToken(data.text)
   } else if (data.type === "log") {
@@ -157,9 +149,6 @@ function call(listener: DownloadProgressCallback, progress: number) {
   }
 }
 
-/** Answers to "cached" requests, by request id. */
-const checks = new Map<number, (cached: boolean) => void>()
-let nextCheck = 0
 
 function post(message: WorkerRequest) {
   if (!worker) {
@@ -239,8 +228,9 @@ async function canRun(model: string): Promise<boolean> {
  * (no Web Worker or WebAssembly, as on a server, or no WebGPU and no CPU
  * weights), "downloading" while this page downloads it, "available" when
  * all the files it loads (for `dtype`, on this device) are in
- * Transformers.js's cache, else "downloadable". The cache check runs in the
- * model's worker (started for it, and ended after, if no model is loaded).
+ * Transformers.js's cache, else "downloadable". It reads Cache Storage only:
+ * the files a past load used (recorded once it succeeded) must all still be
+ * cached. No worker, no Transformers.js, no network.
  */
 export async function availability(
   model: string,
@@ -252,17 +242,11 @@ export async function availability(
   if (loaded?.modelId === model && loaded.dtype === dtype && loaded.load.ready) {
     return "available"
   }
-  try {
-    const id = nextCheck++
-    const cached = await new Promise<boolean>((resolve) => {
-      checks.set(id, resolve)
-      post({ type: "cached", id, modelId: model, dtype })
-    })
-    if (downloading.has(model)) return "downloading"
-    return cached ? "available" : "downloadable"
-  } catch {
-    return "downloadable"
-  }
+  // The weights a load here picks: q4 on the CPU.
+  const loadDtype: WeightsDtype = (await hasWebGpu()) ? dtype : "q4"
+  const cached = await recordedFilesCached(model, loadDtype)
+  if (downloading.has(model)) return "downloading"
+  return cached ? "available" : "downloadable"
 }
 
 /**
@@ -355,10 +339,6 @@ export async function unloadModel(model?: string): Promise<void> {
     downloading.delete(loaded.modelId)
     loaded.load.reject(new Error("The model was unloaded."))
     loaded = null
-  }
-  for (const [id, answer] of checks) {
-    checks.delete(id)
-    answer(false)
   }
   for (const [id, generation] of generations) {
     generations.delete(id)

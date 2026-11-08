@@ -8,7 +8,6 @@ import type { RunTimings, WorkerRequest, WorkerResponse } from "./protocol.js"
 class FakeWorker {
   static last: FakeWorker
   static ready = true
-  static cached = false
   static generate: (worker: FakeWorker, request: Extract<WorkerRequest, { type: "generate" }>) => void
   onmessage?: (event: { data: WorkerResponse }) => void
   posted: WorkerRequest[] = []
@@ -17,7 +16,6 @@ class FakeWorker {
     this.posted.push(request)
     if (request.type === "load" && FakeWorker.ready) setTimeout(() => this.send({ type: "ready", loadId: request.loadId, modelId: request.modelId }), 0)
     if (request.type === "generate") FakeWorker.generate(this, request)
-    if (request.type === "cached") setTimeout(() => this.send({ type: "cached", id: request.id, cached: FakeWorker.cached }), 0)
   }
   send(data: WorkerResponse) { this.onmessage?.({ data }) }
   terminate() { this.onmessage = undefined }
@@ -660,16 +658,36 @@ test("a load with other weights at the same context loads again, and replies abo
 
 test("availability: unavailable without WebGPU or CPU weights, downloadable, downloading with progress, available once ready and once cached", { timeout: 2000 }, async () => {
   const { transformersJsText } = await import("./adapter.js")
+  const { saveRecord, TRANSFORMERS_CACHE } = await import("./cache-record.js")
+  // A Cache Storage stand-in: availability() reads it, and nothing else.
+  const stores = new Map<string, Map<string, Response>>()
+  const store = (name: string) => {
+    let entries = stores.get(name)
+    if (!entries) stores.set(name, (entries = new Map()))
+    return entries
+  }
+  const previousCaches = (globalThis as { caches?: unknown }).caches
+  Object.defineProperty(globalThis, "caches", {
+    configurable: true,
+    writable: true,
+    value: {
+      open: async (name: string) => ({
+        match: async (url: string) => store(name).get(url)?.clone(),
+        put: async (url: string, response: Response) => void store(name).set(url, response)
+      })
+    }
+  })
   // Node has no WebGPU: a model without CPU weights can't run here.
   assert.equal(await transformersJsText(MODEL).availability(), "unavailable")
   const CPU_MODEL = "onnx-community/LFM2-1.2B-Tool-ONNX"
   const adapter = transformersJsText(CPU_MODEL)
   const other = transformersJsText(CPU_MODEL)
-  await adapter.destroySession(); FakeWorker.ready = false; FakeWorker.cached = false
+  await adapter.destroySession(); FakeWorker.ready = false
   try {
     assert.equal(await adapter.availability(), "downloadable")
-    const check = FakeWorker.last.posted.find((request) => request.type === "cached")
-    assert.deepEqual(check && { modelId: check.modelId, dtype: check.dtype }, { modelId: CPU_MODEL, dtype: "q4f16" })
+    const posted = FakeWorker.last?.posted.length ?? 0
+    await adapter.availability()
+    assert.equal(FakeWorker.last?.posted.length ?? 0, posted, "availability() asks no worker")
     const progress: Array<number> = []
     const ready = adapter.createSessionWithProgress((value) => progress.push(value))
     const load = FakeWorker.last.posted.filter((request): request is Extract<WorkerRequest, { type: "load" }> => request.type === "load").at(-1)
@@ -686,9 +704,19 @@ test("availability: unavailable without WebGPU or CPU weights, downloadable, dow
     assert.deepEqual(late, [1], "a model already ready reports 1 at once, without loading again")
     assert.equal(FakeWorker.last.posted.filter((request) => request.type === "load").length, 1)
     await other.destroySession()
-    FakeWorker.cached = true
+    assert.equal(await adapter.availability(), "downloadable", "no recorded load, so nothing known on the device")
+    // What the worker records after a load: its weights files, if all cached. Node has no WebGPU: q4.
+    const url = `https://huggingface.co/${CPU_MODEL}/resolve/main/onnx/model_q4.onnx`
+    await saveRecord(CPU_MODEL, "q4", [url])
+    assert.equal(await adapter.availability(), "downloadable", "a file that isn't cached isn't recorded")
+    store(TRANSFORMERS_CACHE).set(url, new Response("weights"))
+    await saveRecord(CPU_MODEL, "q4", [url])
     assert.equal(await adapter.availability(), "available", "its files stay in the cache")
-    FakeWorker.cached = false
-    assert.equal(await adapter.availability(), "downloadable")
-  } finally { FakeWorker.ready = true; FakeWorker.cached = false; await adapter.destroySession() }
+    store(TRANSFORMERS_CACHE).delete(url)
+    assert.equal(await adapter.availability(), "downloadable", "a cleared cache needs the download again")
+  } finally {
+    FakeWorker.ready = true
+    await adapter.destroySession()
+    Object.defineProperty(globalThis, "caches", { configurable: true, writable: true, value: previousCaches })
+  }
 })
