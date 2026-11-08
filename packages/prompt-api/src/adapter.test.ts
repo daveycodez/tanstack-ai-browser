@@ -798,3 +798,29 @@ test("guided tool arguments cut off by maxCompletionTokens send no call and fini
   )
   assert.equal(chunks.at(-1)?.finishReason, "tool_calls")
 })
+
+test("guided tool arguments allow no fields the tool doesn't declare, even when its schema does", async () => {
+  // An open schema: no required fields, extra fields not forbidden.
+  const weather = {
+    name: "get_weather",
+    description: "Weather for a city or a point",
+    inputSchema: {
+      type: "object",
+      properties: { city: { type: "string" }, latitude: { type: "number" }, longitude: { type: "number" } }
+    }
+  }
+  control.answer = ['{"latitude":47.61,', '"longitude":-122.33}']
+  const chunks = await collect(
+    promptApiText("built-in", { nativeTools: false }).chatStream(
+      chatOptions({ threadId: "guided-closed", tools: [weather], toolChoice: "required" })
+    )
+  )
+  const constraint = control.calls
+    .map((c) => c.options.responseConstraint as Record<string, unknown> | undefined)
+    .find((c) => c && "properties" in c && "city" in (c.properties as object))
+  assert.equal(constraint?.additionalProperties, false)
+  assert.deepEqual(
+    chunks.filter((c) => c.type === "TOOL_CALL_END").map((c) => c.input),
+    [{ latitude: 47.61, longitude: -122.33 }]
+  )
+})

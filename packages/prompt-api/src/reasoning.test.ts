@@ -5,6 +5,9 @@ import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 import { pathToFileURL } from "node:url"
 import { createRequire } from "node:module"
+
+import { toGuidedSchema } from "./tools.js"
+
 const root=resolve(process.cwd(),"../..")
 const require=createRequire(join(root,"packages/prompt-api/package.json"))
 const {build}=await import(pathToFileURL(require.resolve("esbuild")).href) as typeof import("esbuild")
@@ -287,7 +290,7 @@ test("Prompt API required one-tool calls skip the forced routing clone and const
  assert.equal(control.events.filter(event=>event.kind==="clone").length,1)
  const generations=control.events.filter(event=>event.kind==="final")
  assert.equal(generations.length,1)
- assert.equal(generations[0].options?.responseConstraint,inputSchema)
+ assert.deepEqual(generations[0].options?.responseConstraint,toGuidedSchema(inputSchema))
  const call=chunks.find(chunk=>chunk.type==="TOOL_CALL_END")
  assert.equal(call?.toolCallName,"lookup_weather")
  assert.deepEqual(call?.input,{city:"London"})
@@ -309,7 +312,7 @@ test("Prompt API auto and multiple required tools still need constrained routing
   assert.equal(generations.length,2)
   const decision=generations[0].options?.responseConstraint as {properties:{action:{enum:string[]}}}
   assert.deepEqual(decision.properties.action.enum,required?["lookup_weather","lookup_alerts"]:["answer","lookup_weather"])
-  assert.equal(generations[1].options?.responseConstraint,inputSchema)
+  assert.deepEqual(generations[1].options?.responseConstraint,toGuidedSchema(inputSchema))
   assert.deepEqual(chunks.find(chunk=>chunk.type==="TOOL_CALL_END")?.input,{city:"London"})
  }
 })

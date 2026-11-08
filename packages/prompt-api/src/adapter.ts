@@ -50,6 +50,7 @@ import {
   parseDecision,
   supportsNativeTools,
   toLanguageModelTools,
+  toGuidedSchema,
   toolCallText,
   toolsPrompt
 } from "./tools.js"
@@ -1014,7 +1015,10 @@ export class PromptApiTextAdapter extends BaseTextAdapter<
     const tool = tools.find((t) => t.name === action)
     if (!tool) return undefined
 
-    const schema = inputSchemaOf(tool)
+    // Held to the guided subset, which allows no fields the tool doesn't
+    // declare. On the raw schema, Gemini Nano with emulated reasoning wrote
+    // the whole call (`{"tool", "arguments"}`) as the arguments.
+    const schema = toGuidedSchema(inputSchemaOf(tool))
     const hasFields =
       Object.keys((schema.properties ?? {}) as object).length > 0
     const generated = hasFields
