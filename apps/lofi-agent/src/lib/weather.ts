@@ -197,16 +197,23 @@ export async function lookUpWeather(
 export const weatherTool = toolDefinition({
   name: WEATHER_TOOL,
   description:
-    "Get the current weather and a 5-day forecast for a city, or for a latitude and longitude (such as the user's location from get_current_location). Use this for any question about weather, temperature or rain.",
+    "Get the current weather and a 5-day forecast for a city, or for a latitude and longitude. Use this for any question about weather, temperature or rain. For the weather where the user is, call get_current_location first and pass its latitude and longitude here.",
   inputSchema: {
     type: "object",
     properties: {
       city: {
         type: "string",
-        description: "The city, such as \"Kyoto\" or \"Paris, France\"."
+        description:
+          "A city the user named, such as \"Kyoto\" or \"Paris, France\". Leave it out for the user's own location."
       },
-      latitude: { type: "number", description: "Instead of a city." },
-      longitude: { type: "number", description: "Instead of a city." }
+      latitude: {
+        type: "number",
+        description: "From get_current_location, instead of a city."
+      },
+      longitude: {
+        type: "number",
+        description: "From get_current_location, instead of a city."
+      }
     }
   }
 }).server(async (args, context) => {

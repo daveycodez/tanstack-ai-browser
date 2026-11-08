@@ -14,6 +14,7 @@ import { WEBGLLM_MODEL_REASONING } from "@tanstack-ai-browser/webgllm/model-meta
 import type { WebGllmChatModel } from "@tanstack-ai-browser/webgllm/model-meta"
 import { apfelText } from "@tanstack-ai-browser/apfel"
 import { promptApiText } from "@tanstack-ai-browser/prompt-api"
+import { PROMPT_API_MODEL_REASONING } from "@tanstack-ai-browser/prompt-api/model-meta"
 import type { Availability } from "@tanstack-ai-browser/prompt-api"
 import { browserModel } from "./browser-model.ts"
 import { useSyncExternalStore } from "react"
@@ -198,7 +199,8 @@ export const MODELS = [
     /** The browser downloads it, once for every site, with progress. */
     status: builtInStatus.status as ModelStatusStore | null,
     needsWebGpu: false,
-    reasoning: undefined
+    /** Off or high: the adapter drafts working notes before answering. */
+    reasoning: PROMPT_API_MODEL_REASONING["built-in"]
   },
   local("gemma-4-e4b", "onnx-community/gemma-4-E4B-it-ONNX"),
   local("lfm3", "onnx-community/LFM3-1.7B-ONNX"),
