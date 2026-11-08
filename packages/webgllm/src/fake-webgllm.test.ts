@@ -30,10 +30,8 @@ export const fake = {
   unloads: [] as Array<string | undefined>,
   /** Models the fake holds loaded. */
   loaded: new Set<string>(),
-  /** Download size models.retrieve reports. */
-  size: 1_000_000_000,
-  /** Whether models.retrieve reports the model's files as downloaded. */
-  downloaded: true,
+  /** Models asked about with models.retrieve (which fetches from Hugging Face). */
+  retrieved: [] as Array<string>,
   /** Bytes each load's worker claims through onMemoryClaim, as the real worker measures them. */
   memory: 1_400_000_000,
   /** Holds each load's memory claim until it resolves. */
@@ -56,8 +54,7 @@ export const fake = {
     this.loads = []
     this.unloads = []
     this.loaded.clear()
-    this.size = 1_000_000_000
-    this.downloaded = true
+    this.retrieved = []
     this.memory = 1_400_000_000
     this.claimGate = undefined
     this.loadError = undefined
@@ -230,15 +227,18 @@ webgllm.unloadModel = async (model) => {
     emit("unload", { model: name, reason: "unloaded" })
   }
 }
-webgllm.models.retrieve = async (model) => ({
-  id: model,
-  format: "gguf",
-  contextLength: 32_768,
-  size: fake.size,
-  downloaded: fake.downloaded,
-  loaded: fake.loaded.has(model),
-  supports: { tools: true, thinking: true }
-})
+webgllm.models.retrieve = async (model) => {
+  fake.retrieved.push(model)
+  return {
+    id: model,
+    format: "gguf",
+    contextLength: 32_768,
+    size: 1_000_000_000,
+    downloaded: true,
+    loaded: fake.loaded.has(model),
+    supports: { tools: true, thinking: true }
+  }
+}
 webgllm.chat.completions.create = (async (body: ChatCompletionCreateParamsStreaming, options: RequestOptions = {}) => {
   fake.requests.push({ body, options })
   options.signal?.throwIfAborted()

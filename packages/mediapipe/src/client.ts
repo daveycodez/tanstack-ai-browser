@@ -8,15 +8,15 @@ import { MEDIAPIPE_MODEL_META } from "./model-meta.js"
 import type { MediaPipeEmbeddingModel } from "./model-meta.js"
 import type { MediaPipeEmbeddingConfig } from "./options.js"
 import type { LoadRequest, WorkerRequest, WorkerResponse } from "./protocol.js"
-import { CACHE_NAME } from "./download.js"
 import { MEDIAPIPE_WASM_URL } from "./version.js"
 
 /**
- * Where a model stands in this browser, with the Prompt API's values
+ * Where a model stands, with the Prompt API's values
  * (`LanguageModel.availability()`): "unavailable" (it can't run here),
- * "downloadable" (it can, once downloaded), "downloading" (a download of it
- * is in progress in this page) or "available" (on the device: no download
- * needed).
+ * "downloadable" (it can: loading it downloads it, or reads it from the
+ * cache), "downloading" or "available" (loaded and ready in this page).
+ * This package's `availability()` never says "downloading": a load's
+ * progress comes from `createSessionWithProgress`'s callback.
  */
 export type Availability =
   | "unavailable"
@@ -57,8 +57,6 @@ type Embedder = {
   ended: boolean
   /** Its callers' download progress callbacks. */
   listeners: Set<DownloadProgressCallback>
-  /** The model's file is downloading (not read from the cache). */
-  downloading: boolean
   /** Loaded: ready to embed. */
   ready: boolean
 }
@@ -183,44 +181,28 @@ const SIMD_MODULE = new Uint8Array([
 ])
 
 /**
- * Where `model` (loaded with `config`) stands in this browser, as the
- * Prompt API's `LanguageModel.availability()` says it: "unavailable" where
- * MediaPipe can't run (its TextEmbedder needs WebAssembly with SIMD in a
- * module Web Worker; not on a server) or the model isn't one it lists,
- * "downloading" while this page downloads its file, "available" when its
- * file (and, with `cacheWasm`, MediaPipe's WebAssembly) is in Cache Storage,
- * else "downloadable".
+ * Where `model` (loaded with `config`) stands, as the Prompt API's
+ * `LanguageModel.availability()` says it: "unavailable" where MediaPipe
+ * can't run (its TextEmbedder needs WebAssembly with SIMD in a module Web
+ * Worker; not on a server) or the model isn't one it lists, "available"
+ * when it's loaded (with equivalent options) and ready in this page, else
+ * "downloadable", while a load is in progress and when its files are in
+ * Cache Storage too. No storage reads, no worker, no network.
  */
 export async function availability(
   model: MediaPipeEmbeddingModel,
   config: MediaPipeEmbeddingConfig = {}
 ): Promise<Availability> {
   if (!canRun()) return "unavailable"
-  let request: LoadRequest
+  let key: string
   try {
-    request = loadRequest(model, config)
+    key = JSON.stringify(loadRequest(model, config))
   } catch {
     return "unavailable"
   }
-  const key = JSON.stringify(request)
-  const current = loaded?.model === model && loaded.key === key ? loaded : null
-  if (current?.downloading) return "downloading"
-  if (current?.ready) return "available"
-  if (typeof caches === "undefined") return "downloadable"
-  try {
-    const cache = await caches.open(CACHE_NAME)
-    // MediaPipe's names for its files, as its FilesetResolver gives them
-    // for a module worker.
-    const wasm = `${request.wasmPath.replace(/\/$/, "")}/text_wasm_module_internal`
-    const urls = request.cacheWasm
-      ? [request.modelUrl, `${wasm}.js`, `${wasm}.wasm`]
-      : [request.modelUrl]
-    const hits = await Promise.all(urls.map((url) => cache.match(url)))
-    if (loaded?.key === key && loaded.downloading) return "downloading"
-    return hits.every(Boolean) ? "available" : "downloadable"
-  } catch {
-    return "downloadable"
-  }
+  return loaded?.model === model && loaded.key === key && loaded.ready
+    ? "available"
+    : "downloadable"
 }
 
 /** The embedder for `model` with `config`, loaded or loading. Throws if it can't start. */
@@ -259,7 +241,6 @@ function load(
   // The previous embedder ends once the requests using it are done.
   const previous = loaded
   if (previous) {
-    previous.downloading = false
     previous.retired = true
     endIfUnused(previous)
   }
@@ -279,7 +260,6 @@ function load(
     retired: false,
     ended: false,
     listeners: new Set(onDownloadProgress ? [onDownloadProgress] : []),
-    downloading: false,
     ready: false
   }
   loaded = embedder
@@ -288,7 +268,6 @@ function load(
   }
 
   const failLoad = (message: string) => {
-    embedder.downloading = false
     end(embedder, new Error(message))
     if (loaded !== embedder) return
     loaded = null
@@ -297,10 +276,8 @@ function load(
     if (data.type === "progress") {
       if (loaded !== embedder || data.cached) return
       const { loadedBytes, totalBytes } = data
-      embedder.downloading = true
       report(totalBytes ? Math.min(loadedBytes / totalBytes, 1) : 0)
     } else if (data.type === "ready") {
-      embedder.downloading = false
       embedder.ready = true
       if (loaded === embedder) report(1)
       settle.resolve()

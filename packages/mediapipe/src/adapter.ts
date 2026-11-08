@@ -51,9 +51,11 @@ export class MediaPipeEmbeddingAdapter<
    * Where the model stands in this browser, with the Prompt API's values:
    * "unavailable" where MediaPipe can't run (its TextEmbedder needs
    * WebAssembly with SIMD in a module Web Worker; not on a server),
-   * "downloading" while this page downloads the model's file, "available"
-   * when its file (and, with `cacheWasm`, MediaPipe's WebAssembly) is in
-   * Cache Storage, else "downloadable".
+   * "available" when it's loaded and ready in this page (by any adapter
+   * with the same model and equivalent options), else "downloadable", even
+   * while it loads or when its files are in Cache Storage (a load then
+   * reads them). It never says "downloading": progress comes from
+   * `createSessionWithProgress`. It reads no storage and starts no worker.
    */
   availability(): Promise<Availability> {
     return availability(this.model, this.loadConfig)

@@ -309,9 +309,11 @@ export class WebGllmTextAdapter<TModel extends WebGllmChatModel> extends BaseTex
   /**
    * Where the model stands in this browser, with the Prompt API's values:
    * "unavailable" where the engine can't run (WebGL 2 with float render
-   * targets, in a worker; not on a server), "downloading" while this page
-   * downloads it, "available" when its files are in webgllm's storage,
-   * else "downloadable".
+   * targets, in a worker; not on a server), "available" when it's loaded
+   * and ready in this page (by any adapter of it), else "downloadable",
+   * even while it loads or when its files are in webgllm's storage (a load
+   * then reads them). It never says "downloading": progress comes from
+   * `createSessionWithProgress`. It reads no storage and makes no request.
    */
   availability(): Promise<Availability> {
     return availability(this.model)

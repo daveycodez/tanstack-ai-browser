@@ -656,27 +656,8 @@ test("a load with other weights at the same context loads again, and replies abo
   } finally { FakeWorker.ready = true; await unloadModel() }
 })
 
-test("availability: unavailable without WebGPU or CPU weights, downloadable, downloading with progress, available once ready and once cached", { timeout: 2000 }, async () => {
+test("availability: unavailable without WebGPU or CPU weights, downloadable until loaded (also while loading), then available for every adapter of the model", { timeout: 2000 }, async () => {
   const { transformersJsText } = await import("./adapter.js")
-  const { saveRecord, TRANSFORMERS_CACHE } = await import("./cache-record.js")
-  // A Cache Storage stand-in: availability() reads it, and nothing else.
-  const stores = new Map<string, Map<string, Response>>()
-  const store = (name: string) => {
-    let entries = stores.get(name)
-    if (!entries) stores.set(name, (entries = new Map()))
-    return entries
-  }
-  const previousCaches = (globalThis as { caches?: unknown }).caches
-  Object.defineProperty(globalThis, "caches", {
-    configurable: true,
-    writable: true,
-    value: {
-      open: async (name: string) => ({
-        match: async (url: string) => store(name).get(url)?.clone(),
-        put: async (url: string, response: Response) => void store(name).set(url, response)
-      })
-    }
-  })
   // Node has no WebGPU: a model without CPU weights can't run here.
   assert.equal(await transformersJsText(MODEL).availability(), "unavailable")
   const CPU_MODEL = "onnx-community/LFM2-1.2B-Tool-ONNX"
@@ -685,38 +666,55 @@ test("availability: unavailable without WebGPU or CPU weights, downloadable, dow
   await adapter.destroySession(); FakeWorker.ready = false
   try {
     assert.equal(await adapter.availability(), "downloadable")
-    const posted = FakeWorker.last?.posted.length ?? 0
-    await adapter.availability()
-    assert.equal(FakeWorker.last?.posted.length ?? 0, posted, "availability() asks no worker")
     const progress: Array<number> = []
     const ready = adapter.createSessionWithProgress((value) => progress.push(value))
     const load = FakeWorker.last.posted.filter((request): request is Extract<WorkerRequest, { type: "load" }> => request.type === "load").at(-1)
     assert.ok(load)
     FakeWorker.last.send({ type: "progress", loadId: load.loadId, modelId: CPU_MODEL, progress: 0, cached: false })
     FakeWorker.last.send({ type: "progress", loadId: load.loadId, modelId: CPU_MODEL, progress: 0.5, cached: false })
-    assert.equal(await other.availability(), "downloading", "adapters of one model share its download")
+    assert.equal(await other.availability(), "downloadable", "a load in progress isn't \"downloading\": progress comes from the callback")
     FakeWorker.last.send({ type: "ready", loadId: load.loadId, modelId: CPU_MODEL })
     assert.equal(await ready, adapter)
     assert.deepEqual(progress, [0, 0.5, 1])
     assert.equal(await adapter.availability(), "available")
+    assert.equal(await other.availability(), "available", "adapters of one model share it")
+    assert.equal(await transformersJsText(CPU_MODEL, { dtype: "q4" }).availability(), "downloadable", "other weights aren't loaded")
     const late: Array<number> = []
     await other.createSessionWithProgress((value) => late.push(value))
     assert.deepEqual(late, [1], "a model already ready reports 1 at once, without loading again")
     assert.equal(FakeWorker.last.posted.filter((request) => request.type === "load").length, 1)
     await other.destroySession()
-    assert.equal(await adapter.availability(), "downloadable", "no recorded load, so nothing known on the device")
-    // What the worker records after a load: its weights files, if all cached. Node has no WebGPU: q4.
-    const url = `https://huggingface.co/${CPU_MODEL}/resolve/main/onnx/model_q4.onnx`
-    await saveRecord(CPU_MODEL, "q4", [url])
-    assert.equal(await adapter.availability(), "downloadable", "a file that isn't cached isn't recorded")
-    store(TRANSFORMERS_CACHE).set(url, new Response("weights"))
-    await saveRecord(CPU_MODEL, "q4", [url])
-    assert.equal(await adapter.availability(), "available", "its files stay in the cache")
-    store(TRANSFORMERS_CACHE).delete(url)
-    assert.equal(await adapter.availability(), "downloadable", "a cleared cache needs the download again")
+    assert.equal(await adapter.availability(), "downloadable", "unloaded: its files may be cached, but it isn't loaded")
   } finally {
     FakeWorker.ready = true
     await adapter.destroySession()
-    Object.defineProperty(globalThis, "caches", { configurable: true, writable: true, value: previousCaches })
+  }
+})
+
+test("availability() makes no fetch, worker, Cache Storage, IndexedDB or OPFS calls", async () => {
+  const { transformersJsText } = await import("./adapter.js")
+  const { unloadModel } = await import("./client.js")
+  await unloadModel()
+  const calls: Array<string> = []
+  const trap = (name: string) => new Proxy(() => undefined, {
+    get: (_target, key) => { calls.push(`${name}.${String(key)}`); return trap(`${name}.${String(key)}`) },
+    apply: () => { calls.push(name); throw new Error(`${name} called`) }
+  })
+  const globals = globalThis as Record<string, unknown>
+  const saved = { fetch: globals.fetch, caches: globals.caches, indexedDB: globals.indexedDB, Worker: globals.Worker }
+  const storage = Object.getOwnPropertyDescriptor(navigator, "storage")
+  class CountingWorker extends FakeWorker { constructor() { super(); calls.push("new Worker") } }
+  const set = (key: string, value: unknown) => Object.defineProperty(globalThis, key, { configurable: true, writable: true, value })
+  set("fetch", trap("fetch")); set("caches", trap("caches")); set("indexedDB", trap("indexedDB")); set("Worker", CountingWorker)
+  Object.defineProperty(navigator, "storage", { configurable: true, value: trap("navigator.storage") })
+  try {
+    assert.equal(await transformersJsText("onnx-community/LFM2-1.2B-Tool-ONNX").availability(), "downloadable")
+    assert.equal(await transformersJsText(MODEL).availability(), "unavailable")
+    assert.equal(await transformersJsText("owner/any-model", { toolFormat: "lfm2" }).availability(), "downloadable")
+    assert.deepEqual(calls, [])
+  } finally {
+    for (const [key, value] of Object.entries(saved)) set(key, value)
+    if (storage) Object.defineProperty(navigator, "storage", storage)
+    else delete (navigator as { storage?: unknown }).storage
   }
 })

@@ -1,8 +1,8 @@
 /**
  * Each opponent model's loading status, for the game's progress line: built
- * from its adapter's `availability()` (on the device or not), the download
- * progress `createSessionWithProgress` reports, and that load resolving or
- * failing.
+ * from its adapter's `availability()` (whether it can run here), the
+ * download progress `createSessionWithProgress` reports (only for files
+ * that aren't on the device yet), and that load resolving or failing.
  */
 
 export type ModelStatus =
@@ -11,8 +11,8 @@ export type ModelStatus =
       state: "loading"
       /** 0-1 of the download; 0 while a model on the device loads. */
       progress: number
-      /** True when the model is on the device already, not downloading. */
-      cached: boolean
+      /** True once its files are downloading: they weren't on the device. */
+      downloading: boolean
     }
   | { state: "ready" }
   | { state: "error"; message: string }
@@ -76,11 +76,11 @@ export function loadWithStatus(key: string, adapter: LoadableAdapter): Promise<v
       // Where it can't run, the load says why (each package's own message).
       const availability = await adapter.availability()
       if (availability !== "unavailable") {
-        status.set({ state: "loading", progress: 0, cached: availability === "available" })
+        status.set({ state: "loading", progress: 0, downloading: false })
       }
     }
     await adapter.createSessionWithProgress((progress) => {
-      if (progress < 1) status.set({ state: "loading", progress, cached: false })
+      if (progress < 1) status.set({ state: "loading", progress, downloading: true })
     })
     status.set({ state: "ready" })
   })()

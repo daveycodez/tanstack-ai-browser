@@ -298,8 +298,8 @@ function PlayView({
                         {busy
                           ? "Sowing seeds…"
                           : aiLoading
-                            ? ai.state.cached
-                              ? "Loading cached model…"
+                            ? ai.state.downloading
+                              ? "Downloading your opponent…"
                               : "Preparing your opponent…"
                             : "Considering the possibilities…"}
                       </span>

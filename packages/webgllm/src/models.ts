@@ -1,6 +1,6 @@
 /**
  * The one `WebGLLM` instance every adapter and helper here shares, and the
- * page-side state around it: which models are ready or downloading, and
+ * page-side state around it: which models are ready, and
  * its place in the memory registry this project's runtimes share
  * (model-memory.ts), so a WebGL model and a Transformers.js or wllama one
  * make room for each other.
@@ -20,11 +20,12 @@ import {
 } from "./model-memory.js"
 
 /**
- * Where a model stands in this browser, with the Prompt API's values
+ * Where a model stands, with the Prompt API's values
  * (`LanguageModel.availability()`): "unavailable" (it can't run here),
- * "downloadable" (it can, once downloaded), "downloading" (a download of it
- * is in progress in this page) or "available" (on the device: no download
- * needed).
+ * "downloadable" (it can: loading it downloads it, or reads it from
+ * storage), "downloading" or "available" (loaded and ready in this page).
+ * This package's `availability()` never says "downloading": a load's
+ * progress comes from `createSessionWithProgress`'s callback.
  */
 export type Availability =
   | "unavailable"
@@ -70,24 +71,16 @@ export const webgllm = new WebGLLM({
 })
 
 /**
- * Where `model` stands in this browser, as the Prompt API's
- * `LanguageModel.availability()` says it: "unavailable" where the engine
- * can't run (WebGL 2 with float render targets, in a worker; not on a
- * server) or the model isn't in webgllm's catalog, "downloading" while this
- * page downloads it, "available" when its files are all in webgllm's
- * storage (the Origin Private File System), else "downloadable".
+ * Where `model` stands, as the Prompt API's `LanguageModel.availability()`
+ * says it: "unavailable" where the engine can't run (WebGL 2 with float
+ * render targets, in a worker; not on a server) or the model isn't in
+ * webgllm's catalog, "available" when it's loaded and ready in this page,
+ * else "downloadable", while a load is in progress and when its files are
+ * in webgllm's storage too. No storage reads, no worker, no network.
  */
 export async function availability(model: WebGllmChatModel): Promise<Availability> {
   if (!WebGLLM.isSupported() || !(model in WEBGLLM_MODEL_META)) return "unavailable"
-  if (downloading.has(model)) return "downloading"
-  if (ready.has(model)) return "available"
-  try {
-    const { downloaded } = await webgllm.models.retrieve(model)
-    if (downloading.has(model)) return "downloading"
-    return downloaded ? "available" : "downloadable"
-  } catch {
-    return "downloadable"
-  }
+  return ready.has(model) ? "available" : "downloadable"
 }
 
 /**
@@ -100,9 +93,6 @@ export function setMemoryBudget(bytes: number | undefined) {
 
 /** Models loaded and ready, whatever loaded them. */
 const ready = new Set<string>()
-
-/** Models whose files are downloading in this page. */
-const downloading = new Set<string>()
 
 /** Each loading model's callers' download progress callbacks, until it settles. */
 const listeners = new Map<string, Set<DownloadProgressCallback>>()
@@ -246,24 +236,20 @@ const downloadShare = ({ progress, loadedBytes, totalBytes }: LoadProgress) =>
 // another model, a crash).
 webgllm.addEventListener("progress", (progress) => {
   if (progress.phase !== "download" || progress.cached) return
-  downloading.add(progress.model)
   report(progress.model, downloadShare(progress))
 })
 
 webgllm.addEventListener("load", ({ model }) => {
-  downloading.delete(model)
   ready.add(model)
   touchMemory(owner(model))
   report(model, 1, true)
 })
 
 webgllm.addEventListener("error", ({ model }) => {
-  downloading.delete(model)
   ready.delete(model)
 })
 
 webgllm.addEventListener("unload", ({ model }) => {
-  downloading.delete(model)
   ready.delete(model)
   loadedFor.delete(model)
   releaseMemory(owner(model))

@@ -8,7 +8,7 @@
  * its public API. Its package has no `exports` and its `main` names a file
  * it doesn't ship, so its built ES module is imported by path.
  */
-import { LoggerWithoutDebug, ModelManager, Wllama } from "@wllama/wllama/esm/index.js"
+import { LoggerWithoutDebug, Wllama } from "@wllama/wllama/esm/index.js"
 import type {
   ChatCompletionChunk,
   ChatCompletionParams,
@@ -22,11 +22,12 @@ import { modelMeta, modelUrl } from "./catalog.js"
 import type { WllamaChatModel } from "./catalog.js"
 
 /**
- * Where a model stands in this browser, with the Prompt API's values
+ * Where a model stands, with the Prompt API's values
  * (`LanguageModel.availability()`): "unavailable" (it can't run here),
- * "downloadable" (it can, once downloaded), "downloading" (a download of it
- * is in progress in this page) or "available" (on the device: no download
- * needed).
+ * "downloadable" (it can: loading it downloads it, or reads it from
+ * storage), "downloading" or "available" (loaded and ready in this page).
+ * This package's `availability()` never says "downloading": a load's
+ * progress comes from `createSessionWithProgress`'s callback.
  */
 export type Availability =
   | "unavailable"
@@ -36,9 +37,6 @@ export type Availability =
 
 /** A download's progress, from 0 to 1. */
 export type DownloadProgressCallback = (progress: number) => void
-
-/** Models whose file is downloading in this page. */
-const downloading = new Set<WllamaChatModel>()
 
 function call(listener: DownloadProgressCallback, progress: number) {
   try {
@@ -154,7 +152,6 @@ export async function unloadModel(model?: WllamaChatModel) {
   releaseMemory(OWNER)
   if (!current) return
   loaded = null
-  downloading.delete(current.model)
   current.abort.abort()
   await current.wllama.exit().catch(() => undefined)
 }
@@ -314,12 +311,10 @@ async function startLoad(
       progressCallback: ({ loaded: bytes, total }) => {
         if (cached || signal.aborted) return
         // (0 until the server says the file's size.)
-        downloading.add(model)
         progress(total ? Math.min(bytes / total, 1) : 0)
       }
     }
   )
-  downloading.delete(model)
   signal.throwIfAborted()
   await withDeadline(
     wllama.loadModel(file, {
@@ -384,7 +379,6 @@ export function loadModel(
     return failed
   }
   const previous = loaded
-  if (previous) downloading.delete(previous.model)
   const abort = new AbortController()
   const listeners = new Set<DownloadProgressCallback>(
     onDownloadProgress ? [onDownloadProgress] : []
@@ -427,7 +421,6 @@ export function loadModel(
       // Superseded: the next load frees it.
       if (loaded !== current) return
       loaded = null
-      downloading.delete(model)
       releaseMemory(OWNER)
       void wllama.exit().catch(() => undefined)
     }
@@ -452,34 +445,22 @@ function canRun() {
   )
 }
 
-/** wllama's model storage, read from the page (the Origin Private File System). */
-let storage: ModelManager | undefined
-
 /**
- * Where `model` stands in this browser, as the Prompt API's
- * `LanguageModel.availability()` says it: "unavailable" where wllama can't
- * run (no WebAssembly, Web Worker or Origin Private File System, as on a
- * server), "downloading" while this page downloads it, "available" when
- * its whole GGUF file is in wllama's storage, else "downloadable".
+ * Where `model` stands, as the Prompt API's `LanguageModel.availability()`
+ * says it: "unavailable" where wllama can't run (no WebAssembly, Web Worker
+ * or Origin Private File System, as on a server) or the model isn't known,
+ * "available" when it's loaded and ready in this page, else "downloadable",
+ * while a load is in progress and when its file is in wllama's storage too.
+ * No storage reads, no worker, no network.
  */
 export async function availability(model: WllamaChatModel): Promise<Availability> {
   if (!canRun()) return "unavailable"
-  let url: string
   try {
-    url = modelUrl(model)
+    modelUrl(model)
   } catch {
     return "unavailable"
   }
-  if (downloading.has(model)) return "downloading"
-  if (loaded?.model === model && loaded.ready) return "available"
-  try {
-    storage ??= new ModelManager()
-    const saved = await storage.getModels()
-    if (downloading.has(model)) return "downloading"
-    return saved.some((m) => m.url === url) ? "available" : "downloadable"
-  } catch {
-    return "downloadable"
-  }
+  return loaded?.model === model && loaded.ready ? "available" : "downloadable"
 }
 
 const count = new Intl.NumberFormat("en-US")

@@ -476,9 +476,11 @@ export class TransformersJsTextAdapter<
   /**
    * Where the model stands in this browser, with the Prompt API's values:
    * "unavailable" where it can't run (no Web Worker or WebAssembly, as on a
-   * server, or no WebGPU and no CPU weights), "downloading" while this page
-   * downloads it, "available" when its files (for this adapter's `dtype`)
-   * are all in Transformers.js's cache, else "downloadable".
+   * server, or no WebGPU and no CPU weights), "available" when it's loaded
+   * and ready in this page (by any adapter of it, for this `dtype`), else
+   * "downloadable", even while it loads or when its files are cached (a
+   * load then reads them). It never says "downloading": progress comes from
+   * `createSessionWithProgress`. It reads no storage and starts no worker.
    */
   availability(): Promise<Availability> {
     return availability(this.model, { dtype: this.dtype })

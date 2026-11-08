@@ -8,7 +8,7 @@ import { resolveOpponent, sameOpponent } from "./opponents"
 export type AiTurnState = {
   phase: "idle" | "loading" | "processing" | "choosing" | "error"
   progress?: number
-  cached?: boolean
+  downloading?: boolean
   message?: string
 }
 const IDLE: AiTurnState = { phase: "idle" }
@@ -45,7 +45,7 @@ export function useAiTurn(game: Game | undefined, busy: boolean) {
           previous?.key === key &&
           previous.state.phase === state.phase &&
           previous.state.progress === state.progress &&
-          previous.state.cached === state.cached &&
+          previous.state.downloading === state.downloading &&
           previous.state.message === state.message
         )
           return previous
@@ -84,7 +84,7 @@ export function useAiTurn(game: Game | undefined, busy: boolean) {
         const syncProgress = () => {
           if (controller.signal.aborted) return
           const loading = loadingStore.get()
-          if (loading.state === "loading") setState({ phase: "loading", progress: Math.floor(loading.progress * 100) / 100, cached: loading.cached })
+          if (loading.state === "loading") setState({ phase: "loading", progress: Math.floor(loading.progress * 100) / 100, downloading: loading.downloading })
           else if (loading.state === "ready") setState({ phase: "processing" })
         }
         unsubscribe = loadingStore.subscribe(syncProgress)

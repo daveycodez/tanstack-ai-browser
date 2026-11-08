@@ -266,7 +266,7 @@ function Working() {
   const status = useModelStatus(model)
   const loading = status.state === "loading" ? status : null
   const downloading =
-    loading && !loading.cached && loading.progress < 1 ? loading : null
+    loading && loading.downloading && loading.progress < 1 ? loading : null
   const label = downloading
     ? `Downloading ${modelInfo(model).name}… ${Math.round(downloading.progress * 100)}%`
     : loading

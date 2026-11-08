@@ -90,12 +90,13 @@ A failure is a `RUN_ERROR`: webgllm's error code, `structured-output-parse-faile
 import { webgllmText } from "@tanstack-ai-browser/webgllm"
 
 const adapter = webgllmText("LiquidAI/LFM3-1.7B-GGUF", { contextLength: 8192 })
-await adapter.availability() // "unavailable", "downloadable", "downloading" or "available"
+await adapter.availability() // "unavailable", "downloadable" or "available" (loaded)
 await adapter.createSessionWithProgress((progress) => console.log(progress)) // ahead of time; else the first chat loads it
 await adapter.destroySession() // frees its GPU memory
 ```
 
-The methods have the Prompt API's values and meanings. `availability()` is `"unavailable"` where the engine can't run (or for a model webgllm doesn't list), `"downloading"` while this page downloads the model (however the load started: `createSessionWithProgress` or an adapter's first chat), `"available"` when its files are in webgllm's storage, else `"downloadable"`. `createSessionWithProgress(onDownloadProgress?)` reports the download, 0 to 1, then 1 once the model is ready (at once if it already is); it resolves to the adapter, and rejects on failure (fine to leave unawaited). The config's `onDownloadProgress` hears a download the first chat starts too. Adapters for the same model share it, so `destroySession()` on one unloads it for all of them; other models stay loaded while they fit the memory budget.
+The methods have the Prompt API's values and meanings. `availability()` is `"unavailable"` where the engine can't run (or for a model webgllm doesn't list), `"available"` when the model is loaded and ready in this page (however the load started: `createSessionWithProgress` or an adapter's first chat), else `"downloadable"`: also while it loads, and when its files are already in webgllm's storage (loading then reads them, no download). It never says `"downloading"`, and it reads no storage and makes no request (no `webgllm.models.retrieve()`). `createSessionWithProgress(onDownloadProgress?)` reports the download, 0 to 1, then 1 once the model is ready (at once if it already is); it resolves to the adapter, and rejects on failure (fine to leave unawaited). The config's `onDownloadProgress` hears a download the first chat starts too. Adapters for the same model share it, so `destroySession()` on one unloads it for all of them; other models stay loaded while they fit the memory budget.
+
 ## Memory
 
 This project's runtimes (this one, Transformers.js and wllama) share one memory budget: before a model loads, the least recently used models of any runtime are unloaded until everything fits. The budget is 1.5 GB on iOS (a Safari tab gets about 2 GB), half the device's memory where the browser says, else 4 GB; `setMemoryBudget(bytes)` changes it for all of them. A webgllm model counts as 1.4× its download size (its textures, measured). The adapter's `keepLoaded` keeps a model loaded past the budget, from its next load.

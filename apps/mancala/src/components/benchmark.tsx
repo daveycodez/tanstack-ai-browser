@@ -198,7 +198,7 @@ export function BenchmarkView() {
           const value = store.get()
           setLoadStatus(
             value.state === "loading"
-              ? `${value.cached ? "Loading cached model" : "Downloading model"}: ${Math.round(value.progress * 100)}%`
+              ? `${value.downloading ? "Downloading model" : "Loading model"}: ${Math.round(value.progress * 100)}%`
               : value.state === "ready"
                 ? "Model ready"
                 : ""

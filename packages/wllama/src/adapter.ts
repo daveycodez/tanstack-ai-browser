@@ -396,9 +396,11 @@ export class WllamaTextAdapter<
   /**
    * Where the model stands in this browser, with the Prompt API's values:
    * "unavailable" where wllama can't run (no WebAssembly, Web Worker or
-   * Origin Private File System, as on a server), "downloading" while this
-   * page downloads it, "available" when its GGUF file is in wllama's
-   * storage, else "downloadable".
+   * Origin Private File System, as on a server), "available" when it's
+   * loaded and ready in this page (by any adapter of it), else
+   * "downloadable", even while it loads or when its file is in wllama's
+   * storage (a load then reads it). It never says "downloading": progress
+   * comes from `createSessionWithProgress`. It reads no storage.
    */
   availability(): Promise<Availability> {
     return availability(this.model)

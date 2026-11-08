@@ -53,8 +53,9 @@ const APPLE_MODEL = "apple-foundationmodel"
 
 /**
  * A local model's loading status, from its adapter: `availability()` says
- * whether it's on the device, `onDownloadProgress` how much of it has
- * downloaded, and `createSessionWithProgress` when it's ready (or failed).
+ * whether it can run here, `onDownloadProgress` how much of it has
+ * downloaded (only for files that aren't on the device yet), and
+ * `createSessionWithProgress` when it's ready (or failed).
  */
 export type ModelStatus =
   | { state: "idle" }
@@ -62,8 +63,8 @@ export type ModelStatus =
       state: "loading"
       /** 0-1 of the download; 0 while a model on the device loads. */
       progress: number
-      /** True when the model is on the device, not downloading. */
-      cached: boolean
+      /** True once its files are downloading: they weren't on the device. */
+      downloading: boolean
     }
   | { state: "ready" }
   | { state: "error"; message: string }
@@ -78,7 +79,7 @@ export type ModelStatusStore = ReturnType<typeof createStore<ModelStatus>>
 function statusStore() {
   const status = createStore<ModelStatus>({ state: "idle" })
   const onDownloadProgress = (progress: number) => {
-    if (progress < 1) status.set({ state: "loading", progress, cached: false })
+    if (progress < 1) status.set({ state: "loading", progress, downloading: true })
   }
   return { status, onDownloadProgress }
 }
@@ -528,9 +529,10 @@ const loads = new Map<ModelId, Promise<Error | undefined>>()
 
 /**
  * Loads `id`'s model before a run (downloading it the first time), keeping
- * its status up to date: on the device or downloading (its availability),
- * how much has downloaded (its adapter's `onDownloadProgress`), then ready
- * or failed (`createSessionWithProgress`). Resolves to the error if it
+ * its status up to date: loading (once its availability says it can run
+ * here), how much has downloaded (its adapter's `onDownloadProgress`, which
+ * hears only a real download), then ready or failed
+ * (`createSessionWithProgress`). Resolves to the error if it
  * couldn't load.
  */
 export function prepareModel(id: ModelId): Promise<Error | undefined> {
@@ -543,7 +545,7 @@ export function prepareModel(id: ModelId): Promise<Error | undefined> {
       if (status.get().state !== "ready") {
         const availability = await checkAvailability(id)
         if (availability !== "unavailable") {
-          status.set({ state: "loading", progress: 0, cached: availability === "available" })
+          status.set({ state: "loading", progress: 0, downloading: false })
         }
       }
       await adapter.createSessionWithProgress()
