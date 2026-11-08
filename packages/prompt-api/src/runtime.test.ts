@@ -58,6 +58,13 @@ test("availability is the browser's own answer for the adapter's languages and i
     assert.deepEqual(late, [1], "a model already started reports 1 at once")
     await adapter.destroySession()
     assert.equal(await adapter.availability(), "available", "the browser keeps its model")
+    // The browser removes its model (to free space, say): a load asks again and starts it again.
+    answer = "downloadable"
+    const again: Array<number> = []
+    await promptApiText("built-in").createSessionWithProgress((value) => again.push(value))
+    assert.deepEqual(again, [0.5, 1], "downloaded again, not a stale 1")
+    assert.equal(destroyed, 2, "create() was called again")
+    assert.equal(await adapter.availability(), "available")
   } finally {
     delete scope.LanguageModel
   }

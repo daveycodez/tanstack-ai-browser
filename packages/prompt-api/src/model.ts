@@ -260,26 +260,36 @@ let loading: Promise<void> | null = null
 /** The progress callbacks of the callers waiting on `loading`. */
 const loadListeners = new Set<(progress: number) => void>()
 
+type LoadOptions = {
+  languages?: ReadonlyArray<string>
+  signal?: AbortSignal
+  onDownloadProgress?: (progress: number) => void
+}
+
 /**
  * Downloads the model if it isn't on the device, and loads it, with the
  * download's progress, 0 to 1, then 1 once it's ready (at once if it
  * already is). `chat()` doesn't need it (its first session does the same),
  * but the browser asks for a click on the page before a download: call it
  * from the click that turns the model on. The download goes on if `signal`
- * aborts; only the wait stops.
+ * aborts; only the wait stops. A model that started before is asked about
+ * again: the browser may have removed it since (to free space, say), and
+ * then it's loaded again.
  */
-export function loadPromptApiModel(
-  options: {
-    languages?: ReadonlyArray<string>
-    signal?: AbortSignal
-    onDownloadProgress?: (progress: number) => void
-  } = {}
-): Promise<void> {
-  const { signal, onDownloadProgress } = options
+export async function loadPromptApiModel(options: LoadOptions = {}): Promise<void> {
   if (status.get().state === "ready") {
-    report(onDownloadProgress, 1)
-    return Promise.resolve()
+    if ((await promptApiAvailability(options.languages)) === "available") {
+      report(options.onDownloadProgress, 1)
+      return
+    }
+    // No longer on the device: the next session starts it again.
+    if (status.get().state === "ready") status.set({ state: "idle" })
   }
+  return startModel(options)
+}
+
+function startModel(options: LoadOptions): Promise<void> {
+  const { signal, onDownloadProgress } = options
   if (onDownloadProgress) loadListeners.add(onDownloadProgress)
   loading ??= createLanguageModel(baseOptions(options.languages), undefined, (progress) => {
     for (const listener of loadListeners) report(listener, progress)
