@@ -99,7 +99,7 @@ export class MediaPipeEmbeddingAdapter<
    * embedder is shared, so this unloads it for every adapter of the model.
    * Its files stay in Cache Storage.
    */
-  async destroySession(): Promise<void> {
+  async destroy(): Promise<void> {
     await unloadModel(this.model)
   }
 

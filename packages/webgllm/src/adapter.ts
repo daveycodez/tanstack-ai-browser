@@ -371,7 +371,7 @@ export class WebGllmTextAdapter<TModel extends WebGllmChatModel> extends BaseTex
    * fails. The model is shared, so this unloads it for every adapter of it.
    * Its files stay downloaded. Never rejects.
    */
-  destroySession(): Promise<void> {
+  destroy(): Promise<void> {
     return unloadModel(this.model)
   }
 

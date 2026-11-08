@@ -26,7 +26,7 @@ The adapter has the same three runtime methods as this project's other adapters:
 
 - `adapter.availability()` is the browser's own `LanguageModel.availability()` for the adapter's `languages` and `inputs`: `"available"` (on the device), `"downloadable"` or `"downloading"` (it downloads when a session starts), or `"unavailable"` (no Prompt API, as on a server or in other browsers, or the device can't run it). Give the adapter what your sessions will use, as Chrome asks: `inputs: ["image"]` or `["audio"]` if users send them (audio needs a GPU).
 - `adapter.create({ onDownloadProgress?, signal }?)` downloads the model if it isn't on the device and starts it, ahead of the first message, with the download's progress, 0 to 1 (Chrome reports a fraction only, never bytes), then 1 once it's ready. Aborting `signal` rejects that call at once with an `AbortError` and stops its progress reports; the browser's `LanguageModel.create()` (and so its download) is aborted when no other call still waits on it. It resolves to the adapter, and rejects on failure; it's fine to leave unawaited. Chrome wants a click on the page before it downloads, so call it from the click that turns the model on. `chat()` doesn't need it: its first session does the same, and reports to the config's `onDownloadProgress`. Chrome's download of Gemini Nano took about 85 seconds on a fast connection, and loading it into memory takes about 6 to 8 seconds the first time after Chrome starts.
-- `adapter.destroySession()` frees every session the adapters keep (they share them). The browser keeps the model itself, so there's no memory budget to set here.
+- `adapter.destroy()` frees every session the adapters keep (they share them). The browser keeps the model itself, so there's no memory budget to set here.
 
 `languages` (`["en"]` by default) tells the model which languages to expect in and out; Chrome's model takes `en`, `es`, `ja`, `de` and `fr`, and checks its safety filters for the output language. `reasoning: "high"` opts into adapter-emulated working notes before the final pass; omitted or `"off"` uses the ordinary single-pass flow. See the emulated reasoning details below. `modelOptions` follows TanStack's OpenRouter adapter's names where the Prompt API has the setting: `temperature`, plus the camelCase extensions `topK` and `samplingMode`. `samplingMode` picks a sampling preset (`"most-predictable"` to `"most-creative"`); Chrome takes it on web pages only in its Sampling Parameters origin trial. `temperature` and `topK` work in extensions only. `maxCompletionTokens` caps the reply, emulated by the adapter (see below), and `parallelToolCalls: false` keeps only a reply's first tool call. The Prompt API has no nucleus sampling, penalties or stop sequences, so there's no `topP`, `frequencyPenalty`, `presencePenalty` or `stop`.
 
@@ -88,7 +88,7 @@ share the existing four-session cache bound but have separate identities, so fin
 JSON cannot replace a tool conversation. Only base preparation is serialized for calls
 sharing a structured prefix; their clones can generate independently. Cancellation,
 failed generation and unsupported schemas destroy the clone without discarding its
-healthy base. `destroySession()` frees retained structured bases too, and
+healthy base. `destroy()` frees retained structured bases too, and
 structured-output usage reports the prefix reused in `promptTokensDetails.cachedTokens`.
 This count excludes new input and newly appended history; it is not a guarantee that
 all prompt tokens or the generated output were cached.
@@ -107,7 +107,7 @@ promise provider retention durations or add a TTL. Direct adapter calls that omi
 remain ephemeral regardless of a supplied cache key, so working notes cannot leak
 into retained conversational state.
 
-An aborted or failed call frees its session, and the next request starts again from the messages. Aborting a request never destroys the session a thread keeps, and a kept session the browser destroyed is replaced on the next request. `destroySession()` frees every kept session.
+An aborted or failed call frees its session, and the next request starts again from the messages. Aborting a request never destroys the session a thread keeps, and a kept session the browser destroyed is replaced on the next request. `destroy()` frees every kept session.
 
 ## Usage
 

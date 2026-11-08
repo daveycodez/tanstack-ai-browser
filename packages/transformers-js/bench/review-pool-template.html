@@ -1,7 +1,7 @@
 <!doctype html><html lang="en"><head><meta charset="utf-8"><title>Prompt API concurrent pool regression</title><style>body{font:15px system-ui;max-width:1100px;margin:30px auto;padding:20px}button{font:inherit;padding:10px}pre{white-space:pre-wrap;font:12px monospace}td{padding:8px;border-bottom:1px solid #ccc}</style></head><body><h1>Prompt API concurrent pool regression</h1><p>Six distinct cold threads through the standard TanStack API; native sessions/clones are observed only in this diagnostic page.</p><button id="run">Run native pool checks</button><button id="stop" disabled>Stop</button><p id="status">Ready.</p><table><tbody id="rows"></tbody></table><pre id="report"></pre><script type="module">
 import {chat} from '@tanstack/ai';
 import {promptApiText} from '@tanstack-ai-browser/prompt-api';
-const unloadModel=()=>promptApiText('built-in').destroySession();
+const unloadModel=()=>promptApiText('built-in').destroy();
 const button=document.querySelector('#run'),stop=document.querySelector('#stop'),status=document.querySelector('#status'),out=document.querySelector('#report'),rows=document.querySelector('#rows');let cancel=()=>{};stop.onclick=()=>cancel();
 button.onclick=async()=>{
  button.disabled=true;stop.disabled=false;rows.textContent='';const report={startedAt:new Date().toISOString(),configuredMax:4,threads:6,results:[],error:null};let restore=()=>{};

@@ -86,11 +86,11 @@ export type AiMoveOptions = {
 
 let activeWebGlModel: WebGllmChatModel | undefined
 
-/** Unloads the WebGL model the last turn used, if any (its adapter's destroySession). */
+/** Unloads the WebGL model the last turn used, if any (its adapter's destroy). */
 function unloadWebGl() {
   if (!activeWebGlModel) return
   markUnloaded(activeWebGlModel)
-  void webgllmText(activeWebGlModel).destroySession()
+  void webgllmText(activeWebGlModel).destroy()
 }
 
 /** Waits for `promise`, or rejects when `signal` aborts (the load goes on). */

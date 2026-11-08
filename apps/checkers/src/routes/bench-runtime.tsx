@@ -6,9 +6,9 @@ import { runBenchmark } from "../../bench/runner"
 import { RUNTIME_CHANNEL } from "../../bench/run-in-frame"
 import type { RuntimeCommand, RuntimeEvent } from "../../bench/run-in-frame"
 
-/** Frees every WebGL model a run loaded (each model's adapter's destroySession). */
+/** Frees every WebGL model a run loaded (each model's adapter's destroy). */
 const unloadModel = () =>
-  void Promise.all(WEBGLLM_CHAT_MODELS.map((model) => webgllmText(model).destroySession()))
+  void Promise.all(WEBGLLM_CHAT_MODELS.map((model) => webgllmText(model).destroy()))
 
 export const Route = createFileRoute("/bench-runtime")({ component: BenchmarkRuntime })
 

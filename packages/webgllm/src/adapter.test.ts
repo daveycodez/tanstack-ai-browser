@@ -344,7 +344,7 @@ test("availability (downloadable, downloading during the download, available onc
   await loadModel(MODEL, { contextLength: 8192 })
   assert.equal(fake.loads.length, 2)
 
-  await other.destroySession()
+  await other.destroy()
   assert.deepEqual(fake.unloads, [MODEL], "unloading through one adapter unloads the shared model")
   assert.equal(await adapter.availability(), "downloadable", "unloaded: its files may be stored, but it isn't loaded")
 
@@ -449,7 +449,7 @@ test("create's signal: aborted before, nothing loads; the only waiter aborting c
     assert.equal(await adapter.availability(), "available")
 
     // A chat waiting on the load keeps it when a session caller aborts.
-    await adapter.destroySession()
+    await adapter.destroy()
     fake.loadGate = new Promise<void>((resolve) => (open = resolve))
     const session = new AbortController()
     const preload = adapter.create({ signal: session.signal })
@@ -461,7 +461,7 @@ test("create's signal: aborted before, nothing loads; the only waiter aborting c
     await chat
     assert.equal(await adapter.availability(), "available")
 
-    await adapter.destroySession()
+    await adapter.destroy()
     const ignored = new AbortController()
     void adapter.create({ signal: ignored.signal })
     ignored.abort()
@@ -478,10 +478,10 @@ test("constructing an adapter changes nothing shared; keepLoaded applies when it
   try {
     await plain.create()
     assert.equal(fake.loads.at(-1)?.options.keepLoaded, false, "constructing the keepLoaded adapter changed nothing")
-    await plain.destroySession()
+    await plain.destroy()
     await keeper.create()
     assert.equal(fake.loads.at(-1)?.options.keepLoaded, true, "using it applies it")
-    await keeper.destroySession()
+    await keeper.destroy()
     await webgllmText(MODEL).create()
     assert.equal(fake.loads.at(-1)?.options.keepLoaded, true, "a later adapter without keepLoaded leaves it")
   } finally {

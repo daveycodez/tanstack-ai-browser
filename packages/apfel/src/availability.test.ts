@@ -21,7 +21,7 @@ test("available when apfel lists the model at the adapter's baseURL; it reports 
   const progress: Array<number> = []
   assert.equal(await adapter.create({ onDownloadProgress: (value) => progress.push(value) }), adapter)
   assert.deepEqual(progress, [1])
-  await adapter.destroySession()
+  await adapter.destroy()
 })
 
 test("unavailable when apfel doesn't answer, fails, or doesn't serve the model; loading rejects", async () => {
