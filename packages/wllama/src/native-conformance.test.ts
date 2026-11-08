@@ -27,7 +27,7 @@ async function adapterPackage() {
       bundle.onLoad({ filter: /.*/, namespace: "contract" }, () => ({ contents: `
         const control=globalThis.__nativeSchemaContract;
         export const configureRuntime=()=>{}; export const setContextLength=()=>{};export const setKeepLoaded=()=>{};
-        export const waitForModel=async()=>{};export const loadedContext=()=>32768;export const contextError=()=>undefined;
+        export const availability=async()=>"available";export const loadModel=async()=>({});export const unloadModel=async()=>{};export const waitForModel=async()=>{};export const loadedContext=()=>32768;export const contextError=()=>undefined;
         export const streamChat=async function*(model,request,signal){control.requests.push({model,request,signal});yield {choices:[{delta:{content:"hello"},finish_reason:"stop"}]};};
         export const completeChat=async(model,request,signal)=>{control.requests.push({model,request,signal});return {choices:[{finish_reason:control.finish,message:{content:'{"moveId":"b6-a5"}'}}]}};
       ` }))

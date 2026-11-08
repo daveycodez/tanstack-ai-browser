@@ -1,4 +1,4 @@
-import { isSupported } from "@tanstack-ai-browser/prompt-api"
+import { promptApiText } from "@tanstack-ai-browser/prompt-api"
 import { useEffect, useState } from "react"
 
 export function usePromptApiAvailable() {
@@ -6,9 +6,11 @@ export function usePromptApiAvailable() {
   useEffect(() => {
     let active = true
     const check = () => {
-      void isSupported().then((supported) => {
-        if (active) setAvailable(supported)
-      })
+      void promptApiText("built-in")
+        .availability()
+        .then((availability) => {
+          if (active) setAvailable(availability !== "unavailable")
+        })
     }
     check()
     window.addEventListener("focus", check)

@@ -1,7 +1,9 @@
 import assert from "node:assert/strict"
 import { afterEach, test } from "node:test"
 
-import { embedTexts, loadModel, loadRequest, modelStatus, unloadModel } from "./client.js"
+import { mediaPipeEmbedding } from "./adapter.js"
+import { availability, embedTexts, loadModel, loadRequest, unloadModel } from "./client.js"
+import { CACHE_NAME } from "./download.js"
 import type { WorkerRequest, WorkerResponse } from "./protocol.js"
 import { MEDIAPIPE_WASM_URL } from "./version.js"
 
@@ -11,6 +13,8 @@ const OPTIONS = { l2Normalize: false, quantize: false }
 /** A stand-in for the embedder's worker: loads after a tick, embeds after another. */
 class FakeWorker {
   static created: Array<FakeWorker> = []
+  /** Loads only when the test replies "ready" itself. */
+  static manual = false
   onmessage: ((event: { data: WorkerResponse }) => void) | null = null
   onerror: ((event: unknown) => void) | null = null
   load: Extract<WorkerRequest, { type: "load" }> | undefined
@@ -21,7 +25,7 @@ class FakeWorker {
   postMessage(data: WorkerRequest) {
     if (data.type === "load") {
       this.load = data
-      setTimeout(() => this.reply({ type: "ready" }), 5)
+      if (!FakeWorker.manual) setTimeout(() => this.reply({ type: "ready" }), 5)
     } else {
       const vectors = data.texts.map(() => new Float32Array([1, 2]))
       setTimeout(() => this.reply({ type: "embedded", id: data.id, vectors }), 20)
@@ -39,6 +43,7 @@ const globals = globalThis as { Worker?: unknown }
 afterEach(async () => {
   await unloadModel()
   FakeWorker.created = []
+  FakeWorker.manual = false
   delete globals.Worker
 })
 
@@ -68,10 +73,9 @@ test("a call with other load options waits for the requests in flight before end
     FakeWorker.created.map((w) => w.terminated),
     FakeWorker.created.map((_, i) => i < FakeWorker.created.length - 1)
   )
-  assert.equal(modelStatus(MODEL).get().state, "ready")
 })
 
-test("a Worker the browser refuses to create leaves an error status, and loadModel rejects", async () => {
+test("a Worker the browser refuses to create makes loadModel reject", async () => {
   globals.Worker = class {
     constructor() {
       throw new DOMException("Worker blocked", "SecurityError")
@@ -81,10 +85,8 @@ test("a Worker the browser refuses to create leaves an error status, and loadMod
   const onUnhandled = (reason: unknown) => unhandled.push(reason)
   process.on("unhandledRejection", onUnhandled)
   try {
+    void loadModel(MODEL)
     await assert.rejects(loadModel(MODEL), /Worker blocked/)
-    const status = modelStatus(MODEL).get()
-    assert.equal(status.state, "error")
-    assert.match(status.state === "error" ? status.message : "", /Worker blocked/)
     await assert.rejects(embedTexts(MODEL, {}, ["x"], OPTIONS), /Worker blocked/)
     await new Promise((resolve) => setTimeout(resolve, 10))
     assert.deepEqual(unhandled, [])
@@ -93,8 +95,163 @@ test("a Worker the browser refuses to create leaves an error status, and loadMod
   }
   // The next load starts afresh.
   globals.Worker = FakeWorker
-  await loadModel(MODEL)
-  assert.equal(modelStatus(MODEL).get().state, "ready")
+  const progress: Array<number> = []
+  await loadModel(MODEL, {}, (value) => progress.push(value))
+  assert.deepEqual(progress, [1])
+})
+
+test("availability: unavailable without a Worker or for an unknown model; downloadable; downloading during the download; available once ready, and from Cache Storage while its files are there", async () => {
+  const scope = globalThis as { caches?: unknown }
+  const stored = new Set<string>()
+  scope.caches = {
+    open: async (name: string) => {
+      assert.equal(name, CACHE_NAME)
+      return { match: async (url: string) => (stored.has(url) ? new Response("x") : undefined) }
+    }
+  }
+  try {
+    assert.equal(await availability(MODEL), "unavailable")
+    globals.Worker = FakeWorker
+    assert.equal(await availability("not-a-model" as typeof MODEL), "unavailable")
+    assert.equal(await availability(MODEL), "downloadable")
+    FakeWorker.manual = true
+    const progress: Array<number> = []
+    const ready = loadModel(MODEL, {}, (value) => progress.push(value))
+    const worker = FakeWorker.created[0]
+    worker.reply({ type: "progress", cached: false, loadedBytes: 0, totalBytes: 100 })
+    worker.reply({ type: "progress", cached: false, loadedBytes: 50, totalBytes: 100 })
+    assert.equal(await availability(MODEL), "downloading")
+    worker.reply({ type: "ready" })
+    await ready
+    assert.deepEqual(progress, [0, 0.5, 1])
+    assert.equal(await availability(MODEL), "available")
+    await unloadModel(MODEL)
+    assert.equal(await availability(MODEL), "downloadable", "nothing in Cache Storage")
+    const request = loadRequest(MODEL, {})
+    stored.add(request.modelUrl)
+    assert.equal(await availability(MODEL), "downloadable", "MediaPipe's WebAssembly isn't kept yet")
+    assert.equal(await availability(MODEL, { cacheWasm: false }), "available")
+    stored.add(`${request.wasmPath}/text_wasm_module_internal.js`)
+    stored.add(`${request.wasmPath}/text_wasm_module_internal.wasm`)
+    assert.equal(await availability(MODEL), "available", "on the device")
+    stored.clear()
+    assert.equal(await availability(MODEL), "downloadable", "a cleared cache needs the download again")
+  } finally {
+    delete scope.caches
+  }
+})
+
+test("the same progress callback hears 1 on every load call: once for a shared load, then at once on the ready model; embed calls report nothing more", async () => {
+  globals.Worker = FakeWorker
+  FakeWorker.manual = true
+  const heard: Array<number> = []
+  const callback = (value: number) => heard.push(value)
+  const first = loadModel(MODEL, {}, callback)
+  const second = loadModel(MODEL, {}, callback)
+  const worker = FakeWorker.created[0]
+  worker.reply({ type: "progress", cached: false, loadedBytes: 50, totalBytes: 100 })
+  worker.reply({ type: "ready" })
+  await Promise.all([first, second])
+  assert.deepEqual(heard, [0.5, 1], "one load: its progress and its 1, once")
+  await loadModel(MODEL, {}, callback)
+  await loadModel(MODEL, {}, callback)
+  assert.deepEqual(heard, [0.5, 1, 1, 1], "each call on the ready model hears 1")
+  FakeWorker.manual = false
+  await embedTexts(MODEL, {}, ["a"], OPTIONS, callback)
+  assert.deepEqual(heard, [0.5, 1, 1, 1])
+  assert.equal(FakeWorker.created.length, 1)
+})
+
+test("a load's signal: aborted before, no worker starts; the only waiter aborting ends the worker; one of two leaving keeps the load for the other; an embed call waiting keeps it too", async () => {
+  globals.Worker = FakeWorker
+  FakeWorker.manual = true
+  const unhandled: Array<unknown> = []
+  const onUnhandled = (reason: unknown) => unhandled.push(reason)
+  process.on("unhandledRejection", onUnhandled)
+  try {
+    await assert.rejects(loadModel(MODEL, {}, undefined, AbortSignal.abort()), (error: unknown) => error instanceof DOMException && error.name === "AbortError")
+    assert.equal(FakeWorker.created.length, 0, "no worker started")
+
+    // The only waiter aborts mid-download.
+    const heard: Array<number> = []
+    const controller = new AbortController()
+    const alone = loadModel(MODEL, {}, (value) => heard.push(value), controller.signal)
+    const worker = FakeWorker.created[0]
+    worker.reply({ type: "progress", cached: false, loadedBytes: 30, totalBytes: 100 })
+    controller.abort()
+    await assert.rejects(alone, { name: "AbortError" })
+    assert.equal(worker.terminated, true, "the worker (and its download) ended")
+    assert.deepEqual(heard, [0.3])
+    assert.equal(await availability(MODEL), "downloadable")
+
+    // Two waiters: one leaves, the other still hears progress and completion.
+    const leaving: Array<number> = []
+    const staying: Array<number> = []
+    const leave = new AbortController()
+    const first = loadModel(MODEL, {}, (value) => leaving.push(value), leave.signal)
+    const second = loadModel(MODEL, {}, (value) => staying.push(value))
+    const next = FakeWorker.created[1]
+    next.reply({ type: "progress", cached: false, loadedBytes: 20, totalBytes: 100 })
+    leave.abort()
+    await assert.rejects(first, { name: "AbortError" })
+    assert.equal(next.terminated, false)
+    next.reply({ type: "progress", cached: false, loadedBytes: 70, totalBytes: 100 })
+    next.reply({ type: "ready" })
+    await second
+    assert.deepEqual(leaving, [0.2])
+    assert.deepEqual(staying, [0.2, 0.7, 1])
+    assert.equal(await availability(MODEL), "available")
+
+    // An embed call waiting on the load keeps it when the load's caller aborts.
+    await unloadModel(MODEL)
+    const session = new AbortController()
+    const preload = loadModel(MODEL, {}, undefined, session.signal)
+    const embedding = embedTexts(MODEL, {}, ["a"], OPTIONS)
+    session.abort()
+    await assert.rejects(preload, { name: "AbortError" })
+    const third = FakeWorker.created[2]
+    assert.equal(third.terminated, false)
+    FakeWorker.manual = false
+    third.reply({ type: "ready" })
+    assert.equal((await embedding).length, 1)
+
+    // Through the adapter, unawaited: no unhandled rejection.
+    await unloadModel(MODEL)
+    const ignored = new AbortController()
+    void mediaPipeEmbedding(MODEL).create({ signal: ignored.signal })
+    ignored.abort()
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    assert.deepEqual(unhandled, [])
+  } finally {
+    process.off("unhandledRejection", onUnhandled)
+  }
+})
+
+test("availability() reads Cache Storage only: no fetch, worker, IndexedDB or OPFS calls", async () => {
+  const calls: Array<string> = []
+  const scope = globalThis as Record<string, unknown>
+  const saved = Object.fromEntries(["fetch", "caches", "indexedDB"].map((key) => [key, Object.getOwnPropertyDescriptor(globalThis, key)]))
+  const storage = Object.getOwnPropertyDescriptor(navigator, "storage")
+  const define = (key: string, value: unknown) => Object.defineProperty(globalThis, key, { configurable: true, writable: true, value })
+  const reads: Array<string> = []
+  define("fetch", async () => { calls.push("fetch"); throw new Error("no network") })
+  define("caches", { open: async () => { reads.push("open"); return { match: async () => { reads.push("match"); return undefined } } } })
+  define("indexedDB", { open: () => { calls.push("indexedDB.open"); throw new Error("no") } })
+  Object.defineProperty(navigator, "storage", { configurable: true, value: { getDirectory: async () => { calls.push("navigator.storage.getDirectory"); return {} } } })
+  scope.Worker = class extends FakeWorker { constructor() { super(); calls.push("new Worker") } }
+  try {
+    assert.equal(await availability(MODEL), "downloadable")
+    assert.equal(await availability(MODEL, { cacheWasm: false, modelAssetPath: "https://example.com/model.tflite" }), "downloadable")
+    assert.deepEqual(calls, [])
+    assert.ok(reads.includes("match"), "it looked in Cache Storage")
+  } finally {
+    for (const [key, descriptor] of Object.entries(saved)) {
+      if (descriptor) Object.defineProperty(globalThis, key, descriptor)
+      else Reflect.deleteProperty(globalThis, key)
+    }
+    if (storage) Object.defineProperty(navigator, "storage", storage)
+    else Reflect.deleteProperty(navigator, "storage")
+  }
 })
 
 test("relative paths resolve against the page, not the worker's script", () => {

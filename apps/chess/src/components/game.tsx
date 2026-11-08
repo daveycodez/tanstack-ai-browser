@@ -428,7 +428,7 @@ export function GameView({
                     <>
                       <div className="model-load-caption">
                         <span>
-                          {ai.cached === false
+                          {ai.downloading
                             ? "Downloading opponent"
                             : "Preparing opponent"}
                         </span>

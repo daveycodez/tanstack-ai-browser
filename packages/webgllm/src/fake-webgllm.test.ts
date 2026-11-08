@@ -30,8 +30,11 @@ export const fake = {
   unloads: [] as Array<string | undefined>,
   /** Models the fake holds loaded. */
   loaded: new Set<string>(),
-  /** Download size models.retrieve reports. */
-  size: 1_000_000_000,
+  /** Models asked about with models.retrieve or models.list (which fetch from Hugging Face). */
+  retrieved: [] as Array<string>,
+  /** Models whose files the fake's storage holds (models.downloaded), and the models asked about. */
+  stored: new Set<string>(),
+  downloadedAsked: [] as Array<string>,
   /** Bytes each load's worker claims through onMemoryClaim, as the real worker measures them. */
   memory: 1_400_000_000,
   /** Holds each load's memory claim until it resolves. */
@@ -54,7 +57,9 @@ export const fake = {
     this.loads = []
     this.unloads = []
     this.loaded.clear()
-    this.size = 1_000_000_000
+    this.retrieved = []
+    this.stored.clear()
+    this.downloadedAsked = []
     this.memory = 1_400_000_000
     this.claimGate = undefined
     this.loadError = undefined
@@ -227,15 +232,26 @@ webgllm.unloadModel = async (model) => {
     emit("unload", { model: name, reason: "unloaded" })
   }
 }
-webgllm.models.retrieve = async (model) => ({
-  id: model,
-  format: "gguf",
-  contextLength: 32_768,
-  size: fake.size,
-  downloaded: true,
-  loaded: fake.loaded.has(model),
-  supports: { tools: true, thinking: true }
-})
+webgllm.models.downloaded = async (model) => {
+  fake.downloadedAsked.push(model)
+  return fake.loaded.has(model) || fake.stored.has(model)
+}
+webgllm.models.list = async () => {
+  fake.retrieved.push("*")
+  return []
+}
+webgllm.models.retrieve = async (model) => {
+  fake.retrieved.push(model)
+  return {
+    id: model,
+    format: "gguf",
+    contextLength: 32_768,
+    size: 1_000_000_000,
+    downloaded: true,
+    loaded: fake.loaded.has(model),
+    supports: { tools: true, thinking: true }
+  }
+}
 webgllm.chat.completions.create = (async (body: ChatCompletionCreateParamsStreaming, options: RequestOptions = {}) => {
   fake.requests.push({ body, options })
   options.signal?.throwIfAborted()

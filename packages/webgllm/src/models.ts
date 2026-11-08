@@ -1,6 +1,6 @@
 /**
  * The one `WebGLLM` instance every adapter and helper here shares, and the
- * page-side state around it: each model's loading status as a store, and
+ * page-side state around it: which models are ready or downloading, and
  * its place in the memory registry this project's runtimes share
  * (model-memory.ts), so a WebGL model and a Transformers.js or wllama one
  * make room for each other.
@@ -8,6 +8,9 @@
 import { WebGLLM } from "webgllm"
 import { defaultMemoryBudget } from "webgllm/advanced"
 
+import type { LoadProgress } from "webgllm"
+
+import { WEBGLLM_MODEL_META } from "./catalog.js"
 import type { WebGllmChatModel } from "./catalog.js"
 import {
   claimMemory,
@@ -16,44 +19,21 @@ import {
   touchMemory
 } from "./model-memory.js"
 
-/** A value that can be read, set and watched. Framework-free. */
-export type Store<T> = {
-  get(): T
-  set(value: T): void
-  subscribe(listener: () => void): () => void
-}
+/**
+ * Where a model stands in this browser, with the Prompt API's values
+ * (`LanguageModel.availability()`): "unavailable" (it can't run here),
+ * "downloadable" (it can, once downloaded), "downloading" (a download of it
+ * is in progress in this page) or "available" (on the device: no download
+ * needed).
+ */
+export type Availability =
+  | "unavailable"
+  | "downloadable"
+  | "downloading"
+  | "available"
 
-function createStore<T>(initial: T): Store<T> {
-  let value = initial
-  const listeners = new Set<() => void>()
-  return {
-    get: () => value,
-    set: (next) => {
-      value = next
-      listeners.forEach((listener) => listener())
-    },
-    subscribe: (listener) => {
-      listeners.add(listener)
-      return () => {
-        listeners.delete(listener)
-      }
-    }
-  }
-}
-
-export type ModelStatus =
-  | { state: "idle" }
-  | {
-      state: "loading"
-      /** 0-1 across downloading and uploading to the GPU. */
-      progress: number
-      /** True when the files come from the browser's storage, not the network. */
-      cached: boolean
-      loadedBytes?: number
-      totalBytes?: number
-    }
-  | { state: "ready" }
-  | { state: "error"; message: string }
+/** A download's progress, from 0 to 1. */
+export type DownloadProgressCallback = (progress: number) => void
 
 /** The registry's budget (set by any runtime's setMemoryBudget), else the device's. */
 function registryBudget(): number {
@@ -89,14 +69,53 @@ export const webgllm = new WebGLLM({
   }
 })
 
+let engineSupported: boolean | undefined
+
 /**
- * Whether this browser can run the engine (WebGL 2 with float render
- * targets, in a worker), so `model` (any model in the catalog).
+ * Whether the engine runs in this browser (WebGL 2 with float render
+ * targets, in a worker), checked once: webgllm's check makes a WebGL
+ * context, and the answer doesn't change during a page's life.
  */
-export function isSupported(model?: WebGllmChatModel): boolean {
-  void model
-  return WebGLLM.isSupported()
+export function engineRuns(): boolean {
+  engineSupported ??= WebGLLM.isSupported()
+  return engineSupported
 }
+
+/** Forgets `engineRuns`'s answer (for tests that swap the engine's check). */
+export function forgetEngineCheck() {
+  engineSupported = undefined
+}
+
+/**
+ * Where `model` stands for chats of up to `contextLength` tokens (as
+ * requested: undefined for the model's own), as the Prompt API's
+ * `LanguageModel.availability()` says it: "unavailable" where the engine
+ * can't run (WebGL 2 with float render targets, in a worker; not on a
+ * server) or the model isn't in webgllm's catalog, "downloading" while this
+ * page downloads it, "available" when it's loaded for that context or
+ * every file it loads is in webgllm's storage (`models.downloaded`, which
+ * reads the Origin Private File System only), else "downloadable". No
+ * worker, no network.
+ */
+export async function availability(
+  model: WebGllmChatModel,
+  contextLength?: number
+): Promise<Availability> {
+  if (!(model in WEBGLLM_MODEL_META) || !engineRuns()) return "unavailable"
+  if (downloading.has(model)) return "downloading"
+  if (isLoadedFor(model, contextLength)) return "available"
+  let stored = false
+  try {
+    stored = await webgllm.models.downloaded(model)
+  } catch {
+    // Storage that can't be read: a load downloads it.
+  }
+  if (downloading.has(model)) return "downloading"
+  return stored ? "available" : "downloadable"
+}
+
+/** Models whose files are downloading in this page. */
+const downloading = new Set<string>()
 
 /**
  * Sets how many bytes the page's models may take together, across this
@@ -106,16 +125,48 @@ export function setMemoryBudget(bytes: number | undefined) {
   setRegistryBudget(bytes)
 }
 
-const statuses = new Map<string, Store<ModelStatus>>()
+/** Models loaded and ready, whatever loaded them. */
+const ready = new Set<string>()
 
-/** Loading status of a model, by its name. */
-export function modelStatus(model: WebGllmChatModel): Store<ModelStatus> {
-  let status = statuses.get(model)
-  if (!status) {
-    status = createStore<ModelStatus>({ state: "idle" })
-    statuses.set(model, status)
+/**
+ * Each loading model's callers' download progress callbacks, until it
+ * settles, with how many waiting callers use each: a callback is called
+ * once per report, and stays while any caller using it waits.
+ */
+const listeners = new Map<string, Map<DownloadProgressCallback, number>>()
+
+function call(listener: DownloadProgressCallback, progress: number) {
+  try {
+    listener(progress)
+  } catch (error) {
+    console.error(error)
   }
-  return status
+}
+
+/** Calls `model`'s progress callbacks; once it's ready, forgets them. */
+function report(model: string, progress: number, settled = false) {
+  const waiting = listeners.get(model)
+  if (!waiting) return
+  if (settled) listeners.delete(model)
+  for (const listener of [...waiting.keys()]) call(listener, progress)
+}
+
+/** Adds a waiting caller's progress callback to `model`'s load. */
+function listen(model: string, listener: DownloadProgressCallback | undefined) {
+  if (!listener) return
+  let waiting = listeners.get(model)
+  if (!waiting) listeners.set(model, (waiting = new Map()))
+  waiting.set(listener, (waiting.get(listener) ?? 0) + 1)
+}
+
+/** Removes one waiting caller's progress callback: other callers using it keep it. */
+function unlisten(model: string, listener: DownloadProgressCallback | undefined) {
+  const waiting = listener && listeners.get(model)
+  if (!waiting) return
+  const count = (waiting.get(listener) ?? 0) - 1
+  if (count > 0) waiting.set(listener, count)
+  else waiting.delete(listener)
+  if (waiting.size === 0) listeners.delete(model)
 }
 
 /** Models never unloaded to make room for another (see setKeepLoaded). */
@@ -137,7 +188,9 @@ const owner = (model: string) => `webgllm:${model}`
 /** The context each ready model was loaded for, as requested (undefined: the model's own). */
 const loadedFor = new Map<string, number | undefined>()
 
-const errorText = (error: unknown) => (error instanceof Error ? error.message : String(error))
+/** Whether `model` is ready for `contextLength` (as requested): what a chat needs, and no load. */
+const isLoadedFor = (model: string, contextLength: number | undefined) =>
+  ready.has(model) && loadedFor.has(model) && loadedFor.get(model) === contextLength
 
 /** The registry unloads `model` to make room for another runtime's (or another webgllm model). */
 function evict(model: string): Promise<void> {
@@ -147,8 +200,8 @@ function evict(model: string): Promise<void> {
 
 /**
  * Loads `model` for `contextLength`. Its memory is claimed from the worker
- * (see onMemoryClaim) and released at its "unload" event, and its status
- * follows webgllm's events (see below), not this function. Nothing is awaited
+ * (see onMemoryClaim) and released at its "unload" event, and its state
+ * here follows webgllm's events (see below), not this function. Nothing is awaited
  * before webgllm takes the load, so an unloadModel() from here on reaches it.
  * A caller that gives up releases nothing: webgllm shares one load between
  * its callers and unloads (releasing it) only when the last one leaves.
@@ -166,11 +219,34 @@ async function load(model: WebGllmChatModel, contextLength: number | undefined, 
  * Loads a model ahead of time (downloading it the first time) for chats of
  * up to `contextLength` tokens: the model's own context length by default.
  * A different context length loads the model again. Other models stay
- * loaded while they fit the memory budget.
+ * loaded while they fit the memory budget. `onDownloadProgress` hears the
+ * download's progress, 0 to 1, then 1 once the model is ready (at once if
+ * it already is).
  */
-export function loadModel(model: WebGllmChatModel, options: { contextLength?: number } = {}): Promise<void> {
-  const promise = ensureModel(model, options.contextLength)
-  // Callers may not wait for it: the status store reports a failure too.
+export function loadModel(
+  model: WebGllmChatModel,
+  options: {
+    contextLength?: number
+    onDownloadProgress?: DownloadProgressCallback
+    /**
+     * Stops this caller's wait: it rejects at once with an AbortError and
+     * hears no more progress. webgllm shares one load between its callers
+     * (a chat's included) and cancels it, leaving the model unloaded, when
+     * the last one leaves.
+     */
+    signal?: AbortSignal
+  } = {}
+): Promise<void> {
+  const { contextLength, onDownloadProgress, signal } = options
+  const promise = (async () => {
+    try {
+      await ensureModel(model, contextLength, signal, onDownloadProgress, true)
+    } catch (error) {
+      if (signal?.aborted) throw new DOMException("The model load was aborted.", "AbortError")
+      throw error
+    }
+  })()
+  // Callers may leave it: an unawaited failure isn't an unhandled rejection.
   promise.catch(() => undefined)
   return promise
 }
@@ -182,18 +258,25 @@ export function loadModel(model: WebGllmChatModel, options: { contextLength?: nu
 export async function ensureModel(
   model: WebGllmChatModel,
   contextLength: number | undefined,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  onDownloadProgress?: DownloadProgressCallback,
+  /** Tell `onDownloadProgress` 1 at once if the model is ready already. */
+  reportReady = false
 ): Promise<void> {
   signal?.throwIfAborted()
-  if (
-    modelStatus(model).get().state === "ready" &&
-    loadedFor.has(model) &&
-    loadedFor.get(model) === contextLength
-  ) {
+  if (isLoadedFor(model, contextLength)) {
     touchMemory(owner(model))
+    if (reportReady && onDownloadProgress) call(onDownloadProgress, 1)
     return
   }
-  await load(model, contextLength, signal)
+  listen(model, onDownloadProgress)
+  try {
+    await load(model, contextLength, signal)
+  } catch (error) {
+    // This caller is done waiting; others keep theirs.
+    unlisten(model, onDownloadProgress)
+    throw error
+  }
 }
 
 /** Marks `model` as just used, for least recently used order across runtimes. */
@@ -209,40 +292,38 @@ export function unloadModel(model?: WebGllmChatModel): Promise<void> {
   return webgllm.unloadModel(model).catch(() => undefined)
 }
 
-// webgllm only dispatches events for models in its catalog, so `model` is a WebGllmChatModel.
-// Statuses follow webgllm's lifecycle events, whatever started the load
-// (loadModel, a completion loading on demand) or the unload (unloadModel,
-// room for another model, a crash): set as they happen, as the
-// Transformers.js and wllama runtimes set theirs.
-webgllm.addEventListener("loadstart", ({ model }) => {
-  const status = modelStatus(model as WebGllmChatModel)
-  if (status.get().state !== "loading") status.set({ state: "loading", progress: 0, cached: true })
-})
+/**
+ * A download's share of the way, 0 to 1, from webgllm's progress (which
+ * spans downloading, 0 to 0.9, and reading the files into the GPU).
+ */
+const downloadShare = ({ progress, loadedBytes, totalBytes }: LoadProgress) =>
+  totalBytes ? Math.min((loadedBytes ?? 0) / totalBytes, 1) : Math.min(progress / 0.9, 1)
 
+// webgllm only dispatches events for models in its catalog. The state here
+// follows webgllm's lifecycle events, whatever started the load (loadModel,
+// a completion loading on demand) or the unload (unloadModel, room for
+// another model, a crash).
 webgllm.addEventListener("progress", (progress) => {
-  modelStatus(progress.model as WebGllmChatModel).set({
-    state: "loading",
-    progress: progress.progress,
-    cached: progress.cached,
-    ...(progress.totalBytes !== undefined && {
-      loadedBytes: progress.loadedBytes ?? 0,
-      totalBytes: progress.totalBytes
-    })
-  })
+  if (progress.phase !== "download" || progress.cached) return
+  downloading.add(progress.model)
+  report(progress.model, downloadShare(progress))
 })
 
 webgllm.addEventListener("load", ({ model }) => {
-  modelStatus(model as WebGllmChatModel).set({ state: "ready" })
+  downloading.delete(model)
+  ready.add(model)
   touchMemory(owner(model))
+  report(model, 1, true)
 })
 
-webgllm.addEventListener("error", ({ model, error }) => {
-  modelStatus(model as WebGllmChatModel).set({ state: "error", message: errorText(error) })
+webgllm.addEventListener("error", ({ model }) => {
+  downloading.delete(model)
+  ready.delete(model)
 })
 
-webgllm.addEventListener("unload", ({ model, reason }) => {
+webgllm.addEventListener("unload", ({ model }) => {
+  downloading.delete(model)
+  ready.delete(model)
   loadedFor.delete(model)
   releaseMemory(owner(model))
-  // After a failed load or a crash the status keeps the error.
-  if (reason !== "failed" && reason !== "crashed") modelStatus(model as WebGllmChatModel).set({ state: "idle" })
 })

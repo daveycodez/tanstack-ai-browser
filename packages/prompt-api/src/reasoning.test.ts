@@ -78,7 +78,7 @@ after(()=>{if(previousLanguageModel)scope.LanguageModel=previousLanguageModel;el
 const outfile=join(temporary,"prompt.mjs")
 await build({stdin:{contents:'export {promptApiText} from "./src/adapter.ts"; export {chat} from "@tanstack/ai";',resolveDir:join(root,"packages/prompt-api"),loader:"ts"},outfile,bundle:true,format:"esm",platform:"node",conditions:["@tanstack-ai-browser/source"],logLevel:"error",plugins:[{name:"native-session-boundary",setup(bundle){
  bundle.onResolve({filter:/^\.\/sessions\.js$/},args=>args.importer.endsWith("/prompt-api/src/adapter.ts")?{path:"sessions",namespace:"contract"}:undefined)
- bundle.onLoad({filter:/.*/,namespace:"contract"},()=>({contents:"export const leaseSession=async(options)=>globalThis.__promptReasoningLease(options);"}))
+ bundle.onLoad({filter:/.*/,namespace:"contract"},()=>({contents:"export const destroyPromptApiSessions=()=>{};export const leaseSession=async(options)=>globalThis.__promptReasoningLease(options);"}))
 }}]})
 const {promptApiText,chat}=await import(pathToFileURL(outfile).href)
 const schema={type:"object",properties:{moveId:{type:"string",enum:["b6-a5"]}},required:["moveId"],additionalProperties:false}

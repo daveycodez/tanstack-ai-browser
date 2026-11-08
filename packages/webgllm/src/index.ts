@@ -5,5 +5,5 @@
  */
 export { webgllmText, WebGllmTextAdapter } from "./adapter.js"
 export type { WebGllmConfig, WebGllmProviderUsageDetails, WebGllmTextModelOptions } from "./adapter.js"
-export { isSupported, loadModel, modelStatus, setMemoryBudget, unloadModel } from "./models.js"
-export type { ModelStatus, Store } from "./models.js"
+export { setMemoryBudget } from "./models.js"
+export type { Availability, DownloadProgressCallback } from "./models.js"

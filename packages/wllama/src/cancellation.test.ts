@@ -28,6 +28,7 @@ test("Wllama caller aborts stop both loading waits, while the shared background 
       bundle.onLoad({ filter: /.*/, namespace: "contract" }, args => ({ contents: args.path === "memory" ? 'export const claimMemory=async()=>{};export const releaseMemory=()=>{};export const touchMemory=()=>{};' : `
         const control=globalThis.__wllamaCancel;
         export const LoggerWithoutDebug={};
+        export class ModelManager { async getModels(){ return [] } }
         export class Wllama {
           constructor(){control.instances++;this.modelManager={getModels:()=>control.loading,getModelOrDownload:async(_source,options)=>{control.signal=options.signal;return {size:0};}};}
           async loadModel(){}

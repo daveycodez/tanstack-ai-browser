@@ -27,7 +27,7 @@ function adapterPackage() {
       bundle.onLoad({filter:/.*/,namespace:"contract"},()=>({contents:`
         const control=globalThis.__nativeCacheForwarding;const timings=${JSON.stringify(timings)};
         export const configureRuntime=()=>{};export const setContextLength=()=>{};export const setKeepLoaded=()=>{};
-        export const waitForModel=async()=>{};export const loadedContext=()=>32768;export const contextError=()=>undefined;
+        export const availability=async()=>"available";export const loadModel=async()=>({});export const unloadModel=async()=>{};export const waitForModel=async()=>{};export const loadedContext=()=>32768;export const contextError=()=>undefined;
         export const completeChat=async(model,request,signal)=>{control.requests.push({runtime:'wllama',request,signal});return {choices:[{finish_reason:'stop',message:{content:JSON.stringify({value:request.response_format.json_schema.schema.properties.value.enum[0]})}}],timings}};
         export const streamChat=async function*(model,request,signal){control.requests.push({runtime:'wllama',request,signal});yield {choices:[{delta:{content:request.response_format?JSON.stringify({value:request.response_format.json_schema.schema.properties.value.enum[0]}):'answer'},finish_reason:'stop'}],timings};};
       `}))

@@ -202,7 +202,7 @@ export function GameView({
                   <span>
                     {progress === undefined
                       ? "Loading…"
-                      : `${ai.cached === false ? "Downloading " : ""}${Math.round(progress)}%`}
+                      : `${ai.downloading ? "Downloading " : ""}${Math.round(progress)}%`}
                   </span>
                 </div>
               )}

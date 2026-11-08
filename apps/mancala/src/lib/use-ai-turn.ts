@@ -6,7 +6,7 @@ import { resolveOpponent, sameOpponent } from "./opponents"
 export type AiState = {
   phase: "idle" | "loading" | "processing" | "choosing" | "error"
   progress?: number
-  cached?: boolean
+  downloading?: boolean
   message?: string
 }
 export function useAiTurn(game: Game | undefined, busy: boolean) {
@@ -48,7 +48,7 @@ export function useAiTurn(game: Game | undefined, busy: boolean) {
           show({
             phase: "loading",
             progress: value.progress,
-            cached: value.cached
+            downloading: value.downloading
           })
         else if (value.state === "ready") show({ phase: "processing" })
       }

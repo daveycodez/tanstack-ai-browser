@@ -8,7 +8,7 @@
  * its public API. Its package has no `exports` and its `main` names a file
  * it doesn't ship, so its built ES module is imported by path.
  */
-import { LoggerWithoutDebug, Wllama } from "@wllama/wllama/esm/index.js"
+import { LoggerWithoutDebug, ModelManager, Wllama } from "@wllama/wllama/esm/index.js"
 import type {
   ChatCompletionChunk,
   ChatCompletionParams,
@@ -19,37 +19,29 @@ import type {
 
 import { claimMemory, releaseMemory, touchMemory } from "./model-memory.js"
 import { modelMeta, modelUrl } from "./catalog.js"
+import { callProgress, LoadWaiters } from "./shared-load.js"
 import type { WllamaChatModel } from "./catalog.js"
-import { createStore } from "./store.js"
-import type { Store } from "./store.js"
 
-export type ModelStatus =
-  | { state: "idle" }
-  | {
-      state: "loading"
-      /** 0-1 across the model's file. */
-      progress: number
-      /** True when the file comes from the browser's storage, not the network. */
-      cached: boolean
-      /** Bytes downloaded so far, while downloading. */
-      loadedBytes?: number
-      /** Bytes of the model's file, while downloading. */
-      totalBytes?: number
-    }
-  | { state: "ready" }
-  | { state: "error"; message: string }
+/**
+ * Where a model stands in this browser, with the Prompt API's values
+ * (`LanguageModel.availability()`): "unavailable" (it can't run here),
+ * "downloadable" (it can, once downloaded), "downloading" (a download of it
+ * is in progress in this page) or "available" (on the device: no download
+ * needed).
+ */
+export type Availability =
+  | "unavailable"
+  | "downloadable"
+  | "downloading"
+  | "available"
 
-const statuses = new Map<string, Store<ModelStatus>>()
+/** A download's progress, from 0 to 1. */
+export type DownloadProgressCallback = (progress: number) => void
 
-/** Loading status of a model, by its name. */
-export function modelStatus(model: WllamaChatModel): Store<ModelStatus> {
-  let status = statuses.get(model)
-  if (!status) {
-    status = createStore<ModelStatus>({ state: "idle" })
-    statuses.set(model, status)
-  }
-  return status
-}
+/** Models whose file is downloading in this page. */
+const downloading = new Set<WllamaChatModel>()
+
+const call = callProgress
 
 /** Options that apply to the runtime, so to every model. */
 export type RuntimeOptions = {
@@ -100,13 +92,25 @@ export const WLLAMA_WASM_URL = `https://cdn.jsdelivr.net/npm/@wllama/wllama@${WL
 /** The WebAssembly file to load (see `RuntimeOptions.wasmUrl`). */
 const wasmUrl = () => options.wasmUrl ?? WLLAMA_WASM_URL
 
-/** A new wllama, set up with the runtime options. */
-function createWllama(logger: WllamaLogger) {
+/**
+ * What a load runs with: the runtime options and the model's context
+ * length, as they were when the load was asked for. A load with other
+ * settings loads the model again.
+ */
+type LoadSettings = RuntimeOptions & { contextLength: number | undefined }
+
+/** The settings a load of `model` asked for now would run with. */
+function loadSettings(model: WllamaChatModel): LoadSettings {
+  return { ...options, wasmUrl: wasmUrl(), contextLength: contextLengths.get(model) }
+}
+
+/** A new wllama, set up with the runtime options (the current ones by default). */
+function createWllama(logger: WllamaLogger, settings: RuntimeOptions = options) {
   const wllama = new Wllama(
-    { default: wasmUrl() },
-    { logger, suppressNativeLog: !options.debug }
+    { default: settings.wasmUrl ?? WLLAMA_WASM_URL },
+    { logger, suppressNativeLog: !settings.debug }
   )
-  if (options.compat) wllama.setCompat(options.compat)
+  if (settings.compat) wllama.setCompat(settings.compat)
   return wllama
 }
 
@@ -122,9 +126,15 @@ const silent: WllamaLogger = {
 let loaded: {
   model: WllamaChatModel
   contextLength: number | undefined
+  /** Its settings (see LoadSettings), as a key: the same key shares the load. */
+  key: string
   wllama: Wllama
   promise: Promise<Wllama>
   abort: AbortController
+  /** The callers waiting on it, with their download progress callbacks. */
+  waiters: LoadWaiters
+  /** Resolved: the model is ready. */
+  ready: boolean
 } | null = null
 
 /** This runtime's name in the shared memory registry. */
@@ -153,7 +163,7 @@ export async function unloadModel(model?: WllamaChatModel) {
   releaseMemory(OWNER)
   if (!current) return
   loaded = null
-  modelStatus(current.model).set({ state: "idle" })
+  downloading.delete(current.model)
   current.abort.abort()
   await current.wllama.exit().catch(() => undefined)
 }
@@ -203,12 +213,12 @@ const errorText = (error: unknown) =>
  * `gpu: false`. Elsewhere (Firefox without JSPI, browsers without WebGPU)
  * llama.cpp runs on the CPU in WebAssembly.
  */
-export async function runsOnWebGpu(): Promise<boolean> {
-  if (options.gpu === false || typeof navigator === "undefined") return false
+export async function runsOnWebGpu(settings: RuntimeOptions = options): Promise<boolean> {
+  if (settings.gpu === false || typeof navigator === "undefined") return false
   if (!("gpu" in navigator)) return false
   if (
     !("Suspending" in WebAssembly) &&
-    !createWllama(silent).getWorkerResources().compat
+    !createWllama(silent, settings).getWorkerResources().compat
   ) {
     return false
   }
@@ -273,15 +283,20 @@ async function startLoad(
   model: WllamaChatModel,
   wllama: Wllama,
   signal: AbortSignal,
-  contextLength: number | undefined
+  settings: LoadSettings,
+  progress: DownloadProgressCallback
 ) {
-  const status = modelStatus(model)
+  const { contextLength } = settings
   const url = modelUrl(model)
   const meta = modelMeta(model)
-  const factors = MEMORY_FACTORS[(await runsOnWebGpu()) ? "gpu" : "cpu"]
+  // A canceled load stops at each step, before claiming memory (which
+  // could unload another runtime's model) and before downloading.
+  const factors = MEMORY_FACTORS[(await runsOnWebGpu(settings)) ? "gpu" : "cpu"]
+  signal.throwIfAborted()
   void removeSavedStates()
   // A model already in storage loads from it, without the network.
   const saved = await wllama.modelManager.getModels()
+  signal.throwIfAborted()
   const cached = saved.some((m) => m.url === url)
   // Copies earlier versions of this package saved at a pinned commit.
   const base = `https://huggingface.co/${meta.name}/resolve/`
@@ -290,20 +305,25 @@ async function startLoad(
       void old.remove().catch(() => undefined)
     }
   }
-  status.set({ state: "loading", progress: 0, cached })
   // Room for it first: other runtimes' models past the memory budget are
   // unloaded, by what it takes while it loads; once loaded, its claim drops
   // to what it keeps.
   const fileBytes =
     saved.find((m) => m.url === url)?.size ?? (await remoteSize(url, signal)) ?? 0
-  const claim = (bytes: number) =>
-    claimMemory({
+  signal.throwIfAborted()
+  // Canceled while other models are unloaded for it, the claim stops there
+  // and records nothing.
+  const claim = async (bytes: number) => {
+    await claimMemory({
       owner: OWNER,
       model,
       bytes,
       keepLoaded: keepLoaded.has(model),
-      unload: unloadModel
+      unload: unloadModel,
+      signal
     })
+    signal.throwIfAborted()
+  }
   await claim(fileBytes * factors.loading)
   // The download first, then wllama's start and the load, which has a
   // deadline of its own (see startupDeadline).
@@ -312,18 +332,14 @@ async function startLoad(
     {
       signal,
       progressCallback: ({ loaded: bytes, total }) => {
-        if (cached) return
+        if (cached || signal.aborted) return
         // (0 until the server says the file's size.)
-        status.set({
-          state: "loading",
-          progress: total ? Math.min(bytes / total, 1) : 0,
-          cached: false,
-          loadedBytes: bytes,
-          totalBytes: total
-        })
+        downloading.add(model)
+        progress(total ? Math.min(bytes / total, 1) : 0)
       }
     }
   )
+  downloading.delete(model)
   signal.throwIfAborted()
   await withDeadline(
     wllama.loadModel(file, {
@@ -333,16 +349,16 @@ async function startLoad(
       // of it now.
       n_ctx: contextLength ?? 0,
       // wllama's default otherwise: WebGPU where the browser has it.
-      ...(options.gpu === false && { n_gpu_layers: 0 }),
+      ...(settings.gpu === false && { n_gpu_layers: 0 }),
       // The whole context in sliding-window layers' cache (LFM3's), not just
       // the window, so a follow-up can reuse what was read before: otherwise
       // LFM3 rereads the whole prompt after a tool call. +65 MB for LFM3;
       // nothing for models without such layers.
       swa_full: true,
-      ...(options.threads && { n_threads: options.threads })
+      ...(settings.threads && { n_threads: settings.threads })
     }),
     startupDeadline(file.size > 0 ? file.size : fileBytes),
-    `wllama didn't start or load ${meta.name} in time (is its WebAssembly file at ${wasmUrl()}?).`
+    `wllama didn't start or load ${meta.name} in time (is its WebAssembly file at ${settings.wasmUrl}?).`
   )
   // wllama 3.8.1 resolves the load even when llama.cpp couldn't load the
   // model or create its context (an unknown architecture, too little memory
@@ -360,29 +376,68 @@ async function startLoad(
 
 /**
  * Loads a model (downloading it the first time), replacing any other. The
- * promise settles when it's ready to generate.
+ * promise settles when it's ready to generate. `onDownloadProgress` hears
+ * the download's progress, 0 to 1, then 1 once the model is ready (at once
+ * if it already is).
  */
-export function loadModel(model: WllamaChatModel): Promise<Wllama> {
-  const contextLength = contextLengths.get(model)
-  if (loaded?.model === model && loaded.contextLength === contextLength) {
+export function loadModel(
+  model: WllamaChatModel,
+  onDownloadProgress?: DownloadProgressCallback,
+  loadOptions: {
+    /**
+     * Stops this caller's wait: it rejects at once with an AbortError (or,
+     * for a chat's wait, the signal's reason) and hears no more progress. If
+     * no other caller is waiting on the load, the download is cancelled too
+     * and the model left unloaded.
+     */
+    signal?: AbortSignal
+    /**
+     * A chat's own wait for the model: it isn't told 1 if the model is
+     * ready already, rejects with its signal's reason, and aborting it
+     * leaves the download going for the next chat.
+     */
+    chatWait?: boolean
+  } = {}
+): Promise<Wllama> {
+  const { signal, chatWait = false } = loadOptions
+  const waitOptions = {
+    onDownloadProgress,
+    signal,
+    ...(chatWait && { cancels: false, reason: (aborted: AbortSignal) => aborted.reason })
+  }
+  // Snapshotted now: options another adapter sets while this loads apply
+  // to the next load, not this one.
+  const settings = loadSettings(model)
+  const { contextLength } = settings
+  const key = JSON.stringify(settings)
+  if (loaded?.model === model && loaded.key === key) {
+    if (!loaded.ready || signal?.aborted) return loaded.waiters.wait(loaded.promise, waitOptions)
+    // Every caller hears 1 at once if the model is ready already.
+    if (onDownloadProgress && !chatWait) call(onDownloadProgress, 1)
     return loaded.promise
   }
-  const status = modelStatus(model)
+  // An aborted caller starts nothing.
+  if (signal?.aborted) {
+    return new LoadWaiters(() => undefined).wait(Promise.resolve(undefined as unknown as Wllama), waitOptions)
+  }
   let wllama: Wllama
   try {
-    wllama = createWllama(options.debug ? console : LoggerWithoutDebug)
+    wllama = createWllama(settings.debug ? console : LoggerWithoutDebug, settings)
   } catch (error) {
     // wllama refuses to start here (no storage it can use, say): the model
     // loaded before, if any, stays.
-    status.set({ state: "error", message: errorText(error) })
     const failed = Promise.reject(error instanceof Error ? error : new Error(errorText(error)))
     failed.catch(() => undefined)
     return failed
   }
   const previous = loaded
-  if (previous) modelStatus(previous.model).set({ state: "idle" })
-  status.set({ state: "loading", progress: 0, cached: true })
+  if (previous) downloading.delete(previous.model)
   const abort = new AbortController()
+  // The last caller waiting gave up: stop the download and free wllama.
+  const waiters = new LoadWaiters(() => {
+    if (loaded === current) void unloadModel(model)
+  })
+  const report = (progress: number) => waiters.report(progress)
   const promise = (async () => {
     if (previous) {
       // Stop its download, if it's still downloading, and free it: exit()
@@ -392,28 +447,92 @@ export function loadModel(model: WllamaChatModel): Promise<Wllama> {
       await withDeadline(previous.promise, 2_000, "").catch(() => undefined)
       await previous.wllama.exit().catch(() => undefined)
     }
-    return startLoad(model, wllama, abort.signal, contextLength)
+    return startLoad(model, wllama, abort.signal, settings, report)
   })()
-  const current = { model, contextLength, wllama, promise, abort }
+  const current = {
+    model,
+    contextLength,
+    key,
+    wllama,
+    promise,
+    abort,
+    waiters,
+    ready: false
+  }
   loaded = current
   promise.then(
     () => {
-      if (loaded === current) status.set({ state: "ready" })
+      if (loaded === current) {
+        current.ready = true
+        report(1)
+      }
       // Superseded while it loaded, after the next load stopped waiting:
       // free it now.
       else void wllama.exit().catch(() => undefined)
+      waiters.settle()
     },
-    (error: unknown) => {
+    () => {
+      waiters.settle()
       // Superseded: the next load frees it.
       if (loaded !== current) return
       loaded = null
+      downloading.delete(model)
       releaseMemory(OWNER)
-      status.set({ state: "error", message: errorText(error) })
       void wllama.exit().catch(() => undefined)
     }
   )
   promise.catch(() => undefined)
-  return promise
+  // (After the handlers above, so a waiter hears the 1 they report.)
+  return waiters.wait(promise, waitOptions)
+}
+
+/**
+ * Whether wllama can run models in this browser: llama.cpp runs in
+ * WebAssembly in a Web Worker, on WebGPU where wllama can drive it and on
+ * the CPU elsewhere, and wllama keeps models in the Origin Private File
+ * System. So wherever the browser has WebAssembly, workers and OPFS (not
+ * on a server).
+ */
+function canRun() {
+  return (
+    typeof WebAssembly !== "undefined" &&
+    typeof Worker !== "undefined" &&
+    typeof navigator !== "undefined" &&
+    typeof navigator.storage?.getDirectory === "function"
+  )
+}
+
+/** wllama's model storage, read from the page (the Origin Private File System). */
+let storage: ModelManager | undefined
+
+/**
+ * Where `model` stands in this browser, as the Prompt API's
+ * `LanguageModel.availability()` says it: "unavailable" where wllama can't
+ * run (no WebAssembly, Web Worker or Origin Private File System, as on a
+ * server) or the model isn't known, "downloading" while this page downloads
+ * it, "available" when it's loaded or its whole GGUF file is in wllama's
+ * storage, else "downloadable". It lists wllama's storage only (its
+ * ModelManager, which reads the Origin Private File System): no worker, no
+ * WebAssembly, no network.
+ */
+export async function availability(model: WllamaChatModel): Promise<Availability> {
+  if (!canRun()) return "unavailable"
+  let url: string
+  try {
+    url = modelUrl(model)
+  } catch {
+    return "unavailable"
+  }
+  if (downloading.has(model)) return "downloading"
+  if (loaded?.model === model && loaded.ready) return "available"
+  try {
+    storage ??= new ModelManager()
+    const saved = await storage.getModels()
+    if (downloading.has(model)) return "downloading"
+    return saved.some((m) => m.url === url) ? "available" : "downloadable"
+  } catch {
+    return "downloadable"
+  }
 }
 
 const count = new Intl.NumberFormat("en-US")
@@ -436,30 +555,13 @@ export type ChatRequest = Omit<ChatCompletionParams, "stream" | "abortSignal"> &
 }
 
 /** Cancel this caller's wait while the shared model download keeps filling its cache. */
-export async function waitForModel(model: WllamaChatModel, signal?: AbortSignal): Promise<Wllama> {
+export async function waitForModel(
+  model: WllamaChatModel,
+  signal?: AbortSignal,
+  onDownloadProgress?: DownloadProgressCallback
+): Promise<Wllama> {
   signal?.throwIfAborted()
-  const loading = loadModel(model)
-  if (!signal) return loading
-  return new Promise<Wllama>((resolve, reject) => {
-    const aborted = () => {
-      signal.removeEventListener("abort", aborted)
-      reject(signal.reason)
-    }
-    signal.addEventListener("abort", aborted, { once: true })
-    loading.then(
-      value => {
-        signal.removeEventListener("abort", aborted)
-        if (signal.aborted) reject(signal.reason)
-        else resolve(value)
-      },
-      error => {
-        signal.removeEventListener("abort", aborted)
-        reject(error)
-      }
-    )
-    // Also cover an abort during synchronous model setup before the listener.
-    if (signal.aborted) aborted()
-  })
+  return loadModel(model, onDownloadProgress, { ...(signal && { signal }), chatWait: true })
 }
 
 /** Streams a chat completion from `model`, loading it first. */

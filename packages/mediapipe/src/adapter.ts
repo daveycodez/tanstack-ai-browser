@@ -7,7 +7,8 @@ import type { EmbeddingOptions, EmbeddingResult } from "@tanstack/ai"
 import { toRunErrorPayload } from "@tanstack/ai/adapter-internals"
 import { BaseEmbeddingAdapter } from "@tanstack/ai/adapters"
 
-import { embedTexts } from "./client.js"
+import { availability, embedTexts, loadModel, unloadModel } from "./client.js"
+import type { Availability, DownloadProgressCallback } from "./client.js"
 import { MEDIAPIPE_MODEL_META } from "./model-meta.js"
 import type {
   MediaPipeEmbeddingModel,
@@ -46,6 +47,62 @@ export class MediaPipeEmbeddingAdapter<
     this.loadConfig = config
   }
 
+  /**
+   * Where the model stands in this browser, with the Prompt API's values:
+   * "unavailable" where MediaPipe can't run (its TextEmbedder needs
+   * WebAssembly with SIMD in a module Web Worker; not on a server),
+   * "downloading" while this page downloads the model's file, "available"
+   * when it's loaded or its file (and, with `cacheWasm`, MediaPipe's
+   * WebAssembly) is in Cache Storage, else "downloadable". It reads Cache
+   * Storage only: no worker, no network.
+   */
+  availability(): Promise<Availability> {
+    return availability(this.model, this.loadConfig)
+  }
+
+  /**
+   * Loads the embedder (downloading the model the first time), with the
+   * download's progress, 0 to 1, then 1 once it's ready. Resolves to this
+   * adapter when it's ready; rejects if it can't load (fine to leave
+   * unawaited). `embed()` doesn't need it (its first call loads the model),
+   * but it lets a page load ahead of time. Adapters with the same model and
+   * load options share one embedder; the page holds one at a time.
+   * Aborting `signal` rejects this call at once with an AbortError and
+   * stops its progress reports; if no other caller (another call, or an
+   * `embed()` waiting for the model) still waits on the load, the worker
+   * ends, its download with it, and the model is left unloaded.
+   */
+  create(
+    options: { onDownloadProgress?: DownloadProgressCallback; signal?: AbortSignal } = {}
+  ): Promise<this> {
+    const { onDownloadProgress } = options
+    const own = this.loadConfig.onDownloadProgress
+    const ready = loadModel(
+      this.model,
+      this.loadConfig,
+      own && onDownloadProgress
+        ? (progress) => {
+            own(progress)
+            onDownloadProgress(progress)
+          }
+        : (own ?? onDownloadProgress),
+      options.signal
+    ).then(() => this)
+    // Callers may leave it: an unawaited failure isn't an unhandled rejection.
+    ready.catch(() => undefined)
+    return ready
+  }
+
+  /**
+   * Unloads the embedder (ending its worker, and its download if it's
+   * downloading), if it's this model's; requests waiting on it fail. The
+   * embedder is shared, so this unloads it for every adapter of the model.
+   * Its files stay in Cache Storage.
+   */
+  async destroySession(): Promise<void> {
+    await unloadModel(this.model)
+  }
+
   async createEmbeddings(
     options: EmbeddingOptions<MediaPipeEmbeddingProviderOptions>
   ): Promise<EmbeddingResult> {
@@ -71,7 +128,7 @@ export class MediaPipeEmbeddingAdapter<
               // them unless told not to.
               l2Normalize: modelOptions?.l2Normalize ?? modelOptions?.quantize ?? false,
               quantize: modelOptions?.quantize ?? false
-            })
+            }, this.loadConfig.onDownloadProgress)
       if (vectors.length !== texts.length) {
         throw new Error(
           `MediaPipe returned ${vectors.length} embeddings for ${texts.length} inputs (model: ${model}).`

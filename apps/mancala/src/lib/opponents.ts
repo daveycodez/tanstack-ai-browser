@@ -1,4 +1,4 @@
-import { PROMPT_API_MODEL_META } from "@tanstack-ai-browser/prompt-api/model-meta"
+import { browserModel } from "./browser-model.ts"
 import { WEBGLLM_MODEL_META, WEBGLLM_CHAT_MODELS } from "@tanstack-ai-browser/webgllm/model-meta"
 import type { WebGllmChatModel } from "@tanstack-ai-browser/webgllm/model-meta"
 
@@ -64,9 +64,9 @@ export function opponentOption(model: OpponentModel): OpponentOption {
     ? {
         ...PROMPT_API_OPTION,
         label:
-          PROMPT_API_MODEL_META["built-in"].browserModel.id === "gemini-nano"
+          browserModel().id === "gemini-nano"
             ? "Gemini-Nano"
-            : PROMPT_API_MODEL_META["built-in"].browserModel.id === "phi-4-mini"
+            : browserModel().id === "phi-4-mini"
               ? "Phi-4-Mini"
               : "Prompt API"
       }

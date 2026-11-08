@@ -1,12 +1,17 @@
 import { createFileRoute } from "@tanstack/react-router"
 import { useEffect } from "react"
-import { unloadModel } from "@tanstack-ai-browser/webgllm"
+import { webgllmText } from "@tanstack-ai-browser/webgllm"
+import { WEBGLLM_CHAT_MODELS } from "@tanstack-ai-browser/webgllm/model-meta"
 import { runStandardStudy } from "../../bench/standard-study"
 import { STANDARD_CHANNEL } from "../../bench/run-standard-in-frame"
 import type { StandardCommand, StandardEvent } from "../../bench/run-standard-in-frame"
 import { runBehaviorStudy } from "../../bench/behavior-study"
 import { BEHAVIOR_CHANNEL } from "../../bench/run-behavior-in-frame"
 import type { BehaviorCommand, BehaviorEvent } from "../../bench/run-behavior-in-frame"
+/** Frees every WebGL model a run loaded (each model's adapter's destroySession). */
+const unloadModel = () =>
+  void Promise.all(WEBGLLM_CHAT_MODELS.map((model) => webgllmText(model).destroySession()))
+
 export const Route = createFileRoute("/behavior-runtime")({ component: BehaviorRuntime })
 function BehaviorRuntime() {
   useEffect(() => {

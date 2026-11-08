@@ -1,18 +1,10 @@
 import { EventType, chat } from "@tanstack/ai"
 import { apfelText } from "@tanstack-ai-browser/apfel"
 import type { AnyTextAdapter, ChatMiddleware, StructuredOutputStream, UsageInfo } from "@tanstack/ai"
-import {
-  loadModel as loadPromptApiModel,
-  modelStatus as promptApiStatus,
-  promptApiText
-} from "@tanstack-ai-browser/prompt-api"
-import {
-  isSupported,
-  loadModel,
-  modelStatus,
-  unloadModel,
-  webgllmText
-} from "@tanstack-ai-browser/webgllm"
+import { promptApiText } from "@tanstack-ai-browser/prompt-api"
+import { webgllmText } from "@tanstack-ai-browser/webgllm"
+import { loadWithStatus, markUnloaded, modelStatus } from "./model-status"
+import type { LoadingStore } from "./model-status"
 import { z } from "zod"
 import { legalMoves } from "./checkers"
 import { orderMovesForGame } from "./move-order"
@@ -22,10 +14,9 @@ import type { PromptInput, PromptVersion } from "./shared-prompt"
 import type { Game } from "./checkers"
 import { APFEL_MODEL, opponentOption, resolveOpponent } from "./opponents"
 import type { OpponentSettings } from "./opponents"
-import type { ModelStatus, Store } from "@tanstack-ai-browser/webgllm"
 import type { WebGllmChatModel } from "@tanstack-ai-browser/webgllm/model-meta"
 
-export type { ModelStatus } from "@tanstack-ai-browser/webgllm"
+export type { ModelStatus } from "./model-status"
 
 /** A turn's phase. The app reports "processing" before the request; the first streamed reasoning or answer text means "generating". */
 export type GenerationPhase = "processing" | "generating"
@@ -93,14 +84,40 @@ export const MAX_OUTPUT_TOKENS = 8192
 export const REASONING_BUDGET_TOKENS = 512
 
 export const MODEL = "LiquidAI/LFM3-1.7B-GGUF" as const
-type LoadingStore = Pick<Store<ModelStatus>, "get" | "subscribe">
 let activeWebGlModel: WebGllmChatModel | undefined
+
+/** Unloads the WebGL model the last turn used, if any (its adapter's destroySession). */
+function unloadWebGl() {
+  if (!activeWebGlModel) return
+  markUnloaded(activeWebGlModel)
+  void webgllmText(activeWebGlModel).destroySession()
+}
+
+/** Waits for `promise`, or rejects when `signal` aborts (the load goes on). */
+function untilAborted(promise: Promise<void>, signal: AbortSignal): Promise<void> {
+  signal.throwIfAborted()
+  return new Promise((resolve, reject) => {
+    const onAbort = () => reject(signal.reason)
+    signal.addEventListener("abort", onAbort, { once: true })
+    promise.then(
+      () => {
+        signal.removeEventListener("abort", onAbort)
+        if (signal.aborted) reject(signal.reason)
+        else resolve()
+      },
+      (error: unknown) => {
+        signal.removeEventListener("abort", onAbort)
+        reject(error)
+      }
+    )
+  })
+}
 
 /** The selected adapter's real download, cache, GPU upload, and failure status. */
 export function loadingStoreFor(settings?: OpponentSettings): LoadingStore {
   const { model } = resolveOpponent(settings)
   if (model === APFEL_MODEL) return { get: () => ({ state: "ready" }), subscribe: () => () => undefined }
-  return model === "prompt-api" ? promptApiStatus("built-in") : modelStatus(model)
+  return modelStatus(model)
 }
 
 /** Loading can finish into the browser cache after leaving the game. */
@@ -111,12 +128,12 @@ function waitForModel(
   signal.throwIfAborted()
   // A canceled turn may still be downloading. End its worker on a model switch
   // before another model claims GPU memory or begins a generation.
-  if (activeWebGlModel !== model) unloadModel()
+  if (activeWebGlModel !== model) unloadWebGl()
   activeWebGlModel = model
   return new Promise((resolve, reject) => {
     const onAbort = () => reject(signal.reason)
     signal.addEventListener("abort", onAbort, { once: true })
-    loadModel(model).then(
+    loadWithStatus(model, webgllmText(model)).then(
       () => {
         signal.removeEventListener("abort", onAbort)
         if (signal.aborted) reject(signal.reason)
@@ -166,7 +183,7 @@ export async function chooseAiMove(
 
   const opponent = resolveOpponent(game.opponent)
   const thinkingSupport = opponentOption(opponent.model).thinking
-  if (opponent.model !== "prompt-api" && opponent.model !== APFEL_MODEL && !isSupported()) {
+  if (opponent.model !== "prompt-api" && opponent.model !== APFEL_MODEL && (await webgllmText(opponent.model as WebGllmChatModel).availability()) === "unavailable") {
     throw new Error(
       "This browser cannot run the local AI. Enable hardware acceleration and use a browser with WebGL 2 and OffscreenCanvas support."
     )
@@ -181,10 +198,10 @@ export async function chooseAiMove(
 
   if (opponent.model === "prompt-api" || opponent.model === APFEL_MODEL) {
     if (activeWebGlModel) {
-      unloadModel()
+      unloadWebGl()
       activeWebGlModel = undefined
     }
-    if (opponent.model === "prompt-api") await loadPromptApiModel("built-in", { signal })
+    if (opponent.model === "prompt-api") await untilAborted(loadWithStatus("prompt-api", promptApiText("built-in")), signal)
   } else {
     await waitForModel(opponent.model, signal)
   }

@@ -3,11 +3,12 @@
  * is, and its download. The browser downloads the model once for all sites
  * (Chrome keeps it in its profile) and loads it when a session is created.
  */
+import { abortError, LoadWaiters } from "./shared-load.js"
 import { createStore } from "./store.js"
-import type { Store } from "./store.js"
 import { languageModel } from "./types.js"
 import type {
   Availability,
+  DownloadProgressCallback,
   DownloadProgressEvent,
   LanguageModelCoreOptions,
   LanguageModelCreateOptions,
@@ -17,8 +18,8 @@ import type {
 
 export type { Availability, SamplingMode } from "./types.js"
 
-/** Same shape as the other adapters' loading status. */
-export type ModelStatus =
+/** The built-in model's loading status, kept here to tell a first session from later ones. */
+type ModelStatus =
   | { state: "idle" }
   | {
       state: "loading"
@@ -105,13 +106,20 @@ export async function promptApiAvailability(
 
 const status = createStore<ModelStatus>({ state: "idle" })
 
-/** Loading status of the built-in model: its download, then ready. */
-export const promptApiStatus = (): Store<ModelStatus> => status
 
 let contextWindow: number | undefined
 /** Records a session's context window, the same for every session. */
 export function noteContextWindow(session: LanguageModelSession) {
   if (session.contextWindow > 0) contextWindow = session.contextWindow
+}
+
+/** Calls a progress callback; one that throws doesn't stop the session. */
+function report(listener: ((progress: number) => void) | undefined, progress: number) {
+  try {
+    listener?.(progress)
+  } catch (error) {
+    console.error(error)
+  }
 }
 
 /** What a failed create() means for the user. */
@@ -134,16 +142,18 @@ const asksForMedia = (options: LanguageModelCreateOptions) =>
   options.expectedInputs?.some((e) => e.type === "image" || e.type === "audio")
 
 /**
- * A new session, with `promptApiStatus()` kept up to date: until a session
- * has started, it checks `availability()` with the same options and shows
+ * A new session, with the model's status kept up to date: until a session
+ * has started, it checks `availability()` with the same options and follows
  * the download; after, only a download shows (if the browser removed the
- * model to free space, say). `signal` stops the wait, not the session made:
- * a session given a request's signal would be destroyed by a later abort of
- * that request, after it was kept for the next one.
+ * model to free space, say). `onDownloadProgress` hears the download, 0 to
+ * 1, and 1 when the first session starts. `signal` stops the wait, not the
+ * session made: a session given a request's signal would be destroyed by a
+ * later abort of that request, after it was kept for the next one.
  */
 export async function createLanguageModel(
   options: LanguageModelCreateOptions,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  onDownloadProgress?: DownloadProgressCallback
 ): Promise<LanguageModelSession> {
   const api = languageModel()
   if (!api) {
@@ -203,6 +213,7 @@ export async function createLanguageModel(
           const { loaded } = event as DownloadProgressEvent
           if (loaded > 0 && loaded < 1) {
             status.set({ state: "loading", progress: loaded, cached: false })
+            report(onDownloadProgress, loaded)
           }
         })
       }
@@ -213,6 +224,7 @@ export async function createLanguageModel(
     }
     noteContextWindow(session)
     if (status.get().state !== "ready") status.set({ state: "ready" })
+    if (starting) report(onDownloadProgress, 1)
     return session
   } catch (error) {
     if (signal?.aborted) {
@@ -246,32 +258,80 @@ export async function promptApiContextWindow(
   return contextWindow
 }
 
-let loading: Promise<void> | null = null
+/**
+ * The model starting for `loadPromptApiModel`'s callers: its native
+ * create(), the controller that aborts it, and the callers waiting on it.
+ */
+let loading: { promise: Promise<void>; waiters: LoadWaiters } | null = null
+
+type LoadOptions = {
+  languages?: ReadonlyArray<string>
+  signal?: AbortSignal
+  onDownloadProgress?: DownloadProgressCallback
+}
 
 /**
- * Downloads the model if it isn't on the device, with its progress in
- * `promptApiStatus()`, and loads it. `chat()` doesn't need it (its first
- * session does the same), but the browser asks for a click on the page
- * before a download: call it from the click that turns the model on. The
- * download goes on if `signal` aborts; only the wait stops.
+ * Downloads the model if it isn't on the device, and loads it, with the
+ * download's progress, 0 to 1, then 1 once it's ready (at once if it
+ * already is). `chat()` doesn't need it (its first session does the same),
+ * but the browser asks for a click on the page before a download: call it
+ * from the click that turns the model on. Aborting `signal` rejects this
+ * call at once with an AbortError and stops its progress reports; the
+ * browser's `LanguageModel.create()` is aborted when no other caller still
+ * waits on it. A model that started before is asked about again: the
+ * browser may have removed it since (to free space, say), and then it's
+ * loaded again.
  */
-export function loadPromptApiModel(
-  options: { languages?: ReadonlyArray<string>; signal?: AbortSignal } = {}
-): Promise<void> {
-  if (status.get().state === "ready") return Promise.resolve()
-  loading ??= createLanguageModel(baseOptions(options.languages))
-    .then((session) => session.destroy())
-    .finally(() => {
-      loading = null
-    })
+export async function loadPromptApiModel(options: LoadOptions = {}): Promise<void> {
   const { signal } = options
-  if (!signal) return loading
-  return new Promise<void>((resolve, reject) => {
-    const onAbort = () => reject(signal.reason)
-    if (signal.aborted) return onAbort()
-    signal.addEventListener("abort", onAbort, { once: true })
-    ;(loading ?? Promise.resolve()).then(resolve, reject).finally(() => {
-      signal.removeEventListener("abort", onAbort)
+  if (signal?.aborted) throw abortError()
+  if (status.get().state === "ready") {
+    // The browser's answer, unless the caller stops waiting first.
+    const availability = await untilAborted(promptApiAvailability(options.languages), signal)
+    if (availability === "available") {
+      report(options.onDownloadProgress, 1)
+      return
+    }
+    // No longer on the device: the next session starts it again.
+    if (status.get().state === "ready") status.set({ state: "idle" })
+  }
+  return startModel(options)
+}
+
+function startModel(options: LoadOptions): Promise<void> {
+  const { signal, onDownloadProgress } = options
+  if (!loading) {
+    const controller = new AbortController()
+    // The last caller waiting gave up: abort the browser's create(), and
+    // let the next call start afresh rather than join the canceled one
+    // (the browser may take a while to settle it).
+    const waiters = new LoadWaiters(() => {
+      controller.abort(abortError())
+      if (loading?.waiters === waiters) loading = null
     })
+    const promise = createLanguageModel(
+      baseOptions(options.languages),
+      controller.signal,
+      (progress) => waiters.report(progress)
+    )
+      .then((session) => session.destroy())
+      .finally(() => {
+        if (loading?.waiters === waiters) loading = null
+        waiters.settle()
+      })
+    promise.catch(() => undefined)
+    loading = { promise, waiters }
+  }
+  return loading.waiters.wait(loading.promise, { onDownloadProgress, signal })
+}
+
+/** `promise`'s result, or an AbortError as soon as `signal` aborts. */
+function untilAborted<T>(promise: Promise<T>, signal: AbortSignal | undefined): Promise<T> {
+  if (!signal) return promise
+  if (signal.aborted) return Promise.reject(abortError())
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = () => reject(abortError())
+    signal.addEventListener("abort", onAbort, { once: true })
+    promise.then(resolve, reject).finally(() => signal.removeEventListener("abort", onAbort))
   })
 }

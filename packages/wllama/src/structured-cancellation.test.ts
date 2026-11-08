@@ -35,7 +35,7 @@ function adapterPackage(): Promise<AdapterPackage> {
       bundle.onLoad({ filter: /.*/, namespace: "controlled" }, () => ({ contents: `
         const c=globalThis.__cancellationContract;
         export const setKeepLoaded=()=>{};
-        export const waitForModel=async(model,signal)=>{await c.initialize(signal);signal?.throwIfAborted()};
+        export const availability=async()=>"available";export const loadModel=async()=>({});export const unloadModel=async()=>{};export const waitForModel=async(model,signal)=>{await c.initialize(signal);signal?.throwIfAborted()};
         export const configureRuntime=()=>{};export const setContextLength=()=>{};export const loadedContext=()=>8192;export const contextError=()=>undefined;
         export const streamChat=async function*(){};
         export const completeChat=async(model,request,signal)=>{await c.initialize(signal);signal?.throwIfAborted();const content=await c.generate(signal);return {choices:[{finish_reason:'stop',message:{content}}]}};

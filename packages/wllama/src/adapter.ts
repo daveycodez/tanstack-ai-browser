@@ -30,16 +30,19 @@ import type {
 } from "@wllama/wllama/esm/index.js"
 
 import {
+  availability,
   completeChat,
   configureRuntime,
   contextError,
+  loadModel,
   loadedContext,
   waitForModel,
   setContextLength,
   setKeepLoaded,
-  streamChat
+  streamChat,
+  unloadModel
 } from "./client.js"
-import type { ChatRequest } from "./client.js"
+import type { Availability, ChatRequest, DownloadProgressCallback } from "./client.js"
 import { modelMeta } from "./catalog.js"
 import type {
   Sampling,
@@ -61,6 +64,8 @@ export type WllamaConfig = {
    * Keeps the model loaded when another runtime (Transformers.js, WebGL)
    * loads one past the page's memory budget (see `setMemoryBudget`); by
    * default the least recently used model is unloaded to make room.
+   * Applies once the adapter uses the model (`create()` or a call); left
+   * out, the model keeps what another adapter of it set.
    */
   keepLoaded?: boolean
   /**
@@ -85,6 +90,12 @@ export type WllamaConfig = {
   gpu?: boolean
   /** wllama's and llama.cpp's logs, in the console. */
   debug?: boolean
+  /**
+   * The model's download progress, 0 to 1, when a call (`chat()`, say)
+   * starts its download; then 1 once it's ready. To load it ahead of time
+   * with progress, see `create`.
+   */
+  onDownloadProgress?: DownloadProgressCallback
 }
 
 /**
@@ -368,11 +379,26 @@ export class WllamaTextAdapter<
   readonly name = "wllama" as const
   override readonly api = "wllama" as const
   override readonly inputModalities = ["text"] as const
+  private readonly onDownloadProgress: DownloadProgressCallback | undefined
+  private readonly loadConfig: WllamaConfig
 
   constructor(config: WllamaConfig, model: TModel) {
     super({}, model)
-    setContextLength(model, config.contextLength)
-    setKeepLoaded(model, config.keepLoaded ?? false)
+    this.onDownloadProgress = config.onDownloadProgress
+    this.loadConfig = config
+  }
+
+  /**
+   * Applies this adapter's options to the runtime when it uses the model
+   * (`create()`, a call, or the load it starts), not when it's
+   * constructed: constructing an adapter changes nothing shared. Its
+   * context length is the model's from then on; runtime options it leaves
+   * out, and `keepLoaded` left out, stay as another adapter set them.
+   */
+  private useModel() {
+    const config = this.loadConfig
+    setContextLength(this.model, config.contextLength)
+    if (config.keepLoaded !== undefined) setKeepLoaded(this.model, config.keepLoaded)
     configureRuntime({
       ...(config.wasmUrl && { wasmUrl: config.wasmUrl }),
       ...(config.compat && { compat: config.compat }),
@@ -380,6 +406,61 @@ export class WllamaTextAdapter<
       ...(config.gpu !== undefined && { gpu: config.gpu }),
       ...(config.debug && { debug: true })
     })
+  }
+
+  /**
+   * Where the model stands in this browser, with the Prompt API's values:
+   * "unavailable" where wllama can't run (no WebAssembly, Web Worker or
+   * Origin Private File System, as on a server), "downloading" while this
+   * page downloads it, "available" when it's loaded or its GGUF file is in
+   * wllama's storage, else "downloadable". It lists wllama's storage only:
+   * no worker, no network.
+   */
+  availability(): Promise<Availability> {
+    return availability(this.model)
+  }
+
+  /**
+   * Loads the model (downloading it the first time), with the download's
+   * progress, 0 to 1, then 1 once it's ready. Resolves to this adapter when
+   * it's ready; rejects if it can't load (fine to leave unawaited). `chat()` doesn't need it (its
+   * first call loads the model), but it lets a page load ahead of time.
+   * Adapters for the same model share one loaded model; the page holds one
+   * wllama model at a time.
+   * Aborting `signal` rejects this call at once with an AbortError and
+   * stops its progress reports; if no other caller (another call, or a
+   * chat waiting for the model) still waits on the load, the download is
+   * cancelled and the model left unloaded.
+   */
+  create(
+    options: { onDownloadProgress?: DownloadProgressCallback; signal?: AbortSignal } = {}
+  ): Promise<this> {
+    const { onDownloadProgress } = options
+    const own = this.onDownloadProgress
+    this.useModel()
+    const ready = loadModel(
+      this.model,
+      own && onDownloadProgress
+        ? (progress) => {
+            own(progress)
+            onDownloadProgress(progress)
+          }
+        : (own ?? onDownloadProgress),
+      options.signal ? { signal: options.signal } : {}
+    ).then(() => this)
+    // Callers may leave it: an unawaited failure isn't an unhandled rejection.
+    ready.catch(() => undefined)
+    return ready
+  }
+
+  /**
+   * Unloads the model, freeing its memory (and stopping its download), if
+   * it's the one loaded (or loading); a running generation of it fails. The
+   * model is shared, so this unloads it for every adapter of it. Its file
+   * stays downloaded.
+   */
+  async destroySession(): Promise<void> {
+    await unloadModel(this.model)
   }
 
   /** Sampling and length for a call: `modelOptions` over the model card's, in llama.cpp's names. */
@@ -488,7 +569,8 @@ export class WllamaTextAdapter<
     }
 
     try {
-      const wllama = await waitForModel(model, signal).catch((error: unknown) => {
+      this.useModel()
+      const wllama = await waitForModel(model, signal, this.onDownloadProgress).catch((error: unknown) => {
         throw new Error(`Couldn't load ${model}: ${errorText(error)}`)
       })
       context = loadedContext(wllama)
@@ -759,7 +841,8 @@ export class WllamaTextAdapter<
         }
       }
       signal?.throwIfAborted()
-      const wllama = await waitForModel(model, signal).catch((error: unknown) => {
+      this.useModel()
+      const wllama = await waitForModel(model, signal, this.onDownloadProgress).catch((error: unknown) => {
         throw signal?.aborted ? error : new Error(`Couldn't load ${model}: ${errorText(error)}`)
       })
       context = loadedContext(wllama)

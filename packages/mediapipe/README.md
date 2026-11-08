@@ -8,11 +8,12 @@ npm install @tanstack-ai-browser/mediapipe @tanstack/ai
 
 ```ts
 import { embed } from "@tanstack/ai"
-import { isSupported, mediaPipeEmbedding } from "@tanstack-ai-browser/mediapipe"
+import { mediaPipeEmbedding } from "@tanstack-ai-browser/mediapipe"
 
-if (isSupported()) {
+const adapter = mediaPipeEmbedding()
+if ((await adapter.availability()) !== "unavailable") {
   const result = await embed({
-    adapter: mediaPipeEmbedding(),
+    adapter,
     input: ["The cat sat on the mat.", "A cat was sitting on the rug."],
     modelOptions: { l2Normalize: true }
   })
@@ -22,7 +23,7 @@ if (isSupported()) {
 
 It runs the official `@mediapipe/tasks-text` package (1.2.2), unmodified and through its public API, in a Web Worker of its own, so embedding doesn't hold up the page.
 
-The package is shaped like TanStack's embedding adapters. The root has `mediaPipeEmbedding(model?, config?)`, `MediaPipeEmbeddingAdapter`, the runtime functions below and the types `MediaPipeEmbeddingConfig`, `MediaPipeEmbeddingProviderOptions`, `ModelStatus` and `Store`. `@tanstack-ai-browser/mediapipe/model-meta` has `MEDIAPIPE_EMBEDDING_MODELS` (one model, `"universal-sentence-encoder"`) and `MEDIAPIPE_MODEL_META` (its file, size and dimensions), with the types `MediaPipeEmbeddingModel`, `MediaPipeEmbeddingModelMeta`, `MediaPipeEmbeddingModelProviderOptionsByName` and `MediaPipeEmbeddingModelInputModalitiesByName`.
+The package is shaped like TanStack's embedding adapters. The root has `mediaPipeEmbedding(model?, config?)`, `MediaPipeEmbeddingAdapter` (with the runtime methods below) and the types `MediaPipeEmbeddingConfig`, `MediaPipeEmbeddingProviderOptions`, `Availability` and `DownloadProgressCallback`. `@tanstack-ai-browser/mediapipe/model-meta` has `MEDIAPIPE_EMBEDDING_MODELS` (one model, `"universal-sentence-encoder"`) and `MEDIAPIPE_MODEL_META` (its file, size and dimensions), with the types `MediaPipeEmbeddingModel`, `MediaPipeEmbeddingModelMeta`, `MediaPipeEmbeddingModelProviderOptionsByName` and `MediaPipeEmbeddingModelInputModalitiesByName`.
 
 ## The model
 
@@ -36,6 +37,7 @@ Universal Sentence Encoder as MediaPipe publishes it for its TextEmbedder: a 6.1
 - `modelAssetPath`: the model's TFLite file, to serve it yourself, or another MediaPipe text embedder model.
 - `wasmPath`: the folder MediaPipe's WebAssembly is served from (see below).
 - `cacheWasm`: `false` to have MediaPipe load its WebAssembly straight from `wasmPath` instead of from Cache Storage through `blob:` URLs, for a strict Content Security Policy (see below). True by default.
+- `onDownloadProgress`: the model file's download, 0 to 1, when a call (the first `embed()`) starts it; then 1 once the embedder is ready.
 
 Relative paths in `modelAssetPath` and `wasmPath` are relative to the page (its `document.baseURI`), not to the worker's script. Load options are compared by their effective values (absolute URLs, the CPU for an unset `delegate`), so adapters whose options come to the same thing share one worker.
 
@@ -50,10 +52,11 @@ MediaPipe takes these at creation and through `TextEmbedder.setOptions()`, so th
 
 ## The runtime
 
-- `isSupported(model?)` says, synchronously, whether MediaPipe runs here: WebAssembly with SIMD (MediaPipe has no build without it) and Web Workers. False on a server.
-- `loadModel(model, config?)` downloads (the first time) and loads the embedder ahead of the first `embed()`, replacing any other; `embed()` loads it otherwise. Loading another model or the same with other load options replaces the worker; requests already waiting on the previous one finish on it first, and it ends once they're done. The promise is fine to leave unawaited (a failure is in `modelStatus`); awaited, it rejects on failure.
-- `modelStatus(model)` is a store of the model's loading, in the same shape as the other adapters' (`idle`, `loading` with `progress` 0 to 1, `cached`, `loadedBytes` and `totalBytes`, `ready`, `error`). Progress is across the model's file.
-- `unloadModel(model?)` ends the worker at once, freeing the embedder (requests waiting on it fail); given a model, only if it's the one loaded.
+The adapter has the same three runtime methods as this project's language model adapters, with the Prompt API's values:
+
+- `adapter.availability()` resolves to `"unavailable"` where MediaPipe can't run (it needs WebAssembly with SIMD, which MediaPipe has no build without, and Web Workers; not on a server) or the model isn't listed, `"downloading"` while this page downloads the model's file, `"available"` when the model is loaded or its file (and, with `cacheWasm`, MediaPipe's WebAssembly) is in Cache Storage, else `"downloadable"`. It reads Cache Storage only: no worker, no network.
+- `adapter.create({ onDownloadProgress?, signal }?)` downloads (the first time) and loads the embedder ahead of the first `embed()`, replacing any other; `embed()` loads it otherwise. Aborting `signal` rejects that call at once with an `AbortError` and stops its progress reports; when no other caller (another call, or an `embed()` waiting for the model) still waits on the load, its worker ends, the download with it, and the model is left unloaded. `onDownloadProgress` hears the model file's download, 0 to 1, then 1 once it's ready (at once if it already is). It resolves to the adapter, and rejects on failure; it's fine to leave unawaited. Loading another model or the same with other load options replaces the worker; requests already waiting on the previous one finish on it first, and it ends once they're done.
+- `adapter.destroySession()` ends the worker at once, freeing the embedder (requests waiting on it fail), if it's this model's. Adapters with the same model and load options share one embedder, so this frees it for all of them. The files stay in Cache Storage.
 
 The model is 6.1 MB and MediaPipe's WebAssembly 7 MB, so there's no memory budget to set here, unlike the language model packages.
 

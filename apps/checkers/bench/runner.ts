@@ -1,4 +1,4 @@
-import { PROMPT_API_MODEL_META } from "@tanstack-ai-browser/prompt-api/model-meta"
+import { browserModel } from "../src/lib/browser-model.ts"
 import { chooseAiMove } from "../src/lib/ai.ts"
 import { isPromptVersion } from "../src/lib/shared-prompt.ts"
 import { OUTCOME_VERSION } from "../src/lib/move-outcomes.ts"
@@ -64,7 +64,7 @@ export async function runBenchmark(options: BenchmarkOptions): Promise<Benchmark
   const report: BenchmarkReport = {
     schemaVersion: 1, runId: crypto.randomUUID(), startedAt: new Date().toISOString(), finishedAt: "", revision: __CHECKERS_BENCH_REVISION__, partial: false,
     config: { ...opponent,
-      ...(opponent.model === "prompt-api" && { runtimeModel: PROMPT_API_MODEL_META["built-in"].browserModel }),
+      ...(opponent.model === "prompt-api" && { runtimeModel: browserModel() }),
       reasoningMode: !opponent.thinking ? "off" : usesEmulatedReasoning(opponent.model) ? "emulated-working-notes" : "native",
       reasoningBudgetTokens: budget, maxOutputTokens: opponent.model === "prompt-api" ? null : 8192, sampling: "model defaults", promptCache: "long",
       humanColor: selectedColor, repetitions: options.repetitions, caseIds: cases.map(testCase => testCase.id), suiteVersion: SUITE_VERSION, promptVersion: options.promptVersion,

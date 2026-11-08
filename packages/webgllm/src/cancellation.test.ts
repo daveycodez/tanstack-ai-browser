@@ -35,7 +35,7 @@ function adapterPackage(): Promise<AdapterPackage> {
       bundle.onLoad({ filter: /.*/, namespace: "controlled" }, () => ({ contents: `
         const c=globalThis.__cancellationContract;
         export const setKeepLoaded=()=>{};
-        export const ensureModel=async(model,contextLength,signal)=>{signal?.throwIfAborted();await c.initialize(signal);signal?.throwIfAborted()};
+        export const availability=async()=>"available";export const loadModel=async()=>{};export const unloadModel=async()=>{};export const ensureModel=async(model,contextLength,signal)=>{signal?.throwIfAborted();await c.initialize(signal);signal?.throwIfAborted()};
         export const touchModel=()=>{};
         export const webgllm={chat:{completions:{create:async(body,options)=>(async function*(){try{const content=await c.generate(options?.signal);
           yield {choices:[{index:0,delta:{role:'assistant',content},finish_reason:null}]};

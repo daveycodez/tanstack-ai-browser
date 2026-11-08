@@ -17,8 +17,9 @@ import {
   startReply,
   statsFromUsage
 } from "./generation-stats"
+import { ABORTED, untilAborted } from "./abortable"
 import { isReasoningLevel, selectedModel } from "./model"
-import { currentModelId, effortFor, isModelId, modelInfo } from "./models"
+import { currentModelId, effortFor, isModelId, modelInfo, prepareModel } from "./models"
 
 /**
  * Each model call's usage, as the adapter reports it when the call ends, to
@@ -84,6 +85,14 @@ async function* reply(
   signal?.addEventListener("abort", () => abortController.abort(), {
     once: true
   })
+  // The model first, with its download's progress. stop() returns at
+  // once, and cancels the download unless another run still waits on it.
+  const failed = await untilAborted(
+    prepareModel(model, abortController.signal),
+    abortController.signal
+  )
+  if (failed === ABORTED || abortController.signal.aborted) return
+  if (failed) throw failed
   yield* chat({
     adapter: modelInfo(model).adapter,
     messages: params.messages,

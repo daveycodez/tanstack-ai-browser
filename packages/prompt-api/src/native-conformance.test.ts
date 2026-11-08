@@ -26,7 +26,7 @@ async function adapterPackage(entry = "adapter") {
       bundle.onResolve({ filter: /^\.\/sessions\.js$/ }, args => args.importer.endsWith("/prompt-api/src/adapter.ts") ? { path: "prompt", namespace: "contract" } : undefined)
       bundle.onLoad({ filter: /.*/, namespace: "contract" }, () => ({ contents: `
         const control=globalThis.__nativeSchemaContract;
-        export const leaseSession=async()=>({cachedTokens:0,overflowed:()=>false,discard(){control.discarded++},session:{contextUsage:20,contextWindow:8192,measureContextUsage:async()=>5,prompt:async(input,options)=>{control.requests.push({input,options});if(control.unsupported)throw new DOMException('schema unsupported','NotSupportedError');return '{"moveId":"b6-a5"}'}}});
+        export const destroyPromptApiSessions=()=>{};export const leaseSession=async()=>({cachedTokens:0,overflowed:()=>false,discard(){control.discarded++},session:{contextUsage:20,contextWindow:8192,measureContextUsage:async()=>5,prompt:async(input,options)=>{control.requests.push({input,options});if(control.unsupported)throw new DOMException('schema unsupported','NotSupportedError');return '{"moveId":"b6-a5"}'}}});
       ` }))
     } }]
   })

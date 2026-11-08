@@ -34,7 +34,8 @@ import type {
 
 import { modelMeta } from "./catalog.js"
 import type { WebGllmModelReasoningByName, WebGllmChatModel } from "./catalog.js"
-import { ensureModel, setKeepLoaded, touchModel, webgllm } from "./models.js"
+import { availability, ensureModel, loadModel, setKeepLoaded, touchModel, unloadModel, webgllm } from "./models.js"
+import type { Availability, DownloadProgressCallback } from "./models.js"
 
 /**
  * Per-call `modelOptions`: sampling over the model card's, and the most
@@ -90,8 +91,16 @@ export type WebGllmConfig = {
    * Keeps the model loaded when another model (of webgllm, Transformers.js
    * or wllama) loads past the page's memory budget (see `setMemoryBudget`);
    * by default the least recently used model is unloaded to make room.
+   * Applies once the adapter uses the model (`create()` or a call); left
+   * out, the model keeps what another adapter of it set.
    */
   keepLoaded?: boolean
+  /**
+   * The model's download progress, 0 to 1, when a call (`chat()`, say)
+   * starts its download; then 1 once it's ready. To load it ahead of time
+   * with progress, see `create`.
+   */
+  onDownloadProgress?: DownloadProgressCallback
 }
 
 type ResolveReasoning<TModel extends string> = TModel extends keyof WebGllmModelReasoningByName
@@ -290,11 +299,80 @@ export class WebGllmTextAdapter<TModel extends WebGllmChatModel> extends BaseTex
   override readonly inputModalities = ["text"] as const
 
   private readonly contextLength: number | undefined
+  private readonly onDownloadProgress: DownloadProgressCallback | undefined
+
+  private readonly keepLoaded: boolean | undefined
 
   constructor(config: WebGllmConfig, model: TModel) {
     super({}, model)
     this.contextLength = config.contextLength
-    setKeepLoaded(model, config.keepLoaded ?? false)
+    this.onDownloadProgress = config.onDownloadProgress
+    this.keepLoaded = config.keepLoaded
+  }
+
+  /**
+   * Applies this adapter's `keepLoaded` when it uses the model, not when
+   * it's constructed: constructing an adapter changes nothing shared. Left
+   * out, the model keeps what another adapter of it set.
+   */
+  private useModel() {
+    if (this.keepLoaded !== undefined) setKeepLoaded(this.model, this.keepLoaded)
+  }
+
+  /**
+   * Where the model stands in this browser, with the Prompt API's values:
+   * "unavailable" where the engine can't run (WebGL 2 with float render
+   * targets, in a worker; not on a server; checked once per page),
+   * "downloading" while this page downloads it, "available" when it's
+   * loaded for this adapter's `contextLength` or its files are all in
+   * webgllm's storage, else "downloadable". It reads storage only: no
+   * worker, no network.
+   */
+  availability(): Promise<Availability> {
+    return availability(this.model, this.contextLength)
+  }
+
+  /**
+   * Loads the model for this adapter's `contextLength` (downloading it the
+   * first time), with the download's progress, 0 to 1, then 1 once it's
+   * ready. Resolves to this adapter when it's ready; rejects if it can't
+   * load (fine to leave unawaited). `chat()` doesn't need it (its first call
+   * loads the model), but it lets a page load ahead of time. Adapters for
+   * the same model share one loaded model; other models stay loaded while
+   * they fit the memory budget. Aborting `signal` rejects this call at once
+   * with an AbortError and stops its progress reports; if no other caller
+   * (another call, or a chat waiting for the model) still waits on the
+   * load, webgllm cancels it and the model is left unloaded.
+   */
+  create(
+    options: { onDownloadProgress?: DownloadProgressCallback; signal?: AbortSignal } = {}
+  ): Promise<this> {
+    const { onDownloadProgress } = options
+    const own = this.onDownloadProgress
+    this.useModel()
+    const ready = loadModel(this.model, {
+      contextLength: this.contextLength,
+      ...(options.signal && { signal: options.signal }),
+      onDownloadProgress:
+        own && onDownloadProgress
+          ? (progress) => {
+              own(progress)
+              onDownloadProgress(progress)
+            }
+          : (own ?? onDownloadProgress)
+    }).then(() => this)
+    // Callers may leave it: an unawaited failure isn't an unhandled rejection.
+    ready.catch(() => undefined)
+    return ready
+  }
+
+  /**
+   * Unloads the model, freeing its GPU memory; a running generation of it
+   * fails. The model is shared, so this unloads it for every adapter of it.
+   * Its files stay downloaded. Never rejects.
+   */
+  destroySession(): Promise<void> {
+    return unloadModel(this.model)
   }
 
   /** The request body shared by chats and structured output (tools and schema aside). */
@@ -340,7 +418,8 @@ export class WebGllmTextAdapter<TModel extends WebGllmChatModel> extends BaseTex
     }
 
     try {
-      await ensureModel(model, this.contextLength, signal)
+      this.useModel()
+      await ensureModel(model, this.contextLength, signal, this.onDownloadProgress)
     } catch (error) {
       if (isAbort(error, signal)) return
       yield runError(model, error, true)
@@ -542,7 +621,8 @@ export class WebGllmTextAdapter<TModel extends WebGllmChatModel> extends BaseTex
     }
 
     try {
-      await ensureModel(model, this.contextLength, signal)
+      this.useModel()
+      await ensureModel(model, this.contextLength, signal, this.onDownloadProgress)
     } catch (error) {
       fail(error)
       if (isAbort(error, signal)) return

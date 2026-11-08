@@ -22,7 +22,15 @@ import type {
   StructuredOutputResult
 } from "@tanstack/ai/adapters"
 
-import { generate, loadModel, setDebug, setKeepLoaded } from "./client.js"
+import {
+  availability,
+  generate,
+  loadModel,
+  setDebug,
+  setKeepLoaded,
+  unloadModel
+} from "./client.js"
+import type { Availability, DownloadProgressCallback } from "./client.js"
 import { modelMeta, modelReasoning } from "./catalog.js"
 import type {
   Sampling,
@@ -70,9 +78,17 @@ export type TransformersJsConfig = {
   /**
    * Keeps the model loaded when another runtime (WebGL, wllama) loads one
    * past the page's memory budget (see `setMemoryBudget`); by default the
-   * least recently used model is unloaded to make room.
+   * least recently used model is unloaded to make room. Applies once the
+   * adapter uses the model (`create()` or a call); left out, the model
+   * keeps what another adapter of it set.
    */
   keepLoaded?: boolean
+  /**
+   * The model's download progress, 0 to 1, when a call (`chat()`, say)
+   * starts its download; then 1 once it's ready. To load it ahead of time
+   * with progress, see `create`.
+   */
+  onDownloadProgress?: DownloadProgressCallback
 }
 
 /** The config a model takes: any other model than a listed one names its tool format. */
@@ -226,22 +242,9 @@ function generationSettings(
 }
 
 /** Cancel the caller's wait without discarding an in-progress model download. */
-function waitForModel(model: string, dtype: WeightsDtype, contextLength: number | undefined, signal: AbortSignal | undefined): Promise<void> {
+function waitForModel(model: string, dtype: WeightsDtype, contextLength: number | undefined, signal: AbortSignal | undefined, onDownloadProgress?: DownloadProgressCallback): Promise<void> {
   signal?.throwIfAborted()
-  const loading = loadModel(model, { dtype, contextLength })
-  if (!signal) return loading
-  return new Promise((resolve, reject) => {
-    const aborted = () => reject(signal.reason)
-    signal.addEventListener("abort", aborted, { once: true })
-    loading.then(() => {
-      signal.removeEventListener("abort", aborted)
-      if (signal.aborted) reject(signal.reason)
-      else resolve()
-    }, error => {
-      signal.removeEventListener("abort", aborted)
-      reject(error)
-    })
-  })
+  return loadModel(model, { dtype, contextLength, onDownloadProgress, signal, chatWait: true })
 }
 
 type MetadataByModality = {
@@ -405,6 +408,18 @@ const STRUCTURED_OUTPUT_COMPLETE = "structured-output.complete"
 /** The `structured-output.complete` event's value. */
 type StructuredOutputComplete = { object: unknown; raw: string; reasoning?: string }
 
+/** Both progress callbacks, as one (or the one given). */
+function combine(
+  a: DownloadProgressCallback | undefined,
+  b: DownloadProgressCallback | undefined
+): DownloadProgressCallback | undefined {
+  if (!a || !b) return a ?? b
+  return (progress) => {
+    a(progress)
+    b(progress)
+  }
+}
+
 let calls = 0
 const nextId = (prefix: string) =>
   `${prefix}_${Date.now().toString(36)}_${(calls++).toString(36)}`
@@ -428,6 +443,9 @@ export class TransformersJsTextAdapter<
   private readonly toolFormat: ToolFormat
   private readonly contextLength: number | undefined
   private readonly dtype: WeightsDtype
+  private readonly onDownloadProgress: DownloadProgressCallback | undefined
+  private readonly keepLoaded: boolean | undefined
+  private readonly debug: boolean
 
   constructor(config: TransformersJsConfig, model: TModel) {
     super({}, model)
@@ -441,8 +459,70 @@ export class TransformersJsTextAdapter<
     // Left out, the worker uses the model's own context window.
     this.contextLength = config.contextLength
     this.dtype = config.dtype ?? modelMeta(model)?.dtype ?? "q4f16"
-    if (config.debug) setDebug(true)
-    setKeepLoaded(model, config.keepLoaded ?? false)
+    this.onDownloadProgress = config.onDownloadProgress
+    this.keepLoaded = config.keepLoaded
+    this.debug = config.debug ?? false
+  }
+
+  /**
+   * Applies this adapter's runtime options (`debug`, `keepLoaded`) when it
+   * uses the model, not when it's constructed: constructing an adapter
+   * changes nothing shared. `keepLoaded` left out leaves the model's as
+   * another adapter set it.
+   */
+  private useModel() {
+    if (this.debug) setDebug(true)
+    if (this.keepLoaded !== undefined) setKeepLoaded(this.model, this.keepLoaded)
+  }
+
+  /**
+   * Where the model stands in this browser, with the Prompt API's values:
+   * "unavailable" where it can't run (no Web Worker or WebAssembly, as on a
+   * server, or no WebGPU and no CPU weights), "downloading" while this page
+   * downloads it, "available" when it's loaded or its files (for this
+   * adapter's `dtype`) are all in Transformers.js's cache, else
+   * "downloadable". It reads Cache Storage only: no worker, no network.
+   */
+  availability(): Promise<Availability> {
+    return availability(this.model, { dtype: this.dtype })
+  }
+
+  /**
+   * Loads the model (downloading it the first time), with the download's
+   * progress, 0 to 1, then 1 once it's ready. Resolves to this adapter when
+   * it's ready; rejects if it can't load (fine to leave unawaited). `chat()` doesn't need it (its
+   * first call loads the model), but it lets a page load ahead of time.
+   * Adapters for the same model (and `dtype` and `contextLength`) share one
+   * loaded model; the page holds one Transformers.js model at a time.
+   * Aborting `signal` rejects this call at once with an AbortError and
+   * stops its progress reports; if no other caller (another call, or a
+   * chat waiting for the model) still waits on the load, it's cancelled:
+   * the worker ends and the model is left unloaded.
+   */
+  create(
+    options: { onDownloadProgress?: DownloadProgressCallback; signal?: AbortSignal } = {}
+  ): Promise<this> {
+    const { onDownloadProgress } = options
+    this.useModel()
+    const ready = loadModel(this.model, {
+      dtype: this.dtype,
+      contextLength: this.contextLength,
+      onDownloadProgress: combine(this.onDownloadProgress, onDownloadProgress),
+      ...(options.signal && { signal: options.signal })
+    }).then(() => this)
+    // Callers may leave it: an unawaited failure isn't an unhandled rejection.
+    ready.catch(() => undefined)
+    return ready
+  }
+
+  /**
+   * Unloads the model, freeing its GPU and WebAssembly memory, if it's the
+   * one loaded (or loading); a running generation of it fails. The model
+   * is shared, so this unloads it for every adapter of it. Its files stay
+   * downloaded.
+   */
+  async destroySession(): Promise<void> {
+    await unloadModel(this.model)
   }
 
   /** Sampling and output cap for a call: `modelOptions` over the model card's or the defaults. */
@@ -510,7 +590,8 @@ export class TransformersJsTextAdapter<
       return
     }
     try {
-      await waitForModel(model, this.dtype, this.contextLength, signal)
+      this.useModel()
+      await waitForModel(model, this.dtype, this.contextLength, signal, this.onDownloadProgress)
     } catch (error) {
       if (signal?.aborted) return
       yield {
@@ -838,7 +919,8 @@ export class TransformersJsTextAdapter<
     }
     const thinking = thinkingOptions(chatOptions.reasoning, model)
     const { sampling, maxTokens } = this.settings(chatOptions.modelOptions)
-    await waitForModel(model, this.dtype, this.contextLength, signal)
+    this.useModel()
+    await waitForModel(model, this.dtype, this.contextLength, signal, this.onDownloadProgress)
     signal?.throwIfAborted()
     const system = normalizeSystemPrompts(chatOptions.systemPrompts)
       .map((p) => p.content)

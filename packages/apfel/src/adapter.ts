@@ -42,7 +42,28 @@ export type ApfelConfig = {
   baseURL?: string
   /** Headers sent with every request, such as apfel's bearer token. */
   defaultHeaders?: Record<string, string>
+  /**
+   * Download progress, as the in-browser adapters take it. Apple's model is
+   * on the Mac already, so nothing downloads: `create`
+   * reports 1 once apfel answers.
+   */
+  onDownloadProgress?: DownloadProgressCallback
 }
+
+/**
+ * Where a model stands, with the Prompt API's values
+ * (`LanguageModel.availability()`): "unavailable", "downloadable",
+ * "downloading" or "available". apfel's model is "available" when apfel
+ * answers, else "unavailable"; it never downloads.
+ */
+export type Availability =
+  | "unavailable"
+  | "downloadable"
+  | "downloading"
+  | "available"
+
+/** A download's progress, from 0 to 1 (apfel's model never downloads: it hears 1). */
+export type DownloadProgressCallback = (progress: number) => void
 
 /**
  * Timings of one model call, in milliseconds, in `RUN_FINISHED`'s
@@ -455,14 +476,83 @@ export class ApfelTextAdapter<TModel extends string> extends BaseTextAdapter<
   override readonly inputModalities = ["text"] as const
   private readonly baseURL: string
   private readonly headers: Record<string, string>
+  private readonly defaultHeaders: Record<string, string> | undefined
+  private readonly onDownloadProgress: ((progress: number) => void) | undefined
 
   constructor(config: ApfelConfig, model: TModel) {
     super({}, model)
     this.baseURL = (config.baseURL ?? APFEL_BASE_URL).replace(/\/+$/, "")
+    this.defaultHeaders = config.defaultHeaders
     this.headers = {
       ...config.defaultHeaders,
       "Content-Type": "application/json"
     }
+    this.onDownloadProgress = config.onDownloadProgress
+  }
+
+  /**
+   * "available" if apfel answers at `baseURL` and serves this model
+   * (`GET /v1/models` lists it within 10 seconds), else "unavailable":
+   * apfel isn't running, or (from a website) the browser didn't let the
+   * page reach it. Apple's model never downloads through the page.
+   */
+  availability(): Promise<Availability> {
+    return this.check()
+  }
+
+  /** `availability()`, with a caller's signal that also stops the request. */
+  private async check(signal?: AbortSignal): Promise<Availability> {
+    try {
+      const timeout = AbortSignal.timeout(10_000)
+      const response = await fetch(`${this.baseURL}/models`, {
+        headers: { ...this.defaultHeaders },
+        signal: signal ? AbortSignal.any([signal, timeout]) : timeout
+      })
+      if (!response.ok) return "unavailable"
+      const list = (await response.json()) as { data?: Array<{ id?: string }> }
+      return list.data?.some((m) => m.id === this.model) ? "available" : "unavailable"
+    } catch {
+      return "unavailable"
+    }
+  }
+
+  /**
+   * Checks that apfel serves the model: resolves to this adapter (after
+   * reporting 1, as nothing downloads) if it does, rejects if it doesn't
+   * (fine to leave unawaited). Nothing loads, so `signal` only stops the
+   * check: aborting it rejects at once with an AbortError, and reports
+   * nothing.
+   */
+  create(
+    options: { onDownloadProgress?: DownloadProgressCallback; signal?: AbortSignal } = {}
+  ): Promise<this> {
+    const { onDownloadProgress } = options
+    const { signal } = options
+    const aborted = () => new DOMException("The check was aborted.", "AbortError")
+    const ready = new Promise<Availability>((resolve, reject) => {
+      if (signal?.aborted) return reject(aborted())
+      const onAbort = () => reject(aborted())
+      signal?.addEventListener("abort", onAbort, { once: true })
+      this.check(signal)
+        .then(resolve, reject)
+        .finally(() => signal?.removeEventListener("abort", onAbort))
+    }).then((availability) => {
+      if (signal?.aborted) throw aborted()
+      if (availability !== "available") {
+        throw new Error(`apfel at ${this.baseURL} didn't answer, or doesn't serve ${this.model}.`)
+      }
+      this.onDownloadProgress?.(1)
+      onDownloadProgress?.(1)
+      return this
+    })
+    // Callers may leave it: an unawaited failure isn't an unhandled rejection.
+    ready.catch(() => undefined)
+    return ready
+  }
+
+  /** Nothing to free: apfel runs the model outside the page. */
+  destroySession(): Promise<void> {
+    return Promise.resolve()
   }
 
   /** A separate, tool-free completion; its output never enters caller history. */
@@ -1269,26 +1359,4 @@ export function apfelText<TModel extends ApfelTextModel>(
   config: ApfelConfig = {}
 ): ApfelTextAdapter<TModel> {
   return new ApfelTextAdapter(config, model)
-}
-
-/**
- * Whether apfel is running at `config.baseURL` and serves `model` (Apple's
- * model by default): true if `GET /v1/models` lists it within 10 seconds.
- */
-export async function isSupported(
-  model: ApfelTextModel = "apple-foundationmodel",
-  config: ApfelConfig = {}
-): Promise<boolean> {
-  const baseURL = (config.baseURL ?? APFEL_BASE_URL).replace(/\/+$/, "")
-  try {
-    const response = await fetch(`${baseURL}/models`, {
-      headers: { ...config.defaultHeaders },
-      signal: AbortSignal.timeout(10_000)
-    })
-    if (!response.ok) return false
-    const list = (await response.json()) as { data?: Array<{ id?: string }> }
-    return list.data?.some((m) => m.id === model) ?? false
-  } catch {
-    return false
-  }
 }

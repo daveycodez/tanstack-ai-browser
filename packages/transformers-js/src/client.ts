@@ -5,8 +5,8 @@
  */
 import { claimMemory, releaseMemory, touchMemory } from "./model-memory.js"
 import { modelMeta, runsWithoutWebGpu } from "./catalog.js"
-import { createStore } from "./store.js"
-import type { Store } from "./store.js"
+import { recordedFilesCached } from "./cache-record.js"
+import { callProgress, LoadWaiters } from "./shared-load.js"
 import type {
   ChatTurn,
   RunTimings,
@@ -17,37 +17,24 @@ import type {
   WorkerResponse
 } from "./protocol.js"
 
-export type ModelStatus =
-  | { state: "idle" }
-  | {
-      state: "loading"
-      /** 0-1 across the model's files. */
-      progress: number
-      /** True when the files come from the browser's storage, not the network. */
-      cached: boolean
-      /** Bytes downloaded so far, while downloading. */
-      loadedBytes?: number
-      /** Bytes of all the model's files, while downloading. */
-      totalBytes?: number
-    }
-  | { state: "ready" }
-  | { state: "error"; message: string }
-
-const statuses = new Map<string, Store<ModelStatus>>()
-
 /**
- * Loading status of a model, by its name: a listed model or any Hugging Face
- * id.
+ * Where a model stands in this browser, with the Prompt API's values
+ * (`LanguageModel.availability()`): "unavailable" (it can't run here),
+ * "downloadable" (it can, once downloaded), "downloading" (a download of it
+ * is in progress in this page) or "available" (on the device: no download
+ * needed).
  */
-export function modelStatus(model: string): Store<ModelStatus> {
-  const id = model
-  let status = statuses.get(id)
-  if (!status) {
-    status = createStore<ModelStatus>({ state: "idle" })
-    statuses.set(id, status)
-  }
-  return status
-}
+export type Availability =
+  | "unavailable"
+  | "downloadable"
+  | "downloading"
+  | "available"
+
+/** A download's progress, from 0 to 1. */
+export type DownloadProgressCallback = (progress: number) => void
+
+/** Models whose files are downloading in this page. */
+const downloading = new Set<string>()
 
 /** Listeners for each running generation, by request id. */
 type Generation = {
@@ -60,6 +47,12 @@ type Pending = {
   promise: Promise<void>
   resolve: () => void
   reject: (error: Error) => void
+  /** The callers waiting on it, with their download progress callbacks. */
+  waiters: LoadWaiters
+  /** Aborted once the load is canceled, replaced or failed: its memory claim lapses. */
+  cancel: AbortController
+  /** Resolved: the model is ready. */
+  ready: boolean
 }
 /**
  * The model the worker holds (or is loading), as loaded: its weights and
@@ -108,33 +101,46 @@ function handleMessage({ data }: MessageEvent<WorkerResponse>) {
       ? loaded
       : null
   if (data.type === "progress") {
-    if (!current) return
-    if (!data.cached) keepDownloads()
-    modelStatus(data.modelId).set({
-      state: "loading",
-      progress: data.progress,
-      cached: data.cached,
-      ...(data.totalBytes !== undefined && {
-        loadedBytes: data.loadedBytes ?? 0,
-        totalBytes: data.totalBytes
-      })
-    })
+    if (!current || data.cached) return
+    keepDownloads()
+    downloading.add(data.modelId)
+    current.load.waiters.report(data.progress)
   } else if (data.type === "claim") {
+    // Recorded only for the load the page still wants: a claim for a
+    // canceled or replaced load records nothing (and, if it's canceled
+    // while other models are unloaded for it, stops there). The answer goes
+    // to the worker that asked, never to a newer one: a replaced load's
+    // worker still needs it to move on to the next load; an ended one is
+    // gone.
+    const from = worker
+    const claiming = loaded?.id === data.loadId ? loaded : null
+    if (!claiming) {
+      from?.postMessage({ type: "claimed" })
+      return
+    }
     const { modelId, bytes } = data
     void claimMemory({
       owner: OWNER,
       model: modelId,
       bytes,
       keepLoaded: keepLoaded.has(modelId),
-      unload: unloadModel
-    }).then(() => post({ type: "claimed" }))
+      unload: unloadModel,
+      signal: claiming.load.cancel.signal
+    }).then(() => {
+      if (worker === from) from?.postMessage({ type: "claimed" })
+    })
   } else if (data.type === "ready") {
     if (!current) return
-    modelStatus(data.modelId).set({ state: "ready" })
+    downloading.delete(data.modelId)
+    current.load.ready = true
+    current.load.waiters.report(1)
+    current.load.waiters.settle()
     current.load.resolve()
   } else if (data.type === "load-error") {
     if (!current) return
-    modelStatus(data.modelId).set({ state: "error", message: data.message })
+    downloading.delete(data.modelId)
+    current.load.waiters.settle()
+    current.load.cancel.abort()
     current.load.reject(new Error(data.message))
     loaded = null
     releaseMemory(OWNER)
@@ -150,6 +156,9 @@ function handleMessage({ data }: MessageEvent<WorkerResponse>) {
     else generation?.onEnd(undefined, data.stats)
   }
 }
+
+const call = callProgress
+
 
 function post(message: WorkerRequest) {
   if (!worker) {
@@ -189,7 +198,7 @@ let webGpu: Promise<boolean> | undefined
 /**
  * Whether models here run on WebGPU: the browser has it and gives a GPU
  * adapter. Where it doesn't, they run on the CPU through WebAssembly, which
- * needs a model with q4 weights (see `isSupported`). The worker makes the
+ * needs a model with q4 weights (see `availability`). The worker makes the
  * same check when it loads a model.
  */
 function hasWebGpu(): Promise<boolean> {
@@ -213,15 +222,42 @@ function hasWebGpu(): Promise<boolean> {
 /**
  * Whether Transformers.js can run `model` in this browser: on WebGPU, or
  * without it on the CPU through WebAssembly, which needs a model with q4
- * weights (a listed model's `cpu`; any other Hugging Face id is taken to
- * have them, and loading says if its repo doesn't). Either way the model
- * runs in a Web Worker on ONNX Runtime's WebAssembly, so it needs both (false
- * on a server). Without a model: whether it can run any model here.
+ * weights (a listed model's `cpu`, pinned to a revision or not; any other
+ * Hugging Face id is taken to have them, and loading says if its repo
+ * doesn't). Either way the model runs in a Web Worker on ONNX Runtime's
+ * WebAssembly, so it needs both (not on a server).
  */
-export async function isSupported(model?: string): Promise<boolean> {
+async function canRun(model: string): Promise<boolean> {
   if (typeof Worker === "undefined" || typeof WebAssembly === "undefined") return false
-  if (await hasWebGpu()) return true
-  return model === undefined || runsWithoutWebGpu(model)
+  return (await hasWebGpu()) || runsWithoutWebGpu(model)
+}
+
+/**
+ * Where `model` stands in this browser, as the Prompt API's
+ * `LanguageModel.availability()` says it: "unavailable" where it can't run
+ * (no Web Worker or WebAssembly, as on a server, or no WebGPU and no CPU
+ * weights), "downloading" while this page downloads it, "available" when
+ * it's loaded (for `dtype`) or all the files a load here picks (for
+ * `dtype`, or q4 on the CPU) are in Transformers.js's cache, else
+ * "downloadable". It reads Cache Storage only: the files a past load used
+ * (recorded once it succeeded) must all still be cached. No worker, no
+ * Transformers.js, no network.
+ */
+export async function availability(
+  model: string,
+  options: { dtype?: WeightsDtype } = {}
+): Promise<Availability> {
+  if (!(await canRun(model))) return "unavailable"
+  if (downloading.has(model)) return "downloading"
+  const dtype = options.dtype ?? modelMeta(model)?.dtype ?? "q4f16"
+  if (loaded?.modelId === model && loaded.dtype === dtype && loaded.load.ready) {
+    return "available"
+  }
+  // The weights a load here picks: q4 on the CPU.
+  const loadDtype: WeightsDtype = (await hasWebGpu()) ? dtype : "q4"
+  const cached = await recordedFilesCached(model, loadDtype)
+  if (downloading.has(model)) return "downloading"
+  return cached ? "available" : "downloadable"
 }
 
 /**
@@ -234,21 +270,55 @@ export async function isSupported(model?: string): Promise<boolean> {
  */
 export function loadModel(
   model: string,
-  options: { dtype?: WeightsDtype; contextLength?: number } = {}
+  options: {
+    dtype?: WeightsDtype
+    contextLength?: number
+    /**
+     * The download's progress, 0 to 1, while the model's files download;
+     * then 1 once it's ready (at once if it already is).
+     */
+    onDownloadProgress?: DownloadProgressCallback
+    /**
+     * Stops this caller's wait: it rejects at once with an AbortError (or,
+     * for a chat's wait, the signal's reason) and hears no more progress. If
+     * no other caller is waiting on the load, the load is cancelled too and
+     * the model left unloaded.
+     */
+    signal?: AbortSignal
+    /**
+     * A chat's own wait for the model: it isn't told 1 if the model is
+     * ready already, rejects with its signal's reason, and aborting it
+     * leaves the download going for the next chat.
+     */
+    chatWait?: boolean
+  } = {}
 ): Promise<void> {
-  const { contextLength } = options
+  const { contextLength, onDownloadProgress, signal, chatWait = false } = options
   const dtype = options.dtype ?? modelMeta(model)?.dtype ?? "q4f16"
   const modelId = model
+  const waitOptions = {
+    onDownloadProgress,
+    signal,
+    ...(chatWait && { cancels: false, reason: (aborted: AbortSignal) => aborted.reason })
+  }
   if (
     loaded?.modelId === modelId &&
     loaded.dtype === dtype &&
     loaded.contextLength === contextLength
   ) {
+    if (!loaded.load.ready) return loaded.load.waiters.wait(loaded.load.promise, waitOptions)
+    // Every caller hears 1 at once if the model is ready already.
+    if (signal?.aborted) return loaded.load.waiters.wait(loaded.load.promise, waitOptions)
+    if (onDownloadProgress && !chatWait) call(onDownloadProgress, 1)
     return loaded.load.promise
   }
+  // An aborted caller starts nothing.
+  if (signal?.aborted) return new LoadWaiters(() => undefined).wait(Promise.resolve(), waitOptions)
   if (loaded) {
     // The worker frees the previous model before loading this one.
-    modelStatus(loaded.modelId).set({ state: "idle" })
+    downloading.delete(loaded.modelId)
+    loaded.load.waiters.settle()
+    loaded.load.cancel.abort()
     loaded.load.reject(new Error("Switched to another model."))
   }
   let resolve!: () => void
@@ -259,9 +329,18 @@ export function loadModel(
   })
   promise.catch(() => undefined)
   const id = ++loads
-  loaded = { id, modelId, dtype, contextLength, load: { promise, resolve, reject } }
-  // The worker reports whether this is a download or a cached load.
-  modelStatus(modelId).set({ state: "loading", progress: 0, cached: true })
+  // The last caller waiting gave up: end the worker, and the download with it.
+  const waiters = new LoadWaiters(() => {
+    if (loaded?.id === id) void unloadModel(modelId)
+  })
+  loaded = {
+    id,
+    modelId,
+    dtype,
+    contextLength,
+    load: { promise, resolve, reject, waiters, cancel: new AbortController(), ready: false }
+  }
+  const waiting = waiters.wait(promise, waitOptions)
   try {
     post({
       type: "load",
@@ -273,11 +352,11 @@ export function loadModel(
   } catch (error) {
     // No worker here (a server, say): the load fails at once.
     const message = error instanceof Error ? error.message : String(error)
-    modelStatus(modelId).set({ state: "error", message })
     loaded = null
+    waiters.settle()
     reject(new Error(message))
   }
-  return promise
+  return waiting
 }
 
 /**
@@ -292,7 +371,9 @@ export async function unloadModel(model?: string): Promise<void> {
   worker = null
   releaseMemory(OWNER)
   if (loaded) {
-    modelStatus(loaded.modelId).set({ state: "idle" })
+    downloading.delete(loaded.modelId)
+    loaded.load.waiters.settle()
+    loaded.load.cancel.abort()
     loaded.load.reject(new Error("The model was unloaded."))
     loaded = null
   }

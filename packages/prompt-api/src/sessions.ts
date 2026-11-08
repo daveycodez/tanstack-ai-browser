@@ -71,6 +71,8 @@ type SessionOptions = {
   isolated?: boolean
   /** Disable managed cross-request reuse and retention for this lease only. */
   retain?: boolean
+  /** The browser's download of its model, 0 to 1, if a new session starts it. */
+  onDownloadProgress?: (progress: number) => void
 }
 
 /** Serialize base preparation only; independent clones generate concurrently. */
@@ -170,7 +172,8 @@ async function leasePooledSession({
   prior,
   options,
   signal,
-  media
+  media,
+  onDownloadProgress
 }: SessionOptions & { cacheKey: string | undefined }): Promise<Lease> {
   const setup = JSON.stringify({ system, options })
   const keys = prior.map(keyOf)
@@ -221,7 +224,7 @@ async function leasePooledSession({
   const startedIn = generation
   const started = performance.now()
   const created: Entry = {
-    session: await createSession(system, prior, options, signal, media),
+    session: await createSession(system, prior, options, signal, media, onDownloadProgress),
     setup,
     history: keys,
     busy: true,
@@ -303,14 +306,16 @@ async function createSession(
   prior: Array<PromptMessage>,
   options: LanguageModelCreateOptions,
   signal: AbortSignal | undefined,
-  media: Map<string, Promise<Blob>> | undefined
+  media: Map<string, Promise<Blob>> | undefined,
+  onDownloadProgress?: (progress: number) => void
 ) {
   const session = await createLanguageModel(
     {
       ...options,
       ...(system && { initialPrompts: [{ role: "system", content: system }] })
     },
-    signal
+    signal,
+    onDownloadProgress
   )
   try {
     let rest = prior

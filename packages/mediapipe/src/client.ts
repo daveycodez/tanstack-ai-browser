@@ -8,37 +8,27 @@ import { MEDIAPIPE_MODEL_META } from "./model-meta.js"
 import type { MediaPipeEmbeddingModel } from "./model-meta.js"
 import type { MediaPipeEmbeddingConfig } from "./options.js"
 import type { LoadRequest, WorkerRequest, WorkerResponse } from "./protocol.js"
-import { createStore } from "./store.js"
-import type { Store } from "./store.js"
 import { MEDIAPIPE_WASM_URL } from "./version.js"
+import { CACHE_NAME } from "./download.js"
+import { abortError, callProgress, LoadWaiters } from "./shared-load.js"
 
-export type ModelStatus =
-  | { state: "idle" }
-  | {
-      state: "loading"
-      /** 0-1 across the model's file. */
-      progress: number
-      /** True when the file comes from the browser's storage, not the network. */
-      cached: boolean
-      /** Bytes downloaded so far, while downloading. */
-      loadedBytes?: number
-      /** Bytes of the model's file, while downloading. */
-      totalBytes?: number
-    }
-  | { state: "ready" }
-  | { state: "error"; message: string }
+/**
+ * Where a model stands in this browser, with the Prompt API's values
+ * (`LanguageModel.availability()`): "unavailable" (it can't run here),
+ * "downloadable" (it can, once downloaded), "downloading" (a download of it
+ * is in progress in this page) or "available" (on the device: no download
+ * needed).
+ */
+export type Availability =
+  | "unavailable"
+  | "downloadable"
+  | "downloading"
+  | "available"
 
-const statuses = new Map<string, Store<ModelStatus>>()
+/** A download's progress, from 0 to 1. */
+export type DownloadProgressCallback = (progress: number) => void
 
-/** Loading status of a model, by its name. */
-export function modelStatus(model: MediaPipeEmbeddingModel): Store<ModelStatus> {
-  let status = statuses.get(model)
-  if (!status) {
-    status = createStore<ModelStatus>({ state: "idle" })
-    statuses.set(model, status)
-  }
-  return status
-}
+const call = callProgress
 
 type Pending = {
   resolve: (vectors: Array<Float32Array>) => void
@@ -60,6 +50,12 @@ type Embedder = {
   retired: boolean
   /** Ended: failed, unloaded, or retired and done. */
   ended: boolean
+  /** The callers waiting on its load, with their download progress callbacks. */
+  waiters: LoadWaiters
+  /** The model's file is downloading (not read from the cache). */
+  downloading: boolean
+  /** Loaded: ready to embed. */
+  ready: boolean
 }
 
 let loaded: Embedder | null = null
@@ -118,6 +114,8 @@ export function loadRequest(
 function end(embedder: Embedder, error: Error) {
   if (embedder.ended) return
   embedder.ended = true
+  embedder.downloading = false
+  embedder.waiters.settle()
   embedder.worker.terminate()
   embedder.settle.reject(error)
   for (const request of embedder.pending.values()) request.reject(error)
@@ -141,23 +139,111 @@ export async function unloadModel(model?: MediaPipeEmbeddingModel) {
   const current = loaded
   if (!current) return
   loaded = null
-  modelStatus(current.model).set({ state: "idle" })
   end(current, new Error("The model was unloaded."))
 }
 
 /**
  * Loads a model (downloading it the first time), replacing any other. The
- * promise settles when it's ready to embed; a failure is in
- * `modelStatus(model)` too, so it's fine to leave unawaited.
+ * promise settles when it's ready to embed; it's fine to leave unawaited.
+ * `onDownloadProgress` hears the model file's download, 0 to 1, then 1
+ * once it's ready (at once if it already is).
  */
 export function loadModel(
   model: MediaPipeEmbeddingModel,
-  config: MediaPipeEmbeddingConfig = {}
+  config: MediaPipeEmbeddingConfig = {},
+  onDownloadProgress?: DownloadProgressCallback,
+  /**
+   * Stops this caller's wait: it rejects at once with an AbortError and
+   * hears no more progress. If no other caller (another load, or an embed
+   * call) is waiting on the load, the worker is ended, its download with it.
+   */
+  signal?: AbortSignal
 ): Promise<void> {
+  // An aborted caller starts nothing.
+  if (signal?.aborted) return rejected(abortError())
   try {
-    return load(model, config).promise
+    return waitFor(load(model, config), onDownloadProgress, signal, true)
   } catch (error) {
     return rejected(error)
+  }
+}
+
+/**
+ * `embedder`'s load for one more caller: every caller hears 1 at once if
+ * it's ready already (but an embed call's own wait), and a caller whose
+ * `signal` aborts stops waiting (see `LoadWaiters`).
+ */
+function waitFor(
+  embedder: Embedder,
+  onDownloadProgress: DownloadProgressCallback | undefined,
+  signal: AbortSignal | undefined,
+  reportReady: boolean
+): Promise<void> {
+  if (!embedder.ready || signal?.aborted) {
+    return embedder.waiters.wait(embedder.promise, { onDownloadProgress, signal })
+  }
+  if (onDownloadProgress && reportReady) call(onDownloadProgress, 1)
+  return embedder.promise
+}
+
+/** Whether MediaPipe can run here (see `availability`). */
+function canRun(): boolean {
+  if (typeof WebAssembly === "undefined" || typeof Worker === "undefined") return false
+  try {
+    return WebAssembly.validate(SIMD_MODULE)
+  } catch {
+    return false
+  }
+}
+
+/**
+ * A WebAssembly module with one SIMD instruction: MediaPipe's WebAssembly
+ * is built with SIMD and has no build without it.
+ */
+const SIMD_MODULE = new Uint8Array([
+  0, 97, 115, 109, 1, 0, 0, 0, 1, 5, 1, 96, 0, 1, 123, 3, 2, 1, 0, 10, 10, 1, 8, 0, 65, 0,
+  253, 15, 253, 98, 11
+])
+
+/**
+ * Where `model` (loaded with `config`) stands in this browser, as the
+ * Prompt API's `LanguageModel.availability()` says it: "unavailable" where
+ * MediaPipe can't run (its TextEmbedder needs WebAssembly with SIMD in a
+ * module Web Worker; not on a server) or the model isn't one it lists,
+ * "downloading" while this page downloads its file, "available" when it's
+ * loaded or its file (and, with `cacheWasm`, MediaPipe's WebAssembly) is in
+ * Cache Storage, else "downloadable". It reads Cache Storage only: no
+ * worker, no network.
+ */
+export async function availability(
+  model: MediaPipeEmbeddingModel,
+  config: MediaPipeEmbeddingConfig = {}
+): Promise<Availability> {
+  if (!canRun()) return "unavailable"
+  let request: LoadRequest
+  try {
+    request = loadRequest(model, config)
+  } catch {
+    return "unavailable"
+  }
+  const key = JSON.stringify(request)
+  const current = () => (loaded?.model === model && loaded.key === key ? loaded : null)
+  if (current()?.downloading) return "downloading"
+  if (current()?.ready) return "available"
+  if (typeof caches === "undefined") return "downloadable"
+  try {
+    const cache = await caches.open(CACHE_NAME)
+    // MediaPipe's names for its files, as its FilesetResolver gives them
+    // for a module worker.
+    const wasm = `${request.wasmPath.replace(/\/$/, "")}/text_wasm_module_internal`
+    const urls = request.cacheWasm
+      ? [request.modelUrl, `${wasm}.js`, `${wasm}.wasm`]
+      : [request.modelUrl]
+    const hits = await Promise.all(urls.map((url) => cache.match(url)))
+    if (current()?.downloading) return "downloading"
+    return hits.every(Boolean) ? "available" : "downloadable"
+  } catch {
+    return "downloadable"
   }
 }
 
@@ -166,7 +252,6 @@ function load(model: MediaPipeEmbeddingModel, config: MediaPipeEmbeddingConfig):
   const request = loadRequest(model, config)
   const key = JSON.stringify(request)
   if (loaded?.model === model && loaded.key === key) return loaded
-  const status = modelStatus(model)
   let worker: Worker
   try {
     if (typeof Worker === "undefined" || typeof WebAssembly === "undefined") {
@@ -181,19 +266,16 @@ function load(model: MediaPipeEmbeddingModel, config: MediaPipeEmbeddingConfig):
   } catch (error) {
     // (A page's policy can refuse the worker.) The embedder loaded before,
     // if any, stays.
-    status.set({ state: "error", message: errorText(error) })
     throw toError(error)
   }
 
   // The previous embedder ends once the requests using it are done.
   const previous = loaded
   if (previous) {
-    if (previous.model !== model) modelStatus(previous.model).set({ state: "idle" })
+    previous.downloading = false
     previous.retired = true
     endIfUnused(previous)
   }
-  status.set({ state: "loading", progress: 0, cached: true })
-
   let settle!: Embedder["settle"]
   const promise = new Promise<void>((resolve, reject) => {
     settle = { resolve, reject }
@@ -208,28 +290,35 @@ function load(model: MediaPipeEmbeddingModel, config: MediaPipeEmbeddingConfig):
     pending: new Map(),
     users: 0,
     retired: false,
-    ended: false
+    ended: false,
+    // The last caller waiting gave up: end the worker, its download with it.
+    waiters: new LoadWaiters(() => {
+      if (loaded !== embedder) return
+      loaded = null
+      end(embedder, abortError())
+    }),
+    downloading: false,
+    ready: false
   }
   loaded = embedder
+  const report = (progress: number) => embedder.waiters.report(progress)
 
   const failLoad = (message: string) => {
     end(embedder, new Error(message))
     if (loaded !== embedder) return
     loaded = null
-    status.set({ state: "error", message })
   }
   worker.onmessage = ({ data }: MessageEvent<WorkerResponse>) => {
     if (data.type === "progress") {
-      if (loaded !== embedder) return
-      const { cached, loadedBytes, totalBytes } = data
-      status.set({
-        state: "loading",
-        progress: totalBytes ? Math.min(loadedBytes / totalBytes, 1) : 0,
-        cached,
-        ...(!cached && { loadedBytes, ...(totalBytes && { totalBytes }) })
-      })
+      if (loaded !== embedder || data.cached) return
+      const { loadedBytes, totalBytes } = data
+      embedder.downloading = true
+      report(totalBytes ? Math.min(loadedBytes / totalBytes, 1) : 0)
     } else if (data.type === "ready") {
-      if (loaded === embedder) status.set({ state: "ready" })
+      embedder.downloading = false
+      embedder.ready = true
+      if (loaded === embedder) report(1)
+      embedder.waiters.settle()
       settle.resolve()
     } else if (data.type === "load-error") {
       failLoad(data.message)
@@ -257,12 +346,13 @@ export async function embedTexts(
   model: MediaPipeEmbeddingModel,
   config: MediaPipeEmbeddingConfig,
   texts: Array<string>,
-  options: { l2Normalize: boolean; quantize: boolean }
+  options: { l2Normalize: boolean; quantize: boolean },
+  onDownloadProgress?: DownloadProgressCallback
 ): Promise<Array<Float32Array>> {
   const embedder = load(model, config)
   embedder.users++
   try {
-    await embedder.promise
+    await waitFor(embedder, onDownloadProgress, undefined, false)
     const id = nextId++
     return await new Promise<Array<Float32Array>>((resolve, reject) => {
       if (embedder.ended) {
