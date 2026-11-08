@@ -400,6 +400,74 @@ test("one engine check per page, however many models and calls ask", async () =>
   assert.equal(probes, 1)
 })
 
+test("createSessionWithProgress's signal: aborted before, nothing loads; the only waiter aborting cancels the load; one of two leaving keeps it for the other; a chat waiting keeps it too", async () => {
+  const adapter = webgllmText(MODEL)
+  const unhandled: Array<unknown> = []
+  const onUnhandled = (reason: unknown) => unhandled.push(reason)
+  process.on("unhandledRejection", onUnhandled)
+  try {
+    await assert.rejects(adapter.createSessionWithProgress(undefined, { signal: AbortSignal.abort() }), (error: unknown) => error instanceof DOMException && error.name === "AbortError")
+    assert.equal(fake.loads.length, 0, "nothing loaded")
+
+    // The only waiter aborts mid-download.
+    let open!: () => void
+    fake.loadGate = new Promise<void>((resolve) => (open = resolve))
+    const heard: Array<number> = []
+    const controller = new AbortController()
+    const alone = adapter.createSessionWithProgress((value) => heard.push(value), { signal: controller.signal })
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    emit("progress", { model: MODEL, phase: "download", progress: 0.27, cached: false, loadedBytes: 3, totalBytes: 10 })
+    controller.abort()
+    await assert.rejects(alone, { name: "AbortError" })
+    emit("progress", { model: MODEL, phase: "download", progress: 0.54, cached: false, loadedBytes: 6, totalBytes: 10 })
+    assert.deepEqual(heard, [0.3], "nothing more after the abort")
+    open()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    assert.equal(fake.loaded.has(MODEL), false, "the load was cancelled: the model isn't loaded")
+    assert.equal(await adapter.availability(), "downloadable")
+
+    // Two waiters: one leaves, the other still hears progress and completion.
+    fake.loadGate = new Promise<void>((resolve) => (open = resolve))
+    const leaving: Array<number> = []
+    const staying: Array<number> = []
+    const leave = new AbortController()
+    const first = adapter.createSessionWithProgress((value) => leaving.push(value), { signal: leave.signal })
+    const second = adapter.createSessionWithProgress((value) => staying.push(value))
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    emit("progress", { model: MODEL, phase: "download", progress: 0.18, cached: false, loadedBytes: 2, totalBytes: 10 })
+    leave.abort()
+    await assert.rejects(first, { name: "AbortError" })
+    emit("progress", { model: MODEL, phase: "download", progress: 0.63, cached: false, loadedBytes: 7, totalBytes: 10 })
+    open()
+    assert.equal(await second, adapter)
+    assert.deepEqual(leaving, [0.2])
+    assert.deepEqual(staying, [0.2, 0.7, 1])
+    assert.equal(await adapter.availability(), "available")
+
+    // A chat waiting on the load keeps it when a session caller aborts.
+    await adapter.destroySession()
+    fake.loadGate = new Promise<void>((resolve) => (open = resolve))
+    const session = new AbortController()
+    const preload = adapter.createSessionWithProgress(undefined, { signal: session.signal })
+    const chat = ensureModel(MODEL, undefined)
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    session.abort()
+    await assert.rejects(preload, { name: "AbortError" })
+    open()
+    await chat
+    assert.equal(await adapter.availability(), "available")
+
+    await adapter.destroySession()
+    const ignored = new AbortController()
+    void adapter.createSessionWithProgress(undefined, { signal: ignored.signal })
+    ignored.abort()
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    assert.deepEqual(unhandled, [])
+  } finally {
+    process.off("unhandledRejection", onUnhandled)
+  }
+})
+
 test("waiters sharing one progress callback: one leaving keeps it for the other, which still hears progress and completion", async () => {
   let open!: () => void
   fake.loadGate = new Promise<void>((resolve) => (open = resolve))

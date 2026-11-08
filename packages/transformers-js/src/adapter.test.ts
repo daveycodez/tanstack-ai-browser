@@ -18,7 +18,8 @@ class FakeWorker {
     if (request.type === "generate") FakeWorker.generate(this, request)
   }
   send(data: WorkerResponse) { this.onmessage?.({ data }) }
-  terminate() { this.onmessage = undefined }
+  terminated = false
+  terminate() { this.terminated = true; this.onmessage = undefined }
 }
 Object.defineProperty(globalThis, "Worker", { configurable: true, writable: true, value: FakeWorker })
 const MODEL = "LiquidAI/LFM2.5-1.2B-Thinking-ONNX"
@@ -711,9 +712,84 @@ test("the same progress callback hears 1 on every call: once for a shared load, 
     await adapter.createSessionWithProgress(onProgress)
     assert.deepEqual(heard, [0.5, 1, 1, 1], "each call on the ready model hears 1")
     const { loadModel } = await import("./client.js")
-    await loadModel(CPU_MODEL, { onDownloadProgress: onProgress, reportReady: false })
+    await loadModel(CPU_MODEL, { onDownloadProgress: onProgress, chatWait: true })
     assert.deepEqual(heard, [0.5, 1, 1, 1])
   } finally {
+    FakeWorker.ready = true
+    await adapter.destroySession()
+  }
+})
+
+test("createSessionWithProgress with a signal: aborted before, it rejects without starting; the only waiter aborting cancels the load; one of two leaving keeps it for the other", { timeout: 2000 }, async () => {
+  const { transformersJsText } = await import("./adapter.js")
+  const CPU_MODEL = "onnx-community/LFM2-1.2B-Tool-ONNX"
+  const adapter = transformersJsText(CPU_MODEL)
+  await adapter.destroySession(); FakeWorker.ready = false
+  const loadsPosted = () => FakeWorker.last?.posted.filter((request): request is Extract<WorkerRequest, { type: "load" }> => request.type === "load") ?? []
+  const unhandled: Array<unknown> = []
+  const onUnhandled = (reason: unknown) => unhandled.push(reason)
+  process.on("unhandledRejection", onUnhandled)
+  try {
+    // Aborted before: rejects at once, nothing starts.
+    const worker = FakeWorker.last
+    const before = loadsPosted().length
+    await assert.rejects(adapter.createSessionWithProgress(undefined, { signal: AbortSignal.abort() }), { name: "AbortError" })
+    assert.equal(FakeWorker.last, worker)
+    assert.equal(loadsPosted().length, before, "no load posted")
+
+    // The only waiter aborts mid-download: the worker ends, the model is left unloaded.
+    const heard: Array<number> = []
+    const controller = new AbortController()
+    const alone = adapter.createSessionWithProgress((value) => heard.push(value), { signal: controller.signal })
+    const loading = FakeWorker.last
+    const load = loadsPosted().at(-1)!
+    loading.send({ type: "progress", loadId: load.loadId, modelId: CPU_MODEL, progress: 0.3, cached: false })
+    controller.abort()
+    await assert.rejects(alone, (error: unknown) => error instanceof DOMException && error.name === "AbortError")
+    assert.equal(loading.terminated, true, "the worker (and its download) ended")
+    loading.send({ type: "progress", loadId: load.loadId, modelId: CPU_MODEL, progress: 0.6, cached: false })
+    assert.deepEqual(heard, [0.3], "nothing more after the abort")
+    assert.equal(await adapter.availability(), "downloadable")
+
+    // Two waiters: one aborts, the other still hears progress and completion.
+    const leaving: Array<number> = []
+    const staying: Array<number> = []
+    const leave = new AbortController()
+    const first = adapter.createSessionWithProgress((value) => leaving.push(value), { signal: leave.signal })
+    const second = adapter.createSessionWithProgress((value) => staying.push(value))
+    const next = loadsPosted().at(-1)!
+    FakeWorker.last.send({ type: "progress", loadId: next.loadId, modelId: CPU_MODEL, progress: 0.2, cached: false })
+    leave.abort()
+    await assert.rejects(first, { name: "AbortError" })
+    assert.equal(FakeWorker.last.terminated, false, "the other caller still waits")
+    FakeWorker.last.send({ type: "progress", loadId: next.loadId, modelId: CPU_MODEL, progress: 0.7, cached: false })
+    FakeWorker.last.send({ type: "ready", loadId: next.loadId, modelId: CPU_MODEL })
+    assert.equal(await second, adapter)
+    assert.deepEqual(leaving, [0.2])
+    assert.deepEqual(staying, [0.2, 0.7, 1])
+    assert.equal(await adapter.availability(), "available")
+
+    // A chat waiting on the load counts as a waiter: a session caller aborting doesn't cancel it.
+    await adapter.destroySession()
+    const session = new AbortController()
+    const preload = adapter.createSessionWithProgress(undefined, { signal: session.signal })
+    const { loadModel } = await import("./client.js")
+    const chat = loadModel(CPU_MODEL, { chatWait: true })
+    const third = loadsPosted().at(-1)!
+    session.abort()
+    await assert.rejects(preload, { name: "AbortError" })
+    assert.equal(FakeWorker.last.terminated, false)
+    FakeWorker.last.send({ type: "ready", loadId: third.loadId, modelId: CPU_MODEL })
+    await chat
+    // A caller that ignores its promise raises no unhandled rejection.
+    const ignored = new AbortController()
+    await adapter.destroySession()
+    void adapter.createSessionWithProgress(undefined, { signal: ignored.signal })
+    ignored.abort()
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    assert.deepEqual(unhandled, [])
+  } finally {
+    process.off("unhandledRejection", onUnhandled)
     FakeWorker.ready = true
     await adapter.destroySession()
   }

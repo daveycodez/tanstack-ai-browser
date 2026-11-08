@@ -5,6 +5,7 @@
  */
 import { claimMemory, releaseMemory, touchMemory } from "./model-memory.js"
 import { modelMeta, runsWithoutWebGpu } from "./catalog.js"
+import { callProgress, LoadWaiters } from "./shared-load.js"
 import type {
   ChatTurn,
   RunTimings,
@@ -43,8 +44,8 @@ type Pending = {
   promise: Promise<void>
   resolve: () => void
   reject: (error: Error) => void
-  /** Its callers' download progress callbacks. */
-  listeners: Set<DownloadProgressCallback>
+  /** The callers waiting on it, with their download progress callbacks. */
+  waiters: LoadWaiters
   /** Resolved: the model is ready. */
   ready: boolean
 }
@@ -97,7 +98,7 @@ function handleMessage({ data }: MessageEvent<WorkerResponse>) {
   if (data.type === "progress") {
     if (!current || data.cached) return
     keepDownloads()
-    report(current.load, data.progress)
+    current.load.waiters.report(data.progress)
   } else if (data.type === "claim") {
     const { modelId, bytes } = data
     void claimMemory({
@@ -110,12 +111,12 @@ function handleMessage({ data }: MessageEvent<WorkerResponse>) {
   } else if (data.type === "ready") {
     if (!current) return
     current.load.ready = true
-    report(current.load, 1)
-    current.load.listeners.clear()
+    current.load.waiters.report(1)
+    current.load.waiters.settle()
     current.load.resolve()
   } else if (data.type === "load-error") {
     if (!current) return
-    current.load.listeners.clear()
+    current.load.waiters.settle()
     current.load.reject(new Error(data.message))
     loaded = null
     releaseMemory(OWNER)
@@ -132,18 +133,7 @@ function handleMessage({ data }: MessageEvent<WorkerResponse>) {
   }
 }
 
-/** Calls a load's progress callbacks; a callback that throws doesn't stop the load. */
-function report(load: Pending, progress: number) {
-  for (const listener of load.listeners) call(listener, progress)
-}
-
-function call(listener: DownloadProgressCallback, progress: number) {
-  try {
-    listener(progress)
-  } catch (error) {
-    console.error(error)
-  }
-}
+const call = callProgress
 
 
 function post(message: WorkerRequest) {
@@ -257,31 +247,44 @@ export function loadModel(
      */
     onDownloadProgress?: DownloadProgressCallback
     /**
-     * Tell `onDownloadProgress` 1 if the model is ready already (true by
-     * default; a chat's own wait for the model passes false).
+     * Stops this caller's wait: it rejects at once with an AbortError (or,
+     * for a chat's wait, the signal's reason) and hears no more progress. If
+     * no other caller is waiting on the load, the load is cancelled too and
+     * the model left unloaded.
      */
-    reportReady?: boolean
+    signal?: AbortSignal
+    /**
+     * A chat's own wait for the model: it isn't told 1 if the model is
+     * ready already, rejects with its signal's reason, and aborting it
+     * leaves the download going for the next chat.
+     */
+    chatWait?: boolean
   } = {}
 ): Promise<void> {
-  const { contextLength, onDownloadProgress, reportReady = true } = options
+  const { contextLength, onDownloadProgress, signal, chatWait = false } = options
   const dtype = options.dtype ?? modelMeta(model)?.dtype ?? "q4f16"
   const modelId = model
+  const waitOptions = {
+    onDownloadProgress,
+    signal,
+    ...(chatWait && { cancels: false, reason: (aborted: AbortSignal) => aborted.reason })
+  }
   if (
     loaded?.modelId === modelId &&
     loaded.dtype === dtype &&
     loaded.contextLength === contextLength
   ) {
-    // Every caller hears 1 at once if the model is ready already; while it
-    // loads, a callback joins the load's (once, however many callers).
-    if (onDownloadProgress) {
-      if (!loaded.load.ready) loaded.load.listeners.add(onDownloadProgress)
-      else if (reportReady) call(onDownloadProgress, 1)
-    }
+    if (!loaded.load.ready) return loaded.load.waiters.wait(loaded.load.promise, waitOptions)
+    // Every caller hears 1 at once if the model is ready already.
+    if (signal?.aborted) return loaded.load.waiters.wait(loaded.load.promise, waitOptions)
+    if (onDownloadProgress && !chatWait) call(onDownloadProgress, 1)
     return loaded.load.promise
   }
+  // An aborted caller starts nothing.
+  if (signal?.aborted) return new LoadWaiters(() => undefined).wait(Promise.resolve(), waitOptions)
   if (loaded) {
     // The worker frees the previous model before loading this one.
-    loaded.load.listeners.clear()
+    loaded.load.waiters.settle()
     loaded.load.reject(new Error("Switched to another model."))
   }
   let resolve!: () => void
@@ -292,16 +295,18 @@ export function loadModel(
   })
   promise.catch(() => undefined)
   const id = ++loads
-  const listeners = new Set<DownloadProgressCallback>(
-    onDownloadProgress ? [onDownloadProgress] : []
-  )
+  // The last caller waiting gave up: end the worker, and the download with it.
+  const waiters = new LoadWaiters(() => {
+    if (loaded?.id === id) void unloadModel(modelId)
+  })
   loaded = {
     id,
     modelId,
     dtype,
     contextLength,
-    load: { promise, resolve, reject, listeners, ready: false }
+    load: { promise, resolve, reject, waiters, ready: false }
   }
+  const waiting = waiters.wait(promise, waitOptions)
   try {
     post({
       type: "load",
@@ -314,9 +319,10 @@ export function loadModel(
     // No worker here (a server, say): the load fails at once.
     const message = error instanceof Error ? error.message : String(error)
     loaded = null
+    waiters.settle()
     reject(new Error(message))
   }
-  return promise
+  return waiting
 }
 
 /**
@@ -331,7 +337,7 @@ export async function unloadModel(model?: string): Promise<void> {
   worker = null
   releaseMemory(OWNER)
   if (loaded) {
-    loaded.load.listeners.clear()
+    loaded.load.waiters.settle()
     loaded.load.reject(new Error("The model was unloaded."))
     loaded = null
   }

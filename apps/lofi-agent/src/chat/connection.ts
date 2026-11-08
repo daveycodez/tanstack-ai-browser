@@ -86,9 +86,11 @@ async function* reply(
     once: true
   })
   // The model first, with its download's progress. stop() returns at
-  // once; the download goes on (other runs may share it), and the adapter's
-  // next call picks the model up.
-  const failed = await untilAborted(prepareModel(model), abortController.signal)
+  // once, and cancels the download unless another run still waits on it.
+  const failed = await untilAborted(
+    prepareModel(model, abortController.signal),
+    abortController.signal
+  )
   if (failed === ABORTED || abortController.signal.aborted) return
   if (failed) throw failed
   yield* chat({

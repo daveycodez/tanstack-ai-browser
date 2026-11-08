@@ -213,10 +213,27 @@ async function load(model: WebGllmChatModel, contextLength: number | undefined, 
  */
 export function loadModel(
   model: WebGllmChatModel,
-  options: { contextLength?: number; onDownloadProgress?: DownloadProgressCallback } = {}
+  options: {
+    contextLength?: number
+    onDownloadProgress?: DownloadProgressCallback
+    /**
+     * Stops this caller's wait: it rejects at once with an AbortError and
+     * hears no more progress. webgllm shares one load between its callers
+     * (a chat's included) and cancels it, leaving the model unloaded, when
+     * the last one leaves.
+     */
+    signal?: AbortSignal
+  } = {}
 ): Promise<void> {
-  const { contextLength, onDownloadProgress } = options
-  const promise = ensureModel(model, contextLength, undefined, onDownloadProgress, true)
+  const { contextLength, onDownloadProgress, signal } = options
+  const promise = (async () => {
+    try {
+      await ensureModel(model, contextLength, signal, onDownloadProgress, true)
+    } catch (error) {
+      if (signal?.aborted) throw new DOMException("The model load was aborted.", "AbortError")
+      throw error
+    }
+  })()
   // Callers may leave it: an unawaited failure isn't an unhandled rejection.
   promise.catch(() => undefined)
   return promise

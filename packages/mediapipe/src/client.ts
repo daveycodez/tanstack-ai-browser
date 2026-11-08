@@ -9,6 +9,7 @@ import type { MediaPipeEmbeddingModel } from "./model-meta.js"
 import type { MediaPipeEmbeddingConfig } from "./options.js"
 import type { LoadRequest, WorkerRequest, WorkerResponse } from "./protocol.js"
 import { MEDIAPIPE_WASM_URL } from "./version.js"
+import { abortError, callProgress, LoadWaiters } from "./shared-load.js"
 
 /**
  * Where a model stands, with the Prompt API's values
@@ -27,13 +28,7 @@ export type Availability =
 /** A download's progress, from 0 to 1. */
 export type DownloadProgressCallback = (progress: number) => void
 
-function call(listener: DownloadProgressCallback, progress: number) {
-  try {
-    listener(progress)
-  } catch (error) {
-    console.error(error)
-  }
-}
+const call = callProgress
 
 type Pending = {
   resolve: (vectors: Array<Float32Array>) => void
@@ -55,8 +50,8 @@ type Embedder = {
   retired: boolean
   /** Ended: failed, unloaded, or retired and done. */
   ended: boolean
-  /** Its callers' download progress callbacks. */
-  listeners: Set<DownloadProgressCallback>
+  /** The callers waiting on its load, with their download progress callbacks. */
+  waiters: LoadWaiters
   /** Loaded: ready to embed. */
   ready: boolean
 }
@@ -117,7 +112,7 @@ export function loadRequest(
 function end(embedder: Embedder, error: Error) {
   if (embedder.ended) return
   embedder.ended = true
-  embedder.listeners.clear()
+  embedder.waiters.settle()
   embedder.worker.terminate()
   embedder.settle.reject(error)
   for (const request of embedder.pending.values()) request.reject(error)
@@ -153,13 +148,39 @@ export async function unloadModel(model?: MediaPipeEmbeddingModel) {
 export function loadModel(
   model: MediaPipeEmbeddingModel,
   config: MediaPipeEmbeddingConfig = {},
-  onDownloadProgress?: DownloadProgressCallback
+  onDownloadProgress?: DownloadProgressCallback,
+  /**
+   * Stops this caller's wait: it rejects at once with an AbortError and
+   * hears no more progress. If no other caller (another load, or an embed
+   * call) is waiting on the load, the worker is ended, its download with it.
+   */
+  signal?: AbortSignal
 ): Promise<void> {
+  // An aborted caller starts nothing.
+  if (signal?.aborted) return rejected(abortError())
   try {
-    return load(model, config, onDownloadProgress, true).promise
+    return waitFor(load(model, config), onDownloadProgress, signal, true)
   } catch (error) {
     return rejected(error)
   }
+}
+
+/**
+ * `embedder`'s load for one more caller: every caller hears 1 at once if
+ * it's ready already (but an embed call's own wait), and a caller whose
+ * `signal` aborts stops waiting (see `LoadWaiters`).
+ */
+function waitFor(
+  embedder: Embedder,
+  onDownloadProgress: DownloadProgressCallback | undefined,
+  signal: AbortSignal | undefined,
+  reportReady: boolean
+): Promise<void> {
+  if (!embedder.ready || signal?.aborted) {
+    return embedder.waiters.wait(embedder.promise, { onDownloadProgress, signal })
+  }
+  if (onDownloadProgress && reportReady) call(onDownloadProgress, 1)
+  return embedder.promise
 }
 
 /** Whether MediaPipe can run here (see `availability`). */
@@ -207,24 +228,10 @@ export async function availability(
 }
 
 /** The embedder for `model` with `config`, loaded or loading. Throws if it can't start. */
-function load(
-  model: MediaPipeEmbeddingModel,
-  config: MediaPipeEmbeddingConfig,
-  onDownloadProgress?: DownloadProgressCallback,
-  /** Tell `onDownloadProgress` 1 if the model is ready already (not for an embed call's own wait). */
-  reportReady = false
-): Embedder {
+function load(model: MediaPipeEmbeddingModel, config: MediaPipeEmbeddingConfig): Embedder {
   const request = loadRequest(model, config)
   const key = JSON.stringify(request)
-  if (loaded?.model === model && loaded.key === key) {
-    // Every caller hears 1 at once if the model is ready already; while it
-    // loads, a callback joins the load's (once, however many callers).
-    if (onDownloadProgress) {
-      if (!loaded.ready) loaded.listeners.add(onDownloadProgress)
-      else if (reportReady) call(onDownloadProgress, 1)
-    }
-    return loaded
-  }
+  if (loaded?.model === model && loaded.key === key) return loaded
   let worker: Worker
   try {
     if (typeof Worker === "undefined" || typeof WebAssembly === "undefined") {
@@ -263,13 +270,16 @@ function load(
     users: 0,
     retired: false,
     ended: false,
-    listeners: new Set(onDownloadProgress ? [onDownloadProgress] : []),
+    // The last caller waiting gave up: end the worker, its download with it.
+    waiters: new LoadWaiters(() => {
+      if (loaded !== embedder) return
+      loaded = null
+      end(embedder, abortError())
+    }),
     ready: false
   }
   loaded = embedder
-  const report = (progress: number) => {
-    for (const listener of embedder.listeners) call(listener, progress)
-  }
+  const report = (progress: number) => embedder.waiters.report(progress)
 
   const failLoad = (message: string) => {
     end(embedder, new Error(message))
@@ -284,7 +294,7 @@ function load(
     } else if (data.type === "ready") {
       embedder.ready = true
       if (loaded === embedder) report(1)
-      embedder.listeners.clear()
+      embedder.waiters.settle()
       settle.resolve()
     } else if (data.type === "load-error") {
       failLoad(data.message)
@@ -315,10 +325,10 @@ export async function embedTexts(
   options: { l2Normalize: boolean; quantize: boolean },
   onDownloadProgress?: DownloadProgressCallback
 ): Promise<Array<Float32Array>> {
-  const embedder = load(model, config, onDownloadProgress)
+  const embedder = load(model, config)
   embedder.users++
   try {
-    await embedder.promise
+    await waitFor(embedder, onDownloadProgress, undefined, false)
     const id = nextId++
     return await new Promise<Array<Float32Array>>((resolve, reject) => {
       if (embedder.ended) {

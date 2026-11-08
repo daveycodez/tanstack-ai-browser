@@ -19,6 +19,7 @@ import type {
 
 import { claimMemory, releaseMemory, touchMemory } from "./model-memory.js"
 import { modelMeta, modelUrl } from "./catalog.js"
+import { callProgress, LoadWaiters } from "./shared-load.js"
 import type { WllamaChatModel } from "./catalog.js"
 
 /**
@@ -38,13 +39,7 @@ export type Availability =
 /** A download's progress, from 0 to 1. */
 export type DownloadProgressCallback = (progress: number) => void
 
-function call(listener: DownloadProgressCallback, progress: number) {
-  try {
-    listener(progress)
-  } catch (error) {
-    console.error(error)
-  }
-}
+const call = callProgress
 
 /** Options that apply to the runtime, so to every model. */
 export type RuntimeOptions = {
@@ -120,8 +115,8 @@ let loaded: {
   wllama: Wllama
   promise: Promise<Wllama>
   abort: AbortController
-  /** Its callers' download progress callbacks. */
-  listeners: Set<DownloadProgressCallback>
+  /** The callers waiting on it, with their download progress callbacks. */
+  waiters: LoadWaiters
   /** Resolved: the model is ready. */
   ready: boolean
 } | null = null
@@ -358,18 +353,38 @@ async function startLoad(
 export function loadModel(
   model: WllamaChatModel,
   onDownloadProgress?: DownloadProgressCallback,
-  /** Tell `onDownloadProgress` 1 if the model is ready already (not for a chat's own wait). */
-  reportReady = true
+  loadOptions: {
+    /**
+     * Stops this caller's wait: it rejects at once with an AbortError (or,
+     * for a chat's wait, the signal's reason) and hears no more progress. If
+     * no other caller is waiting on the load, the download is cancelled too
+     * and the model left unloaded.
+     */
+    signal?: AbortSignal
+    /**
+     * A chat's own wait for the model: it isn't told 1 if the model is
+     * ready already, rejects with its signal's reason, and aborting it
+     * leaves the download going for the next chat.
+     */
+    chatWait?: boolean
+  } = {}
 ): Promise<Wllama> {
+  const { signal, chatWait = false } = loadOptions
+  const waitOptions = {
+    onDownloadProgress,
+    signal,
+    ...(chatWait && { cancels: false, reason: (aborted: AbortSignal) => aborted.reason })
+  }
   const contextLength = contextLengths.get(model)
   if (loaded?.model === model && loaded.contextLength === contextLength) {
-    // Every caller hears 1 at once if the model is ready already; while it
-    // loads, a callback joins the load's (once, however many callers).
-    if (onDownloadProgress) {
-      if (!loaded.ready) loaded.listeners.add(onDownloadProgress)
-      else if (reportReady) call(onDownloadProgress, 1)
-    }
+    if (!loaded.ready || signal?.aborted) return loaded.waiters.wait(loaded.promise, waitOptions)
+    // Every caller hears 1 at once if the model is ready already.
+    if (onDownloadProgress && !chatWait) call(onDownloadProgress, 1)
     return loaded.promise
+  }
+  // An aborted caller starts nothing.
+  if (signal?.aborted) {
+    return new LoadWaiters(() => undefined).wait(Promise.resolve(undefined as unknown as Wllama), waitOptions)
   }
   let wllama: Wllama
   try {
@@ -383,12 +398,11 @@ export function loadModel(
   }
   const previous = loaded
   const abort = new AbortController()
-  const listeners = new Set<DownloadProgressCallback>(
-    onDownloadProgress ? [onDownloadProgress] : []
-  )
-  const report = (progress: number) => {
-    for (const listener of listeners) call(listener, progress)
-  }
+  // The last caller waiting gave up: stop the download and free wllama.
+  const waiters = new LoadWaiters(() => {
+    if (loaded === current) void unloadModel(model)
+  })
+  const report = (progress: number) => waiters.report(progress)
   const promise = (async () => {
     if (previous) {
       // Stop its download, if it's still downloading, and free it: exit()
@@ -406,7 +420,7 @@ export function loadModel(
     wllama,
     promise,
     abort,
-    listeners,
+    waiters,
     ready: false
   }
   loaded = current
@@ -419,10 +433,10 @@ export function loadModel(
       // Superseded while it loaded, after the next load stopped waiting:
       // free it now.
       else void wllama.exit().catch(() => undefined)
-      listeners.clear()
+      waiters.settle()
     },
     () => {
-      listeners.clear()
+      waiters.settle()
       // Superseded: the next load frees it.
       if (loaded !== current) return
       loaded = null
@@ -431,7 +445,8 @@ export function loadModel(
     }
   )
   promise.catch(() => undefined)
-  return promise
+  // (After the handlers above, so a waiter hears the 1 they report.)
+  return waiters.wait(promise, waitOptions)
 }
 
 /**
@@ -494,28 +509,7 @@ export async function waitForModel(
   onDownloadProgress?: DownloadProgressCallback
 ): Promise<Wllama> {
   signal?.throwIfAborted()
-  const loading = loadModel(model, onDownloadProgress, false)
-  if (!signal) return loading
-  return new Promise<Wllama>((resolve, reject) => {
-    const aborted = () => {
-      signal.removeEventListener("abort", aborted)
-      reject(signal.reason)
-    }
-    signal.addEventListener("abort", aborted, { once: true })
-    loading.then(
-      value => {
-        signal.removeEventListener("abort", aborted)
-        if (signal.aborted) reject(signal.reason)
-        else resolve(value)
-      },
-      error => {
-        signal.removeEventListener("abort", aborted)
-        reject(error)
-      }
-    )
-    // Also cover an abort during synchronous model setup before the listener.
-    if (signal.aborted) aborted()
-  })
+  return loadModel(model, onDownloadProgress, { ...(signal && { signal }), chatWait: true })
 }
 
 /** Streams a chat completion from `model`, loading it first. */

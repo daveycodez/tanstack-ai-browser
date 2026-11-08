@@ -327,12 +327,19 @@ export class WebGllmTextAdapter<TModel extends WebGllmChatModel> extends BaseTex
    * load (fine to leave unawaited). `chat()` doesn't need it (its first call
    * loads the model), but it lets a page load ahead of time. Adapters for
    * the same model share one loaded model; other models stay loaded while
-   * they fit the memory budget.
+   * they fit the memory budget. Aborting `signal` rejects this call at once
+   * with an AbortError and stops its progress reports; if no other caller
+   * (another call, or a chat waiting for the model) still waits on the
+   * load, webgllm cancels it and the model is left unloaded.
    */
-  createSessionWithProgress(onDownloadProgress?: DownloadProgressCallback): Promise<this> {
+  createSessionWithProgress(
+    onDownloadProgress?: DownloadProgressCallback,
+    options: { signal?: AbortSignal } = {}
+  ): Promise<this> {
     const own = this.onDownloadProgress
     const ready = loadModel(this.model, {
       contextLength: this.contextLength,
+      ...(options.signal && { signal: options.signal }),
       onDownloadProgress:
         own && onDownloadProgress
           ? (progress) => {

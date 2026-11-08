@@ -416,12 +416,19 @@ export class PromptApiTextAdapter extends BaseTextAdapter<
    * to this adapter then; rejects if it can't start (fine to leave
    * unawaited). `chat()` doesn't need it (its first session does the same),
    * but the browser asks for a click on the page before a download: call it
-   * from the click that turns the model on.
+   * from the click that turns the model on. Aborting `signal` rejects this
+   * call at once with an AbortError and stops its progress reports; the
+   * browser's `LanguageModel.create()` (and its download) is aborted when
+   * no other call still waits on it.
    */
-  createSessionWithProgress(onDownloadProgress?: (progress: number) => void): Promise<this> {
+  createSessionWithProgress(
+    onDownloadProgress?: (progress: number) => void,
+    options: { signal?: AbortSignal } = {}
+  ): Promise<this> {
     const own = this.onDownloadProgress
     const ready = loadPromptApiModel({
       languages: this.languages,
+      ...(options.signal && { signal: options.signal }),
       onDownloadProgress:
         own && onDownloadProgress
           ? (progress) => {

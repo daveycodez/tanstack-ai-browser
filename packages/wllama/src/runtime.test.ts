@@ -45,6 +45,10 @@ type Control = {
   progressed: null | (() => void)
   /** Storage, network, worker and engine calls, by name. */
   calls: Array<string>
+  /** The last download's signal and progress callback. */
+  download?: { signal: AbortSignal; progress: (p: { loaded: number; total: number }) => void }
+  /** wllama instances ended. */
+  exits: number
 }
 
 /**
@@ -61,7 +65,8 @@ async function withClient(name: string, body: (client: typeof import("./client.j
     stored: [],
     gate: new Promise<void>((resolve) => { release = resolve }),
     progressed: null,
-    calls: []
+    calls: [],
+    exits: 0
   }
   ;(globalThis as { __wllamaAvailability?: Control }).__wllamaAvailability = control
   const define = (key: string, value: unknown) => Object.defineProperty(globalThis, key, { configurable: true, writable: true, value })
@@ -85,7 +90,8 @@ async function withClient(name: string, body: (client: typeof import("./client.j
         export class Wllama {
           constructor(){control.calls.push("new Wllama");this.modelManager={
             getModels:async()=>{control.calls.push("modelManager.getModels");return control.stored},
-            getModelOrDownload:async(source,{progressCallback})=>{
+            getModelOrDownload:async(source,{progressCallback,signal})=>{
+              control.download={signal,progress:progressCallback};
               progressCallback({loaded:250,total:1000});
               control.progressed?.();
               await control.gate;
@@ -97,7 +103,7 @@ async function withClient(name: string, body: (client: typeof import("./client.j
           getWorkerResources(){return {compat:false}}
           async loadModel(){}
           getLoadedContextInfo(){return {success:true,n_ctx:0,n_ctx_train:0};}
-          async exit(){}
+          async exit(){control.exits++}
         }
       ` }))
     } }] })
@@ -146,6 +152,80 @@ test("the same progress callback hears 1 on every load call: once for a shared l
     assert.deepEqual(heard, [0.25, 1, 1, 1, 1], "each call on the ready model hears 1")
     await client.waitForModel(MODEL, undefined, onProgress)
     assert.deepEqual(heard, [0.25, 1, 1, 1, 1])
+  })
+})
+
+test("createSessionWithProgress's signal: aborted before, nothing starts; the only waiter aborting cancels the download; one of two leaving keeps it for the other", { timeout: 5000 }, async () => {
+  await withClient("abort", async (client, control) => {
+    const { wllamaText } = await import("./adapter.js")
+    const unhandled: Array<unknown> = []
+    const onUnhandled = (reason: unknown) => unhandled.push(reason)
+    process.on("unhandledRejection", onUnhandled)
+    try {
+      // Aborted before: rejects at once, no wllama started.
+      await assert.rejects(client.loadModel(MODEL, undefined, { signal: AbortSignal.abort() }), (error: unknown) => error instanceof DOMException && error.name === "AbortError")
+      assert.equal(control.calls.includes("new Wllama"), false)
+
+      // The only waiter aborts mid-download.
+      let gate!: () => void
+      control.gate = new Promise<void>((resolve) => { gate = resolve })
+      const heard: Array<number> = []
+      const controller = new AbortController()
+      let progressed = new Promise<void>((resolve) => { control.progressed = resolve })
+      const alone = client.loadModel(MODEL, (value) => heard.push(value), { signal: controller.signal })
+      await progressed
+      controller.abort()
+      await assert.rejects(alone, { name: "AbortError" })
+      assert.equal(control.download?.signal.aborted, true, "the download was cancelled")
+      await new Promise((resolve) => setTimeout(resolve, 0))
+      assert.equal(control.exits, 1, "wllama's worker ended")
+      control.download?.progress({ loaded: 900, total: 1000 })
+      assert.deepEqual(heard, [0.25], "nothing more after the abort")
+      assert.equal(await client.availability(MODEL), "downloadable")
+      gate()
+
+      // Two waiters: one leaves, the other still hears progress and completion.
+      await new Promise((resolve) => setTimeout(resolve, 0))
+      control.stored = []
+      control.gate = new Promise<void>((resolve) => { gate = resolve })
+      const leaving: Array<number> = []
+      const staying: Array<number> = []
+      const leave = new AbortController()
+      progressed = new Promise<void>((resolve) => { control.progressed = resolve })
+      const first = client.loadModel(MODEL, (value) => leaving.push(value), { signal: leave.signal })
+      const second = client.loadModel(MODEL, (value) => staying.push(value))
+      await progressed
+      leave.abort()
+      await assert.rejects(first, { name: "AbortError" })
+      assert.equal(control.download?.signal.aborted, false, "the download goes on for the other caller")
+      gate()
+      await second
+      assert.deepEqual(leaving, [0.25])
+      assert.deepEqual(staying, [0.25, 1, 1])
+      assert.equal(await client.availability(MODEL), "available")
+
+      // A chat waiting on the load keeps it going when a session caller aborts.
+      await client.unloadModel(MODEL)
+      control.gate = new Promise<void>((resolve) => { gate = resolve })
+      const session = new AbortController()
+      progressed = new Promise<void>((resolve) => { control.progressed = resolve })
+      const preload = client.loadModel(MODEL, undefined, { signal: session.signal })
+      const chat = client.waitForModel(MODEL)
+      await progressed
+      session.abort()
+      await assert.rejects(preload, { name: "AbortError" })
+      assert.equal(control.download?.signal.aborted, false)
+      gate()
+      await chat
+
+      // Through the adapter (the server-side copy of the client here): an aborted signal rejects, unawaited it raises nothing.
+      void wllamaText(MODEL).createSessionWithProgress(undefined, { signal: AbortSignal.abort() })
+      await assert.rejects(wllamaText(MODEL).createSessionWithProgress(undefined, { signal: AbortSignal.abort() }), { name: "AbortError" })
+      await new Promise((resolve) => setTimeout(resolve, 20))
+      assert.deepEqual(unhandled, [])
+    } finally {
+      process.off("unhandledRejection", onUnhandled)
+    }
   })
 })
 

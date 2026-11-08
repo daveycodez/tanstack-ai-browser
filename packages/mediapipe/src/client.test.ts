@@ -1,6 +1,7 @@
 import assert from "node:assert/strict"
 import { afterEach, test } from "node:test"
 
+import { mediaPipeEmbedding } from "./adapter.js"
 import { availability, embedTexts, loadModel, loadRequest, unloadModel } from "./client.js"
 import type { WorkerRequest, WorkerResponse } from "./protocol.js"
 import { MEDIAPIPE_WASM_URL } from "./version.js"
@@ -138,6 +139,71 @@ test("the same progress callback hears 1 on every load call: once for a shared l
   await embedTexts(MODEL, {}, ["a"], OPTIONS, onProgress)
   assert.deepEqual(heard, [0.5, 1, 1, 1])
   assert.equal(FakeWorker.created.length, 1)
+})
+
+test("a load's signal: aborted before, no worker starts; the only waiter aborting ends the worker; one of two leaving keeps the load for the other; an embed call waiting keeps it too", async () => {
+  globals.Worker = FakeWorker
+  FakeWorker.manual = true
+  const unhandled: Array<unknown> = []
+  const onUnhandled = (reason: unknown) => unhandled.push(reason)
+  process.on("unhandledRejection", onUnhandled)
+  try {
+    await assert.rejects(loadModel(MODEL, {}, undefined, AbortSignal.abort()), (error: unknown) => error instanceof DOMException && error.name === "AbortError")
+    assert.equal(FakeWorker.created.length, 0, "no worker started")
+
+    // The only waiter aborts mid-download.
+    const heard: Array<number> = []
+    const controller = new AbortController()
+    const alone = loadModel(MODEL, {}, (value) => heard.push(value), controller.signal)
+    const worker = FakeWorker.created[0]
+    worker.reply({ type: "progress", cached: false, loadedBytes: 30, totalBytes: 100 })
+    controller.abort()
+    await assert.rejects(alone, { name: "AbortError" })
+    assert.equal(worker.terminated, true, "the worker (and its download) ended")
+    assert.deepEqual(heard, [0.3])
+    assert.equal(await availability(MODEL), "downloadable")
+
+    // Two waiters: one leaves, the other still hears progress and completion.
+    const leaving: Array<number> = []
+    const staying: Array<number> = []
+    const leave = new AbortController()
+    const first = loadModel(MODEL, {}, (value) => leaving.push(value), leave.signal)
+    const second = loadModel(MODEL, {}, (value) => staying.push(value))
+    const next = FakeWorker.created[1]
+    next.reply({ type: "progress", cached: false, loadedBytes: 20, totalBytes: 100 })
+    leave.abort()
+    await assert.rejects(first, { name: "AbortError" })
+    assert.equal(next.terminated, false)
+    next.reply({ type: "progress", cached: false, loadedBytes: 70, totalBytes: 100 })
+    next.reply({ type: "ready" })
+    await second
+    assert.deepEqual(leaving, [0.2])
+    assert.deepEqual(staying, [0.2, 0.7, 1])
+    assert.equal(await availability(MODEL), "available")
+
+    // An embed call waiting on the load keeps it when the load's caller aborts.
+    await unloadModel(MODEL)
+    const session = new AbortController()
+    const preload = loadModel(MODEL, {}, undefined, session.signal)
+    const embedding = embedTexts(MODEL, {}, ["a"], OPTIONS)
+    session.abort()
+    await assert.rejects(preload, { name: "AbortError" })
+    const third = FakeWorker.created[2]
+    assert.equal(third.terminated, false)
+    FakeWorker.manual = false
+    third.reply({ type: "ready" })
+    assert.equal((await embedding).length, 1)
+
+    // Through the adapter, unawaited: no unhandled rejection.
+    await unloadModel(MODEL)
+    const ignored = new AbortController()
+    void mediaPipeEmbedding(MODEL).createSessionWithProgress(undefined, { signal: ignored.signal })
+    ignored.abort()
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    assert.deepEqual(unhandled, [])
+  } finally {
+    process.off("unhandledRejection", onUnhandled)
+  }
 })
 
 test("availability() makes no fetch, worker, Cache Storage, IndexedDB or OPFS calls", async () => {

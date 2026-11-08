@@ -493,11 +493,17 @@ export class ApfelTextAdapter<TModel extends string> extends BaseTextAdapter<
    * apfel isn't running, or (from a website) the browser didn't let the
    * page reach it. Apple's model never downloads through the page.
    */
-  async availability(): Promise<Availability> {
+  availability(): Promise<Availability> {
+    return this.check()
+  }
+
+  /** `availability()`, with a caller's signal that also stops the request. */
+  private async check(signal?: AbortSignal): Promise<Availability> {
     try {
+      const timeout = AbortSignal.timeout(10_000)
       const response = await fetch(`${this.baseURL}/models`, {
         headers: { ...this.defaultHeaders },
-        signal: AbortSignal.timeout(10_000)
+        signal: signal ? AbortSignal.any([signal, timeout]) : timeout
       })
       if (!response.ok) return "unavailable"
       const list = (await response.json()) as { data?: Array<{ id?: string }> }
@@ -510,10 +516,25 @@ export class ApfelTextAdapter<TModel extends string> extends BaseTextAdapter<
   /**
    * Checks that apfel serves the model: resolves to this adapter (after
    * reporting 1, as nothing downloads) if it does, rejects if it doesn't
-   * (fine to leave unawaited).
+   * (fine to leave unawaited). Nothing loads, so `signal` only stops the
+   * check: aborting it rejects at once with an AbortError, and reports
+   * nothing.
    */
-  createSessionWithProgress(onDownloadProgress?: (progress: number) => void): Promise<this> {
-    const ready = this.availability().then((availability) => {
+  createSessionWithProgress(
+    onDownloadProgress?: (progress: number) => void,
+    options: { signal?: AbortSignal } = {}
+  ): Promise<this> {
+    const { signal } = options
+    const aborted = () => new DOMException("The check was aborted.", "AbortError")
+    const ready = new Promise<Availability>((resolve, reject) => {
+      if (signal?.aborted) return reject(aborted())
+      const onAbort = () => reject(aborted())
+      signal?.addEventListener("abort", onAbort, { once: true })
+      this.check(signal)
+        .then(resolve, reject)
+        .finally(() => signal?.removeEventListener("abort", onAbort))
+    }).then((availability) => {
+      if (signal?.aborted) throw aborted()
       if (availability !== "available") {
         throw new Error(`apfel at ${this.baseURL} didn't answer, or doesn't serve ${this.model}.`)
       }

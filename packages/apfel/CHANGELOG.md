@@ -2,7 +2,7 @@
 
 ### ⚠️ Breaking Changes
 
-- Runtime API: `isSupported(model?, config?)` is replaced by `apfelText(model, config).availability()`, which resolves to `"available"` when apfel answers at the adapter's `baseURL` and lists the model, else `"unavailable"` (the Prompt API's `Availability` values, exported as a type). The adapter also has `createSessionWithProgress(onDownloadProgress?)` (the same check, reporting 1, as nothing downloads) and `destroySession()` (nothing to free), and the config takes `onDownloadProgress`, so apps can treat every adapter alike.
+- Runtime API: `isSupported(model?, config?)` is replaced by `apfelText(model, config).availability()`, which resolves to `"available"` when apfel answers at the adapter's `baseURL` and lists the model, else `"unavailable"` (the Prompt API's `Availability` values, exported as a type). The adapter also has `createSessionWithProgress(onDownloadProgress?, { signal }?)` (the same check, reporting 1, as nothing downloads; its `{ signal }` stops the check) and `destroySession()` (nothing to free), and the config takes `onDownloadProgress`, so apps can treat every adapter alike.
 - Exported names changed: the package now exposes the same API shape as `@tanstack/ai-openrouter`'s text adapter, and the same as the other adapter packages here. The root entry has the adapter (its class and factory, and its config, model options and usage types) and the runtime functions (`isSupported`, `loadModel`, `unloadModel`, `modelStatus`, `setMemoryBudget` where they apply); the model catalog moved to the new `@tanstack-ai-browser/apfel/model-meta` subpath. Behaviour is unchanged apart from the renames below.
   - `ApfelTextConfig` → `ApfelConfig`
   - `ApfelModelOptions` → `ApfelTextModelOptions`

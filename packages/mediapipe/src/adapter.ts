@@ -68,9 +68,14 @@ export class MediaPipeEmbeddingAdapter<
    * unawaited). `embed()` doesn't need it (its first call loads the model),
    * but it lets a page load ahead of time. Adapters with the same model and
    * load options share one embedder; the page holds one at a time.
+   * Aborting `signal` rejects this call at once with an AbortError and
+   * stops its progress reports; if no other caller (another call, or an
+   * `embed()` waiting for the model) still waits on the load, the worker
+   * ends, its download with it, and the model is left unloaded.
    */
   createSessionWithProgress(
-    onDownloadProgress?: DownloadProgressCallback
+    onDownloadProgress?: DownloadProgressCallback,
+    options: { signal?: AbortSignal } = {}
   ): Promise<this> {
     const own = this.loadConfig.onDownloadProgress
     const ready = loadModel(
@@ -81,7 +86,8 @@ export class MediaPipeEmbeddingAdapter<
             own(progress)
             onDownloadProgress(progress)
           }
-        : (own ?? onDownloadProgress)
+        : (own ?? onDownloadProgress),
+      options.signal
     ).then(() => this)
     // Callers may leave it: an unawaited failure isn't an unhandled rejection.
     ready.catch(() => undefined)

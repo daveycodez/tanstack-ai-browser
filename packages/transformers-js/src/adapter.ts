@@ -242,20 +242,7 @@ function generationSettings(
 /** Cancel the caller's wait without discarding an in-progress model download. */
 function waitForModel(model: string, dtype: WeightsDtype, contextLength: number | undefined, signal: AbortSignal | undefined, onDownloadProgress?: DownloadProgressCallback): Promise<void> {
   signal?.throwIfAborted()
-  const loading = loadModel(model, { dtype, contextLength, onDownloadProgress, reportReady: false })
-  if (!signal) return loading
-  return new Promise((resolve, reject) => {
-    const aborted = () => reject(signal.reason)
-    signal.addEventListener("abort", aborted, { once: true })
-    loading.then(() => {
-      signal.removeEventListener("abort", aborted)
-      if (signal.aborted) reject(signal.reason)
-      else resolve()
-    }, error => {
-      signal.removeEventListener("abort", aborted)
-      reject(error)
-    })
-  })
+  return loadModel(model, { dtype, contextLength, onDownloadProgress, signal, chatWait: true })
 }
 
 type MetadataByModality = {
@@ -493,14 +480,20 @@ export class TransformersJsTextAdapter<
    * first call loads the model), but it lets a page load ahead of time.
    * Adapters for the same model (and `dtype` and `contextLength`) share one
    * loaded model; the page holds one Transformers.js model at a time.
+   * Aborting `signal` rejects this call at once with an AbortError and
+   * stops its progress reports; if no other caller (another call, or a
+   * chat waiting for the model) still waits on the load, it's cancelled:
+   * the worker ends and the model is left unloaded.
    */
   createSessionWithProgress(
-    onDownloadProgress?: DownloadProgressCallback
+    onDownloadProgress?: DownloadProgressCallback,
+    options: { signal?: AbortSignal } = {}
   ): Promise<this> {
     const ready = loadModel(this.model, {
       dtype: this.dtype,
       contextLength: this.contextLength,
-      onDownloadProgress: combine(this.onDownloadProgress, onDownloadProgress)
+      onDownloadProgress: combine(this.onDownloadProgress, onDownloadProgress),
+      ...(options.signal && { signal: options.signal })
     }).then(() => this)
     // Callers may leave it: an unawaited failure isn't an unhandled rejection.
     ready.catch(() => undefined)

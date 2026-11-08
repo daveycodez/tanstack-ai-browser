@@ -525,43 +525,55 @@ export function useModelStatus(id: ModelId): ModelStatus {
 }
 
 /** Loads in progress, by model, shared by the runs waiting on them. */
-const loads = new Map<ModelId, Promise<Error | undefined>>()
+/** Runs waiting on each model's load. */
+const waiting = new Map<ModelId, number>()
+
+const isAbort = (error: unknown) =>
+  error instanceof DOMException && error.name === "AbortError"
 
 /**
  * Loads `id`'s model before a run (downloading it the first time), keeping
  * its status up to date: loading (once its availability says it can run
  * here), how much has downloaded (its adapter's `onDownloadProgress`, which
  * hears only a real download), then ready or failed
- * (`createSessionWithProgress`). Resolves to the error if it
- * couldn't load.
+ * (`createSessionWithProgress`). Resolves to the error if it couldn't load,
+ * and to nothing if `signal` aborted: the adapter shares the load between
+ * runs and cancels it when the last one waiting stops.
  */
-export function prepareModel(id: ModelId): Promise<Error | undefined> {
+export async function prepareModel(
+  id: ModelId,
+  signal?: AbortSignal
+): Promise<Error | undefined> {
   const { status, adapter, name } = modelInfo(id)
-  if (!status) return Promise.resolve(undefined)
-  const pending = loads.get(id)
-  if (pending) return pending
-  const load = (async () => {
-    try {
-      if (status.get().state !== "ready") {
-        const availability = await checkAvailability(id)
-        if (availability !== "unavailable") {
-          status.set({ state: "loading", progress: 0, downloading: false })
-        }
+  if (!status) return undefined
+  waiting.set(id, (waiting.get(id) ?? 0) + 1)
+  try {
+    if (status.get().state !== "ready") {
+      const availability = await checkAvailability(id)
+      if (availability !== "unavailable" && status.get().state !== "loading") {
+        status.set({ state: "loading", progress: 0, downloading: false })
       }
-      await adapter.createSessionWithProgress()
-      status.set({ state: "ready" })
-      return undefined
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error)
-      status.set({ state: "error", message })
-      return new Error(`Couldn't load ${name}: ${message}`, { cause: error })
-    } finally {
-      loads.delete(id)
-      void checkAvailability(id)
     }
-  })()
-  loads.set(id, load)
-  return load
+    await adapter.createSessionWithProgress(undefined, signal ? { signal } : {})
+    status.set({ state: "ready" })
+    return undefined
+  } catch (error) {
+    if (isAbort(error) || signal?.aborted) {
+      // The last run waiting stopped: the load was cancelled.
+      if (waiting.get(id) === 1 && status.get().state === "loading") {
+        status.set({ state: "idle" })
+      }
+      return undefined
+    }
+    const message = error instanceof Error ? error.message : String(error)
+    status.set({ state: "error", message })
+    return new Error(`Couldn't load ${name}: ${message}`, { cause: error })
+  } finally {
+    const left = (waiting.get(id) ?? 1) - 1
+    if (left > 0) waiting.set(id, left)
+    else waiting.delete(id)
+    void checkAvailability(id)
+  }
 }
 
 /** Result of the last Apple model check, shown next to the picker. */

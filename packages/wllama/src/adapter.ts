@@ -413,9 +413,14 @@ export class WllamaTextAdapter<
    * first call loads the model), but it lets a page load ahead of time.
    * Adapters for the same model share one loaded model; the page holds one
    * wllama model at a time.
+   * Aborting `signal` rejects this call at once with an AbortError and
+   * stops its progress reports; if no other caller (another call, or a
+   * chat waiting for the model) still waits on the load, the download is
+   * cancelled and the model left unloaded.
    */
   createSessionWithProgress(
-    onDownloadProgress?: DownloadProgressCallback
+    onDownloadProgress?: DownloadProgressCallback,
+    options: { signal?: AbortSignal } = {}
   ): Promise<this> {
     const own = this.onDownloadProgress
     const ready = loadModel(
@@ -425,7 +430,8 @@ export class WllamaTextAdapter<
             own(progress)
             onDownloadProgress(progress)
           }
-        : (own ?? onDownloadProgress)
+        : (own ?? onDownloadProgress),
+      options.signal ? { signal: options.signal } : {}
     ).then(() => this)
     // Callers may leave it: an unawaited failure isn't an unhandled rejection.
     ready.catch(() => undefined)
