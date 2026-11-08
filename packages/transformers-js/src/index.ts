@@ -1,35 +1,19 @@
 /**
  * TanStack AI adapter for Transformers.js models that run in the browser.
+ * The model catalog is in `@tanstack-ai-browser/transformers-js/model-meta`.
  */
 export { transformersJsText, TransformersJsTextAdapter } from "./adapter.js"
 export type {
+  TransformersJsConfig,
   TransformersJsProviderUsageDetails,
-  TransformersJsTextConfig,
-  TransformersJsTextConfigFor,
-  TransformersJsTextProviderOptions
+  TransformersJsTextModelOptions
 } from "./adapter.js"
 export {
-  runsWithoutWebGpu,
-  TRANSFORMERS_JS_MODEL_META,
-  TRANSFORMERS_JS_MODEL_REASONING,
-  TRANSFORMERS_JS_TEXT_MODELS
-} from "./model-meta.js"
-export type {
-  TransformersJsListedModel,
-  TransformersJsModelMeta,
-  TransformersJsModelReasoningByName,
-  Sampling,
-  TransformersJsTextModel
-} from "./model-meta.js"
-export {
-  hasWebGpu,
+  isSupported,
   loadModel,
   modelStatus,
-  setDebug,
   unloadModel
 } from "./client.js"
-export { setMemoryBudget } from "./model-memory.js"
 export type { ModelStatus } from "./client.js"
+export { setMemoryBudget } from "./model-memory.js"
 export type { Store } from "./store.js"
-export { splitThinking } from "./thinking.js"
-export type { ToolFormat } from "./tool-calls.js"

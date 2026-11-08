@@ -1,4 +1,4 @@
-import { promptApiModel } from "@tanstack-ai-browser/prompt-api"
+import { PROMPT_API_MODEL_META } from "@tanstack-ai-browser/prompt-api/model-meta"
 import { chooseAiMove } from "../src/lib/ai.ts"
 import { applyMove } from "../src/lib/checkers.ts"
 import { PREVIOUS_PROMPT_VERSION, SHARED_PROMPT_VERSION } from "../src/lib/shared-prompt.ts"
@@ -31,7 +31,7 @@ export async function runCacheComparison(options: CacheComparisonOptions): Promi
   const includeProductionOrder = quality && options.includeProductionOrder !== false
   const report: CacheComparisonReport = {
     schemaVersion: 1, runId: crypto.randomUUID(), startedAt: new Date().toISOString(), finishedAt: "", revision: __CHECKERS_BENCH_REVISION__, partial: false, phase: quality ? "Preparing comparison" : "Preparing cache replay",
-    config: { model: options.model, ...(options.model === "prompt-api" && { runtimeModel: promptApiModel() }), before: PREVIOUS_PROMPT_VERSION, after: SHARED_PROMPT_VERSION, reasoning: "off", reasoningBudgetTokens: 512, maxOutputTokens: options.model === "prompt-api" ? null : 8192, sampling: "model defaults", promptCache: "long", suiteVersion: SUITE_VERSION, caseIds: quality ? CASES.map(testCase => testCase.id) : [], quality, cache, qualityRepetitions: quality ? 1 : 0, includeProductionOrder, sessionId: SESSION, selectedPlies: positions.map(game => game.history.length), skippedForcedPlies,
+    config: { model: options.model, ...(options.model === "prompt-api" && { runtimeModel: PROMPT_API_MODEL_META["built-in"].browserModel }), before: PREVIOUS_PROMPT_VERSION, after: SHARED_PROMPT_VERSION, reasoning: "off", reasoningBudgetTokens: 512, maxOutputTokens: options.model === "prompt-api" ? null : 8192, sampling: "model defaults", promptCache: "long", suiteVersion: SUITE_VERSION, caseIds: quality ? CASES.map(testCase => testCase.id) : [], quality, cache, qualityRepetitions: quality ? 1 : 0, includeProductionOrder, sessionId: SESSION, selectedPlies: positions.map(game => game.history.length), skippedForcedPlies,
       notes: [
         quality ? "Quality uses every unchanged suite case with its existing expected moves; before/after paired presentation orders match exactly." : "Cache-replay-only protocol: all quality passes are deliberately skipped.",
         "When enabled, both versions also run quality controls with the same production per-game stable action-ordering algorithm.",

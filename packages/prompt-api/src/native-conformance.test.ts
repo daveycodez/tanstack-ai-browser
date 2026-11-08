@@ -39,7 +39,7 @@ function options(model: string, modelOptions: object = {}) {
 test("Prompt API passes the exact native schema and rejects unsupported schemas without downgrade or retry", async () => {
   const { promptApiText } = await adapterPackage()
   control.requests = []; control.unsupported = false; control.discarded = 0
-  const adapter = promptApiText()
+  const adapter = promptApiText("built-in")
   assert.deepEqual((await adapter.structuredOutput(options(adapter.model))).data, { moveId: "b6-a5" })
   const first = control.requests[0].options as Record<string, unknown>
   assert.deepEqual(first.responseConstraint, schema)

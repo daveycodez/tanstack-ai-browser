@@ -64,10 +64,9 @@ import type {
   SamplingMode
 } from "./types.js"
 
-/** The model: whichever one the browser provides. */
-export type PromptApiTextModel = "built-in"
+import type { PromptApiChatModel } from "./model-meta.js"
 
-export type PromptApiTextConfig = {
+export type PromptApiConfig = {
   /**
    * Languages the conversation is in, input and output: ["en"] by default.
    * Chrome's model takes "en", "es", "ja", "de" and "fr", and checks its
@@ -87,7 +86,7 @@ export type PromptApiTextConfig = {
  * Per-call `modelOptions`. A session's sampling is set when it starts, so a
  * change starts a new session.
  */
-export type PromptApiModelOptions = {
+export type PromptApiTextModelOptions = {
   /**
    * Sampling preset, "most-predictable" to "most-creative" ("balanced" by
    * default). Chrome takes it on web pages only in its Sampling Parameters
@@ -328,7 +327,7 @@ function withSource(chunk: AdapterYieldChunk, source: ChunkSource): AdapterYield
 }
 
 /** The caller's signal: the legacy `abortController` first, then `request`. */
-const signalOf = (options: TextOptions<PromptApiModelOptions>) =>
+const signalOf = (options: TextOptions<PromptApiTextModelOptions>) =>
   options.abortController?.signal ??
   (options.request as RequestInit | undefined)?.signal ??
   undefined
@@ -359,8 +358,8 @@ type Prepared = {
 }
 
 export class PromptApiTextAdapter extends BaseTextAdapter<
-  PromptApiTextModel,
-  PromptApiModelOptions,
+  PromptApiChatModel,
+  PromptApiTextModelOptions,
   readonly ["text", "image", "audio"],
   MetadataByModality,
   ReadonlyArray<string>,
@@ -376,8 +375,8 @@ export class PromptApiTextAdapter extends BaseTextAdapter<
   private readonly languages: ReadonlyArray<string>
   private readonly nativeTools: boolean
 
-  constructor(config: PromptApiTextConfig = {}) {
-    super({}, "built-in")
+  constructor(config: PromptApiConfig, model: PromptApiChatModel) {
+    super({}, model)
     this.languages = config.languages ?? DEFAULT_LANGUAGES
     this.nativeTools = config.nativeTools ?? true
   }
@@ -387,7 +386,7 @@ export class PromptApiTextAdapter extends BaseTextAdapter<
    * and audio, the browser's own tools if it runs them, and any sampling.
    */
   private createOptions(
-    modelOptions: PromptApiModelOptions | undefined,
+    modelOptions: PromptApiTextModelOptions | undefined,
     {
       media,
       tools
@@ -405,7 +404,7 @@ export class PromptApiTextAdapter extends BaseTextAdapter<
 
   /** The session for a call, having read everything before its input. */
   private async prepare(
-    options: TextOptions<PromptApiModelOptions>,
+    options: TextOptions<PromptApiTextModelOptions>,
     tools: Array<Tool>,
     native: boolean,
     signal: AbortSignal | undefined
@@ -475,7 +474,7 @@ export class PromptApiTextAdapter extends BaseTextAdapter<
   }
 
   async *chatStream(
-    options: TextOptions<PromptApiModelOptions>
+    options: TextOptions<PromptApiTextModelOptions>
   ): AsyncIterable<AdapterYieldChunk> {
     const source = sourceOf(this, options.model)
     for await (const chunk of this.chatStreamRequest(options)) {
@@ -484,7 +483,7 @@ export class PromptApiTextAdapter extends BaseTextAdapter<
   }
 
   private async *chatStreamRequest(
-    options: TextOptions<PromptApiModelOptions>
+    options: TextOptions<PromptApiTextModelOptions>
   ): AsyncIterable<AdapterYieldChunk> {
     const runId = options.runId ?? nextId("run")
     const threadId = options.threadId
@@ -920,7 +919,7 @@ export class PromptApiTextAdapter extends BaseTextAdapter<
     session: LanguageModelSession,
     input: Array<LanguageModelMessage>,
     tools: Array<Tool>,
-    options: TextOptions<PromptApiModelOptions>,
+    options: TextOptions<PromptApiTextModelOptions>,
     signal: AbortSignal | undefined,
     limit: number | undefined
   ): Promise<{ name: string; args: Record<string, unknown> } | "length" | undefined> {
@@ -973,7 +972,7 @@ export class PromptApiTextAdapter extends BaseTextAdapter<
    * form is `structuredOutputStream`.
    */
   async structuredOutput(
-    options: StructuredOutputOptions<PromptApiModelOptions>
+    options: StructuredOutputOptions<PromptApiTextModelOptions>
   ): Promise<StructuredOutputResult<unknown>> {
     const run = this.structuredOutputRun(options, false)
     let next = await run.next()
@@ -988,7 +987,7 @@ export class PromptApiTextAdapter extends BaseTextAdapter<
    * (`REASONING_*`), then `structured-output.complete` and `RUN_FINISHED`.
    */
   async *structuredOutputStream(
-    options: StructuredOutputOptions<PromptApiModelOptions>
+    options: StructuredOutputOptions<PromptApiTextModelOptions>
   ): AsyncIterable<AdapterYieldChunk> {
     const source = sourceOf(this, options.chatOptions.model)
     for await (const chunk of this.structuredOutputRequestStream(options)) {
@@ -997,7 +996,7 @@ export class PromptApiTextAdapter extends BaseTextAdapter<
   }
 
   private async *structuredOutputRequestStream(
-    options: StructuredOutputOptions<PromptApiModelOptions>
+    options: StructuredOutputOptions<PromptApiTextModelOptions>
   ): AsyncIterable<AdapterYieldChunk> {
     const { chatOptions } = options
     const runId = chatOptions.runId ?? nextId("run")
@@ -1075,7 +1074,7 @@ export class PromptApiTextAdapter extends BaseTextAdapter<
    * the caller's abort reason.
    */
   private async *structuredOutputRun(
-    options: StructuredOutputOptions<PromptApiModelOptions>,
+    options: StructuredOutputOptions<PromptApiTextModelOptions>,
     stream: boolean,
     messageId = nextId("msg")
   ): AsyncGenerator<AdapterYieldChunk, StructuredRunResult> {
@@ -1364,13 +1363,14 @@ async function promptCopy(
  *
  * @example
  * ```ts
- * if ((await promptApiAvailability()) !== "unavailable") {
- *   chat({ adapter: promptApiText(), messages, threadId })
+ * if (await isSupported()) {
+ *   chat({ adapter: promptApiText("built-in"), messages, threadId })
  * }
  * ```
  */
 export function promptApiText(
-  config: PromptApiTextConfig = {}
+  model: PromptApiChatModel,
+  config: PromptApiConfig = {}
 ): PromptApiTextAdapter {
-  return new PromptApiTextAdapter(config)
+  return new PromptApiTextAdapter(config, model)
 }

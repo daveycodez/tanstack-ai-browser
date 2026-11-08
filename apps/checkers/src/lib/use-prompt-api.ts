@@ -1,4 +1,4 @@
-import { promptApiAvailability } from "@tanstack-ai-browser/prompt-api"
+import { isSupported } from "@tanstack-ai-browser/prompt-api"
 import { useEffect, useState } from "react"
 
 export function usePromptApiAvailable() {
@@ -6,8 +6,8 @@ export function usePromptApiAvailable() {
   useEffect(() => {
     let active = true
     const check = () => {
-      void promptApiAvailability().then((availability) => {
-        if (active) setAvailable(availability !== "unavailable")
+      void isSupported().then((supported) => {
+        if (active) setAvailable(supported)
       })
     }
     check()

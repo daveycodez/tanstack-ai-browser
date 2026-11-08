@@ -40,14 +40,14 @@ import {
   streamChat
 } from "./client.js"
 import type { ChatRequest } from "./client.js"
-import { modelMeta } from "./model-meta.js"
+import { modelMeta } from "./catalog.js"
 import type {
   Sampling,
   WllamaModelReasoningByName,
-  WllamaTextModel
-} from "./model-meta.js"
+  WllamaChatModel
+} from "./catalog.js"
 
-export type WllamaTextConfig = {
+export type WllamaConfig = {
   /**
    * Most tokens a chat may hold, prompt and reply together: the model's
    * whole context window by default (its GGUF's training context), never
@@ -93,7 +93,7 @@ export type WllamaTextConfig = {
  * mapped to llama.cpp's own settings. Sampling left out comes from the
  * model card.
  */
-export type WllamaTextProviderOptions = {
+export type WllamaTextModelOptions = {
   /** Most tokens to generate, thinking included. llama.cpp's default otherwise: up to the context limit. */
   maxCompletionTokens?: number
   /** Randomness of sampling: 0 is greedy. */
@@ -255,7 +255,7 @@ function usageOf(
  */
 function thinkingKwargs(
   request: ReasoningRequest | undefined,
-  model: WllamaTextModel
+  model: WllamaChatModel
 ): Partial<ChatRequest> {
   const budget = request?.budgetTokens
   if (budget !== undefined && (!Number.isSafeInteger(budget) || budget < 0)) {
@@ -286,7 +286,7 @@ const errorText = (error: unknown) =>
  * chat-completion settings. Only these options are sent.
  */
 function llamaSettings(
-  options: WllamaTextProviderOptions | undefined,
+  options: WllamaTextModelOptions | undefined,
   base: Sampling
 ): Record<string, unknown> {
   const {
@@ -353,10 +353,10 @@ const nextId = (prefix: string) =>
   `${prefix}_${Date.now().toString(36)}_${(calls++).toString(36)}`
 
 export class WllamaTextAdapter<
-  TModel extends WllamaTextModel
+  TModel extends WllamaChatModel
 > extends BaseTextAdapter<
   TModel,
-  WllamaTextProviderOptions,
+  WllamaTextModelOptions,
   readonly ["text"],
   MetadataByModality,
   ReadonlyArray<string>,
@@ -369,7 +369,7 @@ export class WllamaTextAdapter<
   override readonly api = "wllama" as const
   override readonly inputModalities = ["text"] as const
 
-  constructor(config: WllamaTextConfig, model: TModel) {
+  constructor(config: WllamaConfig, model: TModel) {
     super({}, model)
     setContextLength(model, config.contextLength)
     setKeepLoaded(model, config.keepLoaded ?? false)
@@ -383,7 +383,7 @@ export class WllamaTextAdapter<
   }
 
   /** Sampling and length for a call: `modelOptions` over the model card's, in llama.cpp's names. */
-  private settings(modelOptions: WllamaTextProviderOptions | undefined, promptCache?: TextOptions["promptCache"]) {
+  private settings(modelOptions: WllamaTextModelOptions | undefined, promptCache?: TextOptions["promptCache"]) {
     return {
       ...llamaSettings(modelOptions, modelMeta(this.model).sampling),
       ...(promptCache?.retention === "none" && { cache_prompt: false })
@@ -391,7 +391,7 @@ export class WllamaTextAdapter<
   }
 
   async *chatStream(
-    options: TextOptions<WllamaTextProviderOptions>
+    options: TextOptions<WllamaTextModelOptions>
   ): AsyncIterable<AdapterYieldChunk> {
     const thinking = thinkingKwargs(options.reasoning, this.model)
     const runId = options.runId ?? nextId("run")
@@ -661,7 +661,7 @@ export class WllamaTextAdapter<
    * `structuredOutputStream` instead, and validates the result.
    */
   async structuredOutput(
-    options: StructuredOutputOptions<WllamaTextProviderOptions>
+    options: StructuredOutputOptions<WllamaTextModelOptions>
   ): Promise<StructuredOutputResult<unknown>> {
     const { chatOptions, outputSchema } = options
     const signal = chatOptions.abortController?.signal ?? (chatOptions.request as RequestInit | undefined)?.signal ?? undefined
@@ -707,7 +707,7 @@ export class WllamaTextAdapter<
    * A failure ends the run with `RUN_ERROR` instead.
    */
   async *structuredOutputStream(
-    options: StructuredOutputOptions<WllamaTextProviderOptions>
+    options: StructuredOutputOptions<WllamaTextModelOptions>
   ): AsyncIterable<AdapterYieldChunk> {
     const { chatOptions, outputSchema } = options
     const model = this.model
@@ -839,7 +839,7 @@ export class WllamaTextAdapter<
 
 /**
  * A TanStack AI text adapter for a GGUF model this package lists
- * (`WLLAMA_TEXT_MODELS`), run on the CPU in the browser with wllama.
+ * (`WLLAMA_CHAT_MODELS`), run on the CPU in the browser with wllama.
  *
  * @example
  * ```ts
@@ -850,9 +850,9 @@ export class WllamaTextAdapter<
  * })
  * ```
  */
-export function wllamaText<TModel extends WllamaTextModel>(
+export function wllamaText<TModel extends WllamaChatModel>(
   model: TModel,
-  config: WllamaTextConfig = {}
+  config: WllamaConfig = {}
 ): WllamaTextAdapter<TModel> {
   return new WllamaTextAdapter(config, model)
 }

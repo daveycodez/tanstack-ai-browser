@@ -4,7 +4,7 @@
  * and one model in it at a time: loading another frees the previous one.
  */
 import { claimMemory, releaseMemory, touchMemory } from "./model-memory.js"
-import { modelMeta } from "./model-meta.js"
+import { modelMeta, runsWithoutWebGpu } from "./catalog.js"
 import { createStore } from "./store.js"
 import type { Store } from "./store.js"
 import type {
@@ -61,12 +61,18 @@ type Pending = {
   resolve: () => void
   reject: (error: Error) => void
 }
-/** The model the worker holds (or is loading), and its load promise. */
+/**
+ * The model the worker holds (or is loading), as loaded: its weights and
+ * context, and the load (its id in the worker's replies, and its promise).
+ */
 let loaded: {
+  id: number
   modelId: string
+  dtype: WeightsDtype
   contextLength: number | undefined
   load: Pending
 } | null = null
+let loads = 0
 
 let worker: Worker | null = null
 let debug = false
@@ -95,7 +101,14 @@ export function setDebug(on: boolean) {
 }
 
 function handleMessage({ data }: MessageEvent<WorkerResponse>) {
+  // Replies about a load a later one superseded are stale.
+  const current =
+    (data.type === "progress" || data.type === "ready" || data.type === "load-error") &&
+    loaded?.id === data.loadId
+      ? loaded
+      : null
   if (data.type === "progress") {
+    if (!current) return
     if (!data.cached) keepDownloads()
     modelStatus(data.modelId).set({
       state: "loading",
@@ -116,15 +129,15 @@ function handleMessage({ data }: MessageEvent<WorkerResponse>) {
       unload: unloadModel
     }).then(() => post({ type: "claimed" }))
   } else if (data.type === "ready") {
+    if (!current) return
     modelStatus(data.modelId).set({ state: "ready" })
-    if (loaded?.modelId === data.modelId) loaded.load.resolve()
+    current.load.resolve()
   } else if (data.type === "load-error") {
+    if (!current) return
     modelStatus(data.modelId).set({ state: "error", message: data.message })
-    if (loaded?.modelId === data.modelId) {
-      loaded.load.reject(new Error(data.message))
-      loaded = null
-      releaseMemory(OWNER)
-    }
+    current.load.reject(new Error(data.message))
+    loaded = null
+    releaseMemory(OWNER)
   } else if (data.type === "token") {
     generations.get(data.id)?.onToken(data.text)
   } else if (data.type === "log") {
@@ -176,10 +189,10 @@ let webGpu: Promise<boolean> | undefined
 /**
  * Whether models here run on WebGPU: the browser has it and gives a GPU
  * adapter. Where it doesn't, they run on the CPU through WebAssembly, which
- * needs a model with q4 weights (see `runsWithoutWebGpu`). The worker makes
- * the same check when it loads a model.
+ * needs a model with q4 weights (see `isSupported`). The worker makes the
+ * same check when it loads a model.
  */
-export function hasWebGpu(): Promise<boolean> {
+function hasWebGpu(): Promise<boolean> {
   webGpu ??= (async () => {
     const nav =
       typeof navigator === "undefined"
@@ -198,20 +211,39 @@ export function hasWebGpu(): Promise<boolean> {
 }
 
 /**
+ * Whether Transformers.js can run `model` in this browser: on WebGPU, or
+ * without it on the CPU through WebAssembly, which needs a model with q4
+ * weights (a listed model's `cpu`; any other Hugging Face id is taken to
+ * have them, and loading says if its repo doesn't). Either way the model
+ * runs in a Web Worker on ONNX Runtime's WebAssembly, so it needs both (false
+ * on a server). Without a model: whether it can run any model here.
+ */
+export async function isSupported(model?: string): Promise<boolean> {
+  if (typeof Worker === "undefined" || typeof WebAssembly === "undefined") return false
+  if (await hasWebGpu()) return true
+  return model === undefined || runsWithoutWebGpu(model)
+}
+
+/**
  * Loads a model (downloading it the first time), replacing any other: a
  * listed model or any Hugging Face id: "owner/repo" for its latest version
- * (main), "owner/repo@commit" for that one. Without WebGPU the worker loads
- * its q4 weights on the CPU instead of `dtype`.
- * Chats may hold up to `contextLength` tokens: the model's own context
- * window by default.
+ * (main), "owner/repo@commit" for that one. `dtype` is the weights to load
+ * (a listed model's own by default, else "q4f16"); without WebGPU the worker
+ * loads its q4 weights on the CPU instead. Chats may hold up to
+ * `contextLength` tokens: the model's own context window by default.
  */
 export function loadModel(
   model: string,
-  dtype: WeightsDtype = modelMeta(model)?.dtype ?? "q4f16",
-  contextLength?: number
+  options: { dtype?: WeightsDtype; contextLength?: number } = {}
 ): Promise<void> {
+  const { contextLength } = options
+  const dtype = options.dtype ?? modelMeta(model)?.dtype ?? "q4f16"
   const modelId = model
-  if (loaded?.modelId === modelId && loaded.contextLength === contextLength) {
+  if (
+    loaded?.modelId === modelId &&
+    loaded.dtype === dtype &&
+    loaded.contextLength === contextLength
+  ) {
     return loaded.load.promise
   }
   if (loaded) {
@@ -226,24 +258,36 @@ export function loadModel(
     reject = rej
   })
   promise.catch(() => undefined)
-  loaded = { modelId, contextLength, load: { promise, resolve, reject } }
+  const id = ++loads
+  loaded = { id, modelId, dtype, contextLength, load: { promise, resolve, reject } }
   // The worker reports whether this is a download or a cached load.
   modelStatus(modelId).set({ state: "loading", progress: 0, cached: true })
-  post({
-    type: "load",
-    modelId,
-    dtype,
-    ...(contextLength !== undefined && { contextLength })
-  })
+  try {
+    post({
+      type: "load",
+      loadId: id,
+      modelId,
+      dtype,
+      ...(contextLength !== undefined && { contextLength })
+    })
+  } catch (error) {
+    // No worker here (a server, say): the load fails at once.
+    const message = error instanceof Error ? error.message : String(error)
+    modelStatus(modelId).set({ state: "error", message })
+    loaded = null
+    reject(new Error(message))
+  }
   return promise
 }
 
 /**
  * Frees the loaded model, all its GPU and WebAssembly memory with it, by
- * ending the worker (the next load starts a new one). Another runtime
- * loading a model past the memory budget calls it too.
+ * ending the worker (the next load starts a new one). Given a model, only if
+ * it's the one loaded (or loading). Another runtime loading a model past the
+ * memory budget calls it too.
  */
-export function unloadModel() {
+export async function unloadModel(model?: string): Promise<void> {
+  if (model !== undefined && loaded?.modelId !== model) return
   worker?.terminate()
   worker = null
   releaseMemory(OWNER)

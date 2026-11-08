@@ -5,7 +5,7 @@ import { chat } from "@tanstack/ai"
 import type { TextOptions } from "@tanstack/ai"
 
 import { promptApiText } from "./adapter.js"
-import type { PromptApiTextConfig } from "./adapter.js"
+import type { PromptApiConfig } from "./adapter.js"
 import { destroyPromptApiSessions } from "./sessions.js"
 
 type Chunk = { type: string; [key: string]: unknown }
@@ -200,14 +200,14 @@ const typesOf = (chunks: Array<Chunk>) =>
 
 test("the config has no custom callbacks for reasoning or phases", () => {
   // @ts-expect-error onThinking was removed: reasoning streams as REASONING_* events.
-  const thinking: PromptApiTextConfig = { onThinking: noop }
+  const thinking: PromptApiConfig = { onThinking: noop }
   // @ts-expect-error onGenerationPhase was removed.
-  const phases: PromptApiTextConfig = { onGenerationPhase: noop }
+  const phases: PromptApiConfig = { onGenerationPhase: noop }
   assert.ok(thinking && phases)
 })
 
 test("structuredOutputStream streams the constrained JSON as text deltas, then the complete event and usage", async () => {
-  const adapter = promptApiText()
+  const adapter = promptApiText("built-in")
   const chunks = await collect(
     adapter.structuredOutputStream(options({ runId: "run-1" }))
   )
@@ -259,7 +259,7 @@ test("structuredOutputStream streams the constrained JSON as text deltas, then t
 
 test("emulated reasoning streams as REASONING_* events before the JSON, and rides on the complete event", async () => {
   const chunks = await collect(
-    promptApiText().structuredOutputStream(
+    promptApiText("built-in").structuredOutputStream(
       options({ reasoning: { level: "high" } })
     )
   )
@@ -294,7 +294,7 @@ test("emulated reasoning streams as REASONING_* events before the JSON, and ride
 
 test("an answer that isn't JSON ends with RUN_ERROR parse-error, after its text", async () => {
   control.answer = ["not json"]
-  const chunks = await collect(promptApiText().structuredOutputStream(options()))
+  const chunks = await collect(promptApiText("built-in").structuredOutputStream(options()))
   assert.deepEqual(typesOf(chunks), [
     "RUN_STARTED",
     "TEXT_MESSAGE_START",
@@ -308,7 +308,7 @@ test("an answer that isn't JSON ends with RUN_ERROR parse-error, after its text"
 
 test("a schema the browser can't enforce ends with RUN_ERROR unsupported-schema", async () => {
   control.failure = new DOMException("no", "NotSupportedError")
-  const chunks = await collect(promptApiText().structuredOutputStream(options()))
+  const chunks = await collect(promptApiText("built-in").structuredOutputStream(options()))
   assert.deepEqual(typesOf(chunks), ["RUN_STARTED", "RUN_ERROR"])
   assert.equal(chunks[1].code, "unsupported-schema")
   assert.match(String(chunks[1].message), /cannot enforce/)
@@ -320,7 +320,7 @@ test("an abort mid-answer ends with RUN_ERROR aborted and frees the session", as
     if (index === 1) controller.abort(new Error("stop now"))
   }
   const chunks = await collect(
-    promptApiText().structuredOutputStream(
+    promptApiText("built-in").structuredOutputStream(
       options({ request: { signal: controller.signal } })
     )
   )
@@ -332,7 +332,7 @@ test("an abort mid-answer ends with RUN_ERROR aborted and frees the session", as
 })
 
 test("structuredOutput still answers with one constrained prompt", async () => {
-  const result = await promptApiText().structuredOutput(options())
+  const result = await promptApiText("built-in").structuredOutput(options())
   assert.deepEqual(result.data, { moveId: "b6-a5" })
   assert.equal(result.rawText, '{"moveId":"b6-a5"}')
   assert.ok(result.usage)
@@ -342,7 +342,7 @@ test("structuredOutput still answers with one constrained prompt", async () => {
 
 test("chat({ outputSchema, stream: true }) runs end to end on the adapter's stream", async () => {
   const stream = chat({
-    adapter: promptApiText(),
+    adapter: promptApiText("built-in"),
     threadId: "chat-thread",
     messages: [{ role: "user", content: "Choose a move" }],
     outputSchema: schema,
@@ -360,7 +360,7 @@ test("chat({ outputSchema, stream: true }) runs end to end on the adapter's stre
   assert.ok(control.calls.some((c) => c.kind === "stream"))
 
   const value = await chat({
-    adapter: promptApiText(),
+    adapter: promptApiText("built-in"),
     threadId: "chat-thread-2",
     messages: [{ role: "user", content: "Choose a move" }],
     outputSchema: schema
@@ -407,7 +407,7 @@ test("chatStream stops at maxCompletionTokens with finishReason length, by an in
   control.answer = ["Hello ", "there, ", "world!"]
   const controller = new AbortController()
   const chunks = await collect(
-    promptApiText().chatStream(
+    promptApiText("built-in").chatStream(
       chatOptions({
         modelOptions: { maxCompletionTokens: 8 },
         abortController: controller
@@ -434,7 +434,7 @@ test("chatStream stops at maxCompletionTokens with finishReason length, by an in
 test("the cap stops a long reply early: text streams live under the cap, the trimmed rest after the stop", { timeout: 5000 }, async () => {
   control.answer = Array.from({ length: 200 }, () => "word ")
   const { chunks, live } = await collectTimed(
-    promptApiText().chatStream(chatOptions({ modelOptions: { maxCompletionTokens: 20 } }))
+    promptApiText("built-in").chatStream(chatOptions({ modelOptions: { maxCompletionTokens: 20 } }))
   )
   // Stopped once the estimate passed 1.25 × 20 + 8 = 33 tokens (7 pieces),
   // not after the whole reply.
@@ -456,7 +456,7 @@ test("the estimate is calibrated on the request's text before generating", { tim
   control.weight = () => 0.5
   control.answer = Array.from({ length: 200 }, () => "word ")
   const chunks = await collect(
-    promptApiText().chatStream(
+    promptApiText("built-in").chatStream(
       chatOptions({
         messages: [{ role: "user", content: "Write a long story about a fox, with plenty of detail in every part." }],
         modelOptions: { maxCompletionTokens: 20 }
@@ -479,7 +479,7 @@ test("an estimate that runs high stops short of the cap: what there is, finishRe
   control.weight = (char) => (char === "~" ? 0.125 : 1)
   control.answer = Array.from({ length: 50 }, () => "~".repeat(10))
   const chunks = await collect(
-    promptApiText().chatStream(chatOptions({ modelOptions: { maxCompletionTokens: 20 } }))
+    promptApiText("built-in").chatStream(chatOptions({ modelOptions: { maxCompletionTokens: 20 } }))
   )
   assert.ok(control.produced.stream <= 5, `wrote ${control.produced.stream} pieces`)
   assert.equal(textIn(chunks), "~".repeat(40))
@@ -495,7 +495,7 @@ test("text sent live never passes the cap, even when the reply is denser than th
   control.weight = (char) => (char === "x" ? 1 : 0.25)
   control.answer = Array.from({ length: 100 }, () => "x")
   const { chunks, live } = await collectTimed(
-    promptApiText().chatStream(chatOptions({ modelOptions: { maxCompletionTokens: 10 } }))
+    promptApiText("built-in").chatStream(chatOptions({ modelOptions: { maxCompletionTokens: 10 } }))
   )
   // Live only while even one token a byte stays within the cap; the rest held, then trimmed.
   assert.ok(live.filter((c) => c.generating).length <= 10)
@@ -507,7 +507,7 @@ test("text sent live never passes the cap, even when the reply is denser than th
 test("chatStream under maxCompletionTokens never measures mid-stream and finishes with stop", { timeout: 5000 }, async () => {
   control.answer = ["Hello ", "there, ", "world!"]
   const { chunks, live } = await collectTimed(
-    promptApiText().chatStream(chatOptions({ modelOptions: { maxCompletionTokens: 100 } }))
+    promptApiText("built-in").chatStream(chatOptions({ modelOptions: { maxCompletionTokens: 100 } }))
   )
   assert.equal(textIn(chunks), "Hello there, world!")
   // Each piece streams as it's written: nothing is held back.
@@ -527,7 +527,7 @@ test("chatStream without maxCompletionTokens passes the caller's signal and repo
   control.answer = ["Hello"]
   const controller = new AbortController()
   const chunks = await collect(
-    promptApiText().chatStream(chatOptions({ abortController: controller }))
+    promptApiText("built-in").chatStream(chatOptions({ abortController: controller }))
   )
   assert.equal(streamSignals()[0], controller.signal)
   assert.equal("outputTokenLimit" in detailsOf(chunks.at(-1)), false)
@@ -538,16 +538,16 @@ test("chatStream without maxCompletionTokens passes the caller's signal and repo
 test("invalid maxCompletionTokens and parallelToolCalls throw before any session work", async () => {
   for (const maxCompletionTokens of [-1, 1.5, Number.NaN, Infinity, "5"]) {
     await assert.rejects(
-      promptApiText().structuredOutput(options({ modelOptions: { maxCompletionTokens } })),
+      promptApiText("built-in").structuredOutput(options({ modelOptions: { maxCompletionTokens } })),
       /maxCompletionTokens must be a nonnegative safe integer/
     )
     await assert.rejects(
-      collect(promptApiText().chatStream(chatOptions({ modelOptions: { maxCompletionTokens } }))),
+      collect(promptApiText("built-in").chatStream(chatOptions({ modelOptions: { maxCompletionTokens } }))),
       /maxCompletionTokens must be a nonnegative safe integer/
     )
   }
   await assert.rejects(
-    collect(promptApiText().chatStream(chatOptions({ modelOptions: { parallelToolCalls: "no" } }))),
+    collect(promptApiText("built-in").chatStream(chatOptions({ modelOptions: { parallelToolCalls: "no" } }))),
     /parallelToolCalls must be a boolean/
   )
   assert.equal(control.calls.length, 0)
@@ -555,7 +555,7 @@ test("invalid maxCompletionTokens and parallelToolCalls throw before any session
 
 test("maxCompletionTokens 0 writes nothing and finishes with length", async () => {
   const chunks = await collect(
-    promptApiText().chatStream(chatOptions({ modelOptions: { maxCompletionTokens: 0 } }))
+    promptApiText("built-in").chatStream(chatOptions({ modelOptions: { maxCompletionTokens: 0 } }))
   )
   assert.deepEqual(typesOf(chunks), ["RUN_STARTED", "RUN_FINISHED"])
   assert.equal(chunks.at(-1)?.finishReason, "length")
@@ -564,7 +564,7 @@ test("maxCompletionTokens 0 writes nothing and finishes with length", async () =
 
 test("structured output cut off by maxCompletionTokens fails with RUN_ERROR max_tokens", async () => {
   const chunks = await collect(
-    promptApiText().structuredOutputStream(
+    promptApiText("built-in").structuredOutputStream(
       options({ modelOptions: { maxCompletionTokens: 12 } })
     )
   )
@@ -574,14 +574,14 @@ test("structured output cut off by maxCompletionTokens fails with RUN_ERROR max_
   assert.equal(error?.code, "max_tokens")
   assert.match(String(error?.message), /raise maxCompletionTokens/)
   await assert.rejects(
-    promptApiText().structuredOutput(options({ modelOptions: { maxCompletionTokens: 12 } })),
+    promptApiText("built-in").structuredOutput(options({ modelOptions: { maxCompletionTokens: 12 } })),
     (e: unknown) => (e as { code?: string }).code === "max_tokens"
   )
 })
 
 test("structured output reaching maxCompletionTokens with complete JSON still succeeds", async () => {
   control.answer = ['{"moveId":', '"b6-a5"}', "   "]
-  const result = await promptApiText().structuredOutput(
+  const result = await promptApiText("built-in").structuredOutput(
     options({ modelOptions: { maxCompletionTokens: 18 } })
   )
   assert.deepEqual(result.data, { moveId: "b6-a5" })
@@ -596,7 +596,7 @@ test("maxCompletionTokens covers emulated reasoning: the draft and the answer sh
   // Notes "think first" (11) leave 4 of 15 for the answer.
   control.answer = ["Hello ", "there"]
   let chunks = await collect(
-    promptApiText().chatStream(
+    promptApiText("built-in").chatStream(
       chatOptions({ reasoning: { level: "high" }, modelOptions: { maxCompletionTokens: 15 } })
     )
   )
@@ -611,7 +611,7 @@ test("maxCompletionTokens covers emulated reasoning: the draft and the answer sh
   // A cap the draft uses up leaves no answer.
   control.calls = []
   chunks = await collect(
-    promptApiText().chatStream(
+    promptApiText("built-in").chatStream(
       chatOptions({ reasoning: { level: "high" }, modelOptions: { maxCompletionTokens: 8 } })
     )
   )
@@ -631,7 +631,7 @@ test("a thinking budget stops the draft early by estimate and trims the notes ex
   control.notes = Array.from({ length: 200 }, () => "note ")
   control.answer = ["Hello"]
   const { chunks, live } = await collectTimed(
-    promptApiText().chatStream(chatOptions({ reasoning: { level: "high", budgetTokens: 10 } }))
+    promptApiText("built-in").chatStream(chatOptions({ reasoning: { level: "high", budgetTokens: 10 } }))
   )
   // Stopped once the estimate passed 1.25 × 10 + 8 = 20.5 tokens (5 pieces).
   assert.ok(control.produced.draft <= 6, `the draft wrote ${control.produced.draft} of 200 pieces`)
@@ -658,7 +658,7 @@ test("a draft stopped early by the shared cap leaves the answer the cap less its
   control.notes = Array.from({ length: 200 }, () => "note ")
   control.answer = ["Hello ", "there"]
   const chunks = await collect(
-    promptApiText().chatStream(
+    promptApiText("built-in").chatStream(
       chatOptions({
         reasoning: { level: "high", budgetTokens: 10 },
         modelOptions: { maxCompletionTokens: 14 }
@@ -716,7 +716,7 @@ test("parallelToolCalls false keeps only the first of the browser's tool calls",
     for (const parallel of [false, true, undefined]) {
       control.answer = [nativeCall("a", "London"), nativeCall("b", "Paris")]
       const chunks = await collect(
-        promptApiText().chatStream(
+        promptApiText("built-in").chatStream(
           chatOptions({
             threadId: `native-${String(parallel)}`,
             tools: [lookup],
@@ -738,7 +738,7 @@ test("a native tool call the cap cuts into is left out, and the run finishes wit
   await withNativeTools(async () => {
     control.answer = ["Sure", nativeCall("a", "London")]
     const chunks = await collect(
-      promptApiText().chatStream(
+      promptApiText("built-in").chatStream(
         chatOptions({ threadId: "native-cut", tools: [lookup], modelOptions: { maxCompletionTokens: 10 } })
       )
     )
@@ -752,7 +752,7 @@ test("a guided call that doesn't fit the cap whole sends nothing and finishes wi
   const ping = { name: "ping", description: "Ping", inputSchema: { type: "object", properties: {}, additionalProperties: false } }
   // No arguments to generate, but the call itself still counts.
   let chunks = await collect(
-    promptApiText({ nativeTools: false }).chatStream(chatOptions({ tools: [ping], toolChoice: "required", modelOptions: { maxCompletionTokens: 1 } }))
+    promptApiText("built-in", { nativeTools: false }).chatStream(chatOptions({ tools: [ping], toolChoice: "required", modelOptions: { maxCompletionTokens: 1 } }))
   )
   assert.equal(chunks.some((c) => c.type.startsWith("TOOL_CALL")), false)
   assert.equal(chunks.at(-1)?.finishReason, "length")
@@ -761,7 +761,7 @@ test("a guided call that doesn't fit the cap whole sends nothing and finishes wi
   // Arguments within the cap, the call as counted past it.
   control.answer = ['{"city":', '"Rome"}']
   chunks = await collect(
-    promptApiText({ nativeTools: false }).chatStream(
+    promptApiText("built-in", { nativeTools: false }).chatStream(
       chatOptions({ threadId: "guided-whole", tools: [lookup], toolChoice: "required", modelOptions: { maxCompletionTokens: 20 } })
     )
   )
@@ -772,7 +772,7 @@ test("a guided call that doesn't fit the cap whole sends nothing and finishes wi
 test("guided tool arguments cut off by maxCompletionTokens send no call and finish with length", async () => {
   control.answer = ['{"city":', '"London"}']
   let chunks = await collect(
-    promptApiText({ nativeTools: false }).chatStream(
+    promptApiText("built-in", { nativeTools: false }).chatStream(
       chatOptions({ tools: [lookup], toolChoice: "required", modelOptions: { maxCompletionTokens: 10 } })
     )
   )
@@ -783,7 +783,7 @@ test("guided tool arguments cut off by maxCompletionTokens send no call and fini
   // Within the cap, the one guided call goes out; parallelToolCalls: false holds trivially.
   control.calls = []
   chunks = await collect(
-    promptApiText({ nativeTools: false }).chatStream(
+    promptApiText("built-in", { nativeTools: false }).chatStream(
       chatOptions({
         threadId: "guided-ok",
         tools: [lookup],

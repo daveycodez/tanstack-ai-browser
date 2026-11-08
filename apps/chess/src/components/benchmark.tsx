@@ -1,6 +1,6 @@
 import { memo, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react"
 import type { FormEvent, ReactNode } from "react"
-import { promptApiAvailability } from "@tanstack-ai-browser/prompt-api"
+import { isSupported as promptApiSupported } from "@tanstack-ai-browser/prompt-api"
 import {
   DEFAULT_OPPONENT,
   LOCAL_OPPONENTS,
@@ -357,9 +357,9 @@ export function BenchmarkView() {
 
   useEffect(() => {
     mounted.current = true
-    void promptApiAvailability()
-      .then((availability) => {
-        if (mounted.current) setPromptAvailable(availability !== "unavailable")
+    void promptApiSupported()
+      .then((supported) => {
+        if (mounted.current) setPromptAvailable(supported)
       })
       .catch(() => {
         /* WebGL remains available when Prompt API detection fails. */

@@ -2,8 +2,8 @@ import { EventType, chat } from "@tanstack/ai"
 import type { AnyTextAdapter, ChatMiddleware, StructuredOutputStream, UsageInfo } from "@tanstack/ai"
 import { apfelText } from "@tanstack-ai-browser/apfel"
 import {
-  loadPromptApiModel,
-  promptApiStatus,
+  loadModel as loadPromptApiModel,
+  modelStatus as promptApiStatus,
   promptApiText
 } from "@tanstack-ai-browser/prompt-api"
 import {
@@ -13,11 +13,8 @@ import {
   unloadModel,
   webgllmText
 } from "@tanstack-ai-browser/webgllm"
-import type {
-  ModelStatus,
-  Store,
-  WebGlTextModel
-} from "@tanstack-ai-browser/webgllm"
+import type { ModelStatus, Store } from "@tanstack-ai-browser/webgllm"
+import type { WebGllmChatModel } from "@tanstack-ai-browser/webgllm/model-meta"
 import { z } from "zod"
 import { legalMoves } from "./mancala"
 import type { Game } from "./mancala"
@@ -97,7 +94,7 @@ export type AiMoveOptions = {
 }
 
 type LoadingStore = Pick<Store<ModelStatus>, "get" | "subscribe">
-let activeWebGlModel: WebGlTextModel | undefined
+let activeWebGlModel: WebGllmChatModel | undefined
 const ready: LoadingStore = {
   get: () => ({ state: "ready" }),
   subscribe: () => () => undefined
@@ -106,10 +103,10 @@ const ready: LoadingStore = {
 export function loadingStoreFor(settings?: OpponentSettings): LoadingStore {
   const { model } = resolveOpponent(settings)
   if (model === APFEL_MODEL) return ready
-  return model === "prompt-api" ? promptApiStatus() : modelStatus(model)
+  return model === "prompt-api" ? promptApiStatus("built-in") : modelStatus(model)
 }
 
-async function waitForModel(model: WebGlTextModel, signal: AbortSignal) {
+async function waitForModel(model: WebGllmChatModel, signal: AbortSignal) {
   signal.throwIfAborted()
   if (activeWebGlModel !== model) unloadModel()
   activeWebGlModel = model
@@ -195,7 +192,7 @@ export async function chooseAiMove(
       unloadModel()
       activeWebGlModel = undefined
     }
-    if (opponent.model === "prompt-api") await loadPromptApiModel({ signal })
+    if (opponent.model === "prompt-api") await loadPromptApiModel("built-in", { signal })
   } else await waitForModel(opponent.model, signal)
   signal.throwIfAborted()
 
@@ -248,10 +245,10 @@ export async function chooseAiMove(
             modelOptions: { maxCompletionTokens: MAX_OUTPUT_TOKENS }
           })
         : opponent.model === "prompt-api"
-          ? chat({ ...options, adapter: promptApiText(), reasoning })
+          ? chat({ ...options, adapter: promptApiText("built-in"), reasoning })
           : chat({
               ...options,
-              adapter: webgllmText(opponent.model as WebGlTextModel) as AnyTextAdapter,
+              adapter: webgllmText(opponent.model as WebGllmChatModel) as AnyTextAdapter,
               ...(opponentOption(opponent.model).thinking !== "none" && {
                 reasoning
               }),

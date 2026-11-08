@@ -105,7 +105,7 @@ const copies = () => control.sessions.filter(session => session.parent)
 const cached = (result: { usage: { promptTokensDetails?: { cachedTokens?: number } } }) => result.usage.promptTokensDetails?.cachedTokens ?? 0
 
 test("structured calls reuse a clean base, use fresh clones, preserve the exact schema and report cached input", async () => {
-  reset(); const adapter=promptApiText()
+  reset(); const adapter=promptApiText("built-in")
   const first=await adapter.structuredOutput(request())
   const second=await adapter.structuredOutput(request("thread","Choose second"))
   assert.deepEqual(first.data,{moveId:"b6-a5"}); assert.deepEqual(second.data,first.data)
@@ -119,7 +119,7 @@ test("structured calls reuse a clean base, use fresh clones, preserve the exact 
 })
 
 test("stateless structured callers reuse matching system/options bases without a thread ID", async () => {
-  reset(); const adapter=promptApiText()
+  reset(); const adapter=promptApiText("built-in")
   const first=request();first.chatOptions.threadId=undefined
   const second=request("unused","Another independent input");second.chatOptions.threadId=undefined
   await adapter.structuredOutput(first)
@@ -129,7 +129,7 @@ test("stateless structured callers reuse matching system/options bases without a
 })
 
 test("thread, system, sampling and language changes never reuse incompatible bases", async () => {
-  reset(); const adapter=promptApiText()
+  reset(); const adapter=promptApiText("built-in")
   await adapter.structuredOutput(request("a"))
   assert.equal(cached(await adapter.structuredOutput(request("b"))),0)
   const changed=request("a");changed.chatOptions.systemPrompts=["Different instructions"]
@@ -137,12 +137,12 @@ test("thread, system, sampling and language changes never reuse incompatible bas
   const sampled=request("a","Sample",undefined,{temperature:0.8,topK:7})
   assert.equal(cached(await adapter.structuredOutput(sampled)),0)
   assert.equal(control.creates.at(-1)?.temperature,0.8);assert.equal(control.creates.at(-1)?.topK,7)
-  assert.equal(cached(await promptApiText({languages:["es"]}).structuredOutput(sampled)),0)
+  assert.equal(cached(await promptApiText("built-in", {languages:["es"]}).structuredOutput(sampled)),0)
   assert.equal(control.creates.length,5)
 })
 
 test("compatible history appends only its gap, while edited history resets the prefix", async () => {
-  reset();const adapter=promptApiText()
+  reset();const adapter=promptApiText("built-in")
   const history=[{role:"user",content:"Old question"},{role:"assistant",content:"Old answer"}]
   await adapter.structuredOutput(request("history","",[...history,{role:"user",content:"First extraction"}]))
   const extended=[...history,{role:"user",content:"Next question"},{role:"assistant",content:"Next answer"}]
@@ -156,7 +156,7 @@ test("compatible history appends only its gap, while edited history resets the p
 })
 
 test("structured finalization never replaces the retained chat/tool namespace", async () => {
-  reset();const adapter=promptApiText()
+  reset();const adapter=promptApiText("built-in")
   const initial=request("shared").chatOptions
   for await(const chunk of adapter.chatStream(initial)) assert.ok(chunk)
   const keptChat=bases()[0]
@@ -170,7 +170,7 @@ test("structured finalization never replaces the retained chat/tool namespace", 
 })
 
 test("request.signal and legacy cancellation stop clones without discarding healthy prefixes", async () => {
-  reset();const adapter=promptApiText();await adapter.structuredOutput(request())
+  reset();const adapter=promptApiText("built-in");await adapter.structuredOutput(request())
   for(const legacy of [false,true]){
     const controller=new AbortController();let release=()=>undefined as void;let began=()=>undefined as void
     control.promptGate=new Promise<void>(resolve=>{release=resolve})
@@ -190,7 +190,7 @@ test("request.signal and legacy cancellation stop clones without discarding heal
 })
 
 test("abort while cloning preserves its parent; native schema failures and invalid JSON do too", async () => {
-  reset();const adapter=promptApiText();await adapter.structuredOutput(request())
+  reset();const adapter=promptApiText("built-in");await adapter.structuredOutput(request())
   const controller=new AbortController();control.abortClone=controller
   const options=request()
   await assert.rejects(adapter.structuredOutput({...options,chatOptions:{...options.chatOptions,abortController:controller}}),/cancel clone/)
@@ -205,7 +205,7 @@ test("abort while cloning preserves its parent; native schema failures and inval
 })
 
 test("concurrent generations share an already warm base and cannot affect each other's clone", async () => {
-  reset();const adapter=promptApiText();await adapter.structuredOutput(request())
+  reset();const adapter=promptApiText("built-in");await adapter.structuredOutput(request())
   let release=()=>undefined as void,began=()=>undefined as void;control.promptGate=new Promise<void>(resolve=>{release=resolve})
   const started=new Promise<void>(resolve=>{began=resolve});const previous=control.prompts.length
   control.onPrompt=()=>{if(control.prompts.length===previous+2)began()}
@@ -221,7 +221,7 @@ test("overlapping cold calls share one prepared base without orphan sessions", a
   reset();let release=()=>undefined as void,began=()=>undefined as void
   control.createGate=new Promise<void>(resolve=>{release=resolve})
   const started=new Promise<void>(resolve=>{began=resolve});control.onCreate=began
-  const first=promptApiText().structuredOutput(request()),second=promptApiText().structuredOutput(request())
+  const first=promptApiText("built-in").structuredOutput(request()),second=promptApiText("built-in").structuredOutput(request())
   await started;release();await Promise.all([first,second])
   assert.equal(control.creates.length,1)
   assert.equal(bases().filter(session=>!session.destroyed).length,1)
@@ -230,7 +230,7 @@ test("overlapping cold calls share one prepared base without orphan sessions", a
 
 
 test("explicit cleanup and the existing shared cache bound include structured bases", async () => {
-  reset();for(let index=0;index<6;index++)await promptApiText().structuredOutput(request(`thread-${index}`))
+  reset();for(let index=0;index<6;index++)await promptApiText("built-in").structuredOutput(request(`thread-${index}`))
   assert.equal(bases().filter(session=>!session.destroyed).length,4)
   destroyPromptApiSessions();assert.ok(control.sessions.every(session=>session.destroyed))
 })
@@ -240,7 +240,7 @@ test("concurrent distinct cold structured threads trim idle bases back to the re
   control.createGate=new Promise<void>(resolve=>{open=resolve})
   const ready=new Promise<void>(resolve=>{started=resolve})
   control.onCreate=()=>{if(control.creates.length===6)started()}
-  const runs=Array.from({length:6},(_,index)=>chat({adapter:promptApiText(),threadId:`cold-pool-${index}`,systemPrompts:["Stable system instructions"],messages:[{role:"user",content:"Choose a legal move"}],outputSchema:schema,stream:false}))
+  const runs=Array.from({length:6},(_,index)=>chat({adapter:promptApiText("built-in"),threadId:`cold-pool-${index}`,systemPrompts:["Stable system instructions"],messages:[{role:"user",content:"Choose a legal move"}],outputSchema:schema,stream:false}))
   await ready;open();const answers=await Promise.all(runs)
   assert.equal(answers.length,6)
   assert.ok(answers.every(answer=>answer.moveId==="b6-a5"))
@@ -259,7 +259,7 @@ test("pool trimming preserves independent concurrent clones and their cancellati
   const controller=new AbortController()
   const runs=Array.from({length:6},(_,index)=>{
     const options=request(`clone-pool-${index}`)
-    return promptApiText().structuredOutput({...options,chatOptions:{...options.chatOptions,...(index===0?{request:{signal:controller.signal}}:{})}})
+    return promptApiText("built-in").structuredOutput({...options,chatOptions:{...options.chatOptions,...(index===0?{request:{signal:controller.signal}}:{})}})
   })
   await allCreated;openCreate();await allPrompted
   try {
@@ -312,7 +312,7 @@ test("concurrent cold chat leases sharing a key destroy the detached session on 
 
 test("clone overflow is reported on structured usage", async () => {
   reset()
-  const adapter=promptApiText()
+  const adapter=promptApiText("built-in")
   control.onPrompt=()=>control.prompts.at(-1)?.session.dispatchEvent(new Event("contextoverflow"))
   const result=await adapter.structuredOutput(request())
   assert.equal(result.usage.providerUsageDetails.contextOverflow,true)
@@ -320,7 +320,7 @@ test("clone overflow is reported on structured usage", async () => {
 
 test("the public TanStack structured-output path reuses the adapter base across calls", async () => {
   reset();const results=[]
-  for(let index=0;index<2;index++)results.push(await chat({adapter:promptApiText(),threadId:"public",systemPrompts:["Stable system instructions"],messages:[{role:"user",content:"Choose a legal move"}],outputSchema:schema,stream:false}))
+  for(let index=0;index<2;index++)results.push(await chat({adapter:promptApiText("built-in"),threadId:"public",systemPrompts:["Stable system instructions"],messages:[{role:"user",content:"Choose a legal move"}],outputSchema:schema,stream:false}))
   assert.deepEqual(results,[{moveId:"b6-a5"},{moveId:"b6-a5"}])
   assert.equal(control.creates.length,1);assert.equal(copies().length,2)
 })
@@ -340,11 +340,11 @@ test("a queued caller can cancel promptly without letting later preparation bypa
   reset();let release=()=>undefined as void,began=()=>undefined as void
   control.createGate=new Promise<void>(resolve=>{release=resolve})
   const started=new Promise<void>(resolve=>{began=resolve});control.onCreate=began
-  const first=promptApiText().structuredOutput(request())
+  const first=promptApiText("built-in").structuredOutput(request())
   await started
   const controller=new AbortController(),options=request()
-  const cancelled=promptApiText().structuredOutput({...options,chatOptions:{...options.chatOptions,request:{signal:controller.signal}}})
-  const third=promptApiText().structuredOutput(request("thread","Third call"))
+  const cancelled=promptApiText("built-in").structuredOutput({...options,chatOptions:{...options.chatOptions,request:{signal:controller.signal}}})
+  const third=promptApiText("built-in").structuredOutput(request("thread","Third call"))
   controller.abort(new Error("cancel queued preparation"))
   await assert.rejects(cancelled,/cancel queued preparation/)
   assert.equal(control.creates.length,1)
@@ -353,7 +353,7 @@ test("a queued caller can cancel promptly without letting later preparation bypa
 })
 
 test("emulated working notes and constrained answers never contaminate a cached base", async () => {
-  reset();const adapter=promptApiText(),options=request()
+  reset();const adapter=promptApiText("built-in"),options=request()
   await adapter.structuredOutput({...options,chatOptions:{...options.chatOptions,reasoning:{level:"high",budgetTokens:4}}})
   assert.ok(text(control.prompts[0].input).includes("Working notes"))
   assert.deepEqual(bases()[0].history,[{role:"system",content:"Stable system instructions"}])
@@ -365,7 +365,7 @@ test("emulated working notes and constrained answers never contaminate a cached 
 
 
 test("a browser-destroyed cached base is recreated before generation without retrying a response", async () => {
-  reset();const adapter=promptApiText();await adapter.structuredOutput(request())
+  reset();const adapter=promptApiText("built-in");await adapter.structuredOutput(request())
   bases()[0].destroy()
   const count=control.prompts.length
   assert.deepEqual((await adapter.structuredOutput(request())).data,{moveId:"b6-a5"})
@@ -377,7 +377,7 @@ test("a browser-destroyed cached base is recreated before generation without ret
 test("public TanStack promptCache none creates fresh structured requests with no managed cached prefix", async () => {
   reset()
   const cachedCounts: number[] = [], policies: unknown[] = []
-  const adapter = promptApiText()
+  const adapter = promptApiText("built-in")
   // chat() drains structuredOutputStream (even with stream: false); its RUN_FINISHED carries the usage.
   const original = adapter.structuredOutputStream.bind(adapter)
   adapter.structuredOutputStream = async function* (options: {chatOptions: Record<string, unknown>; outputSchema: unknown}) {
@@ -398,7 +398,7 @@ test("public TanStack promptCache none creates fresh structured requests with no
 })
 
 test("none bypasses anonymous structured bases and does not evict a previous reusable session", async () => {
-  reset();const adapter=promptApiText()
+  reset();const adapter=promptApiText("built-in")
   await adapter.structuredOutput(request())
   const retained=bases()[0]
   for(let index=0;index<2;index++) {
@@ -413,7 +413,7 @@ test("none bypasses anonymous structured bases and does not evict a previous reu
 })
 
 test("custom standard cache keys share compatible structured prefixes and still reset changed history or options", async () => {
-  reset();const adapter=promptApiText()
+  reset();const adapter=promptApiText("built-in")
   const withPolicy=(threadId:string,key:string,system="Stable system instructions")=>{
     const options=request(threadId)
     return {...options,chatOptions:{...options.chatOptions,systemPrompts:[system],promptCache:{retention:"short",key}}}
@@ -430,7 +430,7 @@ test("custom standard cache keys share compatible structured prefixes and still 
 })
 
 test("short and long preserve the existing opportunistic cache without imposing different retention caps", async () => {
-  reset();const adapter=promptApiText()
+  reset();const adapter=promptApiText("built-in")
   const options=request("short-long")
   const first=await adapter.structuredOutput({...options,chatOptions:{...options.chatOptions,promptCache:{retention:"short",key:"shared"}}})
   const second=await adapter.structuredOutput({...options,chatOptions:{...options.chatOptions,promptCache:{retention:"long",key:"shared"}}})
@@ -440,7 +440,7 @@ test("short and long preserve the existing opportunistic cache without imposing 
 })
 
 test("streaming cache-key reuse keeps AG-UI correlation on each caller thread", async () => {
-  reset();const adapter=promptApiText()
+  reset();const adapter=promptApiText("built-in")
   const initial=request("thread-a").chatOptions
   const first=[]
   for await(const chunk of adapter.chatStream({...initial,promptCache:{retention:"short",key:"shared-chat"}}))first.push(chunk)
@@ -455,7 +455,7 @@ test("streaming cache-key reuse keeps AG-UI correlation on each caller thread", 
 })
 
 test("standard none streaming releases each session instead of retaining conversational state", async () => {
-  reset();const adapter=promptApiText()
+  reset();const adapter=promptApiText("built-in")
   for(let index=0;index<2;index++) {
     const options=request("same-thread").chatOptions
     const chunks=[]
@@ -467,7 +467,7 @@ test("standard none streaming releases each session instead of retaining convers
 })
 
 test("emulated reasoning streams remain ephemeral even with an explicit long-lived cache key", async () => {
-  reset();const adapter=promptApiText()
+  reset();const adapter=promptApiText("built-in")
   for(let index=0;index<2;index++) {
     const options=request("reasoning-thread").chatOptions
     const chunks=[]
@@ -479,7 +479,7 @@ test("emulated reasoning streams remain ephemeral even with an explicit long-liv
 })
 
 test("concurrent uncached requests and cancellation clean up every per-request native session", {timeout:2000}, async () => {
-  reset();const adapter=promptApiText()
+  reset();const adapter=promptApiText("built-in")
   let release=()=>undefined as void,began=()=>undefined as void
   control.promptGate=new Promise<void>(resolve=>{release=resolve})
   const started=new Promise<void>(resolve=>{began=resolve});control.onPrompt=()=>{if(control.prompts.length===2)began()}
@@ -498,7 +498,7 @@ test("concurrent uncached requests and cancellation clean up every per-request n
 })
 
 test("an explicit shared cache key never substitutes for compatible caller history", async () => {
-  reset();const adapter=promptApiText()
+  reset();const adapter=promptApiText("built-in")
   for(const [index,question] of ["Original question","Edited independent question"].entries()) {
     const options=request(`thread-${index}`,"",[{role:"user",content:question},{role:"assistant",content:"Earlier answer"},{role:"user",content:"Extract the requested value"}])
     const result=await adapter.structuredOutput({...options,chatOptions:{...options.chatOptions,promptCache:{retention:"short",key:"shared-history-key"}}})
@@ -507,4 +507,32 @@ test("an explicit shared cache key never substitutes for compatible caller histo
   }
   assert.equal(control.creates.length,2)
   assert.equal(bases()[0].destroyed,true)
+})
+
+test("unloading frees sessions in use and being created once their calls end, and keeps neither", async () => {
+  reset()
+  const lease = (threadId: string) => leaseSession({ threadId, system:"System", prior:[], options:{}, signal:undefined })
+  // A session a call holds survives the unload until the call ends, then is freed.
+  const busy = await lease("busy-thread")
+  destroyPromptApiSessions()
+  assert.equal(busy.session.destroyed, false, "the running call keeps its session")
+  busy.release([])
+  assert.equal(busy.session.destroyed, true, "a session in use at unload is freed when released")
+  // A session still being created at unload never enters the cache.
+  let open=()=>undefined as void,began=()=>undefined as void
+  control.createGate=new Promise<void>(resolve=>{open=resolve})
+  const started=new Promise<void>(resolve=>{began=resolve});control.onCreate=began
+  const pending = lease("pending-thread")
+  await started
+  destroyPromptApiSessions()
+  open()
+  const created = await pending
+  assert.equal(created.session.destroyed, false, "the pending call still gets its session")
+  created.release([])
+  assert.equal(created.session.destroyed, true, "a session created across the unload is freed when released")
+  // Neither thread reuses a session afterwards.
+  control.createGate=undefined; control.onCreate=undefined
+  const next = await lease("pending-thread")
+  assert.equal(next.reused, false)
+  next.release([])
 })

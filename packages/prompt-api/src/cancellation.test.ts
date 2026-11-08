@@ -44,7 +44,7 @@ function adapterPackage(): Promise<AdapterPackage> {
 function gate() { let release!: () => void; const promise = new Promise<void>(resolve => { release = resolve }); return { promise, release } }
 function reset() { state.inits = state.generations = state.discards = state.returned = 0; state.signal = state.initializationSignal = state.measurementSignal = undefined; init = async () => undefined; generate = async () => raw; measurements = async () => 1 }
 function options(adapter: {model:string}, cancellation: object) { return { chatOptions: { model: adapter.model, logger, threadId: "cancel-contract", messages: [{ role: "user", content: "Choose a move" }], ...cancellation }, outputSchema: schema } }
-async function adapterFor(): Promise<TestAdapter> { return (await adapterPackage()).promptApiText() }
+async function adapterFor(): Promise<TestAdapter> { return (await adapterPackage()).promptApiText("built-in") }
 test("prompt-api: structured cancellation via request.signal and legacy controller", { timeout: 10_000 }, async () => {
   {
     const adapter = await adapterFor()

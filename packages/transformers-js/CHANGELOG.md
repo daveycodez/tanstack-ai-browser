@@ -1,5 +1,18 @@
 ## Unreleased
 
+### ⚠️ Breaking Changes
+
+- Exported names changed: the package now exposes the same API shape as `@tanstack/ai-openrouter`'s text adapter, and the same as the other adapter packages here. The root entry has the adapter (its class and factory, and its config, model options and usage types) and the runtime functions (`isSupported`, `loadModel`, `unloadModel`, `modelStatus`, `setMemoryBudget` where they apply); the model catalog moved to the new `@tanstack-ai-browser/transformers-js/model-meta` subpath. Behaviour is unchanged apart from the renames below.
+  - `TransformersJsTextConfig` → `TransformersJsConfig`
+  - `TransformersJsTextProviderOptions` → `TransformersJsTextModelOptions`
+  - `hasWebGpu()` and `runsWithoutWebGpu(model)` → `isSupported(model?)`: whether the model runs here, in a Web Worker on WebGPU or from its CPU weights (false on a server)
+  - `loadModel(model, dtype?, contextLength?)` → `loadModel(model, { dtype?, contextLength? })`
+  - `unloadModel()` → `unloadModel(model?)`, returning a promise; given a model, only if it's the one loaded
+  - `TRANSFORMERS_JS_TEXT_MODELS` → `TRANSFORMERS_JS_CHAT_MODELS`, in `/model-meta`
+  - `TransformersJsListedModel` → `TransformersJsChatModel`, in `/model-meta`
+  - `TRANSFORMERS_JS_MODEL_META`, `TRANSFORMERS_JS_MODEL_REASONING`, `TransformersJsModelMeta` and `TransformersJsModelReasoningByName` moved to `/model-meta`
+  - Removed: `setDebug` (use the adapter's `debug` option), `splitThinking`, `ToolFormat`, `Sampling`, `TransformersJsTextModel` and `TransformersJsTextConfigFor`
+
 ### 🚀 Features
 
 - The worker runs the official `@huggingface/transformers` 4.3.2 npm package, now a dependency, unmodified and through its public API, on the ONNX Runtime it ships (onnxruntime-web 1.31.0-dev.20260914). It no longer downloads Transformers.js from a CDN, swaps in onnxruntime-web 1.31.1, or edits models or browser APIs. Removed with it:

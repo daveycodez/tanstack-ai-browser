@@ -18,8 +18,8 @@ import type {
 } from "@wllama/wllama/esm/index.js"
 
 import { claimMemory, releaseMemory, touchMemory } from "./model-memory.js"
-import { modelMeta, modelUrl } from "./model-meta.js"
-import type { WllamaTextModel } from "./model-meta.js"
+import { modelMeta, modelUrl } from "./catalog.js"
+import type { WllamaChatModel } from "./catalog.js"
 import { createStore } from "./store.js"
 import type { Store } from "./store.js"
 
@@ -42,7 +42,7 @@ export type ModelStatus =
 const statuses = new Map<string, Store<ModelStatus>>()
 
 /** Loading status of a model, by its name. */
-export function modelStatus(model: WllamaTextModel): Store<ModelStatus> {
+export function modelStatus(model: WllamaChatModel): Store<ModelStatus> {
   let status = statuses.get(model)
   if (!status) {
     status = createStore<ModelStatus>({ state: "idle" })
@@ -120,7 +120,7 @@ const silent: WllamaLogger = {
 
 /** The model wllama holds (or is loading), its load, and a way to stop it. */
 let loaded: {
-  model: WllamaTextModel
+  model: WllamaChatModel
   contextLength: number | undefined
   wllama: Wllama
   promise: Promise<Wllama>
@@ -131,22 +131,24 @@ let loaded: {
 const OWNER = "wllama"
 
 /** Models never unloaded to make room for another runtime's (see setKeepLoaded). */
-const keepLoaded = new Set<WllamaTextModel>()
+const keepLoaded = new Set<WllamaChatModel>()
 
 /**
  * Keeps `model` loaded when another runtime (Transformers.js, WebGL) loads a
  * model past the memory budget; by default the least recently used goes.
  */
-export function setKeepLoaded(model: WllamaTextModel, keep: boolean) {
+export function setKeepLoaded(model: WllamaChatModel, keep: boolean) {
   if (keep) keepLoaded.add(model)
   else keepLoaded.delete(model)
 }
 
 /**
  * Frees the loaded model (stopping its download, if it's downloading).
- * Another runtime loading a model past the memory budget calls it too.
+ * Given a model, only if it's the one loaded (or loading). Another runtime
+ * loading a model past the memory budget calls it too.
  */
-export async function unloadModel() {
+export async function unloadModel(model?: WllamaChatModel) {
+  if (model !== undefined && loaded?.model !== model) return
   const current = loaded
   releaseMemory(OWNER)
   if (!current) return
@@ -169,7 +171,7 @@ async function remoteSize(url: string, signal: AbortSignal) {
 }
 
 /** Each model's contextLength, from its adapter (see setContextLength). */
-const contextLengths = new Map<WllamaTextModel, number>()
+const contextLengths = new Map<WllamaChatModel, number>()
 
 /**
  * Sets the most tokens a chat with `model` may hold, prompt and reply
@@ -178,7 +180,7 @@ const contextLengths = new Map<WllamaTextModel, number>()
  * when the model loads, so it applies from the next load.
  */
 export function setContextLength(
-  model: WllamaTextModel,
+  model: WllamaChatModel,
   contextLength: number | undefined
 ) {
   if (contextLength === undefined) contextLengths.delete(model)
@@ -268,7 +270,7 @@ function withDeadline<T>(promise: Promise<T>, ms: number, message: string) {
 }
 
 async function startLoad(
-  model: WllamaTextModel,
+  model: WllamaChatModel,
   wllama: Wllama,
   signal: AbortSignal,
   contextLength: number | undefined
@@ -360,15 +362,25 @@ async function startLoad(
  * Loads a model (downloading it the first time), replacing any other. The
  * promise settles when it's ready to generate.
  */
-export function loadModel(model: WllamaTextModel): Promise<Wllama> {
+export function loadModel(model: WllamaChatModel): Promise<Wllama> {
   const contextLength = contextLengths.get(model)
   if (loaded?.model === model && loaded.contextLength === contextLength) {
     return loaded.promise
   }
+  const status = modelStatus(model)
+  let wllama: Wllama
+  try {
+    wllama = createWllama(options.debug ? console : LoggerWithoutDebug)
+  } catch (error) {
+    // wllama refuses to start here (no storage it can use, say): the model
+    // loaded before, if any, stays.
+    status.set({ state: "error", message: errorText(error) })
+    const failed = Promise.reject(error instanceof Error ? error : new Error(errorText(error)))
+    failed.catch(() => undefined)
+    return failed
+  }
   const previous = loaded
   if (previous) modelStatus(previous.model).set({ state: "idle" })
-  const wllama = createWllama(options.debug ? console : LoggerWithoutDebug)
-  const status = modelStatus(model)
   status.set({ state: "loading", progress: 0, cached: true })
   const abort = new AbortController()
   const promise = (async () => {
@@ -424,7 +436,7 @@ export type ChatRequest = Omit<ChatCompletionParams, "stream" | "abortSignal"> &
 }
 
 /** Cancel this caller's wait while the shared model download keeps filling its cache. */
-export async function waitForModel(model: WllamaTextModel, signal?: AbortSignal): Promise<Wllama> {
+export async function waitForModel(model: WllamaChatModel, signal?: AbortSignal): Promise<Wllama> {
   signal?.throwIfAborted()
   const loading = loadModel(model)
   if (!signal) return loading
@@ -452,7 +464,7 @@ export async function waitForModel(model: WllamaTextModel, signal?: AbortSignal)
 
 /** Streams a chat completion from `model`, loading it first. */
 export async function streamChat(
-  model: WllamaTextModel,
+  model: WllamaChatModel,
   request: ChatRequest,
   signal?: AbortSignal
 ): Promise<AsyncIterable<ChatCompletionChunk>> {
@@ -469,7 +481,7 @@ export async function streamChat(
 
 /** A whole chat completion from `model`, loading it first. */
 export async function completeChat(
-  model: WllamaTextModel,
+  model: WllamaChatModel,
   request: ChatRequest,
   signal?: AbortSignal
 ): Promise<ChatCompletionResponse> {

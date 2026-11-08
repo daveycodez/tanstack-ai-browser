@@ -5,7 +5,7 @@ import { chat } from "@tanstack/ai"
 import type { TextOptions } from "@tanstack/ai"
 
 import { apfelText } from "./adapter.js"
-import type { ApfelModelOptions, ApfelTextConfig } from "./adapter.js"
+import type { ApfelTextModelOptions, ApfelConfig } from "./adapter.js"
 
 type Chunk = { type: string; [key: string]: unknown }
 type Body = Record<string, unknown> & {
@@ -144,13 +144,13 @@ const typesOf = (chunks: Array<Chunk>) =>
 
 test("the config and modelOptions take only standard names", () => {
   // @ts-expect-error onThinking was removed: reasoning streams as REASONING_* events.
-  const thinking: ApfelTextConfig = { onThinking: noop }
+  const thinking: ApfelConfig = { onThinking: noop }
   // @ts-expect-error onGenerationPhase was removed.
-  const phases: ApfelTextConfig = { onGenerationPhase: noop }
+  const phases: ApfelConfig = { onGenerationPhase: noop }
   // @ts-expect-error maxTokens is now maxCompletionTokens.
-  const maxTokens: ApfelModelOptions = { maxTokens: 1 }
+  const maxTokens: ApfelTextModelOptions = { maxTokens: 1 }
   // @ts-expect-error max_tokens is now maxCompletionTokens.
-  const snake: ApfelModelOptions = { max_tokens: 1 }
+  const snake: ApfelTextModelOptions = { max_tokens: 1 }
   assert.ok(thinking && phases && maxTokens && snake)
 })
 
@@ -380,7 +380,7 @@ test("parallelToolCalls goes to apfel with tools, and false keeps one tool call"
           ]
     )
   }
-  const run = (modelOptions: ApfelModelOptions) =>
+  const run = (modelOptions: ApfelTextModelOptions) =>
     collect(
       adapter().chatStream({
         model: "apple-foundationmodel",

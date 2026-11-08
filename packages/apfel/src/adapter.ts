@@ -29,17 +29,16 @@ import {
 import { matchToolName, repairToolArguments } from "./tool-repair.js"
 import type { GuidedRequest } from "./tool-repair.js"
 
+import type { ApfelChatModel } from "./model-meta.js"
+
 /** Where apfel's server listens by default. */
-export const APFEL_BASE_URL = "http://127.0.0.1:11434/v1"
+const APFEL_BASE_URL = "http://127.0.0.1:11434/v1"
 
-/** The models apfel serves: Apple's on-device Foundation Model. */
-export const APFEL_TEXT_MODELS = ["apple-foundationmodel"] as const
+/** A model apfel serves: a listed one, or any other id apfel lists. */
+export type ApfelTextModel = ApfelChatModel | (string & {})
 
-/** A model apfel serves. */
-export type ApfelTextModel = (typeof APFEL_TEXT_MODELS)[number] | (string & {})
-
-export type ApfelTextConfig = {
-  /** apfel's OpenAI-compatible API, up to `/v1`. `APFEL_BASE_URL` by default. */
+export type ApfelConfig = {
+  /** apfel's OpenAI-compatible API, up to `/v1`. `http://127.0.0.1:11434/v1` by default. */
   baseURL?: string
   /** Headers sent with every request, such as apfel's bearer token. */
   defaultHeaders?: Record<string, string>
@@ -83,7 +82,7 @@ export type ApfelProviderUsageDetails = {
  * apfel rejects the ones it doesn't (`stop`, `frequencyPenalty`,
  * `presencePenalty`, n…) with HTTP 400.
  */
-export type ApfelModelOptions = {
+export type ApfelTextModelOptions = {
   /** The most tokens the reply may have (sent as `max_tokens`). */
   maxCompletionTokens?: number
   temperature?: number
@@ -98,7 +97,7 @@ export type ApfelModelOptions = {
 }
 
 /** `modelOptions` as apfel's request fields (`parallelToolCalls` aside: tool requests only). */
-function nativeModelOptions(options: ApfelModelOptions | undefined) {
+function nativeModelOptions(options: ApfelTextModelOptions | undefined) {
   const { maxCompletionTokens: limit, temperature, topP, seed, parallelToolCalls } = options ?? {}
   if (parallelToolCalls !== undefined && typeof parallelToolCalls !== "boolean") throw new TypeError("parallelToolCalls must be a boolean.")
   if (limit !== undefined && (!Number.isSafeInteger(limit) || limit < 0)) throw new RangeError("maxCompletionTokens must be a nonnegative safe integer.")
@@ -415,7 +414,7 @@ function withSource(chunk: AdapterYieldChunk, source: ChunkSource): AdapterYield
 }
 
 /** The caller's signal: the legacy `abortController` first, then `request`. */
-const signalOf = (options: TextOptions<ApfelModelOptions>) =>
+const signalOf = (options: TextOptions<ApfelTextModelOptions>) =>
   options.abortController?.signal ??
   (options.request as RequestInit | undefined)?.signal ??
   undefined
@@ -441,7 +440,7 @@ type StreamedCall = { name: string; arguments: string }
 
 export class ApfelTextAdapter<TModel extends string> extends BaseTextAdapter<
   TModel,
-  ApfelModelOptions,
+  ApfelTextModelOptions,
   readonly ["text"],
   MetadataByModality,
   ReadonlyArray<string>,
@@ -457,7 +456,7 @@ export class ApfelTextAdapter<TModel extends string> extends BaseTextAdapter<
   private readonly baseURL: string
   private readonly headers: Record<string, string>
 
-  constructor(config: ApfelTextConfig, model: TModel) {
+  constructor(config: ApfelConfig, model: TModel) {
     super({}, model)
     this.baseURL = (config.baseURL ?? APFEL_BASE_URL).replace(/\/+$/, "")
     this.headers = {
@@ -468,7 +467,7 @@ export class ApfelTextAdapter<TModel extends string> extends BaseTextAdapter<
 
   /** A separate, tool-free completion; its output never enters caller history. */
   private async *draftReasoning(
-    options: TextOptions<ApfelModelOptions>,
+    options: TextOptions<ApfelTextModelOptions>,
     signal: AbortSignal | undefined,
     send: typeof fetch,
     budget: number | undefined,
@@ -560,7 +559,7 @@ export class ApfelTextAdapter<TModel extends string> extends BaseTextAdapter<
   }
 
   async *chatStream(
-    options: TextOptions<ApfelModelOptions>
+    options: TextOptions<ApfelTextModelOptions>
   ): AsyncIterable<AdapterYieldChunk> {
     const source = sourceOf(this, options.model)
     for await (const chunk of this.chatStreamRequest(options)) {
@@ -569,7 +568,7 @@ export class ApfelTextAdapter<TModel extends string> extends BaseTextAdapter<
   }
 
   private async *chatStreamRequest(
-    options: TextOptions<ApfelModelOptions>
+    options: TextOptions<ApfelTextModelOptions>
   ): AsyncIterable<AdapterYieldChunk> {
     const emulation = reasoningOptions(options.reasoning)
     // Invalid options throw here, before the run starts.
@@ -926,7 +925,7 @@ export class ApfelTextAdapter<TModel extends string> extends BaseTextAdapter<
   private async repairArguments(
     tool: Tool,
     draft: string,
-    options: TextOptions<ApfelModelOptions>,
+    options: TextOptions<ApfelTextModelOptions>,
     send: typeof fetch,
     signal: AbortSignal | undefined
   ) {
@@ -994,7 +993,7 @@ export class ApfelTextAdapter<TModel extends string> extends BaseTextAdapter<
    * streamed; the streamed form is `structuredOutputStream`.
    */
   async structuredOutput(
-    options: StructuredOutputOptions<ApfelModelOptions>
+    options: StructuredOutputOptions<ApfelTextModelOptions>
   ): Promise<StructuredOutputResult<unknown>> {
     const run = this.structuredOutputRun(options, false)
     let next = await run.next()
@@ -1011,7 +1010,7 @@ export class ApfelTextAdapter<TModel extends string> extends BaseTextAdapter<
    * done, so the JSON arrives in one `TEXT_MESSAGE_CONTENT`.
    */
   async *structuredOutputStream(
-    options: StructuredOutputOptions<ApfelModelOptions>
+    options: StructuredOutputOptions<ApfelTextModelOptions>
   ): AsyncIterable<AdapterYieldChunk> {
     const source = sourceOf(this, options.chatOptions.model)
     for await (const chunk of this.structuredOutputRequestStream(options)) {
@@ -1020,7 +1019,7 @@ export class ApfelTextAdapter<TModel extends string> extends BaseTextAdapter<
   }
 
   private async *structuredOutputRequestStream(
-    options: StructuredOutputOptions<ApfelModelOptions>
+    options: StructuredOutputOptions<ApfelTextModelOptions>
   ): AsyncIterable<AdapterYieldChunk> {
     const { chatOptions } = options
     const runId = chatOptions.runId ?? nextId("run")
@@ -1093,7 +1092,7 @@ export class ApfelTextAdapter<TModel extends string> extends BaseTextAdapter<
    * whole answer is one delta). Throws on failure and cancellation.
    */
   private async *structuredOutputRun(
-    options: StructuredOutputOptions<ApfelModelOptions>,
+    options: StructuredOutputOptions<ApfelTextModelOptions>,
     stream: boolean,
     messageId = nextId("msg")
   ): AsyncGenerator<AdapterYieldChunk, StructuredRunResult> {
@@ -1259,7 +1258,7 @@ export class ApfelTextAdapter<TModel extends string> extends BaseTextAdapter<
  * @example
  * ```ts
  * chat({
- *   adapter: apfelText("apple-foundationmodel", { baseURL: APFEL_BASE_URL }),
+ *   adapter: apfelText("apple-foundationmodel"),
  *   messages,
  *   threadId
  * })
@@ -1267,19 +1266,19 @@ export class ApfelTextAdapter<TModel extends string> extends BaseTextAdapter<
  */
 export function apfelText<TModel extends ApfelTextModel>(
   model: TModel,
-  config: ApfelTextConfig = {}
+  config: ApfelConfig = {}
 ): ApfelTextAdapter<TModel> {
   return new ApfelTextAdapter(config, model)
 }
 
 /**
- * Whether apfel is running and serves the model: true if `GET /v1/models`
- * lists it within 10 seconds.
+ * Whether apfel is running at `config.baseURL` and serves `model` (Apple's
+ * model by default): true if `GET /v1/models` lists it within 10 seconds.
  */
-export async function isApfelAvailable(
-  model: ApfelTextModel,
-  config: ApfelTextConfig = {}
-) {
+export async function isSupported(
+  model: ApfelTextModel = "apple-foundationmodel",
+  config: ApfelConfig = {}
+): Promise<boolean> {
   const baseURL = (config.baseURL ?? APFEL_BASE_URL).replace(/\/+$/, "")
   try {
     const response = await fetch(`${baseURL}/models`, {

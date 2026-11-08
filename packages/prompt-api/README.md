@@ -8,25 +8,24 @@ npm install @tanstack-ai-browser/prompt-api @tanstack/ai
 
 ```ts
 import { chat } from "@tanstack/ai"
-import {
-  promptApiAvailability,
-  promptApiText
-} from "@tanstack-ai-browser/prompt-api"
+import { isSupported, promptApiText } from "@tanstack-ai-browser/prompt-api"
 
-if ((await promptApiAvailability()) !== "unavailable") {
-  const stream = chat({ adapter: promptApiText(), messages, threadId })
+if (await isSupported()) {
+  const stream = chat({ adapter: promptApiText("built-in"), messages, threadId })
 }
 ```
+
+The package is shaped like `@tanstack/ai-openrouter`'s text adapter. The root has `promptApiText(model, config?)`, `PromptApiTextAdapter`, the runtime functions below and the types `PromptApiConfig`, `PromptApiTextModelOptions`, `PromptApiProviderUsageDetails`, `ModelStatus` and `Store`. `@tanstack-ai-browser/prompt-api/model-meta` has `PROMPT_API_CHAT_MODELS` (one model, `"built-in"`: whichever the browser provides), `PROMPT_API_MODEL_META` and `PROMPT_API_MODEL_REASONING`, with the types `PromptApiChatModel`, `PromptApiModelMeta` and `PromptApiModelReasoningByName`.
 
 The Prompt API is in desktop Chrome and Edge (tested in Chrome 156, where web pages have it without flags), on devices with enough memory, GPU and disk (Chrome asks for 22 GB free and either a GPU with more than 4 GB or 16 GB of RAM). It isn't in Web Workers, and a cross-origin iframe needs `allow="language-model"`.
 
 ## The model
 
-- `promptApiAvailability(languages?, { samplingMode?, inputs? })` says whether the browser can run its model: `"available"` (on the device), `"downloadable"` or `"downloading"` (it downloads when a session starts), or `"unavailable"` (no Prompt API, or the device can't run it). Give it what your sessions will use, as Chrome asks: `inputs: ["image"]` or `["audio"]` if users send them (audio needs a GPU).
-- `promptApiStatus()` is a store of the model's loading, in the same shape as the other adapters' (`idle`, `loading` with `progress` 0 to 1 and `cached`, `ready`, `error`). Chrome reports a fraction only, never bytes. The first session `chat()` starts reports into it, so nothing needs loading first; its download of Gemini Nano took about 85 seconds on a fast connection, and loading it into memory takes about 6 to 8 seconds the first time after Chrome starts.
-- `loadPromptApiModel()` downloads and loads the model ahead of the first message. Chrome wants a click on the page before it downloads (when availability is `"downloadable"`), so call it from the click that turns the model on.
-- `promptApiModel()` says which model this browser provides: `{ id: "gemini-nano", name: "Gemini Nano", browser: "Chrome" }`, `{ id: "phi-4-mini", name: "Phi-4-mini", browser: "Edge" }`, or `"unknown"` for other browsers. The API itself doesn't say; the browser's brand does.
-- `promptApiContextWindow()` gives the tokens a session holds (9,216 for Gemini Nano in Chrome 156).
+- `isSupported(model?, { languages?, samplingMode?, inputs? })` says whether the browser can run its model: true where it's on the device or can be downloaded (it downloads when a session starts), false where there's no Prompt API or the device can't run it. Give it what your sessions will use, as Chrome asks: `inputs: ["image"]` or `["audio"]` if users send them (audio needs a GPU).
+- `modelStatus("built-in")` is a store of the model's loading, in the same shape as the other adapters' (`idle`, `loading` with `progress` 0 to 1 and `cached`, `ready`, `error`). Chrome reports a fraction only, never bytes. The first session `chat()` starts reports into it, so nothing needs loading first; its download of Gemini Nano took about 85 seconds on a fast connection, and loading it into memory takes about 6 to 8 seconds the first time after Chrome starts. `cached` says whether the model was already on the device.
+- `loadModel("built-in", { languages?, signal? })` downloads and loads the model ahead of the first message. Chrome wants a click on the page before it downloads, so call it from the click that turns the model on. `signal` stops the wait, not the download.
+- `unloadModel()` frees every session the adapter keeps. The browser keeps the model itself, so there's no memory budget to set here.
+- `PROMPT_API_MODEL_META["built-in"].browserModel` says which model this browser provides: `{ id: "gemini-nano", name: "Gemini Nano", browser: "Chrome" }`, `{ id: "phi-4-mini", name: "Phi-4-mini", browser: "Edge" }`, or `"unknown"` for other browsers. The API itself doesn't say; the browser's brand does, read when the field is.
 
 `languages` (`["en"]` by default) tells the model which languages to expect in and out; Chrome's model takes `en`, `es`, `ja`, `de` and `fr`, and checks its safety filters for the output language. `reasoning: "high"` opts into adapter-emulated working notes before the final pass; omitted or `"off"` uses the ordinary single-pass flow. See the emulated reasoning details below. `modelOptions` follows TanStack's OpenRouter adapter's names where the Prompt API has the setting: `temperature`, plus the camelCase extensions `topK` and `samplingMode`. `samplingMode` picks a sampling preset (`"most-predictable"` to `"most-creative"`); Chrome takes it on web pages only in its Sampling Parameters origin trial. `temperature` and `topK` work in extensions only. `maxCompletionTokens` caps the reply, emulated by the adapter (see below), and `parallelToolCalls: false` keeps only a reply's first tool call. The Prompt API has no nucleus sampling, penalties or stop sequences, so there's no `topP`, `frequencyPenalty`, `presencePenalty` or `stop`.
 
@@ -57,7 +56,7 @@ User messages can carry images and audio (TanStack AI's `image` and `audio` part
 
 Pass tools to `chat({ tools })` as with any adapter, MCP tools included; `chat()` runs them.
 
-The Prompt API spec has tool use: the session writes tool calls, the page runs them and sends the results back. Where the browser has it (its `LanguageModelToolCall` classes, and a session with tools available), the adapter uses it. Chrome 156 doesn't have it on web pages yet. `promptApiText({ nativeTools: false })` turns it off.
+The Prompt API spec has tool use: the session writes tool calls, the page runs them and sends the results back. Where the browser has it (its `LanguageModelToolCall` classes, and a session with tools available), the adapter uses it. Chrome 156 doesn't have it on web pages yet. `promptApiText("built-in", { nativeTools: false })` turns it off.
 
 Without it, tools go through guided generation (`responseConstraint` holds a reply to a JSON Schema), in two short constrained calls on copies of the session (`clone()`) before anything else:
 
@@ -88,7 +87,7 @@ share the existing four-session cache bound but have separate identities, so fin
 JSON cannot replace a tool conversation. Only base preparation is serialized for calls
 sharing a structured prefix; their clones can generate independently. Cancellation,
 failed generation and unsupported schemas destroy the clone without discarding its
-healthy base. `destroyPromptApiSessions()` frees retained structured bases too, and
+healthy base. `unloadModel()` frees retained structured bases too, and
 structured-output usage reports the prefix reused in `promptTokensDetails.cachedTokens`.
 This count excludes new input and newly appended history; it is not a guarantee that
 all prompt tokens or the generated output were cached.
@@ -107,7 +106,7 @@ promise provider retention durations or add a TTL. Direct adapter calls that omi
 remain ephemeral regardless of a supplied cache key, so working notes cannot leak
 into retained conversational state.
 
-An aborted or failed call frees its session, and the next request starts again from the messages. Aborting a request never destroys the session a thread keeps, and a kept session the browser destroyed is replaced on the next request. `destroyPromptApiSessions()` frees every kept session.
+An aborted or failed call frees its session, and the next request starts again from the messages. Aborting a request never destroys the session a thread keeps, and a kept session the browser destroyed is replaced on the next request. `unloadModel()` frees every kept session.
 
 ## Usage
 

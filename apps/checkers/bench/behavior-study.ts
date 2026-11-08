@@ -4,8 +4,8 @@ import { orderMovesForGame } from "../src/lib/move-order.ts"
 import { SHARED_PROMPT_VERSION } from "../src/lib/shared-prompt.ts"
 import { runBenchmark } from "./runner.ts"
 import { CASES } from "./cases.ts"
-import { WEBGL_MODEL_META } from "@tanstack-ai-browser/webgllm"
-import { promptApiModel } from "@tanstack-ai-browser/prompt-api"
+import { WEBGLLM_MODEL_META } from "@tanstack-ai-browser/webgllm/model-meta"
+import { PROMPT_API_MODEL_META } from "@tanstack-ai-browser/prompt-api/model-meta"
 import { BEHAVIOR_PROTOCOL_VERSION, BEHAVIOR_REPEATS, prepareBehaviorPositions } from "./behavior-positions.ts"
 import { createBehaviorReference } from "./behavior-reference.ts"
 import { runBehaviorRollouts } from "./behavior-rollouts.ts"
@@ -100,7 +100,7 @@ export async function runBehaviorStudy(options: BehaviorStudyOptions) {
     }
     options.onProgress?.("Playing capped trajectories against the deterministic opponent…")
     const rollouts = await runBehaviorRollouts({ model: options.model, signal: options.signal, reference, onProgress: options.onProgress })
-    return { schemaVersion: 1, protocolVersion: BEHAVIOR_PROTOCOL_VERSION, runId, model: options.model, startedAt, finishedAt: new Date().toISOString(), promptVersion: SHARED_PROMPT_VERSION, thinking: false, sampling: "model defaults", modelDefaults: options.model in WEBGL_MODEL_META ? WEBGL_MODEL_META[options.model as keyof typeof WEBGL_MODEL_META].sampling : null, runtimeModel: options.model === "prompt-api" ? promptApiModel() : undefined, promptCache: "long", maxOutputTokens: options.model === "prompt-api" ? null : 8192, repeats: BEHAVIOR_REPEATS,
+    return { schemaVersion: 1, protocolVersion: BEHAVIOR_PROTOCOL_VERSION, runId, model: options.model, startedAt, finishedAt: new Date().toISOString(), promptVersion: SHARED_PROMPT_VERSION, thinking: false, sampling: "model defaults", modelDefaults: options.model in WEBGLLM_MODEL_META ? WEBGLLM_MODEL_META[options.model as keyof typeof WEBGLLM_MODEL_META].sampling : null, runtimeModel: options.model === "prompt-api" ? PROMPT_API_MODEL_META["built-in"].browserModel : undefined, promptCache: "long", maxOutputTokens: options.model === "prompt-api" ? null : 8192, repeats: BEHAVIOR_REPEATS,
       summary, controls, positions, observations, inputs, tactical, rollouts,
       interpretation: "Skill and quality-preserving variety are separate operational scores. They do not establish human-likeness, creativity or emergence. Reference search is a finite-depth heuristic comparator, not an oracle." }
   } finally { reference.dispose() }

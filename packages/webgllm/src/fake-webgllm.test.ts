@@ -16,7 +16,7 @@ import type {
 import { resolveDebugOption } from "@tanstack/ai/adapter-internals"
 import type { TextOptions } from "@tanstack/ai"
 
-import type { WebGllmTextProviderOptions } from "./adapter.js"
+import type { WebGllmTextModelOptions } from "./adapter.js"
 import { unloadModel, webgllm } from "./models.js"
 
 export const MODEL = "LiquidAI/LFM3-1.7B-GGUF"
@@ -245,8 +245,8 @@ webgllm.chat.completions.create = (async (body: ChatCompletionCreateParamsStream
 
 /** A chatStream call's options. */
 export function textOptions(
-  extra: Partial<TextOptions<WebGllmTextProviderOptions>> = {}
-): TextOptions<WebGllmTextProviderOptions> {
+  extra: Partial<TextOptions<WebGllmTextModelOptions>> = {}
+): TextOptions<WebGllmTextModelOptions> {
   return {
     logger: resolveDebugOption(false),
     threadId: "webgllm-test",

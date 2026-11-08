@@ -2,7 +2,7 @@ import assert from "node:assert/strict"
 import { test } from "node:test"
 import { resolveDebugOption } from "@tanstack/ai/adapter-internals"
 import type { TextOptions } from "@tanstack/ai"
-import type { TransformersJsTextProviderOptions } from "./adapter.js"
+import type { TransformersJsTextModelOptions } from "./adapter.js"
 import type { RunTimings, WorkerRequest, WorkerResponse } from "./protocol.js"
 
 class FakeWorker {
@@ -14,7 +14,7 @@ class FakeWorker {
   constructor() { FakeWorker.last = this }
   postMessage(request: WorkerRequest) {
     this.posted.push(request)
-    if (request.type === "load" && FakeWorker.ready) setTimeout(() => this.send({ type: "ready", modelId: request.modelId }), 0)
+    if (request.type === "load" && FakeWorker.ready) setTimeout(() => this.send({ type: "ready", loadId: request.loadId, modelId: request.modelId }), 0)
     if (request.type === "generate") FakeWorker.generate(this, request)
   }
   send(data: WorkerResponse) { this.onmessage?.({ data }) }
@@ -23,7 +23,7 @@ class FakeWorker {
 Object.defineProperty(globalThis, "Worker", { configurable: true, writable: true, value: FakeWorker })
 const MODEL = "LiquidAI/LFM2.5-1.2B-Thinking-ONNX"
 const stats: RunTimings = { inputTokens: 10, cachedTokens: 0, outputTokens: 20, firstTokenMs: 1, promptMs: 1, decodeMs: 1, thinkingTokens: 4, thinkingBudgetTokens: 512, thinkingBudgetExhausted: false }
-function options(): TextOptions<TransformersJsTextProviderOptions> {
+function options(): TextOptions<TransformersJsTextModelOptions> {
   return { logger: resolveDebugOption(false), model: MODEL, threadId: "tjs-adapter-test", messages: [{ role: "user", content: "choose a move" }], reasoning: { level: "high", summary: true, budgetTokens: 512 }, modelOptions: { maxCompletionTokens: 8192 } }
 }
 const schema = { type: "object", properties: { moveId: { type: "string", enum: ["b6-a5"] } }, required: ["moveId"], additionalProperties: false }
@@ -342,7 +342,7 @@ test("parallelToolCalls false emits only the first native tool call; true and un
   }
   try {
     const adapter = transformersJsText(MODEL)
-    const run = async (modelOptions: TransformersJsTextProviderOptions) => {
+    const run = async (modelOptions: TransformersJsTextModelOptions) => {
       const chunks = []
       for await (const chunk of adapter.chatStream({ ...options(), tools, modelOptions })) chunks.push(chunk)
       return chunks
@@ -568,7 +568,7 @@ test("OpenRouter-named modelOptions map to the worker's sampling over the model 
     for (const [modelOptions, error] of [
       [{ frequencyPenalty: 0.5 }, /frequencyPenalty/], [{ presencePenalty: 1 }, /presencePenalty/], [{ stop: "\n" }, /stop sequences/], [{ stop: ["END"] }, /stop sequences/],
       [{ topP: 0 }, /topP/], [{ topK: -1 }, /topK/], [{ temperature: -1 }, /temperature/], [{ repetitionPenalty: 0 }, /repetitionPenalty/], [{ seed: 1.5 }, /seed/]
-    ] satisfies Array<[TransformersJsTextProviderOptions, RegExp]>) {
+    ] satisfies Array<[TransformersJsTextModelOptions, RegExp]>) {
       await assert.rejects(adapter.structuredOutput({ chatOptions: { ...options(), modelOptions }, outputSchema: schema }), error)
       await assert.rejects(async () => { for await (const chunk of adapter.chatStream({ ...options(), modelOptions })) assert.ok(chunk) }, error)
     }
@@ -612,7 +612,7 @@ test("structuredOutputStream ends with RUN_ERROR on answers that aren't JSON, wo
   const { transformersJsText } = await import("./adapter.js")
   const { unloadModel } = await import("./client.js")
   const adapter = transformersJsText(MODEL)
-  const run = async (chatOptions: TextOptions<TransformersJsTextProviderOptions>) => {
+  const run = async (chatOptions: TextOptions<TransformersJsTextModelOptions>) => {
     const chunks = []
     for await (const chunk of adapter.structuredOutputStream({ chatOptions, outputSchema: schema })) chunks.push(chunk)
     assert.equal(chunks[0]?.type, "RUN_STARTED")
@@ -632,4 +632,28 @@ test("structuredOutputStream ends with RUN_ERROR on answers that aren't JSON, wo
     assert.equal((await run({ ...options(), abortController: controller })).code, "aborted")
     assert.match((await run({ ...options(), modelOptions: { stop: "x" } })).message, /stop sequences/)
   } finally { unloadModel() }
+})
+
+test("a load with other weights at the same context loads again, and replies about a superseded load are ignored", { timeout: 2000 }, async () => {
+  const { loadModel, modelStatus, unloadModel } = await import("./client.js")
+  await unloadModel(); FakeWorker.ready = false
+  try {
+    const first = loadModel(MODEL, { dtype: "q4f16", contextLength: 4096 })
+    const second = loadModel(MODEL, { dtype: "q4", contextLength: 4096 })
+    await assert.rejects(first, /Switched to another model/)
+    const loads = FakeWorker.last.posted.filter((request): request is Extract<WorkerRequest, { type: "load" }> => request.type === "load")
+    assert.deepEqual(loads.map(request => request.dtype), ["q4f16", "q4"])
+    assert.notEqual(loads[0].loadId, loads[1].loadId)
+    let settled = false
+    void second.then(() => { settled = true }, () => { settled = true })
+    // The worker answers the first load late: it neither settles the second nor changes its status.
+    FakeWorker.last.send({ type: "ready", loadId: loads[0].loadId, modelId: MODEL })
+    FakeWorker.last.send({ type: "load-error", loadId: loads[0].loadId, modelId: MODEL, message: "stale" })
+    await new Promise(resolve => setTimeout(resolve, 0))
+    assert.equal(settled, false)
+    assert.equal(modelStatus(MODEL).get().state, "loading")
+    FakeWorker.last.send({ type: "ready", loadId: loads[1].loadId, modelId: MODEL })
+    await second
+    assert.equal(modelStatus(MODEL).get().state, "ready")
+  } finally { FakeWorker.ready = true; await unloadModel() }
 })

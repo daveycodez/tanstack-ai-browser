@@ -1,8 +1,8 @@
-import { promptApiModel } from "@tanstack-ai-browser/prompt-api"
-import { WEBGL_MODEL_META, WEBGL_TEXT_MODELS } from "@tanstack-ai-browser/webgllm"
-import type { WebGlTextModel } from "@tanstack-ai-browser/webgllm"
+import { PROMPT_API_MODEL_META } from "@tanstack-ai-browser/prompt-api/model-meta"
+import { WEBGLLM_MODEL_META, WEBGLLM_CHAT_MODELS } from "@tanstack-ai-browser/webgllm/model-meta"
+import type { WebGllmChatModel } from "@tanstack-ai-browser/webgllm/model-meta"
 
-export type OpponentModel = WebGlTextModel | "prompt-api" | "apple-foundationmodel"
+export type OpponentModel = WebGllmChatModel | "prompt-api" | "apple-foundationmodel"
 export type OpponentSettings = { model: OpponentModel; thinking: boolean }
 export type ThinkingSupport = "none" | "optional" | "required"
 export type OpponentOption = {
@@ -27,10 +27,10 @@ export const DEV_OPPONENTS: OpponentOption[] = import.meta.env?.DEV === true
   ? [{ id: APFEL_MODEL, label: "Apple-FoundationModel", detail: "Apfel on this Mac", thinking: "optional" }]
   : []
 export const usesEmulatedReasoning = (model: OpponentModel) => model === "prompt-api" || model === APFEL_MODEL
-export const isWebGlOpponent = (model: OpponentModel): model is WebGlTextModel => !usesEmulatedReasoning(model)
+export const isWebGlOpponent = (model: OpponentModel): model is WebGllmChatModel => !usesEmulatedReasoning(model)
 
-export const WEBGL_OPPONENTS: OpponentOption[] = WEBGL_TEXT_MODELS.map<OpponentOption>((id) => {
-  const meta = WEBGL_MODEL_META[id]
+export const WEBGL_OPPONENTS: OpponentOption[] = WEBGLLM_CHAT_MODELS.map<OpponentOption>((id) => {
+  const meta = WEBGLLM_MODEL_META[id]
   return {
     id,
     label: id.split("/")[1] ?? id,
@@ -53,9 +53,9 @@ export function opponentOption(model: OpponentModel): OpponentOption {
     ? {
         ...PROMPT_API_OPTION,
         label:
-          promptApiModel().id === "gemini-nano"
+          PROMPT_API_MODEL_META["built-in"].browserModel.id === "gemini-nano"
             ? "Gemini-Nano"
-            : promptApiModel().id === "phi-4-mini"
+            : PROMPT_API_MODEL_META["built-in"].browserModel.id === "phi-4-mini"
               ? "Phi-4-Mini"
               : "Prompt API"
       }

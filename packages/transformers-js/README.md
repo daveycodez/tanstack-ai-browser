@@ -18,25 +18,33 @@ const stream = chat({
 })
 ```
 
+## Exports
+
+The package is shaped like `@tanstack/ai-openrouter`'s text adapter:
+
+- `@tanstack-ai-browser/transformers-js`: `transformersJsText(model, config?)`, `TransformersJsTextAdapter`, the runtime functions `isSupported`, `loadModel`, `unloadModel`, `modelStatus` and `setMemoryBudget`, and the types `TransformersJsConfig`, `TransformersJsTextModelOptions`, `TransformersJsProviderUsageDetails`, `ModelStatus` and `Store`.
+- `@tanstack-ai-browser/transformers-js/model-meta`: the catalog, `TRANSFORMERS_JS_CHAT_MODELS`, `TRANSFORMERS_JS_MODEL_META` and `TRANSFORMERS_JS_MODEL_REASONING`, with the types `TransformersJsChatModel`, `TransformersJsModelMeta` and `TransformersJsModelReasoningByName`.
+
 ## Models
 
-`TRANSFORMERS_JS_TEXT_MODELS` lists the models this package knows, and `TRANSFORMERS_JS_MODEL_META` has each one's details: Hugging Face id, size, capabilities, tool format, reasoning levels and the sampling from its model card. A listed model needs no config.
+`TRANSFORMERS_JS_CHAT_MODELS` (in `@tanstack-ai-browser/transformers-js/model-meta`) lists the models this package knows, and `TRANSFORMERS_JS_MODEL_META` has each one's details: Hugging Face id, size, capabilities, tool format, reasoning levels, whether it has CPU weights (`cpu`) and the sampling from its model card. A listed model needs no config.
 
 | Model                                      | Reasoning                  | Without WebGPU |
 | ------------------------------------------ | -------------------------- | -------------- |
 | `onnx-community/gemma-4-E4B-it-ONNX`¹      | on/off                     | no             |
 | `daveycodez/LFM3-1.7B-Web-ONNX`            | on/off (`"off"`, `"high"`) | yes            |
-| `onnx-community/LFM3-1.7B-ONNX`            | on/off                     | yes            |
+| `onnx-community/LFM3-1.7B-ONNX`            | on/off                     | no             |
 | `daveycodez/LFM2.5-1.2B-Web-ONNX`          | none                       | yes            |
 | `daveycodez/LFM2.5-1.2B-Thinking-Web-ONNX` | always (`"high"`)          | yes            |
-| `LiquidAI/LFM2.5-1.2B-Instruct-ONNX`       | none                       | yes            |
-| `LiquidAI/LFM2.5-1.2B-Thinking-ONNX`       | always                     | yes            |
+| `LiquidAI/LFM2.5-1.2B-Instruct-ONNX`       | none                       | no             |
+| `LiquidAI/LFM2.5-1.2B-Thinking-ONNX`       | always                     | no             |
 | `onnx-community/LFM2-1.2B-Tool-ONNX`       | none                       | yes            |
-| `LiquidAI/LFM2.5-350M-ONNX`                | none                       | yes            |
+| `LiquidAI/LFM2.5-350M-ONNX`                | none                       | no             |
+| `onnx-community/Qwen3.5-2B-ONNX`           | on/off                     | no             |
 
 ¹ Transformers.js 4.3.2 pins an ONNX Runtime dev build (onnxruntime-web 1.31.0-dev.20260914). On it, Gemma 4 26B-A4B won't run (its mixture-of-experts layers use QMoE with a separate gate projection, FC3, which that build's WebGPU kernel lacks), and E4B and E2B may be affected by its sliding-window attention bug ([transformers.js#1839](https://github.com/huggingface/transformers.js/issues/1839)), until a Transformers.js release pins onnxruntime-web 1.31.1 ([transformers.js#1879](https://github.com/huggingface/transformers.js/pull/1879)).
 
-Any other Hugging Face ONNX model works too, given how it writes tool calls and thinks: `transformersJsText("owner/model", { toolFormat: "gemma4" })`, with `"lfm2"`, `"lfm3"`, `"qwen3.5"` or `"gemma4"`. Models download their latest version (the repo's main branch); pin one with `"owner/model@commit"`. Its `q4f16` weights load by default; `dtype: "q4"` loads 4-bit weights with fp32 activations instead. `contextLength` sets how many tokens a chat may hold: the model's whole context window by default (from its config), never more; changing it doesn't load the model again. Weights split into several files load as they are. A multimodal build (an embedding, a decoder and vision or audio encoders) loads its text model only, with its family's causal-LM class.
+Any other Hugging Face ONNX model works too, given how it writes tool calls and thinks: `transformersJsText("owner/model", { toolFormat: "gemma4" })`, with `"lfm2"`, `"lfm3"`, `"qwen3.5"` or `"gemma4"`. Models download their latest version (the repo's main branch); pin one with `"owner/model@commit"`. A listed model pinned that way is still that model: it needs no config, and its details, reasoning and CPU support are the listed ones. Its `q4f16` weights load by default; `dtype: "q4"` loads 4-bit weights with fp32 activations instead. `contextLength` sets how many tokens a chat may hold: the model's whole context window by default (from its config), never more; changing it doesn't load the model again. Weights split into several files load as they are. A multimodal build (an embedding, a decoder and vision or audio encoders) loads its text model only, with its family's causal-LM class.
 
 **Reasoning** works as with other TanStack AI adapters: `chat({ reasoning })` takes the model's levels, read from its chat template (`enable_thinking`), and is a type error for a model that doesn't reason. A model the package doesn't list gets the on/off toggle. `supportedReasoningLevels(TRANSFORMERS_JS_MODEL_REASONING[model])` from `@tanstack/ai` gives a listed model's levels at runtime.
 
@@ -44,9 +52,9 @@ Any other Hugging Face ONNX model works too, given how it writes tool calls and 
 
 **Usage** is in each call's `RUN_FINISHED` event, as with any TanStack AI adapter: `promptTokens`, `completionTokens`, `totalTokens`, and `promptTokensDetails.cachedTokens` for the start of the prompt the model reused from an earlier call. Timings are in `usage.providerUsageDetails` (`TransformersJsProviderUsageDetails`: `firstTokenMs`, `promptMs`, `decodeMs`, `decodeTokens`), for example in `chat()` middleware's `onUsage`.
 
-**Without WebGPU** (Firefox on Android, for one), there's nothing to set: the worker sees there's no GPU adapter and runs the model on the CPU through ONNX Runtime's WebAssembly backend, from its `q4` weights. It's slower, with the same features, prompt caching in memory and on disk included. `hasWebGpu()` says which this browser gets, and `runsWithoutWebGpu(model)` whether a model has CPU weights. Models whose q4 graph looks up its embedding with GatherBlockQuantized don't run on the CPU: the ONNX Runtime build Transformers.js imports has no CPU kernel for it ([microsoft/onnxruntime#33961](https://github.com/microsoft/onnxruntime/issues/33961)). It uses several threads where the page is cross-origin isolated, else one.
+**Without WebGPU** (Firefox on Android, for one), there's nothing to set: the worker sees there's no GPU adapter and runs the model on the CPU through ONNX Runtime's WebAssembly backend, from its `q4` weights. It's slower, with the same features, prompt caching in memory and on disk included. `isSupported(model)` says whether a model can run in this browser (false on a server, which has no Web Worker): on WebGPU, or without it from CPU weights (`TRANSFORMERS_JS_MODEL_META[model].cpu`; any other Hugging Face id is taken to have them). Models whose q4 graph looks up its embedding with GatherBlockQuantized don't run on the CPU: the ONNX Runtime build Transformers.js imports has no CPU kernel for it ([microsoft/onnxruntime#33961](https://github.com/microsoft/onnxruntime/issues/33961)). It uses several threads where the page is cross-origin isolated, else one.
 
-**Downloads:** `loadModel(model)` downloads and loads a model ahead of time, and `modelStatus(model)` is a store of its loading progress (with bytes downloaded and the total while it downloads).
+**Downloads:** `loadModel(model, { dtype?, contextLength? })` downloads and loads a model ahead of time, `unloadModel(model?)` frees it, and `modelStatus(model)` is a store of its loading progress (with bytes downloaded and the total while it downloads). The adapter's `debug: true` logs the worker's memory and cache use in the console.
 
 ## How it runs
 
