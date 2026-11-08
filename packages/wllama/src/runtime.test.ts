@@ -130,6 +130,25 @@ test("availability: downloadable (also while loading, and with the file stored),
   })
 })
 
+test("the same progress callback hears 1 on every load call: once for a shared load, then at once on the ready model; a chat's own wait reports nothing more", { timeout: 5000 }, async () => {
+  await withClient("same-callback", async (client, control, release) => {
+    const heard: Array<number> = []
+    const onProgress = (value: number) => heard.push(value)
+    const progressed = new Promise<void>((resolve) => { control.progressed = resolve })
+    const first = client.loadModel(MODEL, onProgress)
+    const second = client.loadModel(MODEL, onProgress)
+    await progressed
+    release()
+    await Promise.all([first, second])
+    assert.deepEqual(heard, [0.25, 1, 1], "one load: its progress and its 1, once")
+    await client.loadModel(MODEL, onProgress)
+    await client.loadModel(MODEL, onProgress)
+    assert.deepEqual(heard, [0.25, 1, 1, 1, 1], "each call on the ready model hears 1")
+    await client.waitForModel(MODEL, undefined, onProgress)
+    assert.deepEqual(heard, [0.25, 1, 1, 1, 1])
+  })
+})
+
 test("availability() makes no fetch, worker, storage or engine calls", async () => {
   await withClient("no-calls", async (client, control) => {
     control.stored.push({ url: modelUrl(MODEL), size: 1000 })

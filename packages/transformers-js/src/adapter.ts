@@ -242,7 +242,7 @@ function generationSettings(
 /** Cancel the caller's wait without discarding an in-progress model download. */
 function waitForModel(model: string, dtype: WeightsDtype, contextLength: number | undefined, signal: AbortSignal | undefined, onDownloadProgress?: DownloadProgressCallback): Promise<void> {
   signal?.throwIfAborted()
-  const loading = loadModel(model, { dtype, contextLength, onDownloadProgress })
+  const loading = loadModel(model, { dtype, contextLength, onDownloadProgress, reportReady: false })
   if (!signal) return loading
   return new Promise((resolve, reject) => {
     const aborted = () => reject(signal.reason)

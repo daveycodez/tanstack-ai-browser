@@ -119,6 +119,27 @@ test("availability: unavailable without a Worker or for an unknown model, downlo
   assert.equal(await availability(MODEL), "downloadable", "unloaded: its files stay cached, but it isn't loaded")
 })
 
+test("the same progress callback hears 1 on every load call: once for a shared load, then at once on the ready model; embed calls report nothing more", async () => {
+  globals.Worker = FakeWorker
+  FakeWorker.manual = true
+  const heard: Array<number> = []
+  const onProgress = (value: number) => heard.push(value)
+  const first = loadModel(MODEL, {}, onProgress)
+  const second = loadModel(MODEL, {}, onProgress)
+  const worker = FakeWorker.created[0]
+  worker.reply({ type: "progress", cached: false, loadedBytes: 50, totalBytes: 100 })
+  worker.reply({ type: "ready" })
+  await Promise.all([first, second])
+  assert.deepEqual(heard, [0.5, 1], "one load: its progress and its 1, once")
+  await loadModel(MODEL, {}, onProgress)
+  await loadModel(MODEL, {}, onProgress)
+  assert.deepEqual(heard, [0.5, 1, 1, 1], "each call on the ready model hears 1")
+  FakeWorker.manual = false
+  await embedTexts(MODEL, {}, ["a"], OPTIONS, onProgress)
+  assert.deepEqual(heard, [0.5, 1, 1, 1])
+  assert.equal(FakeWorker.created.length, 1)
+})
+
 test("availability() makes no fetch, worker, Cache Storage, IndexedDB or OPFS calls", async () => {
   const calls: Array<string> = []
   const scope = globalThis as Record<string, unknown>

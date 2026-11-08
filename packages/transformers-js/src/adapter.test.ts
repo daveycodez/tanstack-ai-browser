@@ -691,6 +691,34 @@ test("availability: unavailable without WebGPU or CPU weights, downloadable unti
   }
 })
 
+test("the same progress callback hears 1 on every call: once for a shared load, then at once for each call on the ready model; a chat's own wait reports nothing more", { timeout: 2000 }, async () => {
+  const { transformersJsText } = await import("./adapter.js")
+  const CPU_MODEL = "onnx-community/LFM2-1.2B-Tool-ONNX"
+  const adapter = transformersJsText(CPU_MODEL)
+  await adapter.destroySession(); FakeWorker.ready = false
+  try {
+    const heard: Array<number> = []
+    const onProgress = (value: number) => heard.push(value)
+    const first = adapter.createSessionWithProgress(onProgress)
+    const second = adapter.createSessionWithProgress(onProgress)
+    const load = FakeWorker.last.posted.filter((request): request is Extract<WorkerRequest, { type: "load" }> => request.type === "load").at(-1)
+    assert.ok(load)
+    FakeWorker.last.send({ type: "progress", loadId: load.loadId, modelId: CPU_MODEL, progress: 0.5, cached: false })
+    FakeWorker.last.send({ type: "ready", loadId: load.loadId, modelId: CPU_MODEL })
+    await Promise.all([first, second])
+    assert.deepEqual(heard, [0.5, 1], "one load: its progress and its 1, once")
+    await adapter.createSessionWithProgress(onProgress)
+    await adapter.createSessionWithProgress(onProgress)
+    assert.deepEqual(heard, [0.5, 1, 1, 1], "each call on the ready model hears 1")
+    const { loadModel } = await import("./client.js")
+    await loadModel(CPU_MODEL, { onDownloadProgress: onProgress, reportReady: false })
+    assert.deepEqual(heard, [0.5, 1, 1, 1])
+  } finally {
+    FakeWorker.ready = true
+    await adapter.destroySession()
+  }
+})
+
 test("availability() makes no fetch, worker, Cache Storage, IndexedDB or OPFS calls", async () => {
   const { transformersJsText } = await import("./adapter.js")
   const { unloadModel } = await import("./client.js")

@@ -357,14 +357,17 @@ async function startLoad(
  */
 export function loadModel(
   model: WllamaChatModel,
-  onDownloadProgress?: DownloadProgressCallback
+  onDownloadProgress?: DownloadProgressCallback,
+  /** Tell `onDownloadProgress` 1 if the model is ready already (not for a chat's own wait). */
+  reportReady = true
 ): Promise<Wllama> {
   const contextLength = contextLengths.get(model)
   if (loaded?.model === model && loaded.contextLength === contextLength) {
-    // A new callback hears 1 at once if the model is ready already.
-    if (onDownloadProgress && !loaded.listeners.has(onDownloadProgress)) {
-      loaded.listeners.add(onDownloadProgress)
-      if (loaded.ready) call(onDownloadProgress, 1)
+    // Every caller hears 1 at once if the model is ready already; while it
+    // loads, a callback joins the load's (once, however many callers).
+    if (onDownloadProgress) {
+      if (!loaded.ready) loaded.listeners.add(onDownloadProgress)
+      else if (reportReady) call(onDownloadProgress, 1)
     }
     return loaded.promise
   }
@@ -416,8 +419,10 @@ export function loadModel(
       // Superseded while it loaded, after the next load stopped waiting:
       // free it now.
       else void wllama.exit().catch(() => undefined)
+      listeners.clear()
     },
     () => {
+      listeners.clear()
       // Superseded: the next load frees it.
       if (loaded !== current) return
       loaded = null
@@ -489,7 +494,7 @@ export async function waitForModel(
   onDownloadProgress?: DownloadProgressCallback
 ): Promise<Wllama> {
   signal?.throwIfAborted()
-  const loading = loadModel(model, onDownloadProgress)
+  const loading = loadModel(model, onDownloadProgress, false)
   if (!signal) return loading
   return new Promise<Wllama>((resolve, reject) => {
     const aborted = () => {

@@ -117,6 +117,7 @@ export function loadRequest(
 function end(embedder: Embedder, error: Error) {
   if (embedder.ended) return
   embedder.ended = true
+  embedder.listeners.clear()
   embedder.worker.terminate()
   embedder.settle.reject(error)
   for (const request of embedder.pending.values()) request.reject(error)
@@ -155,7 +156,7 @@ export function loadModel(
   onDownloadProgress?: DownloadProgressCallback
 ): Promise<void> {
   try {
-    return load(model, config, onDownloadProgress).promise
+    return load(model, config, onDownloadProgress, true).promise
   } catch (error) {
     return rejected(error)
   }
@@ -209,15 +210,18 @@ export async function availability(
 function load(
   model: MediaPipeEmbeddingModel,
   config: MediaPipeEmbeddingConfig,
-  onDownloadProgress?: DownloadProgressCallback
+  onDownloadProgress?: DownloadProgressCallback,
+  /** Tell `onDownloadProgress` 1 if the model is ready already (not for an embed call's own wait). */
+  reportReady = false
 ): Embedder {
   const request = loadRequest(model, config)
   const key = JSON.stringify(request)
   if (loaded?.model === model && loaded.key === key) {
-    // A new callback hears 1 at once if the model is ready already.
-    if (onDownloadProgress && !loaded.listeners.has(onDownloadProgress)) {
-      loaded.listeners.add(onDownloadProgress)
-      if (loaded.ready) call(onDownloadProgress, 1)
+    // Every caller hears 1 at once if the model is ready already; while it
+    // loads, a callback joins the load's (once, however many callers).
+    if (onDownloadProgress) {
+      if (!loaded.ready) loaded.listeners.add(onDownloadProgress)
+      else if (reportReady) call(onDownloadProgress, 1)
     }
     return loaded
   }
@@ -280,6 +284,7 @@ function load(
     } else if (data.type === "ready") {
       embedder.ready = true
       if (loaded === embedder) report(1)
+      embedder.listeners.clear()
       settle.resolve()
     } else if (data.type === "load-error") {
       failLoad(data.message)

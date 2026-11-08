@@ -111,9 +111,11 @@ function handleMessage({ data }: MessageEvent<WorkerResponse>) {
     if (!current) return
     current.load.ready = true
     report(current.load, 1)
+    current.load.listeners.clear()
     current.load.resolve()
   } else if (data.type === "load-error") {
     if (!current) return
+    current.load.listeners.clear()
     current.load.reject(new Error(data.message))
     loaded = null
     releaseMemory(OWNER)
@@ -254,9 +256,14 @@ export function loadModel(
      * then 1 once it's ready (at once if it already is).
      */
     onDownloadProgress?: DownloadProgressCallback
+    /**
+     * Tell `onDownloadProgress` 1 if the model is ready already (true by
+     * default; a chat's own wait for the model passes false).
+     */
+    reportReady?: boolean
   } = {}
 ): Promise<void> {
-  const { contextLength, onDownloadProgress } = options
+  const { contextLength, onDownloadProgress, reportReady = true } = options
   const dtype = options.dtype ?? modelMeta(model)?.dtype ?? "q4f16"
   const modelId = model
   if (
@@ -264,15 +271,17 @@ export function loadModel(
     loaded.dtype === dtype &&
     loaded.contextLength === contextLength
   ) {
-    // A new callback hears 1 at once if the model is ready already.
-    if (onDownloadProgress && !loaded.load.listeners.has(onDownloadProgress)) {
-      loaded.load.listeners.add(onDownloadProgress)
-      if (loaded.load.ready) call(onDownloadProgress, 1)
+    // Every caller hears 1 at once if the model is ready already; while it
+    // loads, a callback joins the load's (once, however many callers).
+    if (onDownloadProgress) {
+      if (!loaded.load.ready) loaded.load.listeners.add(onDownloadProgress)
+      else if (reportReady) call(onDownloadProgress, 1)
     }
     return loaded.load.promise
   }
   if (loaded) {
     // The worker frees the previous model before loading this one.
+    loaded.load.listeners.clear()
     loaded.load.reject(new Error("Switched to another model."))
   }
   let resolve!: () => void
@@ -322,6 +331,7 @@ export async function unloadModel(model?: string): Promise<void> {
   worker = null
   releaseMemory(OWNER)
   if (loaded) {
+    loaded.load.listeners.clear()
     loaded.load.reject(new Error("The model was unloaded."))
     loaded = null
   }
