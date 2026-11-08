@@ -3,6 +3,7 @@ import { afterEach, test } from "node:test"
 
 import { mediaPipeEmbedding } from "./adapter.js"
 import { availability, embedTexts, loadModel, loadRequest, unloadModel } from "./client.js"
+import { CACHE_NAME } from "./download.js"
 import type { WorkerRequest, WorkerResponse } from "./protocol.js"
 import { MEDIAPIPE_WASM_URL } from "./version.js"
 
@@ -99,25 +100,45 @@ test("a Worker the browser refuses to create makes loadModel reject", async () =
   assert.deepEqual(progress, [1])
 })
 
-test("availability: unavailable without a Worker or for an unknown model, downloadable (also while loading, and with its files cached), available once ready", async () => {
-  assert.equal(await availability(MODEL), "unavailable")
-  globals.Worker = FakeWorker
-  assert.equal(await availability("not-a-model" as typeof MODEL), "unavailable")
-  assert.equal(await availability(MODEL), "downloadable")
-  FakeWorker.manual = true
-  const progress: Array<number> = []
-  const ready = loadModel(MODEL, {}, (value) => progress.push(value))
-  const worker = FakeWorker.created[0]
-  worker.reply({ type: "progress", cached: false, loadedBytes: 0, totalBytes: 100 })
-  worker.reply({ type: "progress", cached: false, loadedBytes: 50, totalBytes: 100 })
-  assert.equal(await availability(MODEL), "downloadable", "a load in progress isn't \"downloading\": progress comes from the callback")
-  worker.reply({ type: "ready" })
-  await ready
-  assert.deepEqual(progress, [0, 0.5, 1])
-  assert.equal(await availability(MODEL), "available")
-  assert.equal(await availability(MODEL, { cacheWasm: false }), "downloadable", "loaded with other options")
-  await unloadModel(MODEL)
-  assert.equal(await availability(MODEL), "downloadable", "unloaded: its files stay cached, but it isn't loaded")
+test("availability: unavailable without a Worker or for an unknown model; downloadable; downloading during the download; available once ready, and from Cache Storage while its files are there", async () => {
+  const scope = globalThis as { caches?: unknown }
+  const stored = new Set<string>()
+  scope.caches = {
+    open: async (name: string) => {
+      assert.equal(name, CACHE_NAME)
+      return { match: async (url: string) => (stored.has(url) ? new Response("x") : undefined) }
+    }
+  }
+  try {
+    assert.equal(await availability(MODEL), "unavailable")
+    globals.Worker = FakeWorker
+    assert.equal(await availability("not-a-model" as typeof MODEL), "unavailable")
+    assert.equal(await availability(MODEL), "downloadable")
+    FakeWorker.manual = true
+    const progress: Array<number> = []
+    const ready = loadModel(MODEL, {}, (value) => progress.push(value))
+    const worker = FakeWorker.created[0]
+    worker.reply({ type: "progress", cached: false, loadedBytes: 0, totalBytes: 100 })
+    worker.reply({ type: "progress", cached: false, loadedBytes: 50, totalBytes: 100 })
+    assert.equal(await availability(MODEL), "downloading")
+    worker.reply({ type: "ready" })
+    await ready
+    assert.deepEqual(progress, [0, 0.5, 1])
+    assert.equal(await availability(MODEL), "available")
+    await unloadModel(MODEL)
+    assert.equal(await availability(MODEL), "downloadable", "nothing in Cache Storage")
+    const request = loadRequest(MODEL, {})
+    stored.add(request.modelUrl)
+    assert.equal(await availability(MODEL), "downloadable", "MediaPipe's WebAssembly isn't kept yet")
+    assert.equal(await availability(MODEL, { cacheWasm: false }), "available")
+    stored.add(`${request.wasmPath}/text_wasm_module_internal.js`)
+    stored.add(`${request.wasmPath}/text_wasm_module_internal.wasm`)
+    assert.equal(await availability(MODEL), "available", "on the device")
+    stored.clear()
+    assert.equal(await availability(MODEL), "downloadable", "a cleared cache needs the download again")
+  } finally {
+    delete scope.caches
+  }
 })
 
 test("the same progress callback hears 1 on every load call: once for a shared load, then at once on the ready model; embed calls report nothing more", async () => {
@@ -206,14 +227,15 @@ test("a load's signal: aborted before, no worker starts; the only waiter abortin
   }
 })
 
-test("availability() makes no fetch, worker, Cache Storage, IndexedDB or OPFS calls", async () => {
+test("availability() reads Cache Storage only: no fetch, worker, IndexedDB or OPFS calls", async () => {
   const calls: Array<string> = []
   const scope = globalThis as Record<string, unknown>
   const saved = Object.fromEntries(["fetch", "caches", "indexedDB"].map((key) => [key, Object.getOwnPropertyDescriptor(globalThis, key)]))
   const storage = Object.getOwnPropertyDescriptor(navigator, "storage")
   const define = (key: string, value: unknown) => Object.defineProperty(globalThis, key, { configurable: true, writable: true, value })
+  const reads: Array<string> = []
   define("fetch", async () => { calls.push("fetch"); throw new Error("no network") })
-  define("caches", { open: async () => { calls.push("caches.open"); throw new Error("no") } })
+  define("caches", { open: async () => { reads.push("open"); return { match: async () => { reads.push("match"); return undefined } } } })
   define("indexedDB", { open: () => { calls.push("indexedDB.open"); throw new Error("no") } })
   Object.defineProperty(navigator, "storage", { configurable: true, value: { getDirectory: async () => { calls.push("navigator.storage.getDirectory"); return {} } } })
   scope.Worker = class extends FakeWorker { constructor() { super(); calls.push("new Worker") } }
@@ -221,6 +243,7 @@ test("availability() makes no fetch, worker, Cache Storage, IndexedDB or OPFS ca
     assert.equal(await availability(MODEL), "downloadable")
     assert.equal(await availability(MODEL, { cacheWasm: false, modelAssetPath: "https://example.com/model.tflite" }), "downloadable")
     assert.deepEqual(calls, [])
+    assert.ok(reads.includes("match"), "it looked in Cache Storage")
   } finally {
     for (const [key, descriptor] of Object.entries(saved)) {
       if (descriptor) Object.defineProperty(globalThis, key, descriptor)

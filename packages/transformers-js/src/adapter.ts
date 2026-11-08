@@ -78,7 +78,9 @@ export type TransformersJsConfig = {
   /**
    * Keeps the model loaded when another runtime (WebGL, wllama) loads one
    * past the page's memory budget (see `setMemoryBudget`); by default the
-   * least recently used model is unloaded to make room.
+   * least recently used model is unloaded to make room. Applies once the
+   * adapter uses the model (`create()` or a call); left out, the model
+   * keeps what another adapter of it set.
    */
   keepLoaded?: boolean
   /**
@@ -442,6 +444,8 @@ export class TransformersJsTextAdapter<
   private readonly contextLength: number | undefined
   private readonly dtype: WeightsDtype
   private readonly onDownloadProgress: DownloadProgressCallback | undefined
+  private readonly keepLoaded: boolean | undefined
+  private readonly debug: boolean
 
   constructor(config: TransformersJsConfig, model: TModel) {
     super({}, model)
@@ -456,18 +460,28 @@ export class TransformersJsTextAdapter<
     this.contextLength = config.contextLength
     this.dtype = config.dtype ?? modelMeta(model)?.dtype ?? "q4f16"
     this.onDownloadProgress = config.onDownloadProgress
-    if (config.debug) setDebug(true)
-    setKeepLoaded(model, config.keepLoaded ?? false)
+    this.keepLoaded = config.keepLoaded
+    this.debug = config.debug ?? false
+  }
+
+  /**
+   * Applies this adapter's runtime options (`debug`, `keepLoaded`) when it
+   * uses the model, not when it's constructed: constructing an adapter
+   * changes nothing shared. `keepLoaded` left out leaves the model's as
+   * another adapter set it.
+   */
+  private useModel() {
+    if (this.debug) setDebug(true)
+    if (this.keepLoaded !== undefined) setKeepLoaded(this.model, this.keepLoaded)
   }
 
   /**
    * Where the model stands in this browser, with the Prompt API's values:
    * "unavailable" where it can't run (no Web Worker or WebAssembly, as on a
-   * server, or no WebGPU and no CPU weights), "available" when it's loaded
-   * and ready in this page (by any adapter of it, for this `dtype`), else
-   * "downloadable", even while it loads or when its files are cached (a
-   * load then reads them). It never says "downloading": progress comes from
-   * `create`. It reads no storage and starts no worker.
+   * server, or no WebGPU and no CPU weights), "downloading" while this page
+   * downloads it, "available" when it's loaded or its files (for this
+   * adapter's `dtype`) are all in Transformers.js's cache, else
+   * "downloadable". It reads Cache Storage only: no worker, no network.
    */
   availability(): Promise<Availability> {
     return availability(this.model, { dtype: this.dtype })
@@ -489,6 +503,7 @@ export class TransformersJsTextAdapter<
     options: { onDownloadProgress?: DownloadProgressCallback; signal?: AbortSignal } = {}
   ): Promise<this> {
     const { onDownloadProgress } = options
+    this.useModel()
     const ready = loadModel(this.model, {
       dtype: this.dtype,
       contextLength: this.contextLength,
@@ -575,6 +590,7 @@ export class TransformersJsTextAdapter<
       return
     }
     try {
+      this.useModel()
       await waitForModel(model, this.dtype, this.contextLength, signal, this.onDownloadProgress)
     } catch (error) {
       if (signal?.aborted) return
@@ -903,6 +919,7 @@ export class TransformersJsTextAdapter<
     }
     const thinking = thinkingOptions(chatOptions.reasoning, model)
     const { sampling, maxTokens } = this.settings(chatOptions.modelOptions)
+    this.useModel()
     await waitForModel(model, this.dtype, this.contextLength, signal, this.onDownloadProgress)
     signal?.throwIfAborted()
     const system = normalizeSystemPrompts(chatOptions.systemPrompts)

@@ -1,8 +1,9 @@
 /**
  * Each opponent model's loading status, for the game's progress line: built
- * from its adapter's `availability()` (whether it can run here), the
- * download progress `create` reports (only for files
- * that aren't on the device yet), and that load resolving or failing.
+ * from its adapter's `availability()` (whether it can run here, and
+ * whether it's on the device), the download progress `create` reports
+ * (only for files that aren't on the device yet), and that load resolving
+ * or failing.
  */
 
 export type ModelStatus =
@@ -11,7 +12,7 @@ export type ModelStatus =
       state: "loading"
       /** 0-1 of the download; 0 while a model on the device loads. */
       progress: number
-      /** True once its files are downloading: they weren't on the device. */
+      /** True while its files download: they aren't on the device. */
       downloading: boolean
     }
   | { state: "ready" }
@@ -79,7 +80,7 @@ export function loadWithStatus(key: string, adapter: LoadableAdapter): Promise<v
       // Where it can't run, the load says why (each package's own message).
       const availability = await adapter.availability()
       if (availability !== "unavailable") {
-        status.set({ state: "loading", progress: 0, downloading: false })
+        status.set({ state: "loading", progress: 0, downloading: availability !== "available" })
       }
     }
     await adapter.create({

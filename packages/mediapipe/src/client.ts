@@ -9,15 +9,15 @@ import type { MediaPipeEmbeddingModel } from "./model-meta.js"
 import type { MediaPipeEmbeddingConfig } from "./options.js"
 import type { LoadRequest, WorkerRequest, WorkerResponse } from "./protocol.js"
 import { MEDIAPIPE_WASM_URL } from "./version.js"
+import { CACHE_NAME } from "./download.js"
 import { abortError, callProgress, LoadWaiters } from "./shared-load.js"
 
 /**
- * Where a model stands, with the Prompt API's values
+ * Where a model stands in this browser, with the Prompt API's values
  * (`LanguageModel.availability()`): "unavailable" (it can't run here),
- * "downloadable" (it can: loading it downloads it, or reads it from the
- * cache), "downloading" or "available" (loaded and ready in this page).
- * This package's `availability()` never says "downloading": a load's
- * progress comes from `create`'s callback.
+ * "downloadable" (it can, once downloaded), "downloading" (a download of it
+ * is in progress in this page) or "available" (on the device: no download
+ * needed).
  */
 export type Availability =
   | "unavailable"
@@ -52,6 +52,8 @@ type Embedder = {
   ended: boolean
   /** The callers waiting on its load, with their download progress callbacks. */
   waiters: LoadWaiters
+  /** The model's file is downloading (not read from the cache). */
+  downloading: boolean
   /** Loaded: ready to embed. */
   ready: boolean
 }
@@ -112,6 +114,7 @@ export function loadRequest(
 function end(embedder: Embedder, error: Error) {
   if (embedder.ended) return
   embedder.ended = true
+  embedder.downloading = false
   embedder.waiters.settle()
   embedder.worker.terminate()
   embedder.settle.reject(error)
@@ -203,28 +206,45 @@ const SIMD_MODULE = new Uint8Array([
 ])
 
 /**
- * Where `model` (loaded with `config`) stands, as the Prompt API's
- * `LanguageModel.availability()` says it: "unavailable" where MediaPipe
- * can't run (its TextEmbedder needs WebAssembly with SIMD in a module Web
- * Worker; not on a server) or the model isn't one it lists, "available"
- * when it's loaded (with equivalent options) and ready in this page, else
- * "downloadable", while a load is in progress and when its files are in
- * Cache Storage too. No storage reads, no worker, no network.
+ * Where `model` (loaded with `config`) stands in this browser, as the
+ * Prompt API's `LanguageModel.availability()` says it: "unavailable" where
+ * MediaPipe can't run (its TextEmbedder needs WebAssembly with SIMD in a
+ * module Web Worker; not on a server) or the model isn't one it lists,
+ * "downloading" while this page downloads its file, "available" when it's
+ * loaded or its file (and, with `cacheWasm`, MediaPipe's WebAssembly) is in
+ * Cache Storage, else "downloadable". It reads Cache Storage only: no
+ * worker, no network.
  */
 export async function availability(
   model: MediaPipeEmbeddingModel,
   config: MediaPipeEmbeddingConfig = {}
 ): Promise<Availability> {
   if (!canRun()) return "unavailable"
-  let key: string
+  let request: LoadRequest
   try {
-    key = JSON.stringify(loadRequest(model, config))
+    request = loadRequest(model, config)
   } catch {
     return "unavailable"
   }
-  return loaded?.model === model && loaded.key === key && loaded.ready
-    ? "available"
-    : "downloadable"
+  const key = JSON.stringify(request)
+  const current = () => (loaded?.model === model && loaded.key === key ? loaded : null)
+  if (current()?.downloading) return "downloading"
+  if (current()?.ready) return "available"
+  if (typeof caches === "undefined") return "downloadable"
+  try {
+    const cache = await caches.open(CACHE_NAME)
+    // MediaPipe's names for its files, as its FilesetResolver gives them
+    // for a module worker.
+    const wasm = `${request.wasmPath.replace(/\/$/, "")}/text_wasm_module_internal`
+    const urls = request.cacheWasm
+      ? [request.modelUrl, `${wasm}.js`, `${wasm}.wasm`]
+      : [request.modelUrl]
+    const hits = await Promise.all(urls.map((url) => cache.match(url)))
+    if (current()?.downloading) return "downloading"
+    return hits.every(Boolean) ? "available" : "downloadable"
+  } catch {
+    return "downloadable"
+  }
 }
 
 /** The embedder for `model` with `config`, loaded or loading. Throws if it can't start. */
@@ -252,6 +272,7 @@ function load(model: MediaPipeEmbeddingModel, config: MediaPipeEmbeddingConfig):
   // The previous embedder ends once the requests using it are done.
   const previous = loaded
   if (previous) {
+    previous.downloading = false
     previous.retired = true
     endIfUnused(previous)
   }
@@ -276,6 +297,7 @@ function load(model: MediaPipeEmbeddingModel, config: MediaPipeEmbeddingConfig):
       loaded = null
       end(embedder, abortError())
     }),
+    downloading: false,
     ready: false
   }
   loaded = embedder
@@ -290,8 +312,10 @@ function load(model: MediaPipeEmbeddingModel, config: MediaPipeEmbeddingConfig):
     if (data.type === "progress") {
       if (loaded !== embedder || data.cached) return
       const { loadedBytes, totalBytes } = data
+      embedder.downloading = true
       report(totalBytes ? Math.min(loadedBytes / totalBytes, 1) : 0)
     } else if (data.type === "ready") {
+      embedder.downloading = false
       embedder.ready = true
       if (loaded === embedder) report(1)
       embedder.waiters.settle()

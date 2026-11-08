@@ -14,7 +14,7 @@ export type ModelOption = {
   id: string
   name: string
   icon: string
-  /** Its `availability()` here, once checked ("available": loaded in this page). */
+  /** Its `availability()` here, once checked ("available": on the device). */
   availability?: string
 }
 

@@ -5,6 +5,7 @@
  */
 import { claimMemory, releaseMemory, touchMemory } from "./model-memory.js"
 import { modelMeta, runsWithoutWebGpu } from "./catalog.js"
+import { recordedFilesCached } from "./cache-record.js"
 import { callProgress, LoadWaiters } from "./shared-load.js"
 import type {
   ChatTurn,
@@ -17,12 +18,11 @@ import type {
 } from "./protocol.js"
 
 /**
- * Where a model stands, with the Prompt API's values
+ * Where a model stands in this browser, with the Prompt API's values
  * (`LanguageModel.availability()`): "unavailable" (it can't run here),
- * "downloadable" (it can: loading it downloads it, or reads it from the
- * cache), "downloading" or "available" (loaded and ready in this page).
- * This package's `availability()` never says "downloading": a load's
- * progress comes from `create`'s callback.
+ * "downloadable" (it can, once downloaded), "downloading" (a download of it
+ * is in progress in this page) or "available" (on the device: no download
+ * needed).
  */
 export type Availability =
   | "unavailable"
@@ -32,6 +32,9 @@ export type Availability =
 
 /** A download's progress, from 0 to 1. */
 export type DownloadProgressCallback = (progress: number) => void
+
+/** Models whose files are downloading in this page. */
+const downloading = new Set<string>()
 
 /** Listeners for each running generation, by request id. */
 type Generation = {
@@ -98,6 +101,7 @@ function handleMessage({ data }: MessageEvent<WorkerResponse>) {
   if (data.type === "progress") {
     if (!current || data.cached) return
     keepDownloads()
+    downloading.add(data.modelId)
     current.load.waiters.report(data.progress)
   } else if (data.type === "claim") {
     const { modelId, bytes } = data
@@ -110,12 +114,14 @@ function handleMessage({ data }: MessageEvent<WorkerResponse>) {
     }).then(() => post({ type: "claimed" }))
   } else if (data.type === "ready") {
     if (!current) return
+    downloading.delete(data.modelId)
     current.load.ready = true
     current.load.waiters.report(1)
     current.load.waiters.settle()
     current.load.resolve()
   } else if (data.type === "load-error") {
     if (!current) return
+    downloading.delete(data.modelId)
     current.load.waiters.settle()
     current.load.reject(new Error(data.message))
     loaded = null
@@ -209,23 +215,31 @@ async function canRun(model: string): Promise<boolean> {
 }
 
 /**
- * Where `model` stands, as the Prompt API's `LanguageModel.availability()`
- * says it: "unavailable" where it can't run (no Web Worker or WebAssembly,
- * as on a server, or no WebGPU and no CPU weights), "available" when it's
- * loaded and ready in this page (for `dtype`), else "downloadable", while a
- * load is in progress and when its files are cached too. No storage reads,
- * no worker, no Transformers.js, no network: only the browser's WebGPU
- * adapter request.
+ * Where `model` stands in this browser, as the Prompt API's
+ * `LanguageModel.availability()` says it: "unavailable" where it can't run
+ * (no Web Worker or WebAssembly, as on a server, or no WebGPU and no CPU
+ * weights), "downloading" while this page downloads it, "available" when
+ * it's loaded (for `dtype`) or all the files a load here picks (for
+ * `dtype`, or q4 on the CPU) are in Transformers.js's cache, else
+ * "downloadable". It reads Cache Storage only: the files a past load used
+ * (recorded once it succeeded) must all still be cached. No worker, no
+ * Transformers.js, no network.
  */
 export async function availability(
   model: string,
   options: { dtype?: WeightsDtype } = {}
 ): Promise<Availability> {
   if (!(await canRun(model))) return "unavailable"
+  if (downloading.has(model)) return "downloading"
   const dtype = options.dtype ?? modelMeta(model)?.dtype ?? "q4f16"
-  return loaded?.modelId === model && loaded.dtype === dtype && loaded.load.ready
-    ? "available"
-    : "downloadable"
+  if (loaded?.modelId === model && loaded.dtype === dtype && loaded.load.ready) {
+    return "available"
+  }
+  // The weights a load here picks: q4 on the CPU.
+  const loadDtype: WeightsDtype = (await hasWebGpu()) ? dtype : "q4"
+  const cached = await recordedFilesCached(model, loadDtype)
+  if (downloading.has(model)) return "downloading"
+  return cached ? "available" : "downloadable"
 }
 
 /**
@@ -284,6 +298,7 @@ export function loadModel(
   if (signal?.aborted) return new LoadWaiters(() => undefined).wait(Promise.resolve(), waitOptions)
   if (loaded) {
     // The worker frees the previous model before loading this one.
+    downloading.delete(loaded.modelId)
     loaded.load.waiters.settle()
     loaded.load.reject(new Error("Switched to another model."))
   }
@@ -337,6 +352,7 @@ export async function unloadModel(model?: string): Promise<void> {
   worker = null
   releaseMemory(OWNER)
   if (loaded) {
+    downloading.delete(loaded.modelId)
     loaded.load.waiters.settle()
     loaded.load.reject(new Error("The model was unloaded."))
     loaded = null

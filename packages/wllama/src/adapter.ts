@@ -64,6 +64,8 @@ export type WllamaConfig = {
    * Keeps the model loaded when another runtime (Transformers.js, WebGL)
    * loads one past the page's memory budget (see `setMemoryBudget`); by
    * default the least recently used model is unloaded to make room.
+   * Applies once the adapter uses the model (`create()` or a call); left
+   * out, the model keeps what another adapter of it set.
    */
   keepLoaded?: boolean
   /**
@@ -378,12 +380,25 @@ export class WllamaTextAdapter<
   override readonly api = "wllama" as const
   override readonly inputModalities = ["text"] as const
   private readonly onDownloadProgress: DownloadProgressCallback | undefined
+  private readonly loadConfig: WllamaConfig
 
   constructor(config: WllamaConfig, model: TModel) {
     super({}, model)
     this.onDownloadProgress = config.onDownloadProgress
-    setContextLength(model, config.contextLength)
-    setKeepLoaded(model, config.keepLoaded ?? false)
+    this.loadConfig = config
+  }
+
+  /**
+   * Applies this adapter's options to the runtime when it uses the model
+   * (`create()`, a call, or the load it starts), not when it's
+   * constructed: constructing an adapter changes nothing shared. Its
+   * context length is the model's from then on; runtime options it leaves
+   * out, and `keepLoaded` left out, stay as another adapter set them.
+   */
+  private useModel() {
+    const config = this.loadConfig
+    setContextLength(this.model, config.contextLength)
+    if (config.keepLoaded !== undefined) setKeepLoaded(this.model, config.keepLoaded)
     configureRuntime({
       ...(config.wasmUrl && { wasmUrl: config.wasmUrl }),
       ...(config.compat && { compat: config.compat }),
@@ -396,11 +411,10 @@ export class WllamaTextAdapter<
   /**
    * Where the model stands in this browser, with the Prompt API's values:
    * "unavailable" where wllama can't run (no WebAssembly, Web Worker or
-   * Origin Private File System, as on a server), "available" when it's
-   * loaded and ready in this page (by any adapter of it), else
-   * "downloadable", even while it loads or when its file is in wllama's
-   * storage (a load then reads it). It never says "downloading": progress
-   * comes from `create`. It reads no storage.
+   * Origin Private File System, as on a server), "downloading" while this
+   * page downloads it, "available" when it's loaded or its GGUF file is in
+   * wllama's storage, else "downloadable". It lists wllama's storage only:
+   * no worker, no network.
    */
   availability(): Promise<Availability> {
     return availability(this.model)
@@ -423,6 +437,7 @@ export class WllamaTextAdapter<
   ): Promise<this> {
     const { onDownloadProgress } = options
     const own = this.onDownloadProgress
+    this.useModel()
     const ready = loadModel(
       this.model,
       own && onDownloadProgress
@@ -554,6 +569,7 @@ export class WllamaTextAdapter<
     }
 
     try {
+      this.useModel()
       const wllama = await waitForModel(model, signal, this.onDownloadProgress).catch((error: unknown) => {
         throw new Error(`Couldn't load ${model}: ${errorText(error)}`)
       })
@@ -825,6 +841,7 @@ export class WllamaTextAdapter<
         }
       }
       signal?.throwIfAborted()
+      this.useModel()
       const wllama = await waitForModel(model, signal, this.onDownloadProgress).catch((error: unknown) => {
         throw signal?.aborted ? error : new Error(`Couldn't load ${model}: ${errorText(error)}`)
       })

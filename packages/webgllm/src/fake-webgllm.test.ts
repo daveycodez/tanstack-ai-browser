@@ -30,8 +30,11 @@ export const fake = {
   unloads: [] as Array<string | undefined>,
   /** Models the fake holds loaded. */
   loaded: new Set<string>(),
-  /** Models asked about with models.retrieve (which fetches from Hugging Face). */
+  /** Models asked about with models.retrieve or models.list (which fetch from Hugging Face). */
   retrieved: [] as Array<string>,
+  /** Models whose files the fake's storage holds (models.downloaded), and the models asked about. */
+  stored: new Set<string>(),
+  downloadedAsked: [] as Array<string>,
   /** Bytes each load's worker claims through onMemoryClaim, as the real worker measures them. */
   memory: 1_400_000_000,
   /** Holds each load's memory claim until it resolves. */
@@ -55,6 +58,8 @@ export const fake = {
     this.unloads = []
     this.loaded.clear()
     this.retrieved = []
+    this.stored.clear()
+    this.downloadedAsked = []
     this.memory = 1_400_000_000
     this.claimGate = undefined
     this.loadError = undefined
@@ -226,6 +231,14 @@ webgllm.unloadModel = async (model) => {
     loadedFor.delete(name)
     emit("unload", { model: name, reason: "unloaded" })
   }
+}
+webgllm.models.downloaded = async (model) => {
+  fake.downloadedAsked.push(model)
+  return fake.loaded.has(model) || fake.stored.has(model)
+}
+webgllm.models.list = async () => {
+  fake.retrieved.push("*")
+  return []
 }
 webgllm.models.retrieve = async (model) => {
   fake.retrieved.push(model)

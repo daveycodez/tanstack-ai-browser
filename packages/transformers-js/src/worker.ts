@@ -10,6 +10,7 @@
  * activations, which the CPU kernels want): slower, but the same features,
  * prompt caching in memory and on disk included.
  */
+import { saveRecord } from "./cache-record.js"
 import { createConstraint } from "./constraint/index.js"
 import { GenerationControl, thinkingControlTokens } from "./generation-control.js"
 import { createSampler } from "./sampling.js"
@@ -515,6 +516,16 @@ async function loadRuntime(
     }
   })) as Model
   if (device === "webgpu") await watchDevice(tf)
+  // For availability(): the weights files this load used, as cache keys.
+  const path = tf.env.remotePathTemplate
+    .replaceAll("{model}", repo)
+    .replaceAll("{revision}", encodeURIComponent(revision))
+  void saveRecord(
+    modelId,
+    dtype,
+    files.map((f) => new URL(`${path}${f.path}`, tf.env.remoteHost).href),
+    tf.env.cacheKey
+  )
   return {
     tf,
     tokenizer,

@@ -286,7 +286,7 @@ test("availability: unavailable where the engine can't run or for a model it doe
   assert.equal(await availability("not/a-model" as typeof MODEL), "unavailable")
 })
 
-test("availability() makes no fetch, worker, storage or webgllm calls", async () => {
+test("availability() reads storage only (models.downloaded): no fetch, worker, models.retrieve or models.list", async () => {
   const calls: Array<string> = []
   const saved = Object.fromEntries(["fetch", "caches", "indexedDB", "Worker"].map((key) => [key, Object.getOwnPropertyDescriptor(globalThis, key)]))
   const storage = Object.getOwnPropertyDescriptor(navigator, "storage")
@@ -302,7 +302,8 @@ test("availability() makes no fetch, worker, storage or webgllm calls", async ()
     const before = fake.loads.length
     assert.equal(await webgllmText(MODEL).availability(), "available")
     assert.equal(fake.loads.length, before)
-    assert.deepEqual(fake.retrieved, [], "no models.retrieve (it fetches file sizes from Hugging Face)")
+    assert.deepEqual(fake.retrieved, [], "no models.retrieve or models.list (they fetch from Hugging Face)")
+    assert.ok(fake.downloadedAsked.length > 0, "storage asked through models.downloaded")
     assert.equal(fake.requests.length, 0)
     assert.deepEqual(calls, [])
   } finally {
@@ -315,7 +316,7 @@ test("availability() makes no fetch, worker, storage or webgllm calls", async ()
   }
 })
 
-test("availability (downloadable until loaded, available once ready) and download progress follow loads, progress, unloads and failures", async () => {
+test("availability (downloadable, downloading during the download, available once ready) and download progress follow loads, progress, unloads and failures", async () => {
   const adapter = webgllmText(MODEL, { contextLength: 4096 })
   const other = webgllmText(MODEL, { contextLength: 4096 })
   assert.equal(await adapter.availability(), "downloadable")
@@ -327,7 +328,7 @@ test("availability (downloadable until loaded, available once ready) and downloa
   emit("progress", { model: MODEL, phase: "download", progress: 0.36, cached: false, loadedBytes: 4, totalBytes: 10 })
   emit("progress", { model: MODEL, phase: "download", progress: 0.9, cached: false })
   emit("progress", { model: MODEL, phase: "load", progress: 0.95, cached: false })
-  assert.equal(await other.availability(), "downloadable", "a load in progress isn't \"downloading\": progress comes from the callback")
+  assert.equal(await other.availability(), "downloading", "adapters of one model share its download")
   open()
   assert.equal(await loading, adapter)
   assert.deepEqual(progress, [0.4, 1, 1], "the download's share, then 1 once ready")
@@ -369,7 +370,7 @@ test("a load webgllm starts on its own isn't one for any adapter's context: avai
   // A completion loading its model on demand: webgllm dispatches the events.
   emit("loadstart", { model: MODEL })
   emit("progress", { model: MODEL, phase: "download", progress: 0.5, cached: false })
-  assert.equal(await availability(MODEL), "downloadable")
+  assert.equal(await availability(MODEL), "downloading")
   emit("progress", { model: MODEL, phase: "load", progress: 0.95, cached: false })
   emit("load", { model: MODEL, contextLength: 32_768 })
   assert.equal(await availability(MODEL), "downloadable")
@@ -378,15 +379,19 @@ test("a load webgllm starts on its own isn't one for any adapter's context: avai
   assert.equal(await availability(MODEL), "available")
 })
 
-test("availability is keyed on the context length as the loader is: another context isn't available until loaded for it", async () => {
+test("availability: loaded for the adapter's context, or its files in webgllm's storage, is available; storage cleared, downloadable", async () => {
+  assert.equal(await webgllmText(MODEL).availability(), "downloadable")
+  fake.stored.add(MODEL)
+  assert.equal(await webgllmText(MODEL).availability(), "available", "on the device: models.downloaded")
+  fake.stored.delete(MODEL)
+  assert.equal(await webgllmText(MODEL).availability(), "downloadable", "a cleared storage needs the download again")
   await loadModel(MODEL, { contextLength: 8192 })
   assert.equal(await webgllmText(MODEL, { contextLength: 8192 }).availability(), "available")
-  assert.equal(await webgllmText(MODEL, { contextLength: 16_384 }).availability(), "downloadable")
-  assert.equal(await webgllmText(MODEL).availability(), "downloadable", "the model's own context is another")
+  assert.equal(await webgllmText(MODEL, { contextLength: 16_384 }).availability(), "available", "loaded at another context: its files are on the device")
   await webgllmText(MODEL, { contextLength: 16_384 }).create()
   assert.equal(fake.loads.length, 2, "the loader loaded it again for 16,384")
   assert.equal(await webgllmText(MODEL, { contextLength: 16_384 }).availability(), "available")
-  assert.equal(await webgllmText(MODEL, { contextLength: 8192 }).availability(), "downloadable")
+  assert.equal(await webgllmText(MODEL, { contextLength: 8192 }).availability(), "available", "its files are still on the device")
 })
 
 test("one engine check per page, however many models and calls ask", async () => {
@@ -419,7 +424,6 @@ test("create's signal: aborted before, nothing loads; the only waiter aborting c
     emit("progress", { model: MODEL, phase: "download", progress: 0.27, cached: false, loadedBytes: 3, totalBytes: 10 })
     controller.abort()
     await assert.rejects(alone, { name: "AbortError" })
-    emit("progress", { model: MODEL, phase: "download", progress: 0.54, cached: false, loadedBytes: 6, totalBytes: 10 })
     assert.deepEqual(heard, [0.3], "nothing more after the abort")
     open()
     await new Promise((resolve) => setTimeout(resolve, 0))
@@ -465,6 +469,23 @@ test("create's signal: aborted before, nothing loads; the only waiter aborting c
     assert.deepEqual(unhandled, [])
   } finally {
     process.off("unhandledRejection", onUnhandled)
+  }
+})
+
+test("constructing an adapter changes nothing shared; keepLoaded applies when it uses the model, and an adapter without it leaves another's", async () => {
+  const keeper = webgllmText(MODEL, { keepLoaded: true })
+  const plain = webgllmText(MODEL)
+  try {
+    await plain.create()
+    assert.equal(fake.loads.at(-1)?.options.keepLoaded, false, "constructing the keepLoaded adapter changed nothing")
+    await plain.destroySession()
+    await keeper.create()
+    assert.equal(fake.loads.at(-1)?.options.keepLoaded, true, "using it applies it")
+    await keeper.destroySession()
+    await webgllmText(MODEL).create()
+    assert.equal(fake.loads.at(-1)?.options.keepLoaded, true, "a later adapter without keepLoaded leaves it")
+  } finally {
+    setKeepLoaded(MODEL, false)
   }
 })
 

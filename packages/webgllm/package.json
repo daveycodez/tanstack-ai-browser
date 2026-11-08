@@ -62,7 +62,7 @@
     "@tanstack/ai": "^1.0.0"
   },
   "dependencies": {
-    "webgllm": "^0.1.5"
+    "webgllm": "^0.1.6"
   },
   "devDependencies": {
     "@huggingface/transformers": "4.3.2",

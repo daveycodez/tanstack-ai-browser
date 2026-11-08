@@ -49,6 +49,9 @@ type Control = {
   download?: { signal: AbortSignal; progress: (p: { loaded: number; total: number }) => void }
   /** wllama instances ended. */
   exits: number
+  /** Memory claims, with their keepLoaded flag, and each load's n_ctx. */
+  claims: Array<boolean>
+  contexts: Array<number>
 }
 
 /**
@@ -56,7 +59,9 @@ type Control = {
  * (a Worker class and OPFS), and runs `body` with it; every storage,
  * network, worker or engine call lands in `control.calls`.
  */
-async function withClient(name: string, body: (client: typeof import("./client.js"), control: Control, release: () => void) => Promise<void>) {
+type Built = typeof import("./client.js") & Pick<typeof import("./adapter.js"), "wllamaText">
+
+async function withClient(name: string, body: (client: Built, control: Control, release: () => void) => Promise<void>) {
   const descriptors = Object.fromEntries(
     ["navigator", "Worker", "fetch", "caches", "indexedDB"].map((key) => [key, Object.getOwnPropertyDescriptor(globalThis, key)])
   )
@@ -66,7 +71,9 @@ async function withClient(name: string, body: (client: typeof import("./client.j
     gate: new Promise<void>((resolve) => { release = resolve }),
     progressed: null,
     calls: [],
-    exits: 0
+    exits: 0,
+    claims: [],
+    contexts: []
   }
   ;(globalThis as { __wllamaAvailability?: Control }).__wllamaAvailability = control
   const define = (key: string, value: unknown) => Object.defineProperty(globalThis, key, { configurable: true, writable: true, value })
@@ -78,11 +85,11 @@ async function withClient(name: string, body: (client: typeof import("./client.j
   define("indexedDB", { open: () => { control.calls.push("indexedDB.open"); throw new Error("no") } })
   try {
     const outfile = join(temporary, `${name}.mjs`)
-    await build({ entryPoints: [join(root, "packages/wllama/src/client.ts")], outfile, bundle: true, format: "esm", platform: "node", logLevel: "error", plugins: [{ name: "fake-wllama", setup(bundle) {
+    await build({ stdin: { contents: 'export * from "./client.ts"; export { wllamaText } from "./adapter.ts"', resolveDir: join(root, "packages/wllama/src"), loader: "ts" }, outfile, bundle: true, format: "esm", platform: "node", logLevel: "error", plugins: [{ name: "fake-wllama", setup(bundle) {
       bundle.onResolve({ filter: /@wllama\/wllama\/esm\/index\.js$/ }, () => ({ path: "wllama", namespace: "fake" }))
       bundle.onResolve({ filter: /^\.\/model-memory\.js$/ }, () => ({ path: "memory", namespace: "fake" }))
       bundle.onLoad({ filter: /.*/, namespace: "fake" }, args => ({ contents: args.path === "memory"
-        ? "export const claimMemory=async()=>{};export const releaseMemory=()=>{};export const touchMemory=()=>{};"
+        ? "export const claimMemory=async(m)=>{globalThis.__wllamaAvailability.claims.push(m.keepLoaded)};export const releaseMemory=()=>{};export const touchMemory=()=>{};"
         : `
         const control=globalThis.__wllamaAvailability;
         export const LoggerWithoutDebug={};
@@ -101,13 +108,13 @@ async function withClient(name: string, body: (client: typeof import("./client.j
             }
           };}
           getWorkerResources(){return {compat:false}}
-          async loadModel(){}
+          async loadModel(_file,options){control.contexts.push(options.n_ctx)}
           getLoadedContextInfo(){return {success:true,n_ctx:0,n_ctx_train:0};}
           async exit(){control.exits++}
         }
       ` }))
     } }] })
-    const client = await import(pathToFileURL(outfile).href) as typeof import("./client.js")
+    const client = await import(pathToFileURL(outfile).href) as Built
     client.configureRuntime({ gpu: false })
     await body(client, control, release)
   } finally {
@@ -118,21 +125,43 @@ async function withClient(name: string, body: (client: typeof import("./client.j
   }
 }
 
-test("availability: downloadable (also while loading, and with the file stored), available once ready, downloadable after unloading", { timeout: 5000 }, async () => {
+test("availability: downloadable; downloading during the download; available once ready, and from wllama's storage after unloading; downloadable once storage is cleared", { timeout: 5000 }, async () => {
   await withClient("states", async (client, control, release) => {
     assert.equal(await client.availability(MODEL), "downloadable")
     const progress: Array<number> = []
     const progressed = new Promise<void>((resolve) => { control.progressed = resolve })
     const loading = client.loadModel(MODEL, (value: number) => progress.push(value))
     await progressed
-    assert.equal(await client.availability(MODEL), "downloadable", "a load in progress isn't \"downloading\": progress comes from the callback")
+    assert.equal(await client.availability(MODEL), "downloading")
     release()
     await loading
     assert.deepEqual(progress, [0.25, 1, 1], "the download's progress, then 1 once ready")
     assert.equal(await client.availability(MODEL), "available")
     await client.unloadModel(MODEL)
     assert.ok(control.stored.some((m) => m.url === modelUrl(MODEL)))
-    assert.equal(await client.availability(MODEL), "downloadable", "its file stays in storage, but it isn't loaded")
+    assert.equal(await client.availability(MODEL), "available", "on the device: its file stays in storage")
+    control.stored = control.stored.filter((m) => m.url !== modelUrl(MODEL))
+    assert.equal(await client.availability(MODEL), "downloadable", "a cleared storage needs the download again")
+  })
+})
+
+test("constructing an adapter changes nothing shared; its context and keepLoaded apply when it uses the model, and an adapter without keepLoaded leaves another's", { timeout: 5000 }, async () => {
+  await withClient("construct", async (client, control, release) => {
+    release()
+    const keeper = client.wllamaText(MODEL, { keepLoaded: true, contextLength: 2048 })
+    const plain = client.wllamaText(MODEL)
+    await plain.create()
+    assert.deepEqual([control.claims.at(-1), control.contexts.at(-1)], [false, 0], "constructing the other adapter changed nothing")
+    await plain.destroySession()
+    await keeper.create()
+    assert.deepEqual([control.claims.at(-1), control.contexts.at(-1)], [true, 2048], "using it applies its options")
+    await keeper.destroySession()
+    const later = client.wllamaText(MODEL)
+    await later.create()
+    assert.deepEqual([control.claims.at(-1), control.contexts.at(-1)], [true, 0], "a later adapter without keepLoaded leaves it; its own context applies")
+    await later.destroySession()
+    await client.wllamaText(MODEL, { keepLoaded: false }).create()
+    assert.equal(control.claims.at(-1), false, "an explicit false sets it")
   })
 })
 
@@ -229,11 +258,12 @@ test("create's signal: aborted before, nothing starts; the only waiter aborting 
   })
 })
 
-test("availability() makes no fetch, worker, storage or engine calls", async () => {
+test("availability() lists wllama's storage only: no fetch, worker or engine calls", async () => {
   await withClient("no-calls", async (client, control) => {
-    control.stored.push({ url: modelUrl(MODEL), size: 1000 })
     assert.equal(await client.availability(MODEL), "downloadable")
+    control.stored.push({ url: modelUrl(MODEL), size: 1000 })
+    assert.equal(await client.availability(MODEL), "available")
     assert.equal(await client.availability("not/a-model" as typeof MODEL), "unavailable")
-    assert.deepEqual(control.calls, [])
+    assert.deepEqual([...new Set(control.calls)], ["new ModelManager", "ModelManager.getModels"])
   })
 })

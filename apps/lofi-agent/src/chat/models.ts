@@ -53,7 +53,7 @@ const APPLE_MODEL = "apple-foundationmodel"
 
 /**
  * A local model's loading status, from its adapter: `availability()` says
- * whether it can run here, `onDownloadProgress` how much of it has
+ * whether it can run here and is on the device, `onDownloadProgress` how much of it has
  * downloaded (only for files that aren't on the device yet), and
  * `create` when it's ready (or failed).
  */
@@ -63,7 +63,7 @@ export type ModelStatus =
       state: "loading"
       /** 0-1 of the download; 0 while a model on the device loads. */
       progress: number
-      /** True once its files are downloading: they weren't on the device. */
+      /** True while its files download: they aren't on the device. */
       downloading: boolean
     }
   | { state: "ready" }
@@ -551,7 +551,7 @@ export async function prepareModel(
     if (status.get().state !== "ready") {
       const availability = await checkAvailability(id)
       if (availability !== "unavailable" && status.get().state !== "loading") {
-        status.set({ state: "loading", progress: 0, downloading: false })
+        status.set({ state: "loading", progress: 0, downloading: availability !== "available" })
       }
     }
     await adapter.create(signal ? { signal } : {})

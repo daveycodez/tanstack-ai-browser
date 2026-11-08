@@ -91,6 +91,8 @@ export type WebGllmConfig = {
    * Keeps the model loaded when another model (of webgllm, Transformers.js
    * or wllama) loads past the page's memory budget (see `setMemoryBudget`);
    * by default the least recently used model is unloaded to make room.
+   * Applies once the adapter uses the model (`create()` or a call); left
+   * out, the model keeps what another adapter of it set.
    */
   keepLoaded?: boolean
   /**
@@ -299,22 +301,32 @@ export class WebGllmTextAdapter<TModel extends WebGllmChatModel> extends BaseTex
   private readonly contextLength: number | undefined
   private readonly onDownloadProgress: DownloadProgressCallback | undefined
 
+  private readonly keepLoaded: boolean | undefined
+
   constructor(config: WebGllmConfig, model: TModel) {
     super({}, model)
     this.contextLength = config.contextLength
     this.onDownloadProgress = config.onDownloadProgress
-    setKeepLoaded(model, config.keepLoaded ?? false)
+    this.keepLoaded = config.keepLoaded
+  }
+
+  /**
+   * Applies this adapter's `keepLoaded` when it uses the model, not when
+   * it's constructed: constructing an adapter changes nothing shared. Left
+   * out, the model keeps what another adapter of it set.
+   */
+  private useModel() {
+    if (this.keepLoaded !== undefined) setKeepLoaded(this.model, this.keepLoaded)
   }
 
   /**
    * Where the model stands in this browser, with the Prompt API's values:
    * "unavailable" where the engine can't run (WebGL 2 with float render
    * targets, in a worker; not on a server; checked once per page),
-   * "available" when it's loaded for this adapter's `contextLength` and
-   * ready in this page (by any adapter of it), else "downloadable",
-   * even while it loads or when its files are in webgllm's storage (a load
-   * then reads them). It never says "downloading": progress comes from
-   * `create`. It reads no storage and makes no request.
+   * "downloading" while this page downloads it, "available" when it's
+   * loaded for this adapter's `contextLength` or its files are all in
+   * webgllm's storage, else "downloadable". It reads storage only: no
+   * worker, no network.
    */
   availability(): Promise<Availability> {
     return availability(this.model, this.contextLength)
@@ -337,6 +349,7 @@ export class WebGllmTextAdapter<TModel extends WebGllmChatModel> extends BaseTex
   ): Promise<this> {
     const { onDownloadProgress } = options
     const own = this.onDownloadProgress
+    this.useModel()
     const ready = loadModel(this.model, {
       contextLength: this.contextLength,
       ...(options.signal && { signal: options.signal }),
@@ -405,6 +418,7 @@ export class WebGllmTextAdapter<TModel extends WebGllmChatModel> extends BaseTex
     }
 
     try {
+      this.useModel()
       await ensureModel(model, this.contextLength, signal, this.onDownloadProgress)
     } catch (error) {
       if (isAbort(error, signal)) return
@@ -607,6 +621,7 @@ export class WebGllmTextAdapter<TModel extends WebGllmChatModel> extends BaseTex
     }
 
     try {
+      this.useModel()
       await ensureModel(model, this.contextLength, signal, this.onDownloadProgress)
     } catch (error) {
       fail(error)
