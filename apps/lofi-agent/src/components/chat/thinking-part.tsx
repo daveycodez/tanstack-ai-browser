@@ -12,11 +12,14 @@ import { ReplyContext } from "./thread-context"
 export function ThinkingPart({
   part
 }: PartProps<typeof chatOptions, "thinking">) {
-  const { isRunning, hasAnswer } = useContext(ReplyContext)
+  // Live while it's the last part of the running reply: while it's written,
+  // and while the next step (a tool call or the answer) is on its way,
+  // after a tool call too.
+  const { liveThinking } = useContext(ReplyContext)
   const thinking = part.content.trim()
   if (!thinking) return null
   return (
-    <Reasoning isStreaming={isRunning && !hasAnswer}>
+    <Reasoning isStreaming={liveThinking === part.content}>
       <ReasoningTrigger />
       <ReasoningContent>{thinking}</ReasoningContent>
     </Reasoning>

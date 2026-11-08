@@ -66,6 +66,12 @@ export type ReplyState = {
   isRunning: boolean
   /** This message has answer text or a tool call, after any thinking. */
   hasAnswer: boolean
+  /**
+   * The thinking the running reply is on: its last part, while that's
+   * thinking. It stays live until something follows it (a tool call, the
+   * answer), the wait for the next step included.
+   */
+  liveThinking?: string
 }
 
 export const ReplyContext = createContext<ReplyState>({

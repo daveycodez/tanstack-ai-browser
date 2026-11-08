@@ -165,9 +165,11 @@ function AssistantMessage({ message }: { message: UIMessage }) {
     (last?.type === "tool-call" && last.output !== undefined)
   const shownError = isLast && !isLoading ? error : undefined
 
+  const liveThinking =
+    isRunning && last?.type === "thinking" ? last.content : undefined
   const reply = useMemo(
-    () => ({ sources, isRunning, hasAnswer }),
-    [sources, isRunning, hasAnswer]
+    () => ({ sources, isRunning, hasAnswer, liveThinking }),
+    [sources, isRunning, hasAnswer, liveThinking]
   )
 
   return (
