@@ -2,12 +2,23 @@ import assert from "node:assert/strict"
 import { test } from "node:test"
 
 import { modelMeta, modelReasoning, runsWithoutWebGpu } from "./catalog.js"
-import { isSupported } from "./client.js"
+import { transformersJsText } from "./adapter.js"
 
-test("isSupported is false on a server, which has no Web Worker", async () => {
+test("on a server, which has no Web Worker, models are unavailable, and a failed load left unawaited raises no unhandled rejection", async () => {
   assert.equal(typeof Worker, "undefined")
-  assert.equal(await isSupported(), false)
-  assert.equal(await isSupported("onnx-community/LFM2-1.2B-Tool-ONNX"), false)
+  const adapter = transformersJsText("onnx-community/LFM2-1.2B-Tool-ONNX")
+  assert.equal(await adapter.availability(), "unavailable")
+  const unhandled: Array<unknown> = []
+  const onUnhandled = (reason: unknown) => unhandled.push(reason)
+  process.on("unhandledRejection", onUnhandled)
+  try {
+    void adapter.createSessionWithProgress()
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    assert.deepEqual(unhandled, [])
+    await assert.rejects(adapter.createSessionWithProgress())
+  } finally {
+    process.off("unhandledRejection", onUnhandled)
+  }
 })
 
 test("a listed model pinned to a revision is looked up as the listed model", () => {

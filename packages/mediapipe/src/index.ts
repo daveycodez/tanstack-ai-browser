@@ -8,6 +8,4 @@ export type {
   MediaPipeEmbeddingConfig,
   MediaPipeEmbeddingProviderOptions
 } from "./adapter.js"
-export { isSupported, loadModel, modelStatus, unloadModel } from "./runtime.js"
-export type { ModelStatus } from "./runtime.js"
-export type { Store } from "./store.js"
+export type { Availability, DownloadProgressCallback } from "./client.js"

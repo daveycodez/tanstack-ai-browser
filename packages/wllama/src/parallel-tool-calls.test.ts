@@ -25,7 +25,7 @@ await build({
     bundle.onLoad({ filter: /.*/, namespace: "stub" }, () => ({ contents: `
       const control=globalThis.__wllamaParallel;
       export const configureRuntime=()=>{};export const setContextLength=()=>{};export const setKeepLoaded=()=>{};
-      export const waitForModel=async()=>({});export const loadedContext=()=>32768;export const contextError=e=>e;
+      export const availability=async()=>"available";export const loadModel=async()=>({});export const unloadModel=async()=>{};export const waitForModel=async()=>({});export const loadedContext=()=>32768;export const contextError=e=>e;
       export const streamChat=async function*(model,request){control.requests.push(request);yield* control.chunks;};
       export const completeChat=async(model,request)=>{control.requests.push(request);return {choices:[{finish_reason:"stop",message:{content:"{}"}}]}};
     ` }))

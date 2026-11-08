@@ -1,9 +1,14 @@
-import { unloadModel } from "@tanstack-ai-browser/webgllm"
+import { webgllmText } from "@tanstack-ai-browser/webgllm"
+import { WEBGLLM_CHAT_MODELS } from "@tanstack-ai-browser/webgllm/model-meta"
 import { useEffect } from "react"
 import { createFileRoute } from "@tanstack/react-router"
 import { runBenchmark } from "../../bench/runner"
 import { RUNTIME_CHANNEL } from "../../bench/run-in-frame"
 import type { RuntimeCommand, RuntimeEvent } from "../../bench/run-in-frame"
+
+/** Frees every WebGL model a run loaded (each model's adapter's destroySession). */
+const unloadModel = () =>
+  void Promise.all(WEBGLLM_CHAT_MODELS.map((model) => webgllmText(model).destroySession()))
 
 export const Route = createFileRoute("/bench-runtime")({ component: BenchmarkRuntime })
 

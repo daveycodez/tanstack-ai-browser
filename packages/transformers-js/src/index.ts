@@ -8,12 +8,5 @@ export type {
   TransformersJsProviderUsageDetails,
   TransformersJsTextModelOptions
 } from "./adapter.js"
-export {
-  isSupported,
-  loadModel,
-  modelStatus,
-  unloadModel
-} from "./client.js"
-export type { ModelStatus } from "./client.js"
+export type { Availability, DownloadProgressCallback } from "./client.js"
 export { setMemoryBudget } from "./model-memory.js"
-export type { Store } from "./store.js"

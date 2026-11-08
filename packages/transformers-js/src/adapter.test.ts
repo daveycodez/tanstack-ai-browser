@@ -8,6 +8,7 @@ import type { RunTimings, WorkerRequest, WorkerResponse } from "./protocol.js"
 class FakeWorker {
   static last: FakeWorker
   static ready = true
+  static cached = false
   static generate: (worker: FakeWorker, request: Extract<WorkerRequest, { type: "generate" }>) => void
   onmessage?: (event: { data: WorkerResponse }) => void
   posted: WorkerRequest[] = []
@@ -16,6 +17,7 @@ class FakeWorker {
     this.posted.push(request)
     if (request.type === "load" && FakeWorker.ready) setTimeout(() => this.send({ type: "ready", loadId: request.loadId, modelId: request.modelId }), 0)
     if (request.type === "generate") FakeWorker.generate(this, request)
+    if (request.type === "cached") setTimeout(() => this.send({ type: "cached", id: request.id, cached: FakeWorker.cached }), 0)
   }
   send(data: WorkerResponse) { this.onmessage?.({ data }) }
   terminate() { this.onmessage = undefined }
@@ -635,7 +637,7 @@ test("structuredOutputStream ends with RUN_ERROR on answers that aren't JSON, wo
 })
 
 test("a load with other weights at the same context loads again, and replies about a superseded load are ignored", { timeout: 2000 }, async () => {
-  const { loadModel, modelStatus, unloadModel } = await import("./client.js")
+  const { loadModel, unloadModel } = await import("./client.js")
   await unloadModel(); FakeWorker.ready = false
   try {
     const first = loadModel(MODEL, { dtype: "q4f16", contextLength: 4096 })
@@ -651,9 +653,42 @@ test("a load with other weights at the same context loads again, and replies abo
     FakeWorker.last.send({ type: "load-error", loadId: loads[0].loadId, modelId: MODEL, message: "stale" })
     await new Promise(resolve => setTimeout(resolve, 0))
     assert.equal(settled, false)
-    assert.equal(modelStatus(MODEL).get().state, "loading")
     FakeWorker.last.send({ type: "ready", loadId: loads[1].loadId, modelId: MODEL })
     await second
-    assert.equal(modelStatus(MODEL).get().state, "ready")
   } finally { FakeWorker.ready = true; await unloadModel() }
+})
+
+test("availability: unavailable without WebGPU or CPU weights, downloadable, downloading with progress, available once ready and once cached", { timeout: 2000 }, async () => {
+  const { transformersJsText } = await import("./adapter.js")
+  // Node has no WebGPU: a model without CPU weights can't run here.
+  assert.equal(await transformersJsText(MODEL).availability(), "unavailable")
+  const CPU_MODEL = "onnx-community/LFM2-1.2B-Tool-ONNX"
+  const adapter = transformersJsText(CPU_MODEL)
+  const other = transformersJsText(CPU_MODEL)
+  await adapter.destroySession(); FakeWorker.ready = false; FakeWorker.cached = false
+  try {
+    assert.equal(await adapter.availability(), "downloadable")
+    const check = FakeWorker.last.posted.find((request) => request.type === "cached")
+    assert.deepEqual(check && { modelId: check.modelId, dtype: check.dtype }, { modelId: CPU_MODEL, dtype: "q4f16" })
+    const progress: Array<number> = []
+    const ready = adapter.createSessionWithProgress((value) => progress.push(value))
+    const load = FakeWorker.last.posted.filter((request): request is Extract<WorkerRequest, { type: "load" }> => request.type === "load").at(-1)
+    assert.ok(load)
+    FakeWorker.last.send({ type: "progress", loadId: load.loadId, modelId: CPU_MODEL, progress: 0, cached: false })
+    FakeWorker.last.send({ type: "progress", loadId: load.loadId, modelId: CPU_MODEL, progress: 0.5, cached: false })
+    assert.equal(await other.availability(), "downloading", "adapters of one model share its download")
+    FakeWorker.last.send({ type: "ready", loadId: load.loadId, modelId: CPU_MODEL })
+    assert.equal(await ready, adapter)
+    assert.deepEqual(progress, [0, 0.5, 1])
+    assert.equal(await adapter.availability(), "available")
+    const late: Array<number> = []
+    await other.createSessionWithProgress((value) => late.push(value))
+    assert.deepEqual(late, [1], "a model already ready reports 1 at once, without loading again")
+    assert.equal(FakeWorker.last.posted.filter((request) => request.type === "load").length, 1)
+    await other.destroySession()
+    FakeWorker.cached = true
+    assert.equal(await adapter.availability(), "available", "its files stay in the cache")
+    FakeWorker.cached = false
+    assert.equal(await adapter.availability(), "downloadable")
+  } finally { FakeWorker.ready = true; FakeWorker.cached = false; await adapter.destroySession() }
 })

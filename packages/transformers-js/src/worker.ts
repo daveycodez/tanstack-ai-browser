@@ -321,6 +321,23 @@ async function isCached(
 }
 
 /**
+ * Whether every file `modelId` loads is in Transformers.js's cache, for the
+ * weights a load here would pick (q4 on the CPU) and the device: what the
+ * page's `availability()` asks. Reading the model's config may need the
+ * network when it isn't cached either; failing that, it isn't.
+ */
+async function modelCached(modelId: string, requested: WeightsDtype) {
+  const device = await pickDevice()
+  const dtype: WeightsDtype = device === "wasm" ? "q4" : requested
+  const tf = await importTransformers(device)
+  const { repo, revision } = parseModelId(modelId)
+  const config = (await tf.AutoConfig.from_pretrained(repo, {
+    revision
+  })) as unknown as ModelConfig
+  return isCached(tf, repo, revision, config, dtype, device)
+}
+
+/**
  * The bytes a model's memory claim assumes when the Hub doesn't report its
  * weights' sizes: as much as the largest models here take.
  */
@@ -1654,6 +1671,10 @@ ctx.onmessage = ({ data }) => {
   if (data.type === "claimed") {
     claimed?.()
     claimed = null
+  } else if (data.type === "cached") {
+    modelCached(data.modelId, data.dtype)
+      .catch(() => false)
+      .then((cached) => ctx.postMessage({ type: "cached", id: data.id, cached }))
   } else if (data.type === "load") {
     load(data.loadId, data.modelId, data.dtype, data.contextLength).catch(() => undefined)
   } else if (data.type === "generate") {

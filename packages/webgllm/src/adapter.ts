@@ -34,7 +34,8 @@ import type {
 
 import { modelMeta } from "./catalog.js"
 import type { WebGllmModelReasoningByName, WebGllmChatModel } from "./catalog.js"
-import { ensureModel, setKeepLoaded, touchModel, webgllm } from "./models.js"
+import { availability, ensureModel, loadModel, setKeepLoaded, touchModel, unloadModel, webgllm } from "./models.js"
+import type { Availability, DownloadProgressCallback } from "./models.js"
 
 /**
  * Per-call `modelOptions`: sampling over the model card's, and the most
@@ -92,6 +93,12 @@ export type WebGllmConfig = {
    * by default the least recently used model is unloaded to make room.
    */
   keepLoaded?: boolean
+  /**
+   * The model's download progress, 0 to 1, when a call (`chat()`, say)
+   * starts its download; then 1 once it's ready. To load it ahead of time
+   * with progress, see `createSessionWithProgress`.
+   */
+  onDownloadProgress?: DownloadProgressCallback
 }
 
 type ResolveReasoning<TModel extends string> = TModel extends keyof WebGllmModelReasoningByName
@@ -290,11 +297,59 @@ export class WebGllmTextAdapter<TModel extends WebGllmChatModel> extends BaseTex
   override readonly inputModalities = ["text"] as const
 
   private readonly contextLength: number | undefined
+  private readonly onDownloadProgress: DownloadProgressCallback | undefined
 
   constructor(config: WebGllmConfig, model: TModel) {
     super({}, model)
     this.contextLength = config.contextLength
+    this.onDownloadProgress = config.onDownloadProgress
     setKeepLoaded(model, config.keepLoaded ?? false)
+  }
+
+  /**
+   * Where the model stands in this browser, with the Prompt API's values:
+   * "unavailable" where the engine can't run (WebGL 2 with float render
+   * targets, in a worker; not on a server), "downloading" while this page
+   * downloads it, "available" when its files are in webgllm's storage,
+   * else "downloadable".
+   */
+  availability(): Promise<Availability> {
+    return availability(this.model)
+  }
+
+  /**
+   * Loads the model for this adapter's `contextLength` (downloading it the
+   * first time), with the download's progress, 0 to 1, then 1 once it's
+   * ready. Resolves to this adapter when it's ready; rejects if it can't
+   * load (fine to leave unawaited). `chat()` doesn't need it (its first call
+   * loads the model), but it lets a page load ahead of time. Adapters for
+   * the same model share one loaded model; other models stay loaded while
+   * they fit the memory budget.
+   */
+  createSessionWithProgress(onDownloadProgress?: DownloadProgressCallback): Promise<this> {
+    const own = this.onDownloadProgress
+    const ready = loadModel(this.model, {
+      contextLength: this.contextLength,
+      onDownloadProgress:
+        own && onDownloadProgress
+          ? (progress) => {
+              own(progress)
+              onDownloadProgress(progress)
+            }
+          : (own ?? onDownloadProgress)
+    }).then(() => this)
+    // Callers may leave it: an unawaited failure isn't an unhandled rejection.
+    ready.catch(() => undefined)
+    return ready
+  }
+
+  /**
+   * Unloads the model, freeing its GPU memory; a running generation of it
+   * fails. The model is shared, so this unloads it for every adapter of it.
+   * Its files stay downloaded. Never rejects.
+   */
+  destroySession(): Promise<void> {
+    return unloadModel(this.model)
   }
 
   /** The request body shared by chats and structured output (tools and schema aside). */
@@ -340,7 +395,7 @@ export class WebGllmTextAdapter<TModel extends WebGllmChatModel> extends BaseTex
     }
 
     try {
-      await ensureModel(model, this.contextLength, signal)
+      await ensureModel(model, this.contextLength, signal, this.onDownloadProgress)
     } catch (error) {
       if (isAbort(error, signal)) return
       yield runError(model, error, true)
@@ -542,7 +597,7 @@ export class WebGllmTextAdapter<TModel extends WebGllmChatModel> extends BaseTex
     }
 
     try {
-      await ensureModel(model, this.contextLength, signal)
+      await ensureModel(model, this.contextLength, signal, this.onDownloadProgress)
     } catch (error) {
       fail(error)
       if (isAbort(error, signal)) return

@@ -10,7 +10,13 @@ import {
 } from "@heroui/react"
 import { useState } from "react"
 
-export type ModelOption = { id: string; name: string; icon: string }
+export type ModelOption = {
+  id: string
+  name: string
+  icon: string
+  /** Its `availability()` here, once checked ("available": on the device). */
+  availability?: string
+}
 
 /** A thinking effort level the picked model offers. */
 export type EffortOption = { id: string; name: string }
@@ -131,7 +137,10 @@ export function ModelSelector({
                       id={model.id}
                       textValue={model.name}
                     >
-                      <span className="flex items-center gap-2">
+                      <span
+                        className="flex items-center gap-2"
+                        data-availability={model.availability}
+                      >
                         <ModelLogo src={model.icon} />
                         {model.name}
                       </span>

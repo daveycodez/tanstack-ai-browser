@@ -29,6 +29,7 @@ test("a load llama.cpp reports as failed rejects, frees its worker and memory, a
         export const claimMemory=async(m)=>{control.claims.push(m.bytes)};export const releaseMemory=()=>{control.released++};export const touchMemory=()=>{};` : `
         const control=globalThis.__wllamaLoadFailure;
         export const LoggerWithoutDebug={};
+        export class ModelManager { async getModels(){ return [] } }
         export class Wllama {
           constructor(){this.modelManager={getModels:async()=>[],getModelOrDownload:async()=>({size:1000})};}
           async loadModel(){}
@@ -42,12 +43,12 @@ test("a load llama.cpp reports as failed rejects, frees its worker and memory, a
     const model = "unsloth/Qwen3.5-2B-GGUF"
     await assert.rejects(client.loadModel(model), /couldn't load unsloth\/Qwen3\.5-2B-GGUF/)
     await new Promise(resolve => setTimeout(resolve, 0))
-    assert.equal(client.modelStatus(model).get().state, "error")
     assert.equal(control.exits, 1, "the failed load's worker is ended")
     assert.equal(control.released, 1, "its memory claim is released")
     control.success = true
-    await client.loadModel(model)
-    assert.equal(client.modelStatus(model).get().state, "ready", "the failed promise isn't cached")
+    const progress: number[] = []
+    await client.loadModel(model, (value: number) => progress.push(value))
+    assert.deepEqual(progress, [1], "the failed promise isn't cached; a ready model reports 1")
     assert.ok((control.claims.at(-1) ?? 0) < (control.claims.at(-2) ?? 0), "the claim drops to the loaded estimate")
     await client.unloadModel()
   } finally {

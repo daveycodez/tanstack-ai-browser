@@ -108,6 +108,11 @@ export type WorkerRequest =
       thinkingClose: string
     }
   | { type: "stop"; id: string }
+  /**
+   * Whether every file `modelId` loads (for `dtype`, on the device a load
+   * would pick) is in Transformers.js's cache: answered with "cached".
+   */
+  | { type: "cached"; id: number; modelId: string; dtype: WeightsDtype }
   /** The page made room for the model (see "claim"): the worker loads it. */
   | { type: "claimed" }
 
@@ -124,6 +129,7 @@ export type WorkerResponse =
       totalBytes?: number
     }
   | { type: "ready"; loadId: number; modelId: string }
+  | { type: "cached"; id: number; cached: boolean }
   /**
    * The model takes about `bytes` once loaded: the page makes room for it
    * (unloading other runtimes' models past the memory budget, see

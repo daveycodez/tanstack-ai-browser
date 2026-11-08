@@ -1,15 +1,20 @@
 import assert from "node:assert/strict"
 import { beforeEach, test } from "node:test"
 import { chat } from "@tanstack/ai"
-import { WebGLLMError } from "webgllm"
+import { WebGLLM, WebGLLMError } from "webgllm"
 
 import { webgllmText } from "./adapter.js"
 import { WEBGLLM_MODEL_REASONING } from "./catalog.js"
 import { chunk, claim, collect, emit, fake, lastBody, MODEL, TIMINGS, textOptions, usageChunk } from "./fake-webgllm.test.js"
-import { ensureModel, loadModel, modelStatus, setKeepLoaded, setMemoryBudget, unloadModel } from "./models.js"
-import type { ModelStatus } from "./models.js"
+import { availability, ensureModel, loadModel, setKeepLoaded, setMemoryBudget, unloadModel } from "./models.js"
 
-beforeEach(() => fake.reset())
+// Node has no WebGL 2: the engine counts as supported here, but for the test that says otherwise.
+const engine = WebGLLM as unknown as { isSupported: () => boolean }
+const supported = engine.isSupported
+beforeEach(() => {
+  fake.reset()
+  engine.isSupported = () => true
+})
 
 type Event = { type: string } & Record<string, unknown>
 const types = (events: Array<unknown>) => (events as Array<Event>).map((e) => e.type)
@@ -220,13 +225,14 @@ test("a webgllm failure mid-stream ends the text and emits RUN_ERROR with its co
   assert.deepEqual(error.error, { message: "The chat is longer than the context.", code: "context-length-exceeded" })
 })
 
-test("a failed load emits RUN_ERROR and marks the model's status as failed", async () => {
+test("a failed load emits RUN_ERROR, and the model isn't counted as loaded", async () => {
   fake.loadError = new WebGLLMError("download-failed", "Network down.")
   const events = (await collect(webgllmText(MODEL).chatStream(textOptions()))) as Array<Event>
   assert.deepEqual(types(events), ["RUN_STARTED", "RUN_ERROR"])
   assert.equal(events[1]!.message, `Couldn't load ${MODEL}: Network down.`)
   assert.equal(events[1]!.code, "download-failed")
-  assert.deepEqual(modelStatus(MODEL).get(), { state: "error", message: "Network down." })
+  fake.downloaded = false
+  assert.equal(await availability(MODEL), "downloadable")
   assert.equal(fake.requests.length, 0)
 })
 
@@ -273,76 +279,92 @@ test("works under chat(): a non-streaming answer", async () => {
   assert.equal(answer.text, "Bonjour")
 })
 
-test("modelStatus follows loads, progress, unloads and failures", async () => {
-  const seen: Array<ModelStatus["state"]> = []
-  const status = modelStatus(MODEL)
-  const stop = status.subscribe(() => seen.push(status.get().state))
+test("availability: unavailable where the engine can't run or for a model it doesn't list", async () => {
+  engine.isSupported = supported
+  assert.equal(await webgllmText(MODEL).availability(), "unavailable", "no WebGL 2 in Node")
+  engine.isSupported = () => true
+  assert.equal(await availability("not/a-model" as typeof MODEL), "unavailable")
+})
+
+test("availability and download progress follow loads, progress, unloads and failures", async () => {
+  fake.downloaded = false
+  const adapter = webgllmText(MODEL, { contextLength: 4096 })
+  const other = webgllmText(MODEL, { contextLength: 4096 })
+  assert.equal(await adapter.availability(), "downloadable")
   let open!: () => void
   fake.loadGate = new Promise<void>((resolve) => (open = resolve))
-  const loading = loadModel(MODEL, { contextLength: 4096 })
+  const progress: Array<number> = []
+  const loading = adapter.createSessionWithProgress((value) => progress.push(value))
   await new Promise((resolve) => setTimeout(resolve, 0))
-  assert.equal(status.get().state, "loading")
-  emit("progress", { model: MODEL, phase: "download", progress: 0.4, cached: false, loadedBytes: 4, totalBytes: 10 })
-  assert.deepEqual(status.get(), { state: "loading", progress: 0.4, cached: false, loadedBytes: 4, totalBytes: 10 })
+  emit("progress", { model: MODEL, phase: "download", progress: 0.36, cached: false, loadedBytes: 4, totalBytes: 10 })
+  emit("progress", { model: MODEL, phase: "download", progress: 0.9, cached: false })
+  emit("progress", { model: MODEL, phase: "load", progress: 0.95, cached: false })
+  assert.equal(await other.availability(), "downloading", "adapters of one model share its download")
   open()
-  await loading
-  assert.deepEqual(status.get(), { state: "ready" })
+  assert.equal(await loading, adapter)
+  assert.deepEqual(progress, [0.4, 1, 1], "the download's share, then 1 once ready")
+  assert.equal(await adapter.availability(), "available")
   assert.deepEqual(fake.loads.at(-1)?.options, { contextLength: 4096, keepLoaded: false })
 
-  // The same context is already loaded; another loads it again.
-  await loadModel(MODEL, { contextLength: 4096 })
+  // The same context is already loaded: it reports 1 at once; another loads it again.
+  const late: Array<number> = []
+  await other.createSessionWithProgress((value) => late.push(value))
+  assert.deepEqual(late, [1])
   assert.equal(fake.loads.length, 1)
   await loadModel(MODEL, { contextLength: 8192 })
   assert.equal(fake.loads.length, 2)
 
-  await unloadModel(MODEL)
-  assert.deepEqual(status.get(), { state: "idle" })
-  assert.deepEqual(fake.unloads, [MODEL])
+  await other.destroySession()
+  assert.deepEqual(fake.unloads, [MODEL], "unloading through one adapter unloads the shared model")
+  assert.equal(await adapter.availability(), "downloadable", "back to what storage says")
+  fake.downloaded = true
+  assert.equal(await adapter.availability(), "available")
 
   fake.loadError = new Error("GPU lost")
-  await assert.rejects(loadModel(MODEL), /GPU lost/)
-  assert.deepEqual(status.get(), { state: "error", message: "GPU lost" })
-  stop()
-  assert.deepEqual(seen, ["loading", "loading", "ready", "loading", "ready", "idle", "loading", "error"])
+  await assert.rejects(adapter.createSessionWithProgress(), /GPU lost/)
+  void adapter.createSessionWithProgress()
 })
 
-test("the adapter loads for its own context length and marks the model ready", async () => {
-  const adapter = webgllmText(MODEL, { contextLength: 2048, keepLoaded: true })
+test("the adapter loads for its own context length, reporting progress from its config", async () => {
+  const progress: Array<number> = []
+  const adapter = webgllmText(MODEL, { contextLength: 2048, keepLoaded: true, onDownloadProgress: (value) => progress.push(value) })
   await collect(adapter.chatStream(textOptions()))
   assert.deepEqual(fake.loads.map((l) => l.options), [{ contextLength: 2048, keepLoaded: true }])
-  assert.deepEqual(modelStatus(MODEL).get(), { state: "ready" })
+  assert.deepEqual(progress, [1])
+  assert.equal(await adapter.availability(), "available")
   await collect(adapter.chatStream(textOptions()))
   assert.equal(fake.loads.length, 1, "loaded once for its context")
+  assert.deepEqual(progress, [1], "a loaded model reports nothing more")
   setKeepLoaded(MODEL, false)
 })
 
-test("a load webgllm starts on its own drives the status through its events", async () => {
-  const status = modelStatus(MODEL)
+test("a load webgllm starts on its own drives availability through its events", async () => {
+  fake.downloaded = false
   // A completion loading its model on demand: webgllm dispatches the events.
   emit("loadstart", { model: MODEL })
-  assert.equal(status.get().state, "loading")
-  emit("progress", { model: MODEL, phase: "load", progress: 0.95, cached: true })
-  assert.deepEqual(status.get(), { state: "loading", progress: 0.95, cached: true })
+  emit("progress", { model: MODEL, phase: "download", progress: 0.5, cached: false })
+  assert.equal(await availability(MODEL), "downloading")
+  emit("progress", { model: MODEL, phase: "load", progress: 0.95, cached: false })
   emit("load", { model: MODEL, contextLength: 32_768 })
-  assert.deepEqual(status.get(), { state: "ready" })
+  assert.equal(await availability(MODEL), "available")
 })
 
-test("evictions and crashes reach the status as they happen", async () => {
+test("evictions and crashes reach availability as they happen", async () => {
+  fake.downloaded = false
   await loadModel(MODEL)
-  assert.equal(modelStatus(MODEL).get().state, "ready")
+  assert.equal(await availability(MODEL), "available")
   // webgllm's own budget unloads it to make room.
   emit("unload", { model: MODEL, reason: "evicted" })
-  assert.deepEqual(modelStatus(MODEL).get(), { state: "idle" })
-  // A crash keeps its error.
+  assert.equal(await availability(MODEL), "downloadable")
   await loadModel(MODEL)
   emit("error", { model: MODEL, error: new Error("worker stopped") })
   emit("unload", { model: MODEL, reason: "crashed" })
-  assert.deepEqual(modelStatus(MODEL).get(), { state: "error", message: "worker stopped" })
+  assert.equal(await availability(MODEL), "downloadable")
   // Loading again after an unload loads it again (nothing thinks it's still loaded).
   const before = fake.loads.length
   await loadModel(MODEL)
   assert.equal(fake.loads.length, before + 1)
-  assert.equal(modelStatus(MODEL).get().state, "ready")
+  assert.equal(await availability(MODEL), "available")
 })
 
 test("the shared memory registry: holds what webgllm's workers claim, makes room across runtimes, and evicts through webgllm", async () => {
@@ -369,7 +391,6 @@ test("the shared memory registry: holds what webgllm's workers claim, makes room
     const { claimMemory } = await import("./model-memory.js")
     await claimMemory({ owner: "transformers-js", model: "x", bytes: 1.5e9, keepLoaded: false, unload: () => undefined })
     assert.deepEqual(fake.unloads, [MODEL])
-    assert.deepEqual(modelStatus(MODEL).get(), { state: "idle" })
     assert.equal(registry.held.has(`webgllm:${MODEL}`), false)
   } finally {
     registry.held.delete("transformers-js")
@@ -431,7 +452,7 @@ test("one of two callers giving up leaves the shared load, and its memory claim,
   await assert.rejects(first, { name: "AbortError" })
   open()
   await second
-  assert.deepEqual(modelStatus(MODEL).get(), { state: "ready" })
+  assert.equal(await availability(MODEL), "available")
   assert.equal(held.get(`webgllm:${MODEL}`)?.bytes, 1.4e9, "the loaded model's memory is still counted")
 })
 
@@ -444,7 +465,8 @@ test("unloading a model just after asking for it stops that load: nothing waits 
   await new Promise((resolve) => setTimeout(resolve, 0))
   assert.equal(fake.loaded.has(MODEL), false, "the old model never loaded")
   assert.equal(held.has(`webgllm:${MODEL}`), false, "and holds no memory")
-  assert.deepEqual(modelStatus(MODEL).get(), { state: "idle" })
+  fake.downloaded = false
+  assert.equal(await availability(MODEL), "downloadable")
 })
 
 test("unloading a model while its load waits for room never lets the old load go on", async () => {
@@ -459,5 +481,6 @@ test("unloading a model while its load waits for room never lets the old load go
   await new Promise((resolve) => setTimeout(resolve, 0))
   assert.equal(fake.loaded.has(MODEL), false, "the old model never loaded")
   assert.equal(held.has(`webgllm:${MODEL}`), false, "and holds no memory")
-  assert.deepEqual(modelStatus(MODEL).get(), { state: "idle" })
+  fake.downloaded = false
+  assert.equal(await availability(MODEL), "downloadable")
 })

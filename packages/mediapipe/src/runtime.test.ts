@@ -1,31 +1,27 @@
 import assert from "node:assert/strict"
 import { test } from "node:test"
 
-import { isSupported, loadModel, modelStatus, unloadModel } from "./runtime.js"
+import { mediaPipeEmbedding } from "./adapter.js"
 
 const MODEL = "universal-sentence-encoder"
 
-test("isSupported is false on a server, which has no Web Worker", () => {
+test("on a server, which has no Web Worker, the model is unavailable", async () => {
   assert.equal(typeof Worker, "undefined")
-  assert.equal(isSupported(), false)
-  assert.equal(isSupported(MODEL), false)
+  assert.equal(await mediaPipeEmbedding(MODEL).availability(), "unavailable")
 })
 
-test("a failed load left unawaited raises no unhandled rejection; awaited, it rejects; its status says why", async () => {
+test("a failed load left unawaited raises no unhandled rejection; awaited, it rejects", async () => {
   const unhandled: Array<unknown> = []
   const onUnhandled = (reason: unknown) => unhandled.push(reason)
   process.on("unhandledRejection", onUnhandled)
   try {
-    void loadModel(MODEL)
-    void loadModel("not-a-model" as typeof MODEL)
+    void mediaPipeEmbedding(MODEL).createSessionWithProgress()
+    void mediaPipeEmbedding("not-a-model" as typeof MODEL).createSessionWithProgress()
     await new Promise((resolve) => setTimeout(resolve, 50))
     assert.deepEqual(unhandled, [])
-    const status = modelStatus(MODEL).get()
-    assert.equal(status.state, "error")
-    assert.match(status.state === "error" ? status.message : "", /Web Workers/)
-    await assert.rejects(loadModel(MODEL), /Web Workers/)
+    await assert.rejects(mediaPipeEmbedding(MODEL).createSessionWithProgress(), /Web Workers/)
     await assert.rejects(
-      loadModel("not-a-model" as typeof MODEL),
+      mediaPipeEmbedding("not-a-model" as typeof MODEL).createSessionWithProgress(),
       /Unknown MediaPipe embedding model/
     )
   } finally {
@@ -33,7 +29,6 @@ test("a failed load left unawaited raises no unhandled rejection; awaited, it re
   }
 })
 
-test("unloading with nothing loaded does nothing", async () => {
-  await unloadModel()
-  await unloadModel(MODEL)
+test("destroying the session with nothing loaded does nothing", async () => {
+  await mediaPipeEmbedding(MODEL).destroySession()
 })

@@ -34,7 +34,7 @@ function adapterPackage(): Promise<AdapterPackage> {
       bundle.onResolve({ filter: /^\.\/sessions\.js$/ }, args => args.importer.endsWith(`/prompt-api/src/adapter.ts`) ? { path: "prompt-api", namespace: "controlled" } : undefined)
       bundle.onLoad({ filter: /.*/, namespace: "controlled" }, () => ({ contents: `
         const c=globalThis.__cancellationContract;
-        export const leaseSession=async(options)=>{await c.initialize(options.signal);return {cachedTokens:0,overflowed:()=>false,discard(){c.discards++},session:{contextUsage:20,contextWindow:8192,measureContextUsage:(input,options)=>c.measure(options?.signal),prompt:(input,options)=>c.generate(options.signal)}}};
+        export const destroyPromptApiSessions=()=>{};export const leaseSession=async(options)=>{await c.initialize(options.signal);return {cachedTokens:0,overflowed:()=>false,discard(){c.discards++},session:{contextUsage:20,contextWindow:8192,measureContextUsage:(input,options)=>c.measure(options?.signal),prompt:(input,options)=>c.generate(options.signal)}}};
       ` }))
     } }] })
     return import(pathToFileURL(outfile).href)

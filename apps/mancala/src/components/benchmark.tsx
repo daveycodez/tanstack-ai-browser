@@ -1,5 +1,6 @@
 import { Link } from "@tanstack/react-router"
-import { loadModel as loadPromptApiModel } from "@tanstack-ai-browser/prompt-api"
+import { promptApiText } from "@tanstack-ai-browser/prompt-api"
+import { loadWithStatus } from "../lib/model-status"
 import { useEffect, useRef, useState, useSyncExternalStore } from "react"
 import type { FormEvent } from "react"
 import { CASES, SUITE_VERSION } from "../../bench/cases"
@@ -381,7 +382,7 @@ export function BenchmarkView() {
             onChange={(value) => {
               setOpponent(resolveOpponent(value))
               if (value.model === "prompt-api" && promptApiAvailable)
-                void loadPromptApiModel("built-in").catch((failure: unknown) =>
+                void loadWithStatus("prompt-api", promptApiText("built-in")).catch((failure: unknown) =>
                   setError(
                     failure instanceof Error ? failure.message : String(failure)
                   )

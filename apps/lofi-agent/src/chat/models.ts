@@ -1,36 +1,20 @@
 import { clampReasoningLevel, supportedReasoningLevels } from "@tanstack/ai"
 import type { ModelReasoning, ReasoningLevel } from "@tanstack/ai"
-import {
-  modelStatus,
-  transformersJsText
-} from "@tanstack-ai-browser/transformers-js"
+import { transformersJsText } from "@tanstack-ai-browser/transformers-js"
 import {
   TRANSFORMERS_JS_MODEL_META,
   TRANSFORMERS_JS_MODEL_REASONING
 } from "@tanstack-ai-browser/transformers-js/model-meta"
 import type { TransformersJsChatModel } from "@tanstack-ai-browser/transformers-js/model-meta"
-import {
-  modelStatus as wllamaModelStatus,
-  wllamaText
-} from "@tanstack-ai-browser/wllama"
+import { wllamaText } from "@tanstack-ai-browser/wllama"
 import { WLLAMA_MODEL_REASONING } from "@tanstack-ai-browser/wllama/model-meta"
 import type { WllamaChatModel } from "@tanstack-ai-browser/wllama/model-meta"
-import {
-  isSupported as webglSupported,
-  modelStatus as webglModelStatus,
-  webgllmText
-} from "@tanstack-ai-browser/webgllm"
+import { webgllmText } from "@tanstack-ai-browser/webgllm"
 import { WEBGLLM_MODEL_REASONING } from "@tanstack-ai-browser/webgllm/model-meta"
 import type { WebGllmChatModel } from "@tanstack-ai-browser/webgllm/model-meta"
-import {
-  apfelText,
-  isSupported as isApfelSupported
-} from "@tanstack-ai-browser/apfel"
-import {
-  isSupported as promptApiSupported,
-  modelStatus as promptApiStatus,
-  promptApiText
-} from "@tanstack-ai-browser/prompt-api"
+import { apfelText } from "@tanstack-ai-browser/apfel"
+import { promptApiText } from "@tanstack-ai-browser/prompt-api"
+import type { Availability } from "@tanstack-ai-browser/prompt-api"
 import { browserModel } from "./browser-model.ts"
 import { useSyncExternalStore } from "react"
 
@@ -68,27 +52,35 @@ export type ModelId =
 const APPLE_MODEL = "apple-foundationmodel"
 
 /**
- * A local model's loading status, as each adapter package's store reports
- * it: downloading (with bytes, where known), loading from storage, ready.
+ * A local model's loading status, from its adapter: `availability()` says
+ * whether it's on the device, `onDownloadProgress` how much of it has
+ * downloaded, and `createSessionWithProgress` when it's ready (or failed).
  */
 export type ModelStatus =
   | { state: "idle" }
   | {
       state: "loading"
-      /** 0-1 across the model's files. */
+      /** 0-1 of the download; 0 while a model on the device loads. */
       progress: number
-      /** True when the files come from the browser's storage, not the network. */
+      /** True when the model is on the device, not downloading. */
       cached: boolean
-      loadedBytes?: number
-      totalBytes?: number
     }
   | { state: "ready" }
   | { state: "error"; message: string }
 
-/** A store of a model's loading status, from its adapter package. */
-export type ModelStatusStore = {
-  get: () => ModelStatus
-  subscribe: (listener: () => void) => () => void
+/** A store of a model's loading status. */
+export type ModelStatusStore = ReturnType<typeof createStore<ModelStatus>>
+
+/**
+ * A model's status store, and its adapter's `onDownloadProgress`, which
+ * shows a download however it started (a chat's first call, say).
+ */
+function statusStore() {
+  const status = createStore<ModelStatus>({ state: "idle" })
+  const onDownloadProgress = (progress: number) => {
+    if (progress < 1) status.set({ state: "loading", progress, cached: false })
+  }
+  return { status, onDownloadProgress }
 }
 
 /** iPhone and iPad (iPadOS reports itself as a Mac, with a touch screen). */
@@ -121,50 +113,63 @@ const makerIcon = (model: string) =>
 const repoName = (model: string) => model.slice(model.indexOf("/") + 1)
 
 /** A Transformers.js model of the package's list, in the picker. */
-const local = (id: ModelId, model: TransformersJsChatModel) => ({
+const local = (id: ModelId, model: TransformersJsChatModel) => {
+  const { status, onDownloadProgress } = statusStore()
+  return {
   id,
   name: repoName(model),
   icon: makerIcon(model),
   adapter: transformersJsText(model, {
     debug: import.meta.env.DEV,
+    onDownloadProgress,
     ...iosContext()
   }),
   /** Its download and loading progress. */
-  status: modelStatus(model) as ModelStatusStore | null,
+  status: status as ModelStatusStore | null,
   /** No CPU weights: it can't run where there's no WebGPU. */
   needsWebGpu: !(TRANSFORMERS_JS_MODEL_META[model].cpu ?? false),
   reasoning: TRANSFORMERS_JS_MODEL_REASONING[model] as
     ModelReasoning | undefined
-})
+  }
+}
 
 /**
  * A GGUF model of the wllama package's list, in the picker. llama.cpp runs
  * it on the CPU, so it needs no WebGPU.
  */
-const gguf = (id: ModelId, model: WllamaChatModel) => ({
-  id,
-  name: repoName(model),
-  icon: makerIcon(model),
-  adapter: wllamaText(model, iosContext()),
-  status: wllamaModelStatus(model) as ModelStatusStore | null,
-  needsWebGpu: false,
-  reasoning: WLLAMA_MODEL_REASONING[model] as ModelReasoning | undefined
-})
+const gguf = (id: ModelId, model: WllamaChatModel) => {
+  const { status, onDownloadProgress } = statusStore()
+  return {
+    id,
+    name: repoName(model),
+    icon: makerIcon(model),
+    adapter: wllamaText(model, { onDownloadProgress, ...iosContext() }),
+    status: status as ModelStatusStore | null,
+    needsWebGpu: false,
+    reasoning: WLLAMA_MODEL_REASONING[model] as ModelReasoning | undefined
+  }
+}
 
 /**
  * LFM3, LFM2.5 and Qwen3.5 on the package's own WebGL 2 engine, which runs
  * with or without WebGPU. Where there's no WebGPU it still reads prompts on
  * the GPU: about three times as fast as the CPU on a Pixel 10 Pro.
  */
-const webgl = (id: ModelId, model: WebGllmChatModel) => ({
-  id,
-  name: repoName(model),
-  icon: makerIcon(model),
-  adapter: webgllmText(model, iosContext()),
-  status: webglModelStatus(model) as ModelStatusStore | null,
-  needsWebGpu: false,
-  reasoning: WEBGLLM_MODEL_REASONING[model] as ModelReasoning | undefined
-})
+const webgl = (id: ModelId, model: WebGllmChatModel) => {
+  const { status, onDownloadProgress } = statusStore()
+  return {
+    id,
+    name: repoName(model),
+    icon: makerIcon(model),
+    adapter: webgllmText(model, { onDownloadProgress, ...iosContext() }),
+    status: status as ModelStatusStore | null,
+    needsWebGpu: false,
+    reasoning: WEBGLLM_MODEL_REASONING[model] as ModelReasoning | undefined
+  }
+}
+
+/** The browser's own model's status, and its download's progress. */
+const builtInStatus = statusStore()
 
 export const MODELS = [
   {
@@ -186,9 +191,11 @@ export const MODELS = [
       browserModel().id === "phi-4-mini"
         ? "/icons/microsoft.svg"
         : "/icons/gemini.svg",
-    adapter: promptApiText("built-in"),
+    adapter: promptApiText("built-in", {
+      onDownloadProgress: builtInStatus.onDownloadProgress
+    }),
     /** The browser downloads it, once for every site, with progress. */
-    status: promptApiStatus("built-in") as ModelStatusStore | null,
+    status: builtInStatus.status as ModelStatusStore | null,
     needsWebGpu: false,
     reasoning: undefined
   },
@@ -427,35 +434,45 @@ export function useBackends(): Partial<Record<string, string>> {
 }
 
 /**
- * Whether the WebGL engine runs here: WebGL 2 with float render targets
- * and big enough textures, on an OffscreenCanvas. No until checked, in the
- * browser; hydration reads the server's answer (no), so the page matches.
+ * Each model's `availability()` here (not Apple's, which is checked when
+ * it's picked: reaching apfel on localhost makes Chrome ask for
+ * permission). Unknown until checked, and on the server, so hydration
+ * matches the server's page; checked again after a model loads.
  */
-const webGl2 = createStore(false)
-if (typeof window !== "undefined") {
-  webGl2.set(webglSupported())
+const availabilities = createStore<Partial<Record<ModelId, Availability>>>({})
+
+/** Checks `id`'s availability again, into the store. */
+async function checkAvailability(id: ModelId) {
+  const result = await modelInfo(id).adapter.availability()
+  availabilities.set((all) => ({ ...all, [id]: result }))
+  return result
 }
 
-export const useHasWebGl2 = () =>
-  useSyncExternalStore(webGl2.subscribe, webGl2.get, () => false)
+if (typeof window !== "undefined") {
+  for (const m of MODELS) {
+    if (m.id === "apple-fm") continue
+    // Chromium for Testing has the Prompt API but says "downloading"
+    // forever, with no model: only Chrome's and Edge's are offered.
+    if (m.id === "built-in" && browserModel().id === "unknown") continue
+    void checkAvailability(m.id)
+  }
+}
+
+/** Subscribes a component to the models' availability. */
+export const useAvailabilities = () => availabilities.use()
 
 /**
- * Whether the browser offers its built-in model: Chrome or Edge with the
- * Prompt API, on a device that can run it (downloaded or not). No until
- * the check is back. Other Chromium builds are left out: Chromium for
- * Testing has the API but says "downloading" forever, with no model.
+ * Whether `id` can run here, as its availability says: models are offered
+ * until their check says otherwise, except the built-in model and the
+ * WebGL ones, which wait for it (most browsers have neither).
  */
-const builtIn = createStore(false)
-if (
-  typeof window !== "undefined" &&
-  browserModel().id !== "unknown"
-) {
-  void promptApiSupported().then(builtIn.set)
+const isAvailable = (id: ModelId) => {
+  const availability = availabilities.get()[id]
+  if (availability === undefined) {
+    return id !== "built-in" && modelInfo(id).adapter.name !== "webgllm"
+  }
+  return availability !== "unavailable"
 }
-
-/** Subscribes a component to the built-in model check. */
-export const useHasBuiltInModel = () =>
-  useSyncExternalStore(builtIn.subscribe, builtIn.get, () => false)
 
 /**
  * What this device can run: Apple's model on macOS, CPU models
@@ -464,8 +481,8 @@ export const useHasBuiltInModel = () =>
 const canRun = (id: ModelId, isMac: boolean, hasGpu: boolean) =>
   isModelId(id) &&
   (id !== "apple-fm" || isMac) &&
-  (id !== "built-in" || builtIn.get()) &&
-  (modelInfo(id).adapter.name !== "webgllm" || webGl2.get()) &&
+  isAvailable(id) &&
+  // (Until a Transformers.js model's check is back.)
   (hasGpu || !modelInfo(id).needsWebGpu)
 
 /**
@@ -491,9 +508,11 @@ export const offered = (
 export function useModels() {
   const isMac = useIsMacOS()
   const hasGpu = useHasWebGpu()
-  useHasBuiltInModel()
-  useHasWebGl2()
-  return MODELS.filter((m) => canRun(m.id, isMac, hasGpu))
+  const all = useAvailabilities()
+  return MODELS.filter((m) => canRun(m.id, isMac, hasGpu)).map((m) => ({
+    ...m,
+    availability: all[m.id]
+  }))
 }
 
 const IDLE = createStore<ModelStatus>({ state: "idle" })
@@ -502,6 +521,45 @@ const IDLE = createStore<ModelStatus>({ state: "idle" })
 export function useModelStatus(id: ModelId): ModelStatus {
   const store = modelInfo(id).status ?? IDLE
   return useSyncExternalStore(store.subscribe, store.get, store.get)
+}
+
+/** Loads in progress, by model, shared by the runs waiting on them. */
+const loads = new Map<ModelId, Promise<Error | undefined>>()
+
+/**
+ * Loads `id`'s model before a run (downloading it the first time), keeping
+ * its status up to date: on the device or downloading (its availability),
+ * how much has downloaded (its adapter's `onDownloadProgress`), then ready
+ * or failed (`createSessionWithProgress`). Resolves to the error if it
+ * couldn't load.
+ */
+export function prepareModel(id: ModelId): Promise<Error | undefined> {
+  const { status, adapter, name } = modelInfo(id)
+  if (!status) return Promise.resolve(undefined)
+  const pending = loads.get(id)
+  if (pending) return pending
+  const load = (async () => {
+    try {
+      if (status.get().state !== "ready") {
+        const availability = await checkAvailability(id)
+        if (availability !== "unavailable") {
+          status.set({ state: "loading", progress: 0, cached: availability === "available" })
+        }
+      }
+      await adapter.createSessionWithProgress()
+      status.set({ state: "ready" })
+      return undefined
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      status.set({ state: "error", message })
+      return new Error(`Couldn't load ${name}: ${message}`, { cause: error })
+    } finally {
+      loads.delete(id)
+      void checkAvailability(id)
+    }
+  })()
+  loads.set(id, load)
+  return load
 }
 
 /** Result of the last Apple model check, shown next to the picker. */
@@ -514,5 +572,5 @@ export const afmStatus = createStore<"idle" | "checking" | "unavailable">(
  * a website makes Chrome ask for permission, so this only runs when the
  * user picks the Apple model.
  */
-export const checkAfm = () =>
-  isApfelSupported(APPLE_MODEL)
+export const checkAfm = async () =>
+  (await modelInfo("apple-fm").adapter.availability()) === "available"

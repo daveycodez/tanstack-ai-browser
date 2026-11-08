@@ -255,12 +255,6 @@ export function PendingReply() {
   )
 }
 
-/** A size in bytes, as a browser's downloads list writes it: "412 MB", "1.10 GB". */
-const formatBytes = (bytes: number) =>
-  bytes >= 1e9
-    ? `${(bytes / 1e9).toFixed(2)} GB`
-    : `${Math.round(bytes / 1e6)} MB`
-
 /**
  * What the model is doing until it writes, shimmering like "Thinking…": a
  * model downloads when the first message is sent to it (which model, and
@@ -274,11 +268,7 @@ function Working() {
   const downloading =
     loading && !loading.cached && loading.progress < 1 ? loading : null
   const label = downloading
-    ? `Downloading ${modelInfo(model).name}… ${
-        downloading.totalBytes
-          ? `${formatBytes(downloading.loadedBytes ?? 0)} of ${formatBytes(downloading.totalBytes)}`
-          : `${Math.round(downloading.progress * 100)}%`
-      }`
+    ? `Downloading ${modelInfo(model).name}… ${Math.round(downloading.progress * 100)}%`
     : loading
       ? "Loading…"
       : "Processing…"

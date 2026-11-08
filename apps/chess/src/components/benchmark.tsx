@@ -1,6 +1,6 @@
 import { memo, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react"
 import type { FormEvent, ReactNode } from "react"
-import { isSupported as promptApiSupported } from "@tanstack-ai-browser/prompt-api"
+import { promptApiText } from "@tanstack-ai-browser/prompt-api"
 import {
   DEFAULT_OPPONENT,
   LOCAL_OPPONENTS,
@@ -357,7 +357,9 @@ export function BenchmarkView() {
 
   useEffect(() => {
     mounted.current = true
-    void promptApiSupported()
+    void promptApiText("built-in")
+      .availability()
+      .then((availability) => availability !== "unavailable")
       .then((supported) => {
         if (mounted.current) setPromptAvailable(supported)
       })

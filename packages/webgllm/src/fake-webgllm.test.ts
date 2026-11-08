@@ -32,6 +32,8 @@ export const fake = {
   loaded: new Set<string>(),
   /** Download size models.retrieve reports. */
   size: 1_000_000_000,
+  /** Whether models.retrieve reports the model's files as downloaded. */
+  downloaded: true,
   /** Bytes each load's worker claims through onMemoryClaim, as the real worker measures them. */
   memory: 1_400_000_000,
   /** Holds each load's memory claim until it resolves. */
@@ -55,6 +57,7 @@ export const fake = {
     this.unloads = []
     this.loaded.clear()
     this.size = 1_000_000_000
+    this.downloaded = true
     this.memory = 1_400_000_000
     this.claimGate = undefined
     this.loadError = undefined
@@ -232,7 +235,7 @@ webgllm.models.retrieve = async (model) => ({
   format: "gguf",
   contextLength: 32_768,
   size: fake.size,
-  downloaded: true,
+  downloaded: fake.downloaded,
   loaded: fake.loaded.has(model),
   supports: { tools: true, thinking: true }
 })

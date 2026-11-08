@@ -53,7 +53,7 @@ const nextConfig: NextConfig = {
 
 The package is shaped like `@tanstack/ai-openrouter`'s text adapter:
 
-- `@tanstack-ai-browser/wllama`: `wllamaText(model, config?)`, `WllamaTextAdapter`, the runtime functions `isSupported`, `loadModel`, `unloadModel`, `modelStatus` and `setMemoryBudget`, and the types `WllamaConfig`, `WllamaTextModelOptions`, `WllamaProviderUsageDetails`, `ModelStatus` and `Store`.
+- `@tanstack-ai-browser/wllama`: `wllamaText(model, config?)`, `WllamaTextAdapter` (with the runtime methods `availability`, `createSessionWithProgress` and `destroySession`), `setMemoryBudget`, and the types `WllamaConfig`, `WllamaTextModelOptions`, `WllamaProviderUsageDetails`, `Availability` and `DownloadProgressCallback`.
 - `@tanstack-ai-browser/wllama/model-meta`: the catalog, `WLLAMA_CHAT_MODELS`, `WLLAMA_MODEL_META` and `WLLAMA_MODEL_REASONING`, with the types `WllamaChatModel`, `WllamaModelMeta` and `WllamaModelReasoningByName`.
 
 ## Models
@@ -97,7 +97,13 @@ Actual reuse comes from llama.cpp's `timings.cache_n`, forwarded as
 Reuse lasts as long as the loaded model: llama.cpp keeps what it has read in memory, and
 a reload of the page or the model reads the prompt again.
 
-**Downloads:** `loadModel(model)` downloads and loads a model ahead of time, `unloadModel(model?)` frees it, and `modelStatus(model)` is a store of its loading progress (with bytes downloaded and the total while it downloads). `isSupported()` is true wherever the browser has WebAssembly, Web Workers and the Origin Private File System (not on a server).
+**Downloads:** each adapter has the runtime methods of this project's adapters, with the Prompt API's values:
+
+- `adapter.availability()` resolves to `"unavailable"` where wllama can't run (it needs WebAssembly, Web Workers and the Origin Private File System; not on a server), `"downloading"` while this page downloads the model, `"available"` when its GGUF file is in wllama's storage, else `"downloadable"`.
+- `adapter.createSessionWithProgress(onDownloadProgress?)` downloads and loads the model ahead of time, with the download's progress, 0 to 1, then 1 once it's ready (at once if it already is). It resolves to the adapter, and rejects on failure; it's fine to leave unawaited. The config's `onDownloadProgress` hears a download the first `chat()` starts too.
+- `adapter.destroySession()` unloads the model (stopping its download), if it's the one loaded; its file stays in storage.
+
+The page holds one wllama model at a time: adapters for the same model share it, so `destroySession()` on one unloads it for all of them.
 
 ## How it runs
 

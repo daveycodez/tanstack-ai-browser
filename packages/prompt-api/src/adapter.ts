@@ -34,11 +34,13 @@ import type { PromptMessage } from "./messages.js"
 import {
   baseOptions,
   DEFAULT_LANGUAGES,
+  loadPromptApiModel,
   NO_PROMPT_API,
+  promptApiAvailability,
   PromptApiError
 } from "./model.js"
-import type { MediaInput } from "./model.js"
-import { leaseSession } from "./sessions.js"
+import type { Availability, MediaInput } from "./model.js"
+import { destroyPromptApiSessions, leaseSession } from "./sessions.js"
 import type { Lease } from "./sessions.js"
 import {
   decisionSchema,
@@ -80,6 +82,18 @@ export type PromptApiConfig = {
    * generation. A specific `toolChoice` always does.
    */
   nativeTools?: boolean
+  /**
+   * Kinds of input besides text the conversation will have ("image",
+   * "audio"), for `availability()`: images need more of the device, audio a
+   * GPU. Text only by default. Sessions expect what each conversation has.
+   */
+  inputs?: ReadonlyArray<MediaInput>
+  /**
+   * The browser's download of its model, 0 to 1, when a call (`chat()`,
+   * say) starts it; then 1 once the first session starts. To download it
+   * ahead of time with progress, see `createSessionWithProgress`.
+   */
+  onDownloadProgress?: (progress: number) => void
 }
 
 /**
@@ -374,11 +388,61 @@ export class PromptApiTextAdapter extends BaseTextAdapter<
   override readonly inputModalities = ["text", "image", "audio"] as const
   private readonly languages: ReadonlyArray<string>
   private readonly nativeTools: boolean
+  private readonly inputs: ReadonlyArray<MediaInput>
+  private readonly onDownloadProgress: ((progress: number) => void) | undefined
 
   constructor(config: PromptApiConfig, model: PromptApiChatModel) {
     super({}, model)
     this.languages = config.languages ?? DEFAULT_LANGUAGES
     this.nativeTools = config.nativeTools ?? true
+    this.inputs = config.inputs ?? []
+    this.onDownloadProgress = config.onDownloadProgress
+  }
+
+  /**
+   * The browser's own `LanguageModel.availability()` for this adapter's
+   * `languages` and `inputs`: "available" (on the device), "downloadable"
+   * or "downloading" (it downloads when a session starts, or at
+   * `createSessionWithProgress`), or "unavailable" (no Prompt API, as on a
+   * server or in a browser without it, or the device can't run it).
+   */
+  availability(): Promise<Availability> {
+    return promptApiAvailability(this.languages, { inputs: this.inputs })
+  }
+
+  /**
+   * Downloads the browser's model if it isn't on the device, and starts it,
+   * with the download's progress, 0 to 1, then 1 once it's ready. Resolves
+   * to this adapter then; rejects if it can't start (fine to leave
+   * unawaited). `chat()` doesn't need it (its first session does the same),
+   * but the browser asks for a click on the page before a download: call it
+   * from the click that turns the model on.
+   */
+  createSessionWithProgress(onDownloadProgress?: (progress: number) => void): Promise<this> {
+    const own = this.onDownloadProgress
+    const ready = loadPromptApiModel({
+      languages: this.languages,
+      onDownloadProgress:
+        own && onDownloadProgress
+          ? (progress) => {
+              own(progress)
+              onDownloadProgress(progress)
+            }
+          : (own ?? onDownloadProgress)
+    }).then(() => this)
+    // Callers may leave it: an unawaited failure isn't an unhandled rejection.
+    ready.catch(() => undefined)
+    return ready
+  }
+
+  /**
+   * Frees every session the adapters keep, as when the page no longer needs
+   * the model (they share them). Sessions a call holds or is still creating
+   * finish that call and are freed when it ends, not kept. The browser
+   * keeps the model itself.
+   */
+  async destroySession(): Promise<void> {
+    destroyPromptApiSessions()
   }
 
   /**
@@ -436,7 +500,8 @@ export class PromptApiTextAdapter extends BaseTextAdapter<
         tools: native ? tools : undefined
       }),
       signal,
-      media
+      media,
+      onDownloadProgress: this.onDownloadProgress
     })
     if (lease.miss) {
       options.logger.provider(
@@ -1106,7 +1171,8 @@ export class PromptApiTextAdapter extends BaseTextAdapter<
         media: mediaIn(conversation)
       }),
       signal,
-      media
+      media,
+      onDownloadProgress: this.onDownloadProgress
     })
     const { session } = lease
     try {
@@ -1363,8 +1429,9 @@ async function promptCopy(
  *
  * @example
  * ```ts
- * if (await isSupported()) {
- *   chat({ adapter: promptApiText("built-in"), messages, threadId })
+ * const adapter = promptApiText("built-in")
+ * if ((await adapter.availability()) !== "unavailable") {
+ *   chat({ adapter, messages, threadId })
  * }
  * ```
  */

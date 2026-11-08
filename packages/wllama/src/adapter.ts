@@ -30,16 +30,19 @@ import type {
 } from "@wllama/wllama/esm/index.js"
 
 import {
+  availability,
   completeChat,
   configureRuntime,
   contextError,
+  loadModel,
   loadedContext,
   waitForModel,
   setContextLength,
   setKeepLoaded,
-  streamChat
+  streamChat,
+  unloadModel
 } from "./client.js"
-import type { ChatRequest } from "./client.js"
+import type { Availability, ChatRequest, DownloadProgressCallback } from "./client.js"
 import { modelMeta } from "./catalog.js"
 import type {
   Sampling,
@@ -85,6 +88,12 @@ export type WllamaConfig = {
   gpu?: boolean
   /** wllama's and llama.cpp's logs, in the console. */
   debug?: boolean
+  /**
+   * The model's download progress, 0 to 1, when a call (`chat()`, say)
+   * starts its download; then 1 once it's ready. To load it ahead of time
+   * with progress, see `createSessionWithProgress`.
+   */
+  onDownloadProgress?: DownloadProgressCallback
 }
 
 /**
@@ -368,9 +377,11 @@ export class WllamaTextAdapter<
   readonly name = "wllama" as const
   override readonly api = "wllama" as const
   override readonly inputModalities = ["text"] as const
+  private readonly onDownloadProgress: DownloadProgressCallback | undefined
 
   constructor(config: WllamaConfig, model: TModel) {
     super({}, model)
+    this.onDownloadProgress = config.onDownloadProgress
     setContextLength(model, config.contextLength)
     setKeepLoaded(model, config.keepLoaded ?? false)
     configureRuntime({
@@ -380,6 +391,53 @@ export class WllamaTextAdapter<
       ...(config.gpu !== undefined && { gpu: config.gpu }),
       ...(config.debug && { debug: true })
     })
+  }
+
+  /**
+   * Where the model stands in this browser, with the Prompt API's values:
+   * "unavailable" where wllama can't run (no WebAssembly, Web Worker or
+   * Origin Private File System, as on a server), "downloading" while this
+   * page downloads it, "available" when its GGUF file is in wllama's
+   * storage, else "downloadable".
+   */
+  availability(): Promise<Availability> {
+    return availability(this.model)
+  }
+
+  /**
+   * Loads the model (downloading it the first time), with the download's
+   * progress, 0 to 1, then 1 once it's ready. Resolves to this adapter when
+   * it's ready; rejects if it can't load (fine to leave unawaited). `chat()` doesn't need it (its
+   * first call loads the model), but it lets a page load ahead of time.
+   * Adapters for the same model share one loaded model; the page holds one
+   * wllama model at a time.
+   */
+  createSessionWithProgress(
+    onDownloadProgress?: DownloadProgressCallback
+  ): Promise<this> {
+    const own = this.onDownloadProgress
+    const ready = loadModel(
+      this.model,
+      own && onDownloadProgress
+        ? (progress) => {
+            own(progress)
+            onDownloadProgress(progress)
+          }
+        : (own ?? onDownloadProgress)
+    ).then(() => this)
+    // Callers may leave it: an unawaited failure isn't an unhandled rejection.
+    ready.catch(() => undefined)
+    return ready
+  }
+
+  /**
+   * Unloads the model, freeing its memory (and stopping its download), if
+   * it's the one loaded (or loading); a running generation of it fails. The
+   * model is shared, so this unloads it for every adapter of it. Its file
+   * stays downloaded.
+   */
+  async destroySession(): Promise<void> {
+    await unloadModel(this.model)
   }
 
   /** Sampling and length for a call: `modelOptions` over the model card's, in llama.cpp's names. */
@@ -488,7 +546,7 @@ export class WllamaTextAdapter<
     }
 
     try {
-      const wllama = await waitForModel(model, signal).catch((error: unknown) => {
+      const wllama = await waitForModel(model, signal, this.onDownloadProgress).catch((error: unknown) => {
         throw new Error(`Couldn't load ${model}: ${errorText(error)}`)
       })
       context = loadedContext(wllama)
@@ -759,7 +817,7 @@ export class WllamaTextAdapter<
         }
       }
       signal?.throwIfAborted()
-      const wllama = await waitForModel(model, signal).catch((error: unknown) => {
+      const wllama = await waitForModel(model, signal, this.onDownloadProgress).catch((error: unknown) => {
         throw signal?.aborted ? error : new Error(`Couldn't load ${model}: ${errorText(error)}`)
       })
       context = loadedContext(wllama)
