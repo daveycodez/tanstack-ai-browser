@@ -41,7 +41,10 @@ const server = {
   beforePiece: noop as (index: number) => void
 }
 
-const sse = (chunks: Array<unknown>, before: (index: number) => void = noop) => {
+const sse = (
+  chunks: Array<unknown>,
+  before: (index: number) => void = noop
+) => {
   let index = 0
   return new Response(
     new ReadableStream<Uint8Array>(
@@ -79,7 +82,9 @@ beforeEach(() => {
         status: server.status
       })
     }
-    const draft = body.messages.at(-1)?.content.includes("Write short working notes")
+    const draft = body.messages
+      .at(-1)
+      ?.content.includes("Write short working notes")
     if (draft) {
       return sse([
         { choices: [{ delta: { content: "think " } }] },
@@ -92,7 +97,10 @@ beforeEach(() => {
       return new Response(
         JSON.stringify({
           choices: [
-            { message: { content: server.answer.join("") }, finish_reason: server.finish }
+            {
+              message: { content: server.answer.join("") },
+              finish_reason: server.finish
+            }
           ],
           usage
         }),
@@ -105,7 +113,8 @@ beforeEach(() => {
           choices: [
             {
               delta: { content },
-              finish_reason: i === server.answer.length - 1 ? server.finish : null
+              finish_reason:
+                i === server.answer.length - 1 ? server.finish : null
             }
           ]
         })),
@@ -138,9 +147,7 @@ async function collect(source: AsyncIterable<unknown>) {
 }
 
 const typesOf = (chunks: Array<Chunk>) =>
-  chunks.map((c) =>
-    c.type === "CUSTOM" ? `CUSTOM:${String(c.name)}` : c.type
-  )
+  chunks.map((c) => (c.type === "CUSTOM" ? `CUSTOM:${String(c.name)}` : c.type))
 
 test("the config and modelOptions take only standard names", () => {
   // @ts-expect-error onThinking was removed: reasoning streams as REASONING_* events.
@@ -159,7 +166,12 @@ test("structuredOutputStream sends one streamed JSON-schema request and emits th
     adapter().structuredOutputStream(
       options({
         runId: "run-1",
-        modelOptions: { maxCompletionTokens: 64, temperature: 0.2, topP: 0.9, seed: 7 }
+        modelOptions: {
+          maxCompletionTokens: 64,
+          temperature: 0.2,
+          topP: 0.9,
+          seed: 7
+        }
       })
     )
   )
@@ -201,7 +213,8 @@ test("structuredOutputStream sends one streamed JSON-schema request and emits th
   assert.deepEqual(
     {
       promptTokens: (finished?.usage as { promptTokens: number }).promptTokens,
-      completionTokens: (finished?.usage as { completionTokens: number }).completionTokens
+      completionTokens: (finished?.usage as { completionTokens: number })
+        .completionTokens
     },
     { promptTokens: 30, completionTokens: 5 }
   )
@@ -209,7 +222,11 @@ test("structuredOutputStream sends one streamed JSON-schema request and emits th
     assert.equal(typeof chunk.timestamp, "number")
     assert.deepEqual(
       (chunk.metadata as { tanstack: { source: unknown } }).tanstack.source,
-      { provider: "apfel", api: "openai-completions", model: "apple-foundationmodel" }
+      {
+        provider: "apfel",
+        api: "openai-completions",
+        model: "apple-foundationmodel"
+      }
     )
   }
 })
@@ -239,7 +256,10 @@ test("emulated reasoning streams as REASONING_* events from the draft, then the 
   assert.equal(server.requests[0].body.max_tokens, 16)
   assert.match(server.requests[1].body.messages[0].content, /think first/)
   const complete = chunks.find((c) => c.type === "CUSTOM")
-  assert.equal((complete?.value as { reasoning: string }).reasoning, "think first")
+  assert.equal(
+    (complete?.value as { reasoning: string }).reasoning,
+    "think first"
+  )
   const usage = chunks.at(-1)?.usage as {
     promptTokens: number
     completionTokens: number
@@ -338,89 +358,177 @@ test("chat({ outputSchema, stream: true }) runs end to end on the adapter's stre
   assert.deepEqual(value, { moveId: "b6-a5" })
 })
 
-test("parallelToolCalls goes to apfel with tools, and false keeps one tool call", async () => {
-  const tools = [
-    {
-      name: "get_weather",
-      description: "Weather for a city",
-      inputSchema: { type: "object", properties: { city: { type: "string" } }, required: ["city"] }
+const weatherTools = [
+  {
+    name: "get_weather",
+    description: "Weather for a city",
+    inputSchema: {
+      type: "object",
+      properties: { city: { type: "string" }, days: { type: "integer" } },
+      required: ["city"]
     }
-  ]
-  const call = (index: number, city: string) => ({
-    index,
-    id: `call_${index + 1}`,
-    type: "function",
-    function: { name: "get_weather", arguments: JSON.stringify({ city }) }
-  })
-  /** The model's reply: two calls streamed, or as JSON text apfel didn't recognize. */
-  let reply: "streamed" | "text" = "streamed"
+  },
+  { name: "get_current_location", description: "Where the user is" }
+]
+
+/** Answers the guided step with `step`, and a streamed request with text. */
+function stepServer(step: unknown) {
   globalThis.fetch = async (_url, init = {}) => {
     const body = JSON.parse(String(init.body)) as Body
     server.requests.push({ body, init })
-    // Argument repair fails, so the model's own arguments stand.
-    if (!body.stream) return new Response("{}", { status: 500 })
-    return sse(
-      reply === "streamed"
-        ? [
-            { choices: [{ delta: { tool_calls: [call(0, "Tokyo")] } }] },
-            { choices: [{ delta: { tool_calls: [call(1, "Paris")] }, finish_reason: "tool_calls" }] }
-          ]
-        : [
-            {
-              choices: [
-                {
-                  delta: {
-                    content:
-                      '{"tool_calls": [{"function": "get_weather", "arguments": {"city": "Tokyo"}}, {"function": "get_weather", "arguments": {"city": "Paris"}}]}'
-                  },
-                  finish_reason: "stop"
-                }
-              ]
-            }
-          ]
-    )
+    if (!body.stream) {
+      return new Response(
+        JSON.stringify({
+          choices: [{ message: { content: JSON.stringify(step) } }],
+          usage: { prompt_tokens: 40, completion_tokens: 9 }
+        })
+      )
+    }
+    return sse([
+      { choices: [{ delta: { content: "Sunny " } }] },
+      { choices: [{ delta: { content: "in Tokyo." }, finish_reason: "stop" }] }
+    ])
   }
-  const run = (modelOptions: ApfelTextModelOptions) =>
+}
+
+const weatherRun = (modelOptions?: ApfelTextModelOptions) =>
+  collect(
+    adapter().chatStream({
+      model: "apple-foundationmodel",
+      logger,
+      threadId: "thread",
+      systemPrompts: ["Be brief."],
+      messages: [{ role: "user", content: "Weather in Tokyo?" }],
+      tools: weatherTools,
+      ...(modelOptions && { modelOptions })
+    })
+  )
+
+test("with tools, one guided request picks the tool and writes its arguments", async () => {
+  stepServer({
+    action: "get_weather",
+    arguments: { get_weather: { city: "Tokyo", days: null } }
+  })
+  const chunks = await weatherRun({ maxCompletionTokens: 50 })
+  assert.equal(server.requests.length, 1)
+  const body = server.requests[0].body
+  assert.equal(body.stream, undefined)
+  assert.equal("tools" in body, false)
+  assert.equal("max_tokens" in body, false, "the cap is the answer's")
+  const format = body.response_format as {
+    json_schema: {
+      name: string
+      schema: {
+        properties: Record<
+          string,
+          { enum?: Array<string>; properties?: object }
+        >
+      }
+    }
+  }
+  assert.equal(format.json_schema.name, "step")
+  const props = format.json_schema.schema.properties
+  assert.deepEqual(props.action.enum, [
+    "get_weather",
+    "get_current_location",
+    "answer"
+  ])
+  // Only tools with arguments get an arguments object.
+  assert.deepEqual(Object.keys(props.arguments.properties ?? {}), [
+    "get_weather"
+  ])
+  // The tools are described after the caller's instructions, in one system message.
+  assert.equal(body.messages[0].role, "system")
+  assert.match(
+    body.messages[0].content,
+    /^Be brief\.\n\nYou can call these tools:/
+  )
+
+  assert.deepEqual(
+    typesOf(chunks).filter((t) => t.startsWith("TOOL_CALL_")),
+    ["TOOL_CALL_START", "TOOL_CALL_ARGS", "TOOL_CALL_END"]
+  )
+  const end = chunks.find((c) => c.type === "TOOL_CALL_END")
+  assert.equal(end?.toolCallName, "get_weather")
+  assert.deepEqual(
+    end?.input,
+    { city: "Tokyo" },
+    "empty optional fields are dropped"
+  )
+  assert.equal(chunks.at(-1)?.finishReason, "tool_calls")
+})
+
+test("with tools, an answer step streams the reply in one more request, without tools", async () => {
+  stepServer({ action: "answer" })
+  const chunks = await weatherRun()
+  assert.equal(server.requests.length, 2)
+  const answer = server.requests[1].body
+  assert.equal(answer.stream, true)
+  assert.equal("tools" in answer, false)
+  assert.equal("response_format" in answer, false)
+  assert.equal(
+    answer.messages[0].content,
+    "Be brief.",
+    "no tool list for the answer"
+  )
+  assert.equal(
+    chunks.some((c) => c.type.startsWith("TOOL_CALL")),
+    false
+  )
+  assert.equal(
+    chunks
+      .filter((c) => c.type === "TEXT_MESSAGE_CONTENT")
+      .map((c) => c.delta)
+      .join(""),
+    "Sunny in Tokyo."
+  )
+  assert.equal(chunks.at(-1)?.finishReason, "stop")
+})
+
+test("a step naming no tool it offers answers instead, and an invalid parallelToolCalls throws first", async () => {
+  stepServer({ action: "delete_everything" })
+  const chunks = await weatherRun()
+  assert.equal(
+    chunks.some((c) => c.type.startsWith("TOOL_CALL")),
+    false
+  )
+  assert.equal(server.requests.length, 2)
+
+  server.requests = []
+  await assert.rejects(
+    weatherRun({ parallelToolCalls: 0 as unknown as boolean }),
+    /parallelToolCalls must be a boolean/
+  )
+  assert.equal(server.requests.length, 0)
+})
+
+test("toolChoice required offers only the tools, and none sends no step", async () => {
+  stepServer({ action: "get_current_location" })
+  const run = (toolChoice: TextOptions["toolChoice"]) =>
     collect(
       adapter().chatStream({
         model: "apple-foundationmodel",
         logger,
         threadId: "thread",
-        messages: [{ role: "user", content: "Weather in Tokyo and Paris?" }],
-        tools,
-        modelOptions
+        messages: [{ role: "user", content: "Where am I?" }],
+        tools: weatherTools,
+        toolChoice
       })
     )
-  const toolEvents = (chunks: Array<Chunk>) => typesOf(chunks).filter((t) => t.startsWith("TOOL_CALL_"))
-  const cities = (chunks: Array<Chunk>) =>
-    chunks.filter((c) => c.type === "TOOL_CALL_END").map((c) => (c.input as { city: string }).city)
-
-  const single = await run({ parallelToolCalls: false })
-  assert.equal(server.requests[0]?.body.parallel_tool_calls, false)
-  assert.deepEqual(toolEvents(single), ["TOOL_CALL_START", "TOOL_CALL_ARGS", "TOOL_CALL_END"])
-  assert.deepEqual(cities(single), ["Tokyo"])
-  assert.equal(single.at(-1)?.finishReason, "tool_calls")
-  assert.equal(server.requests.length, 2, "only the kept call's arguments are repaired")
-
-  for (const [modelOptions, sent] of [[{ parallelToolCalls: true }, true], [{}, undefined]] as const) {
-    server.requests = []
-    const chunks = await run(modelOptions)
-    assert.equal(server.requests[0]?.body.parallel_tool_calls, sent)
-    assert.equal("parallel_tool_calls" in (server.requests[0]?.body ?? {}), sent !== undefined)
-    assert.deepEqual(cities(chunks), ["Tokyo", "Paris"])
+  const chunks = await run("required")
+  const format = server.requests[0].body.response_format as {
+    json_schema: { schema: { properties: { action: { enum: Array<string> } } } }
   }
+  assert.deepEqual(format.json_schema.schema.properties.action.enum, [
+    "get_weather",
+    "get_current_location"
+  ])
+  assert.deepEqual(chunks.find((c) => c.type === "TOOL_CALL_END")?.input, {})
 
-  reply = "text"
   server.requests = []
-  assert.deepEqual(cities(await run({ parallelToolCalls: false })), ["Tokyo"], "calls read from the text too")
-  assert.deepEqual(cities(await run({})), ["Tokyo", "Paris"])
-
-  server.requests = []
-  await assert.rejects(
-    run({ parallelToolCalls: 0 as unknown as boolean }),
-    /parallelToolCalls must be a boolean/
-  )
-  assert.equal(server.requests.length, 0)
+  await run("none")
+  assert.equal(server.requests.length, 1)
+  assert.equal(server.requests[0].body.stream, true)
 })
 
 test("parallelToolCalls isn't sent without tools", async () => {
@@ -434,6 +542,8 @@ test("parallelToolCalls isn't sent without tools", async () => {
     })
   )
   assert.equal("parallel_tool_calls" in (server.requests[0]?.body ?? {}), false)
-  await adapter().structuredOutput(options({ modelOptions: { parallelToolCalls: false } }))
+  await adapter().structuredOutput(
+    options({ modelOptions: { parallelToolCalls: false } })
+  )
   assert.equal("parallel_tool_calls" in (server.requests[1]?.body ?? {}), false)
 })

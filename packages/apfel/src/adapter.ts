@@ -21,13 +21,7 @@ import type {
   StructuredOutputResult
 } from "@tanstack/ai/adapters"
 
-import {
-  JSON_TOOL_CALLS_MARKER,
-  createToolCallSplitter,
-  parseJsonToolCalls
-} from "./tool-calls.js"
-import { matchToolName, repairToolArguments } from "./tool-repair.js"
-import type { GuidedRequest } from "./tool-repair.js"
+import { toGuidedSchema } from "./guided-schema.js"
 
 import type { ApfelChatModel } from "./model-meta.js"
 
@@ -57,10 +51,7 @@ export type ApfelConfig = {
  * answers, else "unavailable"; it never downloads.
  */
 export type Availability =
-  | "unavailable"
-  | "downloadable"
-  | "downloading"
-  | "available"
+  "unavailable" | "downloadable" | "downloading" | "available"
 
 /** A download's progress, from 0 to 1 (apfel's model never downloads: it hears 1). */
 export type DownloadProgressCallback = (progress: number) => void
@@ -82,10 +73,11 @@ export type ApfelProviderUsageDetails = {
    */
   decodeTokens?: number
   /**
-   * Time spent rewriting the tool calls' arguments under their schemas,
-   * after the reply ended (see the README's "Tool calls").
+   * Time the guided tool step took: the request in which the model picks a
+   * tool and writes its arguments, or picks "answer" (see the README's "Tool
+   * calls").
    */
-  toolRepairMs?: number
+  toolStepMs?: number
   reasoningEmulated?: true
   reasoningTokenMeasurement?: "provider-usage"
   reasoningBudgetEnforcement?: "server-output-limit"
@@ -119,9 +111,19 @@ export type ApfelTextModelOptions = {
 
 /** `modelOptions` as apfel's request fields (`parallelToolCalls` aside: tool requests only). */
 function nativeModelOptions(options: ApfelTextModelOptions | undefined) {
-  const { maxCompletionTokens: limit, temperature, topP, seed, parallelToolCalls } = options ?? {}
-  if (parallelToolCalls !== undefined && typeof parallelToolCalls !== "boolean") throw new TypeError("parallelToolCalls must be a boolean.")
-  if (limit !== undefined && (!Number.isSafeInteger(limit) || limit < 0)) throw new RangeError("maxCompletionTokens must be a nonnegative safe integer.")
+  const {
+    maxCompletionTokens: limit,
+    temperature,
+    topP,
+    seed,
+    parallelToolCalls
+  } = options ?? {}
+  if (parallelToolCalls !== undefined && typeof parallelToolCalls !== "boolean")
+    throw new TypeError("parallelToolCalls must be a boolean.")
+  if (limit !== undefined && (!Number.isSafeInteger(limit) || limit < 0))
+    throw new RangeError(
+      "maxCompletionTokens must be a nonnegative safe integer."
+    )
   return {
     ...(temperature !== undefined && { temperature }),
     ...(seed !== undefined && { seed }),
@@ -135,12 +137,25 @@ export type ApfelReasoning = { levels: "off" | "high"; budget: true }
 function reasoningOptions(request: ReasoningRequest | undefined) {
   const budget = request?.budgetTokens
   if (budget !== undefined && (!Number.isSafeInteger(budget) || budget < 0)) {
-    throw new RangeError("reasoning.budgetTokens must be a nonnegative safe integer.")
+    throw new RangeError(
+      "reasoning.budgetTokens must be a nonnegative safe integer."
+    )
   }
-  if (request?.level !== undefined && request.level !== "off" && request.level !== "high") {
+  if (
+    request?.level !== undefined &&
+    request.level !== "off" &&
+    request.level !== "high"
+  ) {
     throw new RangeError("Apfel emulated reasoning supports off or high.")
   }
   return { enabled: request?.level === "high", budget }
+}
+
+/** What a guided tool step decided: a tool and its arguments, or "answer". */
+type Step = {
+  action: string
+  args: Record<string, unknown>
+  usage?: OpenAIUsage | null
 }
 
 type DraftReasoning = {
@@ -149,17 +164,28 @@ type DraftReasoning = {
   details?: ApfelProviderUsageDetails
 }
 
+/** The user messages that carry tool results (see `toOpenAIMessages`). */
+const toolResults = new WeakSet<OpenAIMessage>()
+
 function withWorkingNotes(messages: Array<OpenAIMessage>, notes: string) {
   if (!notes) return messages
   const instruction = `Working notes to verify against the conversation:\n${notes}\nAnswer the original request above or make the required tool call. Do not return these notes.`
   // Keep the real current turn and its tool-result ordering intact. A new user
   // message here can make Apple's model answer the notes instead of the request.
-  const user = messages.map((message) => message.role).lastIndexOf("user")
+  // Tool results are user messages too; the notes go with the request itself.
+  let user = messages.length - 1
+  while (
+    user >= 0 &&
+    (messages[user].role !== "user" || toolResults.has(messages[user]))
+  )
+    user--
   return user < 0
     ? [...messages, { role: "user" as const, content: instruction }]
-    : messages.map((message, index) => index === user
-      ? { ...message, content: `${message.content}\n\n${instruction}` }
-      : message)
+    : messages.map((message, index) =>
+        index === user
+          ? { ...message, content: `${message.content}\n\n${instruction}` }
+          : message
+      )
 }
 
 type MetadataByModality = {
@@ -170,24 +196,9 @@ type MetadataByModality = {
   document: unknown
 }
 
-type OpenAIToolCall = {
-  id: string
-  type: "function"
-  function: { name: string; arguments: string }
-}
-
-type OpenAIMessage =
-  | { role: "system" | "user"; content: string }
-  | {
-      role: "assistant"
-      content: string | null
-      tool_calls?: Array<OpenAIToolCall>
-    }
-  | { role: "tool"; tool_call_id: string; content: string }
-
-type OpenAITool = {
-  type: "function"
-  function: { name: string; description: string; parameters: unknown }
+type OpenAIMessage = {
+  role: "system" | "user" | "assistant"
+  content: string
 }
 
 type FinishReason = "stop" | "length" | "content_filter" | "tool_calls" | null
@@ -229,10 +240,10 @@ type OpenAICompletion = {
  * A tool result for the model. A failed tool gives its error message, so the
  * model can see what went wrong and try again.
  */
-function toolResultText(m: ModelMessage) {
+function toolResultText(m: ModelMessage, name: string) {
   const text = contentText(m.content)
-  if (m.error) return `Error: ${m.error}`
-  return text && text !== "null" ? text : "The tool returned nothing."
+  if (m.error) return `Result of ${name}: error: ${m.error}`
+  return `Result of ${name}:\n${text && text !== "null" ? text : "nothing."}`
 }
 
 function contentText(content: ModelMessage["content"]) {
@@ -242,41 +253,55 @@ function contentText(content: ModelMessage["content"]) {
     .join("")
 }
 
+/** A tool call as the model writes it in a guided step (see `stepSchema`). */
+function stepText(name: string, args: string) {
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(args || "{}")
+  } catch {
+    parsed = {}
+  }
+  const hasArgs =
+    !!parsed && typeof parsed === "object" && Object.keys(parsed).length > 0
+  return JSON.stringify({
+    action: name,
+    ...(hasArgs && { arguments: { [name]: parsed } })
+  })
+}
+
 /**
- * The conversation in OpenAI's chat format. Tool calls and results from
- * earlier turns are left out; their answers stay. With them in the history,
- * Apple's model writes its next tool call as broken JSON text most of the
- * time (4 of 12 calls worked, against 12 of 12 without). The current turn's
- * calls and results are kept: the model answers from them.
+ * The conversation as plain chat messages. The current turn's tool calls are
+ * the step JSON the model wrote, and their results user messages, so every
+ * request reads them the same way, with or without tools. Tool calls and
+ * results from earlier turns are left out; their answers stay. With them in
+ * the history, Apple's model wrote its next tool call as broken JSON text most
+ * of the time (4 of 12 calls worked, against 12 of 12 without).
  */
 function toOpenAIMessages(messages: Array<ModelMessage>): Array<OpenAIMessage> {
   const out: Array<OpenAIMessage> = []
   const currentTurn = messages.map((m) => m.role).lastIndexOf("user")
+  const names = new Map<string, string>()
   for (const [i, m] of messages.entries()) {
-    const earlierToolStep =
-      i < currentTurn &&
-      (m.role === "tool" || (m.role === "assistant" && m.toolCalls?.length))
     const content = contentText(m.content)
-    if (earlierToolStep) {
-      if (m.role === "assistant" && content) {
-        out.push({ role: "assistant", content })
+    const earlier = i < currentTurn
+    if (m.role === "tool") {
+      if (earlier) continue
+      const name = names.get(m.toolCallId ?? "") ?? "the tool"
+      const result: OpenAIMessage = {
+        role: "user",
+        content: toolResultText(m, name)
       }
-    } else if (m.role === "tool") {
-      out.push({
-        role: "tool",
-        tool_call_id: m.toolCallId ?? "",
-        content: toolResultText(m)
-      })
+      toolResults.add(result)
+      out.push(result)
     } else if (m.role === "assistant" && m.toolCalls?.length) {
-      out.push({
-        role: "assistant",
-        content: content || null,
-        tool_calls: m.toolCalls.map((call) => ({
-          id: call.id,
-          type: "function",
-          function: call.function
-        }))
-      })
+      for (const call of m.toolCalls) names.set(call.id, call.function.name)
+      const steps = earlier
+        ? []
+        : m.toolCalls.map((call) =>
+            stepText(call.function.name, call.function.arguments)
+          )
+      const text = [content, ...steps].filter(Boolean).join("\n")
+      if (text) out.push({ role: "assistant", content: text })
     } else if (content) {
       out.push({ role: m.role === "user" ? "user" : "assistant", content })
     }
@@ -284,32 +309,71 @@ function toOpenAIMessages(messages: Array<ModelMessage>): Array<OpenAIMessage> {
   return out
 }
 
-/** Tools as OpenAI function tools; `inputSchema` is already JSON Schema. */
-function toOpenAITools(tools: Array<Tool> | undefined): Array<OpenAITool> {
-  return (tools ?? []).map((tool) => ({
-    type: "function",
-    function: {
-      name: tool.name,
-      description: tool.description,
-      parameters: tool.inputSchema ?? {
-        type: "object",
-        properties: {},
-        required: []
-      }
-    }
-  }))
+/** A tool's arguments in the subset apfel's guided generation takes, if it has any. */
+function argumentsSchema(tool: Tool) {
+  const schema = toGuidedSchema(tool.inputSchema)
+  const properties = (schema.properties ?? {}) as Record<string, unknown>
+  return schema.type === "object" && Object.keys(properties).length > 0
+    ? schema
+    : undefined
 }
 
 /**
- * `tool_choice` for the request. "auto" is apfel's default and is left out,
- * so a plain request is sent exactly as before.
+ * The schema of one step with tools: the action, then the arguments of the
+ * tool it names. Apple's model writes it under apfel's guided generation, so
+ * the action is always "answer" or a tool's name, and the arguments hold no
+ * fields the tool doesn't declare (guided generation emits none). apfel's
+ * schemas have no "one of these objects", so each tool's arguments are an
+ * optional property of their own, named after the tool.
  */
-function toolChoice(choice: TextOptions["toolChoice"]) {
-  if (!choice || choice === "auto") return {}
-  if (typeof choice === "string") return { tool_choice: choice }
+function stepSchema(tools: Array<Tool>, choice: TextOptions["toolChoice"]) {
+  const names = tools.map((tool) => tool.name)
+  const actions =
+    typeof choice === "object"
+      ? [choice.name]
+      : choice === "required"
+        ? names
+        : [...names, "answer"]
+  const args = Object.fromEntries(
+    tools.flatMap((tool) => {
+      const schema = argumentsSchema(tool)
+      return schema ? [[tool.name, schema]] : []
+    })
+  )
   return {
-    tool_choice: { type: "function", function: { name: choice.name } }
+    type: "object",
+    properties: {
+      action: {
+        type: "string",
+        enum: actions,
+        description: "A tool to call now, or answer to reply to the user."
+      },
+      ...(Object.keys(args).length > 0 && {
+        arguments: {
+          type: "object",
+          description:
+            "The arguments of the tool named in action, under its name.",
+          properties: args,
+          required: []
+        }
+      })
+    },
+    required: ["action"]
   }
+}
+
+/** The tools, for the model to choose from, in the step's instructions. */
+function toolsInstructions(tools: Array<Tool>) {
+  const list = tools
+    .map((tool) => {
+      const schema = argumentsSchema(tool)
+      const args = schema
+        ? ` Arguments: ${JSON.stringify(schema.properties)}`
+        : ""
+      return `- ${tool.name}: ${tool.description ?? ""}${args}`
+    })
+    .join("\n")
+  return `You can call these tools:\n${list}\n\nDecide the next step. To call a tool, set action to its name and write its arguments under arguments.<its name>. To reply to the user, set action to "answer": the reply itself is written next.`
 }
 
 /** The system prompts as one system message, if there are any. */
@@ -344,18 +408,6 @@ async function* sseData(body: ReadableStream<Uint8Array>) {
   }
 }
 
-/** A tool call's JSON arguments, or undefined if they aren't a JSON object. */
-function parseArguments(json: string): Record<string, unknown> | undefined {
-  try {
-    const args = JSON.parse(json) as unknown
-    return args && typeof args === "object" && !Array.isArray(args)
-      ? (args as Record<string, unknown>)
-      : undefined
-  } catch {
-    return undefined
-  }
-}
-
 /** The message of apfel's `{"error": {"message"}}` body, or the raw body. */
 async function errorBody(response: Response) {
   const raw = await response.text().catch(() => "")
@@ -381,16 +433,21 @@ function usageOf(
     return undefined
   }
   const promptTokens = usage.prompt_tokens + (draft?.prompt_tokens ?? 0)
-  const completionTokens = usage.completion_tokens + (draft?.completion_tokens ?? 0)
+  const completionTokens =
+    usage.completion_tokens + (draft?.completion_tokens ?? 0)
   const result = buildBaseUsage<ApfelProviderUsageDetails>({
     promptTokens,
     completionTokens,
     totalTokens: promptTokens + completionTokens
   })
   if (draft?.completion_tokens !== undefined) {
-    result.completionTokensDetails = { reasoningTokens: draft.completion_tokens }
+    result.completionTokensDetails = {
+      reasoningTokens: draft.completion_tokens
+    }
   }
-  const cachedTokens = (usage.prompt_tokens_details?.cached_tokens ?? 0) + (draft?.prompt_tokens_details?.cached_tokens ?? 0)
+  const cachedTokens =
+    (usage.prompt_tokens_details?.cached_tokens ?? 0) +
+    (draft?.prompt_tokens_details?.cached_tokens ?? 0)
   if (cachedTokens) result.promptTokensDetails = { cachedTokens }
   if (details && Object.keys(details).length > 0) {
     result.providerUsageDetails = details
@@ -420,7 +477,10 @@ const sourceOf = (
 })
 
 /** A chunk tagged with its source, as TanStack's own adapters tag theirs. */
-function withSource(chunk: AdapterYieldChunk, source: ChunkSource): AdapterYieldChunk {
+function withSource(
+  chunk: AdapterYieldChunk,
+  source: ChunkSource
+): AdapterYieldChunk {
   const metadata = chunk.metadata as Record<string, unknown> | undefined
   return {
     ...chunk,
@@ -456,8 +516,6 @@ class StructuredOutputFailure extends Error {
 type StructuredRunResult = StructuredOutputResult<unknown> & {
   reasoning?: string
 }
-
-type StreamedCall = { name: string; arguments: string }
 
 export class ApfelTextAdapter<TModel extends string> extends BaseTextAdapter<
   TModel,
@@ -510,7 +568,9 @@ export class ApfelTextAdapter<TModel extends string> extends BaseTextAdapter<
       })
       if (!response.ok) return "unavailable"
       const list = (await response.json()) as { data?: Array<{ id?: string }> }
-      return list.data?.some((m) => m.id === this.model) ? "available" : "unavailable"
+      return list.data?.some((m) => m.id === this.model)
+        ? "available"
+        : "unavailable"
     } catch {
       return "unavailable"
     }
@@ -524,11 +584,15 @@ export class ApfelTextAdapter<TModel extends string> extends BaseTextAdapter<
    * nothing.
    */
   create(
-    options: { onDownloadProgress?: DownloadProgressCallback; signal?: AbortSignal } = {}
+    options: {
+      onDownloadProgress?: DownloadProgressCallback
+      signal?: AbortSignal
+    } = {}
   ): Promise<this> {
     const { onDownloadProgress } = options
     const { signal } = options
-    const aborted = () => new DOMException("The check was aborted.", "AbortError")
+    const aborted = () =>
+      new DOMException("The check was aborted.", "AbortError")
     const ready = new Promise<Availability>((resolve, reject) => {
       if (signal?.aborted) return reject(aborted())
       const onAbort = () => reject(aborted())
@@ -539,7 +603,9 @@ export class ApfelTextAdapter<TModel extends string> extends BaseTextAdapter<
     }).then((availability) => {
       if (signal?.aborted) throw aborted()
       if (availability !== "available") {
-        throw new Error(`apfel at ${this.baseURL} didn't answer, or doesn't serve ${this.model}.`)
+        throw new Error(
+          `apfel at ${this.baseURL} didn't answer, or doesn't serve ${this.model}.`
+        )
       }
       this.onDownloadProgress?.(1)
       onDownloadProgress?.(1)
@@ -567,8 +633,12 @@ export class ApfelTextAdapter<TModel extends string> extends BaseTextAdapter<
     const began = performance.now()
     const modelOptions = nativeModelOptions(options.modelOptions)
     // A thinking budget can narrow a caller's cap, but never raises it.
-    const limit = budget === undefined ? modelOptions.max_tokens
-      : modelOptions.max_tokens === undefined ? budget : Math.min(budget, modelOptions.max_tokens)
+    const limit =
+      budget === undefined
+        ? modelOptions.max_tokens
+        : modelOptions.max_tokens === undefined
+          ? budget
+          : Math.min(budget, modelOptions.max_tokens)
     draft.details = {
       reasoningEmulated: true,
       reasoningTokenMeasurement: "provider-usage",
@@ -591,7 +661,10 @@ export class ApfelTextAdapter<TModel extends string> extends BaseTextAdapter<
     let opened = false
     let finish: FinishReason = null
     try {
-      options.logger.request(`activity=reasoning-draft provider=apfel model=${this.model} stream=true`, { provider: "apfel", model: this.model })
+      options.logger.request(
+        `activity=reasoning-draft provider=apfel model=${this.model} stream=true`,
+        { provider: "apfel", model: this.model }
+      )
       const response = await send(`${this.baseURL}/chat/completions`, {
         method: "POST",
         headers: this.headers,
@@ -604,20 +677,27 @@ export class ApfelTextAdapter<TModel extends string> extends BaseTextAdapter<
           messages: [
             ...systemMessages(options.systemPrompts),
             ...toOpenAIMessages(options.messages),
-            { role: "user", content: "Write short working notes for the next response. Use facts already available in the conversation. Do not call tools or give the final response yet." }
+            {
+              role: "user",
+              content:
+                "Write short working notes for the next response. Use facts already available in the conversation. Do not call tools or give the final response yet."
+            }
           ]
         }),
         signal: controller.signal
       })
       signal?.throwIfAborted()
       if (!response.ok || !response.body) {
-        throw new Error(`apfel returned HTTP ${response.status}: ${await errorBody(response)}`)
+        throw new Error(
+          `apfel returned HTTP ${response.status}: ${await errorBody(response)}`
+        )
       }
       for await (const data of sseData(response.body)) {
         signal?.throwIfAborted()
         if (data === "[DONE]") break
         const chunk = JSON.parse(data) as OpenAIChunk
-        if (chunk.error) throw new Error(chunk.error.message ?? "apfel sent an error.")
+        if (chunk.error)
+          throw new Error(chunk.error.message ?? "apfel sent an error.")
         draft.usage = chunk.usage ?? draft.usage
         const choice = chunk.choices?.[0]
         finish = choice?.finish_reason ?? finish
@@ -625,20 +705,39 @@ export class ApfelTextAdapter<TModel extends string> extends BaseTextAdapter<
         if (!delta) continue
         if (!opened) {
           opened = true
-          yield { ...event, type: EventType.REASONING_START, timestamp: Date.now() }
-          yield { ...event, type: EventType.REASONING_MESSAGE_START, role: "reasoning", timestamp: Date.now() }
+          yield {
+            ...event,
+            type: EventType.REASONING_START,
+            timestamp: Date.now()
+          }
+          yield {
+            ...event,
+            type: EventType.REASONING_MESSAGE_START,
+            role: "reasoning",
+            timestamp: Date.now()
+          }
         }
         draft.notes += delta
-        yield { ...event, type: EventType.REASONING_MESSAGE_CONTENT, delta, timestamp: Date.now() }
+        yield {
+          ...event,
+          type: EventType.REASONING_MESSAGE_CONTENT,
+          delta,
+          timestamp: Date.now()
+        }
       }
       signal?.throwIfAborted()
       draft.details.thinkingTokens = draft.usage?.completion_tokens
       // Use the server's finish reason: its usage accounting can include tokens
       // beyond the configured generation cap, so count comparisons are unreliable.
-      draft.details.thinkingBudgetExhausted = budget !== undefined && finish === "length" && limit === budget
+      draft.details.thinkingBudgetExhausted =
+        budget !== undefined && finish === "length" && limit === budget
       draft.details.reasoningMs = performance.now() - began
       if (opened) {
-        yield { ...event, type: EventType.REASONING_MESSAGE_END, timestamp: Date.now() }
+        yield {
+          ...event,
+          type: EventType.REASONING_MESSAGE_END,
+          timestamp: Date.now()
+        }
         yield { ...event, type: EventType.REASONING_END, timestamp: Date.now() }
       }
     } finally {
@@ -692,25 +791,104 @@ export class ApfelTextAdapter<TModel extends string> extends BaseTextAdapter<
       ...(options.parentRunId && { parentRunId: options.parentRunId })
     }
 
-    const tools = toOpenAITools(options.tools)
-    const toolNames = new Set(tools.map((tool) => tool.function.name))
-    const parallel = options.modelOptions?.parallelToolCalls
+    const tools = options.toolChoice === "none" ? [] : (options.tools ?? [])
     const send = options.wrapFetch ? options.wrapFetch(fetch) : fetch
     const url = `${this.baseURL}/chat/completions`
     logger.request(
       `activity=chat provider=apfel model=${model} messages=${options.messages.length} tools=${tools.length} stream=true`,
       { provider: "apfel", model }
     )
-    const sentAt = performance.now()
-    let response: Response
     const draft: DraftReasoning = { notes: "" }
     try {
-      if (emulation.enabled) yield* this.draftReasoning(options, signal, send, emulation.budget, draft)
+      if (emulation.enabled)
+        yield* this.draftReasoning(
+          options,
+          signal,
+          send,
+          emulation.budget,
+          draft
+        )
     } catch (error) {
       if (signal?.aborted) return
       yield runError(`apfel's reasoning draft failed: ${errorText(error)}`)
       return
     }
+    const conversation = withWorkingNotes(
+      [
+        ...systemMessages(options.systemPrompts),
+        ...toOpenAIMessages(options.messages)
+      ],
+      draft.notes
+    )
+
+    // With tools, a guided step comes first: one request in which the model
+    // picks a tool and writes its arguments, or picks "answer". A tool call
+    // ends the step there; an answer is then written, streamed, below.
+    let stepMs: number | undefined
+    if (tools.length > 0) {
+      const stepStart = performance.now()
+      let step: Step
+      try {
+        step = await this.decideStep(tools, options, conversation, send, signal)
+      } catch (error) {
+        if (signal?.aborted) return
+        logger.errors("apfel tool step failed", {
+          error,
+          source: "apfel.chatStream"
+        })
+        yield runError(`apfel's tool step failed: ${errorText(error)}`)
+        return
+      }
+      stepMs = performance.now() - stepStart
+      if (step.action !== "answer") {
+        const toolCallId = nextId("tool")
+        const args = JSON.stringify(step.args)
+        yield {
+          type: EventType.TOOL_CALL_START,
+          toolCallId,
+          toolCallName: step.action,
+          parentMessageId: messageId,
+          index: 0,
+          model,
+          timestamp: timestamp()
+        }
+        yield {
+          type: EventType.TOOL_CALL_ARGS,
+          toolCallId,
+          delta: args,
+          args,
+          model,
+          timestamp: timestamp()
+        }
+        yield {
+          type: EventType.TOOL_CALL_END,
+          toolCallId,
+          toolCallName: step.action,
+          args,
+          input: step.args,
+          model,
+          timestamp: timestamp()
+        }
+        const details: ApfelProviderUsageDetails = {
+          ...draft.details,
+          toolStepMs: stepMs
+        }
+        const finishUsage = usageOf(step.usage, details, draft.usage)
+        yield {
+          type: EventType.RUN_FINISHED,
+          runId,
+          threadId,
+          model,
+          timestamp: timestamp(),
+          finishReason: "tool_calls",
+          ...(finishUsage && { usage: finishUsage })
+        }
+        return
+      }
+    }
+
+    const sentAt = performance.now()
+    let response: Response
     try {
       signal?.throwIfAborted()
       response = await send(url, {
@@ -722,15 +900,7 @@ export class ApfelTextAdapter<TModel extends string> extends BaseTextAdapter<
           stream: true,
           // Token counts, for the stats.
           stream_options: { include_usage: true },
-          messages: withWorkingNotes([
-            ...systemMessages(options.systemPrompts),
-            ...toOpenAIMessages(options.messages)
-          ], draft.notes),
-          ...(tools.length > 0 && {
-            tools,
-            ...toolChoice(options.toolChoice),
-            ...(parallel !== undefined && { parallel_tool_calls: parallel })
-          })
+          messages: conversation
         }),
         signal
       })
@@ -751,8 +921,7 @@ export class ApfelTextAdapter<TModel extends string> extends BaseTextAdapter<
     }
 
     // Reasoning (apfel sends none for Apple's model today) streams as
-    // reasoning events, then the answer as text up to any tool call the
-    // model wrote as text, which is held back and parsed at the end.
+    // reasoning events, then the answer as text.
     let reasoning: "none" | "open" | "closed" = "none"
     let textStarted = false
     let text = ""
@@ -836,11 +1005,6 @@ export class ApfelTextAdapter<TModel extends string> extends BaseTextAdapter<
       })
     }
 
-    // When apfel doesn't recognize a tool call, it passes it on as text;
-    // that part is held back and read once the reply ends.
-    const splitter = createToolCallSplitter(JSON_TOOL_CALLS_MARKER)
-    // Tool calls stream in pieces, by index.
-    const streamed: Array<StreamedCall> = []
     // apfel streams a few tokens per chunk: the first chunk's share of the
     // characters stands in for its share of the tokens.
     const timing = { first: 0, last: 0, firstChars: 0, chars: 0 }
@@ -859,14 +1023,7 @@ export class ApfelTextAdapter<TModel extends string> extends BaseTextAdapter<
         const delta = choice?.delta
         const chars =
           (delta?.content?.length ?? 0) +
-          (delta?.reasoning_content?.length ?? 0) +
-          (delta?.tool_calls ?? []).reduce(
-            (n, piece) =>
-              n +
-              (piece.function?.name?.length ?? 0) +
-              (piece.function?.arguments?.length ?? 0),
-            0
-          )
+          (delta?.reasoning_content?.length ?? 0)
         if (chars > 0) {
           timing.last = performance.now()
           if (!timing.first) {
@@ -876,14 +1033,7 @@ export class ApfelTextAdapter<TModel extends string> extends BaseTextAdapter<
           timing.chars += chars
         }
         if (delta?.reasoning_content) addReasoning(delta.reasoning_content)
-        if (delta?.content) addText(splitter.push(delta.content))
-        for (const piece of delta?.tool_calls ?? []) {
-          // apfel numbers its calls call_1, call_2… in every response; the
-          // adapter gives them ids of its own that are unique in the thread.
-          const call = (streamed[piece.index] ??= { name: "", arguments: "" })
-          call.name += piece.function?.name ?? ""
-          call.arguments += piece.function?.arguments ?? ""
-        }
+        if (delta?.content) addText(delta.content)
         if (choice?.finish_reason) finishReason = choice.finish_reason
         yield* events.splice(0)
       }
@@ -907,89 +1057,16 @@ export class ApfelTextAdapter<TModel extends string> extends BaseTextAdapter<
           decodeMs: timing.last - timing.first,
           ...(outputTokens !== undefined && {
             decodeTokens:
-              (outputTokens * (timing.chars - timing.firstChars)) /
-              timing.chars
+              (outputTokens * (timing.chars - timing.firstChars)) / timing.chars
           })
         }
       : {}
-
     endReasoning()
-    const { text: rest, markup } = splitter.flush()
-    const fromText =
-      markup && streamed.length === 0
-        ? parseJsonToolCalls(markup, toolNames)
-        : []
-    // Text that wasn't a readable tool call is shown after all.
-    addText(`${rest}${fromText.length > 0 ? "" : (markup ?? "")}`)
-    yield* events.splice(0)
-
-    // Calls to tools that don't exist are passed on too: `chat()` answers
-    // them with an "Unknown tool" error, so the model can answer with what
-    // it has instead of stopping there.
-    const found = [
-      ...streamed.filter((call) => call?.name),
-      ...fromText.map((call) => ({
-        name: call.name,
-        arguments: JSON.stringify(call.args)
-      }))
-    ].map((call) => ({
-      ...call,
-      name: matchToolName(call.name, toolNames) ?? call.name
-    }))
-    // apfel keeps one call for `parallel_tool_calls: false`; calls read from
-    // the text are its model's own, so the first is kept here too.
-    const calls = parallel === false ? found.slice(0, 1) : found
-    let repairMs = 0
-    for (const [index, call] of calls.entries()) {
-      const toolCallId = nextId("tool")
-      yield {
-        type: EventType.TOOL_CALL_START,
-        toolCallId,
-        toolCallName: call.name,
-        parentMessageId: messageId,
-        index,
-        model,
-        timestamp: timestamp()
-      }
-      const tool = options.tools?.find((t) => t.name === call.name)
-      const repairStart = performance.now()
-      const repaired = tool
-        ? await this.repairArguments(
-            tool,
-            call.arguments,
-            options,
-            send,
-            signal
-          )
-        : undefined
-      repairMs += performance.now() - repairStart
-      if (signal?.aborted) return
-      const args = repaired ? JSON.stringify(repaired) : call.arguments || "{}"
-      const input = repaired ?? parseArguments(args)
-      yield {
-        type: EventType.TOOL_CALL_ARGS,
-        toolCallId,
-        delta: args,
-        args,
-        model,
-        timestamp: timestamp()
-      }
-      yield {
-        type: EventType.TOOL_CALL_END,
-        toolCallId,
-        toolCallName: call.name,
-        args,
-        // Arguments that aren't JSON are left out; `chat()` reports them.
-        ...(input && { input }),
-        model,
-        timestamp: timestamp()
-      }
-    }
     endText()
     yield* events.splice(0)
 
     Object.assign(details, draft.details)
-    if (repairMs > 0) details.toolRepairMs = repairMs
+    if (stepMs !== undefined) details.toolStepMs = stepMs
     const finishUsage = usageOf(usage, details, draft.usage)
     yield {
       type: EventType.RUN_FINISHED,
@@ -998,81 +1075,100 @@ export class ApfelTextAdapter<TModel extends string> extends BaseTextAdapter<
       model,
       timestamp: timestamp(),
       finishReason:
-        calls.length > 0
-          ? "tool_calls"
-          : finishReason === "tool_calls" || finishReason === null
-            ? "stop"
-            : finishReason,
+        finishReason === "tool_calls" || finishReason === null
+          ? "stop"
+          : finishReason,
       ...(finishUsage && { usage: finishUsage })
     }
   }
 
   /**
-   * A tool call's arguments, written again under the tool's schema with
-   * guided generation. Undefined if the tool takes no arguments or a request
-   * failed: the model's own arguments are used then.
+   * The guided tool step: one request under `stepSchema`, in which Apple's
+   * model picks a tool and writes its arguments, or picks "answer". apfel
+   * holds the reply to the schema (guided generation), so the action is
+   * always one the step allows and the arguments only the tool's own fields.
    */
-  private async repairArguments(
-    tool: Tool,
-    draft: string,
+  private async decideStep(
+    tools: Array<Tool>,
     options: TextOptions<ApfelTextModelOptions>,
+    conversation: Array<OpenAIMessage>,
     send: typeof fetch,
     signal: AbortSignal | undefined
-  ) {
-    const system = normalizeSystemPrompts(options.systemPrompts)
-      .map((p) => p.content)
-      .join("\n\n")
-    const messages = toOpenAIMessages(options.messages)
-    const complete = async ({ instructions, schema, name }: GuidedRequest) => {
-      options.logger.request(
-        `activity=tool-repair provider=apfel model=${this.model} tool=${tool.name} step=${name}`,
-        { provider: "apfel", model: this.model }
-      )
-      const response = await send(`${this.baseURL}/chat/completions`, {
-        method: "POST",
-        headers: this.headers,
-        body: JSON.stringify({
-          ...nativeModelOptions(options.modelOptions),
-          model: this.model,
-          // apfel takes one system message, and the conversation must end
-          // with the user or a tool result: the instructions go first.
-          messages: [
-            {
-              role: "system",
-              content: system
-                ? `${instructions}\n\nThe assistant's instructions, for context:\n${system}`
-                : instructions
-            },
-            ...messages
-          ],
-          response_format: {
-            type: "json_schema",
-            json_schema: { name, schema }
-          }
-        }),
-        signal
-      })
-      if (!response.ok) {
-        throw new Error(
-          `apfel returned HTTP ${response.status}: ${await errorBody(response)}`
-        )
-      }
-      const completion = (await response.json()) as OpenAICompletion
-      const text = (completion.choices?.[0]?.message?.content ?? "").trim()
-      return JSON.parse(
-        text.replace(/^```(?:json)?\s*|\s*```$/g, "")
-      ) as unknown
+  ): Promise<Step> {
+    // apfel takes one system message: the tools go after the instructions.
+    const instructions = toolsInstructions(tools)
+    const [first, ...rest] = conversation
+    const messages: Array<OpenAIMessage> =
+      first?.role === "system"
+        ? [
+            { role: "system", content: `${first.content}\n\n${instructions}` },
+            ...rest
+          ]
+        : [{ role: "system", content: instructions }, ...conversation]
+    options.logger.request(
+      `activity=tool-step provider=apfel model=${this.model} tools=${tools.length}`,
+      { provider: "apfel", model: this.model }
+    )
+    // The output cap is the answer's: the step is a short JSON of its own
+    // (an undefined field is left out of the request body).
+    const sampling = {
+      ...nativeModelOptions(options.modelOptions),
+      max_tokens: undefined
     }
-    try {
-      return await repairToolArguments(tool, complete, draft)
-    } catch (error) {
-      if (!signal?.aborted) {
-        options.logger.errors("apfel tool-call repair failed", {
-          error,
-          source: "apfel.repairArguments"
-        })
-      }
-      return undefined
+    const response = await send(`${this.baseURL}/chat/completions`, {
+      method: "POST",
+      headers: this.headers,
+      body: JSON.stringify({
+        ...sampling,
+        model: this.model,
+        messages,
+        response_format: {
+          type: "json_schema",
+          json_schema: {
+            name: "step",
+            schema: stepSchema(tools, options.toolChoice)
+          }
+        }
+      }),
+      signal
+    })
+    if (!response.ok) {
+      throw new Error(
+        `apfel returned HTTP ${response.status}: ${await errorBody(response)}`
+      )
+    }
+    const completion = (await response.json()) as OpenAICompletion
+    const text = (completion.choices?.[0]?.message?.content ?? "")
+      .trim()
+      .replace(/^```(?:json)?\s*|\s*```$/g, "")
+    const step = JSON.parse(text) as {
+      action?: unknown
+      arguments?: Record<string, unknown>
+    }
+    const action =
+      typeof step.action === "string" &&
+      tools.some((tool) => tool.name === step.action)
+        ? step.action
+        : "answer"
+    const written = step.arguments?.[action]
+    const args =
+      written && typeof written === "object" && !Array.isArray(written)
+        ? (written as Record<string, unknown>)
+        : {}
+    return {
+      action,
+      // Optional fields left empty weren't really set.
+      args: Object.fromEntries(
+        Object.entries(args).filter(
+          ([, value]) =>
+            !(
+              value === "" ||
+              value === null ||
+              (Array.isArray(value) && value.length === 0)
+            )
+        )
+      ),
+      usage: completion.usage
     }
   }
 
@@ -1198,7 +1294,13 @@ export class ApfelTextAdapter<TModel extends string> extends BaseTextAdapter<
     )
     const draft: DraftReasoning = { notes: "" }
     if (emulation.enabled) {
-      yield* this.draftReasoning(chatOptions, signal, send, emulation.budget, draft)
+      yield* this.draftReasoning(
+        chatOptions,
+        signal,
+        send,
+        emulation.budget,
+        draft
+      )
     }
     let response: Response
     try {
@@ -1213,10 +1315,13 @@ export class ApfelTextAdapter<TModel extends string> extends BaseTextAdapter<
             stream: true,
             stream_options: { include_usage: true }
           }),
-          messages: withWorkingNotes([
-            ...systemMessages(chatOptions.systemPrompts),
-            ...toOpenAIMessages(chatOptions.messages)
-          ], draft.notes),
+          messages: withWorkingNotes(
+            [
+              ...systemMessages(chatOptions.systemPrompts),
+              ...toOpenAIMessages(chatOptions.messages)
+            ],
+            draft.notes
+          ),
           response_format: {
             type: "json_schema",
             json_schema: { name: "output", schema: outputSchema }
@@ -1248,8 +1353,18 @@ export class ApfelTextAdapter<TModel extends string> extends BaseTextAdapter<
     let nativeReasoning = ""
     const endReasoning = function* (): Generator<AdapterYieldChunk> {
       if (!reasoningId) return
-      yield { type: EventType.REASONING_MESSAGE_END, messageId: reasoningId, model, timestamp: Date.now() }
-      yield { type: EventType.REASONING_END, messageId: reasoningId, model, timestamp: Date.now() }
+      yield {
+        type: EventType.REASONING_MESSAGE_END,
+        messageId: reasoningId,
+        model,
+        timestamp: Date.now()
+      }
+      yield {
+        type: EventType.REASONING_END,
+        messageId: reasoningId,
+        model,
+        timestamp: Date.now()
+      }
       reasoningId = undefined
     }
     const addText = function* (delta: string): Generator<AdapterYieldChunk> {
@@ -1257,10 +1372,23 @@ export class ApfelTextAdapter<TModel extends string> extends BaseTextAdapter<
       yield* endReasoning()
       if (!textStarted) {
         textStarted = true
-        yield { type: EventType.TEXT_MESSAGE_START, messageId, role: "assistant", model, timestamp: Date.now() }
+        yield {
+          type: EventType.TEXT_MESSAGE_START,
+          messageId,
+          role: "assistant",
+          model,
+          timestamp: Date.now()
+        }
       }
       content += delta
-      yield { type: EventType.TEXT_MESSAGE_CONTENT, messageId, delta, content, model, timestamp: Date.now() }
+      yield {
+        type: EventType.TEXT_MESSAGE_CONTENT,
+        messageId,
+        delta,
+        content,
+        model,
+        timestamp: Date.now()
+      }
     }
     // A server that ignores `stream` answers with one JSON completion.
     const streamed =
@@ -1273,7 +1401,8 @@ export class ApfelTextAdapter<TModel extends string> extends BaseTextAdapter<
         if (data === "[DONE]") break
         const chunk = JSON.parse(data) as OpenAIChunk
         chatOptions.logger.provider("provider=apfel", { chunk })
-        if (chunk.error) throw new Error(chunk.error.message ?? "apfel sent an error.")
+        if (chunk.error)
+          throw new Error(chunk.error.message ?? "apfel sent an error.")
         usage = chunk.usage ?? usage
         const choice = chunk.choices?.[0]
         if (choice?.finish_reason) finishReason = choice.finish_reason
@@ -1281,11 +1410,28 @@ export class ApfelTextAdapter<TModel extends string> extends BaseTextAdapter<
         if (delta?.reasoning_content) {
           if (!reasoningId) {
             reasoningId = nextId("reasoning")
-            yield { type: EventType.REASONING_START, messageId: reasoningId, model, timestamp: Date.now() }
-            yield { type: EventType.REASONING_MESSAGE_START, messageId: reasoningId, role: "reasoning", model, timestamp: Date.now() }
+            yield {
+              type: EventType.REASONING_START,
+              messageId: reasoningId,
+              model,
+              timestamp: Date.now()
+            }
+            yield {
+              type: EventType.REASONING_MESSAGE_START,
+              messageId: reasoningId,
+              role: "reasoning",
+              model,
+              timestamp: Date.now()
+            }
           }
           nativeReasoning += delta.reasoning_content
-          yield { type: EventType.REASONING_MESSAGE_CONTENT, messageId: reasoningId, delta: delta.reasoning_content, model, timestamp: Date.now() }
+          yield {
+            type: EventType.REASONING_MESSAGE_CONTENT,
+            messageId: reasoningId,
+            delta: delta.reasoning_content,
+            model,
+            timestamp: Date.now()
+          }
         }
         if (delta?.refusal) refusal += delta.refusal
         if (delta?.content) yield* addText(delta.content)
@@ -1303,7 +1449,12 @@ export class ApfelTextAdapter<TModel extends string> extends BaseTextAdapter<
     }
     yield* endReasoning()
     if (textStarted) {
-      yield { type: EventType.TEXT_MESSAGE_END, messageId, model, timestamp: Date.now() }
+      yield {
+        type: EventType.TEXT_MESSAGE_END,
+        messageId,
+        model,
+        timestamp: Date.now()
+      }
     }
     signal?.throwIfAborted()
     if (finishReason === "length") {
@@ -1316,7 +1467,10 @@ export class ApfelTextAdapter<TModel extends string> extends BaseTextAdapter<
     if (!rawText) {
       throw refusal
         ? new StructuredOutputFailure(`Model refused: ${refusal}`, "refusal")
-        : new StructuredOutputFailure("apfel's answer is empty.", "empty-response")
+        : new StructuredOutputFailure(
+            "apfel's answer is empty.",
+            "empty-response"
+          )
     }
     const json = rawText.replace(/^```(?:json)?\s*|\s*```$/g, "")
     let data: unknown

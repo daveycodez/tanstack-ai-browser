@@ -84,8 +84,8 @@ test("apfel structured requests preserve exact schema and current tool-result me
   const requests=control.requests.map(entry=>entry.request as Record<string,unknown>)
   assert.deepEqual(requests[0].messages,requests[1].messages)
   const messages=requests[0].messages as Array<{role:string;content:string}>
-  assert.deepEqual(messages.map(message=>message.role),["system","user","assistant","tool"])
-  assert.equal(messages.at(-1)?.content,history.at(-1)?.content)
+  assert.deepEqual(messages.map(message=>message.role),["system","user","assistant","user"])
+  assert.equal(messages.at(-1)?.content,`Result of lookup:\n${history.at(-1)?.content}`)
   assert.equal(messages[0].content,"Stable instructions")
 })
 

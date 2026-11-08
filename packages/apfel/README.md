@@ -53,12 +53,11 @@ When the server reports usage, totals include draft and final requests, and `com
 
 ## Tool calls
 
-Tools work as with any adapter: pass them to `chat({ tools })`, MCP tools included, and `chat()` runs them. Apple's model picks the right tool but often gets its arguments wrong, renaming fields (`limit` for `numResults`) or dropping optional ones it was asked to set. So the adapter repairs every tool call before `chat()` runs it, using only the tool's JSON Schema:
+Tools work as with any adapter: pass them to `chat({ tools })`, MCP tools included, and `chat()` runs them. apfel's own tool calling has Apple's model write each call as free text (an OpenAI `tool_calls` envelope with the arguments as an escaped JSON string), which it then parses and repairs. On a question that needs two tools in a row ("the weather where I am": the location, then the weather), the model skipped the first tool and made up arguments 4 times in 4 that way.
 
-1. For each optional field, apfel's guided generation answers yes or no: does the request give it a value?
-2. The arguments are written again, constrained to the schema, with those fields required. Fields the model already named and typed right are kept as it wrote them.
+So the adapter doesn't send `tools` to apfel. Each step that has tools is one guided request (`response_format: json_schema`, apfel's guided generation) instead: the model writes `{"action": …, "arguments": {"<tool>": {…}}}`, where `action` can only be `"answer"` or one of the tools' names (only the tools, for `toolChoice: "required"`; only that tool, for a named one), and the arguments only hold the fields the tool declares. A tool call ends the step there: one request, where apfel's tool calling plus the old repair took up to three. For `"answer"`, the reply is then written by one more request, streamed as usual (apfel sends a guided answer in one piece once it's complete, so the answer isn't written inside the JSON). The same question then went through 3 times in 3.
 
-Schema keywords the on-device model can't enforce (`minLength`, `pattern`, `format`…) are dropped for the repair, `$ref`s are inlined, and `anyOf`/`oneOf` take their first non-null choice. If a repair request fails, the model's own arguments are used. Repair adds two short requests per tool call (one for a tool without optional fields), about a second and a half in all; it's in `usage.providerUsageDetails.toolRepairMs`.
+The tools are listed in the step's instructions, after the system prompt. Their schemas are cut to what guided generation can enforce: `minLength`, `pattern`, `format`… are dropped, `$ref`s are inlined, and `anyOf`/`oneOf` take their first non-null choice. Optional fields the model leaves empty are dropped. The current turn's tool calls are sent back to the model as the step JSON it wrote, and their results as user messages; earlier turns' tool steps are left out (their answers stay). The step's time is `usage.providerUsageDetails.toolStepMs`. `parallelToolCalls` is accepted and has no effect: a step is one call.
 
 ## Structured output
 

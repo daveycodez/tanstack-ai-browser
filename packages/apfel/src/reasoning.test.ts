@@ -41,7 +41,9 @@ function reset() {
     if (draft && state.draftFailure) return new Response("draft failed", { status: 503 })
     if (!draft && state.abortFinal) state.controller.abort(new Error("cancel during final"))
     if (body.stream) return stream(draft, body.response_format !== undefined)
-    return new Response(JSON.stringify({ choices: [{ message: { content: '{"moveId":"b6-a5"}' }, finish_reason: state.finalFinish }], usage: { prompt_tokens: 30, completion_tokens: 3 } }))
+    const step = (body.response_format as { json_schema?: { name?: string } } | undefined)?.json_schema?.name === "step"
+    const content = step ? JSON.stringify({ action: state.tools ? "ping" : "answer" }) : '{"moveId":"b6-a5"}'
+    return new Response(JSON.stringify({ choices: [{ message: { content }, finish_reason: state.finalFinish }], usage: { prompt_tokens: 30, completion_tokens: 3 } }))
   }
 }
 function options(reasoning?: unknown, modelOptions?: object, requestSignal = true) {
@@ -121,7 +123,11 @@ test("Apfel emits reasoning before final text and preserves tool selection and c
     assert.equal(state.requests[0].body.tools, undefined)
     assert.ok(events.some(e => e.type === "REASONING_MESSAGE_CONTENT" && e.delta === "working "))
     if (tools) {
-      assert.equal(state.requests[1].body.tool_choice, "required")
+      // The step offers only the tools for "required", after the draft.
+      const step = state.requests[1].body.response_format as { json_schema: { name: string; schema: { properties: { action: { enum: Array<string> } } } } }
+      assert.equal(step.json_schema.name, "step")
+      assert.deepEqual(step.json_schema.schema.properties.action.enum, ["ping"])
+      assert.match(state.requests[1].body.messages.at(-1)?.content ?? "", /working notes/)
       const calls = events.filter(e => e.type === "TOOL_CALL_END")
       assert.equal(calls.length, 1); assert.equal(calls[0].toolCallName, "ping")
     } else {
@@ -188,8 +194,11 @@ test("Apfel draft notes preserve the original user turn and authoritative tool-r
   assert.equal(final[0].role, "user")
   assert.match(final[0].content, /^Get the temperature in London/)
   assert.match(final[0].content, /working notes/)
-  assert.equal(final.at(-1)?.role, "tool")
-  assert.equal(final.at(-1)?.content, '{"temperature":21}')
+  // The current turn's call is the step JSON the model writes, its result a user message.
+  assert.equal(final[1].role, "assistant")
+  assert.equal(final[1].content, '{"action":"lookup_temperature","arguments":{"lookup_temperature":{"city":"London"}}}')
+  assert.equal(final.at(-1)?.role, "user")
+  assert.equal(final.at(-1)?.content, 'Result of lookup_temperature:\n{"temperature":21}')
   assert.equal(JSON.stringify(messages), original)
 })
 
