@@ -20,7 +20,7 @@ const asText = (value: unknown) =>
   typeof value === "string" ? value : JSON.stringify(value, null, 2)
 
 /** Why a call failed, if it did. */
-function errorOf(part: ToolCallPart, result?: ToolResultPart) {
+export function errorOf(part: ToolCallPart, result?: ToolResultPart) {
   if (result && (result.error || result.state === "error")) {
     return result.error ?? asText(result.content)
   }
@@ -28,7 +28,7 @@ function errorOf(part: ToolCallPart, result?: ToolResultPart) {
 }
 
 /** Where a call is, from its state, as TanStack's example reads it. */
-function statusOf(
+export function statusOf(
   part: ToolCallPart,
   result: ToolResultPart | undefined,
   isRunning: boolean
@@ -85,7 +85,8 @@ export function McpToolApproval({
 const NOT_TOOLS = new Set(["then", "toJSON", "constructor", "$$typeof"])
 
 /**
- * A `toolsComponents` map that gives every tool name the same widget. The
+ * A `toolsComponents` map that gives every tool name the same widget, but
+ * for the tools in `named`, which get their own. The
  * chat kit renders a tool call only through a widget registered under its
  * exact name, with no fallback (TanStack/ai#1953), and MCP tools are only
  * known at runtime. The kit reads this map by name when it renders and
@@ -93,13 +94,16 @@ const NOT_TOOLS = new Set(["then", "toJSON", "constructor", "$$typeof"])
  * has none).
  */
 export function everyTool<TProps>(
-  widget: ComponentType<TProps>
+  widget: ComponentType<TProps>,
+  named: Record<string, ComponentType<TProps>> = {}
 ): Record<string, ComponentType<TProps>> {
   return new Proxy(
     {},
     {
       get: (_target, key) =>
-        typeof key === "string" && !NOT_TOOLS.has(key) ? widget : undefined
+        typeof key === "string" && !NOT_TOOLS.has(key)
+          ? (Object.hasOwn(named, key) ? named[key] : widget)
+          : undefined
     }
   )
 }

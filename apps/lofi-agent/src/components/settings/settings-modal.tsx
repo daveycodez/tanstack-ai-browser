@@ -1,6 +1,6 @@
 /**
- * The Settings modal: a custom system prompt for every model, and deleting
- * every session.
+ * The Settings modal: a custom system prompt for every model, the built-in
+ * weather tool, and deleting every session.
  */
 import TrashBin from "@gravity-ui/icons/TrashBin"
 import {
@@ -9,6 +9,7 @@ import {
   Description,
   Label,
   Modal,
+  Switch,
   TextArea,
   TextField
 } from "@heroui/react"
@@ -17,6 +18,7 @@ import { useState } from "react"
 
 import { threadsCollection } from "#/lib/db"
 import { systemPromptSetting } from "#/lib/settings"
+import { weatherToolSetting } from "#/lib/weather"
 import { deleteAllThreads } from "#/lib/threads"
 
 export function SettingsModal({
@@ -61,6 +63,7 @@ function SettingsForm({
   onAllDeleted: () => void
 }) {
   const [systemPrompt, setSystemPrompt] = useState(systemPromptSetting.get)
+  const [weatherTool, setWeatherTool] = useState(weatherToolSetting.get)
   return (
     <>
       <Modal.CloseTrigger />
@@ -84,6 +87,20 @@ function SettingsForm({
             today&apos;s date. Kept in this browser only.
           </Description>
         </TextField>
+        <Switch isSelected={weatherTool} onChange={setWeatherTool}>
+          <Switch.Content className="w-full justify-between gap-4">
+            <div className="flex min-w-0 flex-col gap-0.5">
+              <Label>Weather</Label>
+              <Description>
+                Lets models look up the weather. The city asked about is sent
+                to <span className="whitespace-nowrap">Open-Meteo</span>.
+              </Description>
+            </div>
+            <Switch.Control className="shrink-0">
+              <Switch.Thumb />
+            </Switch.Control>
+          </Switch.Content>
+        </Switch>
         <DeleteAllSessions onDeleted={onAllDeleted} />
       </Modal.Body>
       <Modal.Footer>
@@ -93,6 +110,7 @@ function SettingsForm({
         <Button
           onPress={() => {
             systemPromptSetting.set(systemPrompt)
+            weatherToolSetting.set(weatherTool)
             onDone()
           }}
         >

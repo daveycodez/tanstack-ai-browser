@@ -23,7 +23,6 @@ export function Suggestion({
     <Button
       size="sm"
       variant="outline"
-      className="rounded-full"
       isDisabled={isDisabled}
       onPress={() => onSuggestionClick?.(suggestion)}
     >

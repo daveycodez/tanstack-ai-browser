@@ -11,7 +11,7 @@ A chat app that runs small language models entirely in your browser. Models are 
 - **Download once.** Model weights (about 0.8 to 1.1 GB per model) are saved to the browser's Origin Private File System and loaded from disk on later visits.
 - **Reuses work between runs.** The model keeps what it has already read, so a follow-up message, the next step after a tool call, or a new session with the same system prompt only reads what's new. The system prompt and tools are also saved to disk, so they aren't read again after a reload.
 
-What does leave your device: calls to MCP servers (Exa's web search, if it's on, and those you add), and the downloads of model files (Hugging Face) and the runtime (jsDelivr). The browser's built-in model is downloaded by the browser itself.
+What does leave your device: calls to MCP servers (Exa's web search, if it's on, and those you add), the city in a weather lookup (Open-Meteo, if the weather tool is on), and the downloads of model files (Hugging Face) and the runtime (jsDelivr). The browser's built-in model is downloaded by the browser itself.
 
 ## Models
 
@@ -43,6 +43,7 @@ The "Web" builds are published under [`daveycodez` on Hugging Face](https://hugg
 - A new session starts with five starter prompts above the composer, at the bottom of the page as in TanStack AI's chatbot example
 - Streaming replies with collapsible thinking, Markdown, math (KaTeX) and syntax-highlighted code
 - Web search through Exa's MCP server, built in and on by default: works without a key at a free rate limit, or with your Exa API key. Results show as numbered source chips the reply can cite.
+- Weather, built in: models can look up a city's current weather and 5-day forecast from Open-Meteo (free, no key), shown as a weather card. It never asks first, and Settings turns it off. The city asked about is sent to Open-Meteo.
 - MCP servers: add any Streamable HTTP server by URL, with optional HTTP headers for its key (for example `Authorization: Bearer …` or `x-api-key`). The browser connects directly, so the server must allow this site (CORS).
 - Tool approval: every MCP tool asks before it runs, with Approve and Reject, except the built-in server's read-only ones (Exa's search). A session left waiting for an answer still asks after a reload.
 - Sessions, settings and MCP servers saved in IndexedDB as TanStack DB collections, kept in step across open tabs. Each session has its own URL, `/sessions/<id>`.
@@ -55,7 +56,7 @@ The "Web" builds are published under [`daveycodez` on Hugging Face](https://hugg
 - A stats line under the composer for the latest reply: tokens in, cached, out and total, prompt reading and generation speed, and time to first token
 - Voice input through the browser's speech recognition, where available
 - The browser's built-in model (the Prompt API section: Gemini Nano in Chrome, Phi-4-mini in Edge), through the Prompt API, where the browser has it and the device can run it. The browser downloads it once for every site, with its progress shown in the reply; follow-ups and tool steps reuse its session, and web search works through guided generation
-- Settings: a system prompt sent with every session (before the current date), and deleting every session
+- Settings: a system prompt sent with every session (before the current date), the weather tool on or off, and deleting every session
 - Light, dark and system themes
 - Add to Home Screen: installs as an app with its own icon, and keeps the downloaded model more reliably than a Safari tab
 - GGUF models (the wllama section) run with llama.cpp's WebAssembly build: download once to the Origin Private File System, reuse what they've read across follow-ups and tool calls, and need no WebGPU

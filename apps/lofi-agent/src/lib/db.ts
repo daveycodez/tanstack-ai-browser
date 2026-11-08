@@ -45,6 +45,8 @@ export type Settings = {
   /** How hard models think, clamped to each model's levels. */
   effort: ReasoningLevel
   sidebarOpen: boolean
+  /** Whether models get the built-in weather tool (lib/weather.ts). */
+  weatherTool: boolean
 }
 
 export type SettingKey = keyof Settings

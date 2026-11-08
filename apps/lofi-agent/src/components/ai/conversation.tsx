@@ -1,5 +1,5 @@
 import ArrowDown from "@gravity-ui/icons/ArrowDown"
-import { ScrollShadow, Spinner } from "@heroui/react"
+import { Avatar, ScrollShadow, Spinner, Typography } from "@heroui/react"
 import type { ComponentProps, ReactNode } from "react"
 import { StickToBottom, useStickToBottomContext } from "use-stick-to-bottom"
 
@@ -51,9 +51,9 @@ export function ConversationContent({
 }
 
 /**
- * An empty conversation: a welcome in the middle of the space, laid out as
- * HeroUI Pro's EmptyState (medium: a round icon, a title and a muted line),
- * with whatever starts the chat (the composer) at the bottom, where it stays
+ * An empty conversation: a welcome in the middle of the space (the icon in
+ * HeroUI's Avatar, the title and a muted line in its Typography), with
+ * whatever starts the chat (the composer) at the bottom, where it stays
  * once the chat starts, as in TanStack AI's chatbot example.
  */
 export function ConversationEmptyState({
@@ -69,12 +69,25 @@ export function ConversationEmptyState({
 }) {
   return (
     <div className="flex h-full flex-col">
-      <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-2 px-6 text-center">
-        <div className="mb-2 flex size-12 shrink-0 items-center justify-center rounded-full bg-default text-foreground [&_svg]:size-5">
-          {icon}
-        </div>
-        <h2 className="text-base font-semibold text-foreground">{title}</h2>
-        <p className="max-w-xs text-sm text-pretty text-muted">{description}</p>
+      <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-2 px-6">
+        <Avatar size="lg" className="mb-2">
+          <Avatar.Fallback>{icon}</Avatar.Fallback>
+        </Avatar>
+        <Typography
+          type="h6"
+          align="center"
+          render={({ children, ...props }) => <h2 {...props}>{children}</h2>}
+        >
+          {title}
+        </Typography>
+        <Typography
+          type="body-sm"
+          color="muted"
+          align="center"
+          className="max-w-xs text-pretty"
+        >
+          {description}
+        </Typography>
       </div>
       {children}
     </div>
