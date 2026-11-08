@@ -130,10 +130,10 @@ function Transcript({
  * AI's chatbot example, each chip sends its own text.
  */
 const PROMPTS = [
-  "Search the web for today's top tech news",
+  "Search the web for today's tech news",
   "Is 8633 prime? Reason it through",
-  "Summarize the history of the printing press in five bullets",
-  "Explain simply how vaccines train the immune system",
+  "Sum up the printing press in 5 bullets",
+  "Explain how vaccines work",
   "Write a haiku about autumn"
 ]
 
