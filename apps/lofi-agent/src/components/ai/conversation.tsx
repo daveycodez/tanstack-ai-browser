@@ -50,7 +50,11 @@ export function ConversationContent({
   )
 }
 
-/** An empty conversation: a heading, with whatever starts one under it. */
+/**
+ * An empty conversation: a heading in the middle of the space, with whatever
+ * starts one (the composer) at the bottom, where the chat keeps it once it
+ * starts. Laid out like TanStack AI's chatbot example.
+ */
 export function ConversationEmptyState({
   title,
   children
@@ -59,11 +63,11 @@ export function ConversationEmptyState({
   children?: ReactNode
 }) {
   return (
-    <div className="flex h-full flex-col items-center justify-center px-6 pb-16">
-      <div className="flex w-full max-w-[714px] flex-col items-center">
-        <h2 className="mb-8 text-center text-2xl font-semibold">{title}</h2>
-        {children}
+    <div className="flex h-full flex-col">
+      <div className="flex min-h-0 flex-1 items-center justify-center px-6">
+        <h2 className="text-center text-2xl font-semibold">{title}</h2>
       </div>
+      {children}
     </div>
   )
 }

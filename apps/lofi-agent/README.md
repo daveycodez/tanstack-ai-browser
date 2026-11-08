@@ -40,6 +40,7 @@ The "Web" builds are published under [`daveycodez` on Hugging Face](https://hugg
 
 ## Features
 
+- A new session starts with five starter prompts above the composer, at the bottom of the page as in TanStack AI's chatbot example
 - Streaming replies with collapsible thinking, Markdown, math (KaTeX) and syntax-highlighted code
 - Web search through Exa's MCP server, built in and on by default: works without a key at a free rate limit, or with your Exa API key. Results show as numbered source chips the reply can cite.
 - MCP servers: add any Streamable HTTP server by URL, with optional HTTP headers for its key (for example `Authorization: Bearer …` or `x-api-key`). The browser connects directly, so the server must allow this site (CORS).

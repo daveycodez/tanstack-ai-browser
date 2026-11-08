@@ -1,7 +1,7 @@
 /**
  * The `layout` widget: the conversation, which follows the reply while
  * you're at the bottom, and the prompt input under it. An empty session
- * centers a welcome, the prompt input and suggestions.
+ * centers a welcome, with the starter chips and prompt input at the bottom.
  */
 import { Skeleton } from "@heroui/react"
 import type { LayoutProps } from "@tanstack/ai-react/ui"
@@ -17,12 +17,17 @@ import {
   ConversationEmptyState,
   ConversationScrollButton
 } from "#/components/ai/conversation"
+import { Suggestion, Suggestions } from "#/components/ai/suggestions"
 import { sourcesByReply } from "#/lib/reply-sources"
 import { PromptInputSkeleton } from "./input"
 import { PendingReply } from "./message"
 import { ReplyStatsLine } from "./reply-stats"
 import { TranscriptContext, useThread } from "./thread-context"
 import { useChatContext } from "./ui-components"
+
+/** Under the transcript, or an empty session's heading: the composer. */
+const COMPOSER_AREA =
+  "relative mx-auto flex w-full max-w-[calc(714px+2rem)] flex-col px-4 pb-2"
 
 export function ChatLayout({
   Messages,
@@ -54,7 +59,7 @@ export function ChatLayout({
   }, [isHydrating, opened])
 
   if (messages.length === 0 && (!isHydrating || !hasSaved)) {
-    return <EmptyState Input={Input} />
+    return <EmptyState Input={Input} threadId={threadId} />
   }
 
   return (
@@ -66,7 +71,7 @@ export function ChatLayout({
           <Transcript Messages={Messages} Interrupts={Interrupts} />
         )}
       </ConversationContent>
-      <div className="relative mx-auto flex w-full max-w-[calc(714px+2rem)] flex-col px-4 pb-2">
+      <div className={COMPOSER_AREA}>
         <ConversationScrollButton isLoading={isLoading} />
         {queue.length > 0 && (
           <div className="mb-2 flex flex-col gap-1">
@@ -119,11 +124,55 @@ function Transcript({
   )
 }
 
-function EmptyState({ Input }: { Input: ComponentType }) {
+/**
+ * Prompts to start an empty session with, one for each thing the app does:
+ * web search, reasoning, summing up, explaining and writing. As in TanStack
+ * AI's chatbot example, each chip sends its own text.
+ */
+const PROMPTS = [
+  "Search the web for today's top tech news",
+  "Is 8633 prime? Reason it through",
+  "Summarize the history of the printing press in five bullets",
+  "Explain simply how vaccines train the immune system",
+  "Write a haiku about autumn"
+]
+
+/**
+ * A new session: the welcome in the middle, and at the bottom the starter
+ * chips over the composer, which stays where it is once the chat starts.
+ */
+function EmptyState({
+  Input,
+  threadId
+}: {
+  Input: ComponentType
+  threadId: string
+}) {
+  const { send } = useThread()
   return (
     <ConversationEmptyState title="How can I help you today?">
-      <Input />
+      <div className={COMPOSER_AREA}>
+        <StarterPrompts onSend={send} />
+        <Input />
+        <ReplyStatsLine threadId={threadId} />
+      </div>
     </ConversationEmptyState>
+  )
+}
+
+/** The starter chips; inert without `onSend`, as in the skeleton. */
+function StarterPrompts({ onSend }: { onSend?: (text: string) => void }) {
+  return (
+    <Suggestions>
+      {PROMPTS.map((prompt) => (
+        <Suggestion
+          key={prompt}
+          suggestion={prompt}
+          isDisabled={!onSend}
+          onSuggestionClick={onSend}
+        />
+      ))}
+    </Suggestions>
   )
 }
 
@@ -142,7 +191,11 @@ export function ThreadSkeleton({
   if (isNew) {
     return (
       <ConversationEmptyState title="How can I help you today?">
-        <PromptInputSkeleton />
+        <div className={COMPOSER_AREA}>
+          <StarterPrompts />
+          <PromptInputSkeleton />
+          <ReplyStatsLine threadId={threadId} />
+        </div>
       </ConversationEmptyState>
     )
   }
@@ -151,7 +204,7 @@ export function ThreadSkeleton({
       <ConversationContent>
         <TranscriptSkeleton />
       </ConversationContent>
-      <div className="relative mx-auto flex w-full max-w-[calc(714px+2rem)] flex-col px-4 pb-2">
+      <div className={COMPOSER_AREA}>
         <PromptInputSkeleton />
         <ReplyStatsLine threadId={threadId} />
       </div>
