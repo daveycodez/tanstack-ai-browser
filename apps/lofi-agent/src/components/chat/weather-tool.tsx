@@ -102,7 +102,8 @@ function WeatherCard({ report }: { report: WeatherReport }) {
     <Card role="article" aria-labelledby={titleId}>
       <Card.Header className="flex-row items-start justify-between gap-4">
         <div className="flex min-w-0 flex-col gap-1">
-          <Card.Title id={titleId} className="truncate">
+          {/* Wraps rather than cut off a long place on a phone. */}
+          <Card.Title id={titleId} className="text-pretty">
             {report.location}
           </Card.Title>
           <Typography

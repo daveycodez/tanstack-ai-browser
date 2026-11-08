@@ -10,6 +10,8 @@ type City = [string, string, string, number, number]
 
 /** Past this, the place is named as near the city rather than in it. */
 const NEAR_KM = 30
+/** Past this, the nearest city says too little to name the place by. */
+const FAR_KM = 100
 
 let cities: Promise<Array<City>> | undefined
 
@@ -42,7 +44,8 @@ const countryNames = new Intl.DisplayNames(["en"], { type: "region" })
 
 /**
  * The place at a point, such as "Seattle, Washington, United States", or
- * "Near Seattle, …" past 30 km from the nearest listed city.
+ * "Near Seattle, …" past 30 km from the nearest listed city. Undefined past
+ * 100 km (the open sea, say), where no name would be right.
  */
 export async function placeName(latitude: number, longitude: number) {
   const list = await loadCities()
@@ -55,7 +58,7 @@ export async function placeName(latitude: number, longitude: number) {
       best = city
     }
   }
-  if (!best) throw new Error("The city list is empty.")
+  if (!best || bestKm > FAR_KM) return undefined
   const [name, region, country] = best
   const label = [
     name,

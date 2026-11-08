@@ -158,9 +158,10 @@ export async function lookUpWeather(
       ? await findCity(where.city, signal)
       : {
           ...where,
-          name: await placeName(where.latitude, where.longitude).catch(
-            () => "Your location"
-          )
+          name:
+            (await placeName(where.latitude, where.longitude).catch(
+              () => undefined
+            )) ?? "Your location"
         }
 
   const fahrenheit = usesFahrenheit()
