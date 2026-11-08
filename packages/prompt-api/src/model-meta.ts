@@ -18,47 +18,6 @@ export type PromptApiModelMeta = {
   }
   /** Reasoning levels for `chat({ reasoning })`. */
   reasoning: { levels: { off: string; high: string }; budget: true }
-  /**
-   * Which model this browser provides, read when accessed. The Prompt API
-   * doesn't say, but each browser has its own: Gemini Nano in Chrome,
-   * Phi-4-mini in Edge. Read from the browser's brand (User-Agent Client
-   * Hints), else its user agent.
-   */
-  readonly browserModel: {
-    /** The model, where the browser tells it: by which browser this is. */
-    id: "gemini-nano" | "phi-4-mini" | "unknown"
-    /** "Gemini Nano", "Phi-4-mini", or "Built-in model". */
-    name: string
-    /** "Chrome", "Edge", or the browser's brand; null if it can't be told. */
-    browser: string | null
-  }
-}
-
-type BrowserModel = PromptApiModelMeta["browserModel"]
-
-type NavigatorBrands = {
-  userAgentData?: { brands?: Array<{ brand: string }> }
-}
-
-function browserModel(): BrowserModel {
-  if (typeof navigator === "undefined") {
-    return { id: "unknown", name: "Built-in model", browser: null }
-  }
-  const brands = ((navigator as NavigatorBrands).userAgentData?.brands ?? [])
-    .map((b) => b.brand)
-    .filter((b) => !/not.?a.?brand/i.test(b))
-  const ua = navigator.userAgent
-  if (brands.includes("Microsoft Edge") || /\bEdg\//.test(ua)) {
-    return { id: "phi-4-mini", name: "Phi-4-mini", browser: "Edge" }
-  }
-  if (
-    brands.includes("Google Chrome") ||
-    (brands.length === 0 && /\bChrome\//.test(ua) && !/\bOPR\//.test(ua))
-  ) {
-    return { id: "gemini-nano", name: "Gemini Nano", browser: "Chrome" }
-  }
-  const brand = brands.find((b) => b !== "Chromium") ?? brands[0] ?? null
-  return { id: "unknown", name: "Built-in model", browser: brand }
 }
 
 const REASONING = {
@@ -73,10 +32,7 @@ const BUILT_IN = {
     output: ["text"],
     capabilities: ["tools", "thinking"]
   },
-  reasoning: REASONING,
-  get browserModel() {
-    return browserModel()
-  }
+  reasoning: REASONING
 } as const satisfies PromptApiModelMeta
 
 /** The model: whichever one the browser provides. */

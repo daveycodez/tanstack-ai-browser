@@ -31,7 +31,7 @@ import {
   modelStatus as promptApiStatus,
   promptApiText
 } from "@tanstack-ai-browser/prompt-api"
-import { PROMPT_API_MODEL_META } from "@tanstack-ai-browser/prompt-api/model-meta"
+import { browserModel } from "./browser-model.ts"
 import { useSyncExternalStore } from "react"
 
 import { createStore } from "#/lib/store"
@@ -181,9 +181,9 @@ export const MODELS = [
   {
     id: "built-in",
     /** The browser's own model: Gemini Nano in Chrome, Phi-4-mini in Edge. */
-    name: PROMPT_API_MODEL_META["built-in"].browserModel.name,
+    name: browserModel().name,
     icon:
-      PROMPT_API_MODEL_META["built-in"].browserModel.id === "phi-4-mini"
+      browserModel().id === "phi-4-mini"
         ? "/icons/microsoft.svg"
         : "/icons/gemini.svg",
     adapter: promptApiText("built-in"),
@@ -448,7 +448,7 @@ export const useHasWebGl2 = () =>
 const builtIn = createStore(false)
 if (
   typeof window !== "undefined" &&
-  PROMPT_API_MODEL_META["built-in"].browserModel.id !== "unknown"
+  browserModel().id !== "unknown"
 ) {
   void promptApiSupported().then(builtIn.set)
 }

@@ -10,7 +10,7 @@
   - `promptApiStatus()` → `modelStatus("built-in")`
   - `loadPromptApiModel(options?)` → `loadModel("built-in", options?)`
   - `destroyPromptApiSessions()` → `unloadModel()`
-  - `promptApiModel()` → `PROMPT_API_MODEL_META["built-in"].browserModel`, in `/model-meta`; `PromptApiModelInfo` is that field's type
+  - Removed: `promptApiModel()` and `PromptApiModelInfo`. The Prompt API doesn't say which model it runs; guessing it from the browser's brand is left to apps
   - `PromptApiTextModel` → `PromptApiChatModel`, in `/model-meta`
   - New in `/model-meta`: `PROMPT_API_CHAT_MODELS`, `PROMPT_API_MODEL_META`, `PROMPT_API_MODEL_REASONING`, `PromptApiModelMeta`, `PromptApiModelReasoningByName`
   - Removed: `promptApiContextWindow` (the window is in each call's `providerUsageDetails.contextWindow`), `PromptApiError`, `Availability`, `MediaInput`, `SamplingMode`, `PromptApiReasoning`, `PromptApiReasoningUsage` and `PromptApiOutputLimitUsage` (their fields are part of `PromptApiProviderUsageDetails`)
