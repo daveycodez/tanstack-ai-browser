@@ -91,7 +91,7 @@ export type WllamaConfig = {
   /**
    * The model's download progress, 0 to 1, when a call (`chat()`, say)
    * starts its download; then 1 once it's ready. To load it ahead of time
-   * with progress, see `createSessionWithProgress`.
+   * with progress, see `create`.
    */
   onDownloadProgress?: DownloadProgressCallback
 }
@@ -400,7 +400,7 @@ export class WllamaTextAdapter<
    * loaded and ready in this page (by any adapter of it), else
    * "downloadable", even while it loads or when its file is in wllama's
    * storage (a load then reads it). It never says "downloading": progress
-   * comes from `createSessionWithProgress`. It reads no storage.
+   * comes from `create`. It reads no storage.
    */
   availability(): Promise<Availability> {
     return availability(this.model)
@@ -418,7 +418,7 @@ export class WllamaTextAdapter<
    * chat waiting for the model) still waits on the load, the download is
    * cancelled and the model left unloaded.
    */
-  createSessionWithProgress(
+  create(
     options: { onDownloadProgress?: DownloadProgressCallback; signal?: AbortSignal } = {}
   ): Promise<this> {
     const { onDownloadProgress } = options

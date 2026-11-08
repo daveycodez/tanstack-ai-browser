@@ -1,7 +1,7 @@
 /**
  * Each opponent model's loading status, for the game's progress line: built
  * from its adapter's `availability()` (whether it can run here), the
- * download progress `createSessionWithProgress` reports (only for files
+ * download progress `create` reports (only for files
  * that aren't on the device yet), and that load resolving or failing.
  */
 
@@ -25,7 +25,7 @@ export type LoadingStore = {
 /** What the status needs of an adapter: the runtime methods every package's adapters have. */
 export type LoadableAdapter = {
   availability: () => Promise<"unavailable" | "downloadable" | "downloading" | "available">
-  createSessionWithProgress: (options?: {
+  create: (options?: {
     onDownloadProgress?: (progress: number) => void
     signal?: AbortSignal
   }) => Promise<unknown>
@@ -82,7 +82,7 @@ export function loadWithStatus(key: string, adapter: LoadableAdapter): Promise<v
         status.set({ state: "loading", progress: 0, downloading: false })
       }
     }
-    await adapter.createSessionWithProgress({
+    await adapter.create({
       onDownloadProgress: (progress) => {
         if (progress < 1) status.set({ state: "loading", progress, downloading: true })
       }

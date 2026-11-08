@@ -55,7 +55,7 @@ const APPLE_MODEL = "apple-foundationmodel"
  * A local model's loading status, from its adapter: `availability()` says
  * whether it can run here, `onDownloadProgress` how much of it has
  * downloaded (only for files that aren't on the device yet), and
- * `createSessionWithProgress` when it's ready (or failed).
+ * `create` when it's ready (or failed).
  */
 export type ModelStatus =
   | { state: "idle" }
@@ -536,7 +536,7 @@ const isAbort = (error: unknown) =>
  * its status up to date: loading (once its availability says it can run
  * here), how much has downloaded (its adapter's `onDownloadProgress`, which
  * hears only a real download), then ready or failed
- * (`createSessionWithProgress`). Resolves to the error if it couldn't load,
+ * (`create`). Resolves to the error if it couldn't load,
  * and to nothing if `signal` aborted: the adapter shares the load between
  * runs and cancels it when the last one waiting stops.
  */
@@ -554,7 +554,7 @@ export async function prepareModel(
         status.set({ state: "loading", progress: 0, downloading: false })
       }
     }
-    await adapter.createSessionWithProgress(signal ? { signal } : {})
+    await adapter.create(signal ? { signal } : {})
     status.set({ state: "ready" })
     return undefined
   } catch (error) {

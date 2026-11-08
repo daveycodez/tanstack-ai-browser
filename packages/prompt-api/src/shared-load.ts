@@ -9,7 +9,7 @@
 /** A download's progress, from 0 to 1. */
 type DownloadProgressCallback = (progress: number) => void
 
-/** What an aborted `createSessionWithProgress()` rejects with. */
+/** What an aborted `create()` rejects with. */
 export function abortError(): DOMException {
   return new DOMException("The model load was aborted.", "AbortError")
 }

@@ -322,7 +322,7 @@ test("availability (downloadable until loaded, available once ready) and downloa
   let open!: () => void
   fake.loadGate = new Promise<void>((resolve) => (open = resolve))
   const progress: Array<number> = []
-  const loading = adapter.createSessionWithProgress({ onDownloadProgress: (value) => progress.push(value) })
+  const loading = adapter.create({ onDownloadProgress: (value) => progress.push(value) })
   await new Promise((resolve) => setTimeout(resolve, 0))
   emit("progress", { model: MODEL, phase: "download", progress: 0.36, cached: false, loadedBytes: 4, totalBytes: 10 })
   emit("progress", { model: MODEL, phase: "download", progress: 0.9, cached: false })
@@ -337,7 +337,7 @@ test("availability (downloadable until loaded, available once ready) and downloa
 
   // The same context is already loaded: it reports 1 at once; another loads it again.
   const late: Array<number> = []
-  await other.createSessionWithProgress({ onDownloadProgress: (value) => late.push(value) })
+  await other.create({ onDownloadProgress: (value) => late.push(value) })
   assert.deepEqual(late, [1])
   assert.equal(fake.loads.length, 1)
   await loadModel(MODEL, { contextLength: 8192 })
@@ -348,8 +348,8 @@ test("availability (downloadable until loaded, available once ready) and downloa
   assert.equal(await adapter.availability(), "downloadable", "unloaded: its files may be stored, but it isn't loaded")
 
   fake.loadError = new Error("GPU lost")
-  await assert.rejects(adapter.createSessionWithProgress(), /GPU lost/)
-  void adapter.createSessionWithProgress()
+  await assert.rejects(adapter.create(), /GPU lost/)
+  void adapter.create()
 })
 
 test("the adapter loads for its own context length, reporting progress from its config", async () => {
@@ -383,7 +383,7 @@ test("availability is keyed on the context length as the loader is: another cont
   assert.equal(await webgllmText(MODEL, { contextLength: 8192 }).availability(), "available")
   assert.equal(await webgllmText(MODEL, { contextLength: 16_384 }).availability(), "downloadable")
   assert.equal(await webgllmText(MODEL).availability(), "downloadable", "the model's own context is another")
-  await webgllmText(MODEL, { contextLength: 16_384 }).createSessionWithProgress()
+  await webgllmText(MODEL, { contextLength: 16_384 }).create()
   assert.equal(fake.loads.length, 2, "the loader loaded it again for 16,384")
   assert.equal(await webgllmText(MODEL, { contextLength: 16_384 }).availability(), "available")
   assert.equal(await webgllmText(MODEL, { contextLength: 8192 }).availability(), "downloadable")
@@ -400,13 +400,13 @@ test("one engine check per page, however many models and calls ask", async () =>
   assert.equal(probes, 1)
 })
 
-test("createSessionWithProgress's signal: aborted before, nothing loads; the only waiter aborting cancels the load; one of two leaving keeps it for the other; a chat waiting keeps it too", async () => {
+test("create's signal: aborted before, nothing loads; the only waiter aborting cancels the load; one of two leaving keeps it for the other; a chat waiting keeps it too", async () => {
   const adapter = webgllmText(MODEL)
   const unhandled: Array<unknown> = []
   const onUnhandled = (reason: unknown) => unhandled.push(reason)
   process.on("unhandledRejection", onUnhandled)
   try {
-    await assert.rejects(adapter.createSessionWithProgress({ signal: AbortSignal.abort() }), (error: unknown) => error instanceof DOMException && error.name === "AbortError")
+    await assert.rejects(adapter.create({ signal: AbortSignal.abort() }), (error: unknown) => error instanceof DOMException && error.name === "AbortError")
     assert.equal(fake.loads.length, 0, "nothing loaded")
 
     // The only waiter aborts mid-download.
@@ -414,7 +414,7 @@ test("createSessionWithProgress's signal: aborted before, nothing loads; the onl
     fake.loadGate = new Promise<void>((resolve) => (open = resolve))
     const heard: Array<number> = []
     const controller = new AbortController()
-    const alone = adapter.createSessionWithProgress({ onDownloadProgress: (value) => heard.push(value), signal: controller.signal })
+    const alone = adapter.create({ onDownloadProgress: (value) => heard.push(value), signal: controller.signal })
     await new Promise((resolve) => setTimeout(resolve, 0))
     emit("progress", { model: MODEL, phase: "download", progress: 0.27, cached: false, loadedBytes: 3, totalBytes: 10 })
     controller.abort()
@@ -431,8 +431,8 @@ test("createSessionWithProgress's signal: aborted before, nothing loads; the onl
     const leaving: Array<number> = []
     const staying: Array<number> = []
     const leave = new AbortController()
-    const first = adapter.createSessionWithProgress({ onDownloadProgress: (value) => leaving.push(value), signal: leave.signal })
-    const second = adapter.createSessionWithProgress({ onDownloadProgress: (value) => staying.push(value) })
+    const first = adapter.create({ onDownloadProgress: (value) => leaving.push(value), signal: leave.signal })
+    const second = adapter.create({ onDownloadProgress: (value) => staying.push(value) })
     await new Promise((resolve) => setTimeout(resolve, 0))
     emit("progress", { model: MODEL, phase: "download", progress: 0.18, cached: false, loadedBytes: 2, totalBytes: 10 })
     leave.abort()
@@ -448,7 +448,7 @@ test("createSessionWithProgress's signal: aborted before, nothing loads; the onl
     await adapter.destroySession()
     fake.loadGate = new Promise<void>((resolve) => (open = resolve))
     const session = new AbortController()
-    const preload = adapter.createSessionWithProgress({ signal: session.signal })
+    const preload = adapter.create({ signal: session.signal })
     const chat = ensureModel(MODEL, undefined)
     await new Promise((resolve) => setTimeout(resolve, 0))
     session.abort()
@@ -459,7 +459,7 @@ test("createSessionWithProgress's signal: aborted before, nothing loads; the onl
 
     await adapter.destroySession()
     const ignored = new AbortController()
-    void adapter.createSessionWithProgress({ signal: ignored.signal })
+    void adapter.create({ signal: ignored.signal })
     ignored.abort()
     await new Promise((resolve) => setTimeout(resolve, 20))
     assert.deepEqual(unhandled, [])

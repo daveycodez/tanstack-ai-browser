@@ -197,7 +197,7 @@ test("a load's signal: aborted before, no worker starts; the only waiter abortin
     // Through the adapter, unawaited: no unhandled rejection.
     await unloadModel(MODEL)
     const ignored = new AbortController()
-    void mediaPipeEmbedding(MODEL).createSessionWithProgress({ signal: ignored.signal })
+    void mediaPipeEmbedding(MODEL).create({ signal: ignored.signal })
     ignored.abort()
     await new Promise((resolve) => setTimeout(resolve, 20))
     assert.deepEqual(unhandled, [])

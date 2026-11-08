@@ -84,7 +84,7 @@ export type TransformersJsConfig = {
   /**
    * The model's download progress, 0 to 1, when a call (`chat()`, say)
    * starts its download; then 1 once it's ready. To load it ahead of time
-   * with progress, see `createSessionWithProgress`.
+   * with progress, see `create`.
    */
   onDownloadProgress?: DownloadProgressCallback
 }
@@ -467,7 +467,7 @@ export class TransformersJsTextAdapter<
    * and ready in this page (by any adapter of it, for this `dtype`), else
    * "downloadable", even while it loads or when its files are cached (a
    * load then reads them). It never says "downloading": progress comes from
-   * `createSessionWithProgress`. It reads no storage and starts no worker.
+   * `create`. It reads no storage and starts no worker.
    */
   availability(): Promise<Availability> {
     return availability(this.model, { dtype: this.dtype })
@@ -485,7 +485,7 @@ export class TransformersJsTextAdapter<
    * chat waiting for the model) still waits on the load, it's cancelled:
    * the worker ends and the model is left unloaded.
    */
-  createSessionWithProgress(
+  create(
     options: { onDownloadProgress?: DownloadProgressCallback; signal?: AbortSignal } = {}
   ): Promise<this> {
     const { onDownloadProgress } = options

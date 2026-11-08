@@ -15,13 +15,13 @@ test("a failed load left unawaited raises no unhandled rejection; awaited, it re
   const onUnhandled = (reason: unknown) => unhandled.push(reason)
   process.on("unhandledRejection", onUnhandled)
   try {
-    void mediaPipeEmbedding(MODEL).createSessionWithProgress()
-    void mediaPipeEmbedding("not-a-model" as typeof MODEL).createSessionWithProgress()
+    void mediaPipeEmbedding(MODEL).create()
+    void mediaPipeEmbedding("not-a-model" as typeof MODEL).create()
     await new Promise((resolve) => setTimeout(resolve, 50))
     assert.deepEqual(unhandled, [])
-    await assert.rejects(mediaPipeEmbedding(MODEL).createSessionWithProgress(), /Web Workers/)
+    await assert.rejects(mediaPipeEmbedding(MODEL).create(), /Web Workers/)
     await assert.rejects(
-      mediaPipeEmbedding("not-a-model" as typeof MODEL).createSessionWithProgress(),
+      mediaPipeEmbedding("not-a-model" as typeof MODEL).create(),
       /Unknown MediaPipe embedding model/
     )
   } finally {

@@ -12,10 +12,10 @@ test("on a server, which has no Web Worker, models are unavailable, and a failed
   const onUnhandled = (reason: unknown) => unhandled.push(reason)
   process.on("unhandledRejection", onUnhandled)
   try {
-    void adapter.createSessionWithProgress()
+    void adapter.create()
     await new Promise((resolve) => setTimeout(resolve, 50))
     assert.deepEqual(unhandled, [])
-    await assert.rejects(adapter.createSessionWithProgress())
+    await assert.rejects(adapter.create())
   } finally {
     process.off("unhandledRejection", onUnhandled)
   }

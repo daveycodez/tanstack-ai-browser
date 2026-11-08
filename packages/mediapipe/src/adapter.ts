@@ -55,7 +55,7 @@ export class MediaPipeEmbeddingAdapter<
    * with the same model and equivalent options), else "downloadable", even
    * while it loads or when its files are in Cache Storage (a load then
    * reads them). It never says "downloading": progress comes from
-   * `createSessionWithProgress`. It reads no storage and starts no worker.
+   * `create`. It reads no storage and starts no worker.
    */
   availability(): Promise<Availability> {
     return availability(this.model, this.loadConfig)
@@ -73,7 +73,7 @@ export class MediaPipeEmbeddingAdapter<
    * `embed()` waiting for the model) still waits on the load, the worker
    * ends, its download with it, and the model is left unloaded.
    */
-  createSessionWithProgress(
+  create(
     options: { onDownloadProgress?: DownloadProgressCallback; signal?: AbortSignal } = {}
   ): Promise<this> {
     const { onDownloadProgress } = options

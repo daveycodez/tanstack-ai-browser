@@ -92,7 +92,7 @@ export type PromptApiConfig = {
   /**
    * The browser's download of its model, 0 to 1, when a call (`chat()`,
    * say) starts it; then 1 once the first session starts. To download it
-   * ahead of time with progress, see `createSessionWithProgress`.
+   * ahead of time with progress, see `create`.
    */
   onDownloadProgress?: DownloadProgressCallback
 }
@@ -404,7 +404,7 @@ export class PromptApiTextAdapter extends BaseTextAdapter<
    * The browser's own `LanguageModel.availability()` for this adapter's
    * `languages` and `inputs`: "available" (on the device), "downloadable"
    * or "downloading" (it downloads when a session starts, or at
-   * `createSessionWithProgress`), or "unavailable" (no Prompt API, as on a
+   * `create`), or "unavailable" (no Prompt API, as on a
    * server or in a browser without it, or the device can't run it).
    */
   availability(): Promise<Availability> {
@@ -422,7 +422,7 @@ export class PromptApiTextAdapter extends BaseTextAdapter<
    * browser's `LanguageModel.create()` (and its download) is aborted when
    * no other call still waits on it.
    */
-  createSessionWithProgress(
+  create(
     options: { onDownloadProgress?: DownloadProgressCallback; signal?: AbortSignal } = {}
   ): Promise<this> {
     const { onDownloadProgress } = options

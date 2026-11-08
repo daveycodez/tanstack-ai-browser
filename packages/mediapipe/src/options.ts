@@ -36,7 +36,7 @@ export type MediaPipeEmbeddingConfig = {
   /**
    * The model file's download progress, 0 to 1, when a call (`embed()`,
    * say) starts its download; then 1 once the embedder is ready. To load it
-   * ahead of time with progress, see `createSessionWithProgress`.
+   * ahead of time with progress, see `create`.
    */
   onDownloadProgress?: (progress: number) => void
 }

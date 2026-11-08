@@ -44,7 +44,7 @@ export type ApfelConfig = {
   defaultHeaders?: Record<string, string>
   /**
    * Download progress, as the in-browser adapters take it. Apple's model is
-   * on the Mac already, so nothing downloads: `createSessionWithProgress`
+   * on the Mac already, so nothing downloads: `create`
    * reports 1 once apfel answers.
    */
   onDownloadProgress?: DownloadProgressCallback
@@ -523,7 +523,7 @@ export class ApfelTextAdapter<TModel extends string> extends BaseTextAdapter<
    * check: aborting it rejects at once with an AbortError, and reports
    * nothing.
    */
-  createSessionWithProgress(
+  create(
     options: { onDownloadProgress?: DownloadProgressCallback; signal?: AbortSignal } = {}
   ): Promise<this> {
     const { onDownloadProgress } = options

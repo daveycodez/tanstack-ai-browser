@@ -22,7 +22,7 @@ import type {
  * "downloadable" (it can: loading it downloads it, or reads it from the
  * cache), "downloading" or "available" (loaded and ready in this page).
  * This package's `availability()` never says "downloading": a load's
- * progress comes from `createSessionWithProgress`'s callback.
+ * progress comes from `create`'s callback.
  */
 export type Availability =
   | "unavailable"

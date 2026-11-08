@@ -23,10 +23,10 @@ test("a failed load left unawaited raises no unhandled rejection; awaited, it re
   try {
     // wllama can't start on a server (no storage it can use).
     const adapter = wllamaText(MODEL)
-    void adapter.createSessionWithProgress()
+    void adapter.create()
     await new Promise((resolve) => setTimeout(resolve, 50))
     assert.deepEqual(unhandled, [])
-    await assert.rejects(adapter.createSessionWithProgress())
+    await assert.rejects(adapter.create())
     await adapter.destroySession()
   } finally {
     process.off("unhandledRejection", onUnhandled)
@@ -155,7 +155,7 @@ test("the same progress callback hears 1 on every load call: once for a shared l
   })
 })
 
-test("createSessionWithProgress's signal: aborted before, nothing starts; the only waiter aborting cancels the download; one of two leaving keeps it for the other", { timeout: 5000 }, async () => {
+test("create's signal: aborted before, nothing starts; the only waiter aborting cancels the download; one of two leaving keeps it for the other", { timeout: 5000 }, async () => {
   await withClient("abort", async (client, control) => {
     const { wllamaText } = await import("./adapter.js")
     const unhandled: Array<unknown> = []
@@ -219,8 +219,8 @@ test("createSessionWithProgress's signal: aborted before, nothing starts; the on
       await chat
 
       // Through the adapter (the server-side copy of the client here): an aborted signal rejects, unawaited it raises nothing.
-      void wllamaText(MODEL).createSessionWithProgress({ signal: AbortSignal.abort() })
-      await assert.rejects(wllamaText(MODEL).createSessionWithProgress({ signal: AbortSignal.abort() }), { name: "AbortError" })
+      void wllamaText(MODEL).create({ signal: AbortSignal.abort() })
+      await assert.rejects(wllamaText(MODEL).create({ signal: AbortSignal.abort() }), { name: "AbortError" })
       await new Promise((resolve) => setTimeout(resolve, 20))
       assert.deepEqual(unhandled, [])
     } finally {
