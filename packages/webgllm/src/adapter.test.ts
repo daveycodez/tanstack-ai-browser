@@ -4,9 +4,9 @@ import { chat } from "@tanstack/ai"
 import { WebGLLM, WebGLLMError } from "webgllm"
 
 import { webgllmText } from "./adapter.js"
-import { WEBGLLM_MODEL_REASONING } from "./catalog.js"
+import { WEBGLLM_CHAT_MODELS, WEBGLLM_MODEL_REASONING } from "./catalog.js"
 import { chunk, claim, collect, emit, fake, lastBody, MODEL, TIMINGS, textOptions, usageChunk } from "./fake-webgllm.test.js"
-import { availability, ensureModel, loadModel, setKeepLoaded, setMemoryBudget, unloadModel } from "./models.js"
+import { availability, ensureModel, forgetEngineCheck, loadModel, setKeepLoaded, setMemoryBudget, unloadModel } from "./models.js"
 
 // Node has no WebGL 2: the engine counts as supported here, but for the test that says otherwise.
 const engine = WebGLLM as unknown as { isSupported: () => boolean }
@@ -14,6 +14,7 @@ const supported = engine.isSupported
 beforeEach(() => {
   fake.reset()
   engine.isSupported = () => true
+  forgetEngineCheck()
 })
 
 type Event = { type: string } & Record<string, unknown>
@@ -364,14 +365,57 @@ test("the adapter loads for its own context length, reporting progress from its 
   setKeepLoaded(MODEL, false)
 })
 
-test("a load webgllm starts on its own drives availability through its events", async () => {
+test("a load webgllm starts on its own isn't one for any adapter's context: availability and the loader agree it loads again", async () => {
   // A completion loading its model on demand: webgllm dispatches the events.
   emit("loadstart", { model: MODEL })
   emit("progress", { model: MODEL, phase: "download", progress: 0.5, cached: false })
   assert.equal(await availability(MODEL), "downloadable")
   emit("progress", { model: MODEL, phase: "load", progress: 0.95, cached: false })
   emit("load", { model: MODEL, contextLength: 32_768 })
+  assert.equal(await availability(MODEL), "downloadable")
+  await loadModel(MODEL)
+  assert.equal(fake.loads.length, 1, "the loader loads it for the requested context")
   assert.equal(await availability(MODEL), "available")
+})
+
+test("availability is keyed on the context length as the loader is: another context isn't available until loaded for it", async () => {
+  await loadModel(MODEL, { contextLength: 8192 })
+  assert.equal(await webgllmText(MODEL, { contextLength: 8192 }).availability(), "available")
+  assert.equal(await webgllmText(MODEL, { contextLength: 16_384 }).availability(), "downloadable")
+  assert.equal(await webgllmText(MODEL).availability(), "downloadable", "the model's own context is another")
+  await webgllmText(MODEL, { contextLength: 16_384 }).createSessionWithProgress()
+  assert.equal(fake.loads.length, 2, "the loader loaded it again for 16,384")
+  assert.equal(await webgllmText(MODEL, { contextLength: 16_384 }).availability(), "available")
+  assert.equal(await webgllmText(MODEL, { contextLength: 8192 }).availability(), "downloadable")
+})
+
+test("one engine check per page, however many models and calls ask", async () => {
+  let probes = 0
+  engine.isSupported = () => { probes++; return true }
+  assert.ok(WEBGLLM_CHAT_MODELS.length > 2)
+  for (const model of WEBGLLM_CHAT_MODELS) {
+    assert.equal(await webgllmText(model).availability(), "downloadable")
+    assert.equal(await availability(model, 4096), "downloadable")
+  }
+  assert.equal(probes, 1)
+})
+
+test("waiters sharing one progress callback: one leaving keeps it for the other, which still hears progress and completion", async () => {
+  let open!: () => void
+  fake.loadGate = new Promise<void>((resolve) => (open = resolve))
+  const heard: Array<number> = []
+  const onProgress = (value: number) => heard.push(value)
+  const controller = new AbortController()
+  const leaving = ensureModel(MODEL, undefined, controller.signal, onProgress)
+  const staying = ensureModel(MODEL, undefined, undefined, onProgress)
+  await new Promise((resolve) => setTimeout(resolve, 0))
+  emit("progress", { model: MODEL, phase: "download", progress: 0.18, cached: false, loadedBytes: 2, totalBytes: 10 })
+  controller.abort()
+  await assert.rejects(leaving, { name: "AbortError" })
+  emit("progress", { model: MODEL, phase: "download", progress: 0.45, cached: false, loadedBytes: 5, totalBytes: 10 })
+  open()
+  await staying
+  assert.deepEqual(heard, [0.2, 0.5, 1], "each report once, and the completion, after the other waiter left")
 })
 
 test("evictions and crashes reach availability as they happen", async () => {
