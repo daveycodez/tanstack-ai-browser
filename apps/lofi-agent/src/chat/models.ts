@@ -13,6 +13,7 @@ import { webgllmText } from "@tanstack-ai-browser/webgllm"
 import { WEBGLLM_MODEL_REASONING } from "@tanstack-ai-browser/webgllm/model-meta"
 import type { WebGllmChatModel } from "@tanstack-ai-browser/webgllm/model-meta"
 import { apfelText } from "@tanstack-ai-browser/apfel"
+import { APFEL_MODEL_REASONING } from "@tanstack-ai-browser/apfel/model-meta"
 import { promptApiText } from "@tanstack-ai-browser/prompt-api"
 import { PROMPT_API_MODEL_REASONING } from "@tanstack-ai-browser/prompt-api/model-meta"
 import type { Availability } from "@tanstack-ai-browser/prompt-api"
@@ -183,7 +184,8 @@ export const MODELS = [
     /** Runs outside the browser: nothing to download. */
     status: null,
     needsWebGpu: false,
-    reasoning: undefined
+    /** Off or high: the adapter drafts working notes before answering. */
+    reasoning: APFEL_MODEL_REASONING[APPLE_MODEL]
   },
   {
     id: "built-in",
