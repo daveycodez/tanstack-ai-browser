@@ -56,7 +56,7 @@ test("availability is the browser's own answer for the adapter's languages and i
     const late: Array<number> = []
     await promptApiText("built-in").create({ onDownloadProgress: (value) => late.push(value) })
     assert.deepEqual(late, [1], "a model already started reports 1 at once")
-    await adapter.destroySession()
+    await adapter.destroy()
     assert.equal(await adapter.availability(), "available", "the browser keeps its model")
     // The browser removes its model (to free space, say): a load asks again and starts it again.
     answer = "downloadable"

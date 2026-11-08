@@ -521,7 +521,7 @@ export class TransformersJsTextAdapter<
    * is shared, so this unloads it for every adapter of it. Its files stay
    * downloaded.
    */
-  async destroySession(): Promise<void> {
+  async destroy(): Promise<void> {
     await unloadModel(this.model)
   }
 

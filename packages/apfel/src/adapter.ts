@@ -551,7 +551,7 @@ export class ApfelTextAdapter<TModel extends string> extends BaseTextAdapter<
   }
 
   /** Nothing to free: apfel runs the model outside the page. */
-  destroySession(): Promise<void> {
+  destroy(): Promise<void> {
     return Promise.resolve()
   }
 

@@ -8,9 +8,9 @@ import type { StandardCommand, StandardEvent } from "../../bench/run-standard-in
 import { runBehaviorStudy } from "../../bench/behavior-study"
 import { BEHAVIOR_CHANNEL } from "../../bench/run-behavior-in-frame"
 import type { BehaviorCommand, BehaviorEvent } from "../../bench/run-behavior-in-frame"
-/** Frees every WebGL model a run loaded (each model's adapter's destroySession). */
+/** Frees every WebGL model a run loaded (each model's adapter's destroy). */
 const unloadModel = () =>
-  void Promise.all(WEBGLLM_CHAT_MODELS.map((model) => webgllmText(model).destroySession()))
+  void Promise.all(WEBGLLM_CHAT_MODELS.map((model) => webgllmText(model).destroy()))
 
 export const Route = createFileRoute("/behavior-runtime")({ component: BehaviorRuntime })
 function BehaviorRuntime() {

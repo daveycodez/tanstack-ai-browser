@@ -30,5 +30,5 @@ test("a failed load left unawaited raises no unhandled rejection; awaited, it re
 })
 
 test("destroying the session with nothing loaded does nothing", async () => {
-  await mediaPipeEmbedding(MODEL).destroySession()
+  await mediaPipeEmbedding(MODEL).destroy()
 })

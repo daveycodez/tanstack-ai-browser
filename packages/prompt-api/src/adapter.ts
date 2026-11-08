@@ -449,7 +449,7 @@ export class PromptApiTextAdapter extends BaseTextAdapter<
    * finish that call and are freed when it ends, not kept. The browser
    * keeps the model itself.
    */
-  async destroySession(): Promise<void> {
+  async destroy(): Promise<void> {
     destroyPromptApiSessions()
   }
 

@@ -27,7 +27,7 @@ test("a failed load left unawaited raises no unhandled rejection; awaited, it re
     await new Promise((resolve) => setTimeout(resolve, 50))
     assert.deepEqual(unhandled, [])
     await assert.rejects(adapter.create())
-    await adapter.destroySession()
+    await adapter.destroy()
   } finally {
     process.off("unhandledRejection", onUnhandled)
   }
@@ -157,14 +157,14 @@ test("constructing an adapter changes nothing shared; its context and keepLoaded
     const plain = client.wllamaText(MODEL)
     await plain.create()
     assert.deepEqual([control.claims.at(-1), control.contexts.at(-1)], [false, 0], "constructing the other adapter changed nothing")
-    await plain.destroySession()
+    await plain.destroy()
     await keeper.create()
     assert.deepEqual([control.claims.at(-1), control.contexts.at(-1)], [true, 2048], "using it applies its options")
-    await keeper.destroySession()
+    await keeper.destroy()
     const later = client.wllamaText(MODEL)
     await later.create()
     assert.deepEqual([control.claims.at(-1), control.contexts.at(-1)], [true, 0], "a later adapter without keepLoaded leaves it; its own context applies")
-    await later.destroySession()
+    await later.destroy()
     await client.wllamaText(MODEL, { keepLoaded: false }).create()
     assert.equal(control.claims.at(-1), false, "an explicit false sets it")
   })
@@ -294,7 +294,7 @@ test("a load with other native options (gpu, threads) loads the model again, wit
     await cpu.create()
     assert.equal(control.loadOptions.length, 2, "the same options share the load")
     // Options another adapter sets while a load runs don't change it.
-    await cpu.destroySession()
+    await cpu.destroy()
     control.stored = []
     let gate!: () => void
     control.gate = new Promise<void>((resolve) => { gate = resolve })

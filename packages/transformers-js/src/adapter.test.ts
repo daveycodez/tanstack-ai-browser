@@ -697,7 +697,7 @@ test("availability: unavailable without WebGPU or CPU weights; downloadable; dow
   const CPU_MODEL = "onnx-community/LFM2-1.2B-Tool-ONNX"
   const adapter = transformersJsText(CPU_MODEL)
   const other = transformersJsText(CPU_MODEL)
-  await adapter.destroySession(); FakeWorker.ready = false
+  await adapter.destroy(); FakeWorker.ready = false
   try {
     assert.equal(await adapter.availability(), "downloadable")
     const progress: Array<number> = []
@@ -713,7 +713,7 @@ test("availability: unavailable without WebGPU or CPU weights; downloadable; dow
     assert.deepEqual(progress, [0, 0.5, 1])
     assert.equal(await adapter.availability(), "available")
     assert.equal(await other.availability(), "available", "adapters of one model share it")
-    await other.destroySession()
+    await other.destroy()
     assert.equal(await adapter.availability(), "downloadable", "no recorded load, so nothing known on the device")
     // What the worker records after a load: its weights files, if all cached. Node has no WebGPU: q4.
     const url = `https://huggingface.co/${CPU_MODEL}/resolve/main/onnx/model_q4.onnx`
@@ -740,7 +740,7 @@ test("availability: unavailable without WebGPU or CPU weights; downloadable; dow
     assert.equal(await adapter.availability(), "available", "a chat template the repo doesn't have isn't needed")
   } finally {
     FakeWorker.ready = true
-    await adapter.destroySession()
+    await adapter.destroy()
     cache.restore()
   }
 })
@@ -749,7 +749,7 @@ test("the same progress callback hears 1 on every call: once for a shared load, 
   const { transformersJsText } = await import("./adapter.js")
   const CPU_MODEL = "onnx-community/LFM2-1.2B-Tool-ONNX"
   const adapter = transformersJsText(CPU_MODEL)
-  await adapter.destroySession(); FakeWorker.ready = false
+  await adapter.destroy(); FakeWorker.ready = false
   try {
     const heard: Array<number> = []
     const callback = (value: number) => heard.push(value)
@@ -769,7 +769,7 @@ test("the same progress callback hears 1 on every call: once for a shared load, 
     assert.deepEqual(heard, [0.5, 1, 1, 1])
   } finally {
     FakeWorker.ready = true
-    await adapter.destroySession()
+    await adapter.destroy()
   }
 })
 
@@ -777,7 +777,7 @@ test("create with a signal: aborted before, it rejects without starting; the onl
   const { transformersJsText } = await import("./adapter.js")
   const CPU_MODEL = "onnx-community/LFM2-1.2B-Tool-ONNX"
   const adapter = transformersJsText(CPU_MODEL)
-  await adapter.destroySession(); FakeWorker.ready = false
+  await adapter.destroy(); FakeWorker.ready = false
   const loadsPosted = () => FakeWorker.last?.posted.filter((request): request is Extract<WorkerRequest, { type: "load" }> => request.type === "load") ?? []
   const unhandled: Array<unknown> = []
   const onUnhandled = (reason: unknown) => unhandled.push(reason)
@@ -823,7 +823,7 @@ test("create with a signal: aborted before, it rejects without starting; the onl
     assert.equal(await adapter.availability(), "available")
 
     // A chat waiting on the load counts as a waiter: a session caller aborting doesn't cancel it.
-    await adapter.destroySession()
+    await adapter.destroy()
     const session = new AbortController()
     const preload = adapter.create({ signal: session.signal })
     const { loadModel } = await import("./client.js")
@@ -836,7 +836,7 @@ test("create with a signal: aborted before, it rejects without starting; the onl
     await chat
     // A caller that ignores its promise raises no unhandled rejection.
     const ignored = new AbortController()
-    await adapter.destroySession()
+    await adapter.destroy()
     void adapter.create({ signal: ignored.signal })
     ignored.abort()
     await new Promise((resolve) => setTimeout(resolve, 20))
@@ -844,7 +844,7 @@ test("create with a signal: aborted before, it rejects without starting; the onl
   } finally {
     process.off("unhandledRejection", onUnhandled)
     FakeWorker.ready = true
-    await adapter.destroySession()
+    await adapter.destroy()
   }
 })
 
@@ -854,7 +854,7 @@ test("constructing an adapter changes nothing shared; keepLoaded and debug apply
   const held = () => (globalThis as unknown as Record<symbol, { held: Map<string, { keepLoaded: boolean }> }>)[Symbol.for("@tanstack-ai-browser/model-memory")]!.held
   /** Loads through `adapter`, with the worker's memory claim: what the page told the registry. */
   const loadClaiming = async (adapter: ReturnType<typeof transformersJsText>) => {
-    await adapter.destroySession()
+    await adapter.destroy()
     FakeWorker.ready = false
     const ready = adapter.create()
     const load = FakeWorker.last.posted.filter((request): request is Extract<WorkerRequest, { type: "load" }> => request.type === "load").at(-1)!
@@ -875,7 +875,7 @@ test("constructing an adapter changes nothing shared; keepLoaded and debug apply
     assert.equal((await loadClaiming(transformersJsText(CPU_MODEL, { keepLoaded: false }))).keepLoaded, false, "an explicit false sets it")
   } finally {
     FakeWorker.ready = true
-    await plain.destroySession()
+    await plain.destroy()
   }
 })
 
@@ -885,7 +885,7 @@ test("a load canceled while its memory claim waits for another runtime records n
   const CPU_MODEL = "onnx-community/LFM2-1.2B-Tool-ONNX"
   const held = (globalThis as unknown as Record<symbol, { held: Map<string, unknown> }>)[Symbol.for("@tanstack-ai-browser/model-memory")]!.held
   const adapter = transformersJsText(CPU_MODEL)
-  await adapter.destroySession(); FakeWorker.ready = false
+  await adapter.destroy(); FakeWorker.ready = false
   let finishUnload!: () => void
   const unloading = new Promise<void>((resolve) => { finishUnload = resolve })
   setMemoryBudget(100)
@@ -909,7 +909,7 @@ test("a load canceled while its memory claim waits for another runtime records n
     held.delete("other-runtime")
     setMemoryBudget(undefined)
     FakeWorker.ready = true
-    await adapter.destroySession()
+    await adapter.destroy()
   }
 })
 

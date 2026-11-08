@@ -459,7 +459,7 @@ export class WllamaTextAdapter<
    * model is shared, so this unloads it for every adapter of it. Its file
    * stays downloaded.
    */
-  async destroySession(): Promise<void> {
+  async destroy(): Promise<void> {
     await unloadModel(this.model)
   }
 
