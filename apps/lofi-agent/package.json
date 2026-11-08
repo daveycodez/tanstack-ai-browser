@@ -11,7 +11,8 @@
     "build": "vite build",
     "preview": "vite preview",
     "test": "node --experimental-strip-types --test src/chat/*.test.ts",
-    "deploy": "wrangler deploy"
+    "deploy": "wrangler deploy",
+    "build-cities": "node scripts/build-cities.mjs"
   },
   "dependencies": {
     "@gravity-ui/icons": "2.23.0",

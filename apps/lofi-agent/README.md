@@ -11,7 +11,7 @@ A chat app that runs small language models entirely in your browser. Models are 
 - **Download once.** Model weights (about 0.8 to 1.1 GB per model) are saved to the browser's Origin Private File System and loaded from disk on later visits.
 - **Reuses work between runs.** The model keeps what it has already read, so a follow-up message, the next step after a tool call, or a new session with the same system prompt only reads what's new. The system prompt and tools are also saved to disk, so they aren't read again after a reload.
 
-What does leave your device: calls to MCP servers (Exa's web search, if it's on, and those you add), the city in a weather lookup (Open-Meteo, if the weather tool is on), and the downloads of model files (Hugging Face) and the runtime (jsDelivr). The browser's built-in model is downloaded by the browser itself.
+What does leave your device: calls to MCP servers (Exa's web search, if it's on, and those you add), the city, or your location to about a kilometer, in a weather lookup (Open-Meteo, if the weather tool is on), and the downloads of model files (Hugging Face) and the runtime (jsDelivr). The browser's built-in model is downloaded by the browser itself.
 
 ## Models
 
@@ -44,6 +44,7 @@ The "Web" builds are published under [`daveycodez` on Hugging Face](https://hugg
 - Streaming replies with collapsible thinking, Markdown, math (KaTeX) and syntax-highlighted code
 - Web search through Exa's MCP server, built in and on by default: works without a key at a free rate limit, or with your Exa API key. Results show as numbered source chips the reply can cite.
 - Weather, built in: models can look up a city's current weather and 5-day forecast from Open-Meteo (free, no key), shown as a weather card. It never asks first, and Settings turns it off. The city asked about is sent to Open-Meteo.
+- Location, built in: models can ask for your current location (the browser asks you first), to about a kilometer, named offline from GeoNames' list of cities over 15,000 people, so "the weather where I am" works and the card names your city. Naming the place needs no network; a weather lookup for it sends the rounded coordinates to Open-Meteo. Settings turns it off.
 - MCP servers: add any Streamable HTTP server by URL, with optional HTTP headers for its key (for example `Authorization: Bearer …` or `x-api-key`). The browser connects directly, so the server must allow this site (CORS).
 - Tool approval: every MCP tool asks before it runs, with Approve and Reject, except the built-in server's read-only ones (Exa's search). A session left waiting for an answer still asks after a reload.
 - Sessions, settings and MCP servers saved in IndexedDB as TanStack DB collections, kept in step across open tabs. Each session has its own URL, `/sessions/<id>`.
@@ -143,5 +144,6 @@ apps/lofi-agent/           the app (Nx project "lofi-agent")
 
 - The chat follows TanStack AI's [ts-react-ui-chatbot example](https://github.com/TanStack/ai/tree/main/examples/ts-react-ui-chatbot), styled after HeroUI Pro's chat with HeroUI's open-source components. The sidebar layout and the thinking effort picker follow [assistant-ui](https://github.com/assistant-ui/assistant-ui) (MIT).
 - Provider icons are from [LobeHub Icons](https://github.com/lobehub/lobe-icons) (MIT).
+- City names are from [GeoNames](https://www.geonames.org) (CC BY 4.0): `public/data/cities.json`, built by `scripts/build-cities.mjs` (`pnpm --filter @tanstack-ai-browser/lofi-agent build-cities`).
 - LFM3 and LFM2.5 are models by [Liquid AI](https://huggingface.co/LiquidAI); Gemma 4 is by [Google DeepMind](https://deepmind.google/models/gemma/).
 - Apple's model is reached through [apfel](https://apfel.franzai.com).

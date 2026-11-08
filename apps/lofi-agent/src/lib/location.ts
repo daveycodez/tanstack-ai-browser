@@ -8,6 +8,7 @@
  */
 import { toolDefinition } from "@tanstack/ai"
 
+import { placeName } from "#/lib/places"
 import { setting } from "#/lib/settings"
 
 export const LOCATION_TOOL = "get_current_location"
@@ -19,6 +20,8 @@ export type CurrentLocation = {
   /** Rounded to 2 decimals, about a kilometer: enough for the weather. */
   latitude: number
   longitude: number
+  /** The nearest city, named offline (lib/places.ts), if it could be. */
+  place?: string
   /** The device's time zone, such as "America/Los_Angeles". */
   timeZone: string
 }
@@ -27,7 +30,7 @@ export type CurrentLocation = {
 export const locationToolDefinition = toolDefinition({
   name: LOCATION_TOOL,
   description:
-    "Get the user's current location (latitude and longitude) from their device. Use it when the user asks about where they are, such as the weather here. The browser asks the user first.",
+    "Get the user's current location from their device: latitude, longitude and the place's name. Use it when the user asks about where they are, such as the weather here. The browser asks the user first.",
   inputSchema: { type: "object", properties: {} }
 })
 
@@ -45,24 +48,37 @@ function reason(error: GeolocationPositionError) {
   return "The device couldn't find its location."
 }
 
-/** The browser part, which useChat runs when the model calls the tool. */
+/** The device's position, from the browser. */
+const position = () =>
+  new Promise<Omit<CurrentLocation, "place">>((resolve, reject) => {
+    if (typeof navigator === "undefined" || !navigator.geolocation) {
+      reject(new Error("This browser can't share a location."))
+      return
+    }
+    navigator.geolocation.getCurrentPosition(
+      (position) =>
+        resolve({
+          latitude: round(position.coords.latitude),
+          longitude: round(position.coords.longitude),
+          timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone
+        }),
+      (error) => reject(new Error(reason(error))),
+      // A city-level fix is enough, and comes faster than GPS.
+      { enableHighAccuracy: false, timeout: 15_000, maximumAge: 600_000 }
+    )
+  })
+
+/**
+ * The browser part, which useChat runs when the model calls the tool: the
+ * position, and the place's name, so the model can name it right. A name
+ * that can't be found leaves the position on its own.
+ */
 export const locationTool = locationToolDefinition.client(
-  () =>
-    new Promise<CurrentLocation>((resolve, reject) => {
-      if (typeof navigator === "undefined" || !navigator.geolocation) {
-        reject(new Error("This browser can't share a location."))
-        return
-      }
-      navigator.geolocation.getCurrentPosition(
-        (position) =>
-          resolve({
-            latitude: round(position.coords.latitude),
-            longitude: round(position.coords.longitude),
-            timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone
-          }),
-        (error) => reject(new Error(reason(error))),
-        // A city-level fix is enough, and comes faster than GPS.
-        { enableHighAccuracy: false, timeout: 15_000, maximumAge: 600_000 }
-      )
-    })
+  async (): Promise<CurrentLocation> => {
+    const where = await position()
+    const place = await placeName(where.latitude, where.longitude).catch(
+      () => undefined
+    )
+    return { ...where, ...(place && { place }) }
+  }
 )

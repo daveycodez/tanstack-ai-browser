@@ -8,6 +8,7 @@
  */
 import { toolDefinition } from "@tanstack/ai"
 
+import { placeName } from "#/lib/places"
 import { setting } from "#/lib/settings"
 
 export const WEATHER_TOOL = "get_weather"
@@ -83,7 +84,13 @@ function usesFahrenheit() {
 const round = (value: number) => Math.round(value)
 
 type Geocoded = {
-  results?: Array<{ name: string; admin1?: string; country?: string; latitude: number; longitude: number }>
+  results?: Array<{
+    name: string
+    admin1?: string
+    country?: string
+    latitude: number
+    longitude: number
+  }>
 }
 
 type Forecast = {
@@ -113,8 +120,7 @@ async function getJson<T>(url: string, signal?: AbortSignal): Promise<T> {
 
 /** Where to look up: a city by name, or a point (from get_current_location). */
 export type WeatherPlace =
-  | { city: string }
-  | { latitude: number; longitude: number }
+  { city: string } | { latitude: number; longitude: number }
 
 /** A city's coordinates and its name, such as "Kyoto, Japan". */
 async function findCity(city: string, signal?: AbortSignal) {
@@ -145,10 +151,17 @@ export async function lookUpWeather(
   where: WeatherPlace,
   signal?: AbortSignal
 ): Promise<WeatherReport> {
+  // A point is named offline, from the city list, not from whatever city
+  // the model passed with it (models fill in made-up ones).
   const place =
     "city" in where
       ? await findCity(where.city, signal)
-      : { ...where, name: "Your location" }
+      : {
+          ...where,
+          name: await placeName(where.latitude, where.longitude).catch(
+            () => "Your location"
+          )
+        }
 
   const fahrenheit = usesFahrenheit()
   const forecast = await getJson<Forecast>(
@@ -160,7 +173,10 @@ export async function lookUpWeather(
       daily: "weather_code,temperature_2m_max,temperature_2m_min",
       timezone: "auto",
       forecast_days: "5",
-      ...(fahrenheit && { temperature_unit: "fahrenheit", wind_speed_unit: "mph" })
+      ...(fahrenheit && {
+        temperature_unit: "fahrenheit",
+        wind_speed_unit: "mph"
+      })
     })}`,
     signal
   )
@@ -204,7 +220,7 @@ export const weatherTool = toolDefinition({
       city: {
         type: "string",
         description:
-          "A city the user named, such as \"Kyoto\" or \"Paris, France\". Leave it out for the user's own location."
+          'A city the user named, such as "Kyoto" or "Paris, France". Leave it out for the user\'s own location.'
       },
       latitude: {
         type: "number",
