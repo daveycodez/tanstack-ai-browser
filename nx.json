@@ -36,8 +36,12 @@
   ],
   "release": {
     "projects": [
+      "apfel",
+      "mediapipe",
+      "prompt-api",
       "transformers-js",
-      "apfel"
+      "webgllm",
+      "wllama"
     ],
     "projectsRelationship": "independent",
     "releaseTag": {
@@ -46,9 +50,11 @@
     "version": {
       "conventionalCommits": true,
       "adjustSemverBumpsForZeroMajorVersion": true,
-      "preVersionCommand": "pnpm nx run-many -t build -p transformers-js apfel"
+      "fallbackCurrentVersionResolver": "disk",
+      "preVersionCommand": "pnpm nx run-many -t build -p apfel mediapipe prompt-api transformers-js webgllm wllama"
     },
     "changelog": {
+      "automaticFromRef": true,
       "projectChangelogs": {
         "createRelease": "github"
       }

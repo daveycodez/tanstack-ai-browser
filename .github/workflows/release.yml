@@ -11,7 +11,7 @@ on:
         required: false
         default: ""
       first-release:
-        description: "First release of a package (no earlier tag or npm version to compare with)"
+        description: "Rarely needed: a package without a tag yet versions from its package.json anyway. Tick it only if publishing or the changelog fails for a package never published before."
         type: boolean
         default: false
       dry-run:

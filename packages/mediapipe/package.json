@@ -1,0 +1,68 @@
+{
+  "name": "@tanstack-ai-browser/mediapipe",
+  "version": "0.0.0",
+  "description": "TanStack AI embedding adapter for Google's MediaPipe TextEmbedder (Universal Sentence Encoder) in the browser",
+  "license": "MIT",
+  "author": "daveycodez",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/daveycodez/tanstack-ai-browser.git",
+    "directory": "packages/mediapipe"
+  },
+  "homepage": "https://github.com/daveycodez/tanstack-ai-browser/tree/main/packages/mediapipe#readme",
+  "bugs": "https://github.com/daveycodez/tanstack-ai-browser/issues",
+  "keywords": [
+    "tanstack-ai",
+    "tanstack",
+    "ai",
+    "embeddings",
+    "mediapipe",
+    "universal-sentence-encoder",
+    "webassembly",
+    "browser",
+    "local-ai"
+  ],
+  "type": "module",
+  "sideEffects": false,
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    "./package.json": "./package.json",
+    ".": {
+      "@tanstack-ai-browser/source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./model-meta": {
+      "@tanstack-ai-browser/source": "./src/model-meta.ts",
+      "types": "./dist/model-meta.d.ts",
+      "import": "./dist/model-meta.js",
+      "default": "./dist/model-meta.js"
+    }
+  },
+  "files": [
+    "src",
+    "dist",
+    "!**/*.tsbuildinfo"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "nx": {
+    "name": "mediapipe"
+  },
+  "scripts": {
+    "test": "node --import @swc-node/register/esm-register --test \"src/**/*.test.ts\""
+  },
+  "peerDependencies": {
+    "@tanstack/ai": "^1.0.0"
+  },
+  "devDependencies": {
+    "@tanstack/ai": "1.0.0"
+  },
+  "dependencies": {
+    "@mediapipe/tasks-text": "1.2.2"
+  }
+}
