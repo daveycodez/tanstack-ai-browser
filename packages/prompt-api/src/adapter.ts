@@ -51,6 +51,7 @@ import {
   supportsNativeTools,
   toLanguageModelTools,
   toGuidedSchema,
+  withoutNulls,
   toolCallText,
   toolsPrompt
 } from "./tools.js"
@@ -283,9 +284,27 @@ const piecesOf = (
       ? chunk
       : [chunk]
 
+/** A value with its objects' keys sorted, at every depth. */
+function sortedKeys(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(sortedKeys)
+  if (!value || typeof value !== "object") return value
+  return Object.fromEntries(
+    Object.keys(value)
+      .sort()
+      .map((key) => [key, sortedKeys((value as Record<string, unknown>)[key])])
+  )
+}
+
 /**
- * The tool calls of the current turn (since the last user message), as
- * the model writes them, to catch the model calling one again.
+ * A tool call as a key to compare calls by: the same tool with the same
+ * arguments is the same call, whatever order the model wrote the fields in.
+ */
+const callKey = (name: string, args: Record<string, unknown>) =>
+  JSON.stringify([name, sortedKeys(args)])
+
+/**
+ * The tool calls of the current turn (since the last user message), to
+ * catch the model calling one again.
  */
 function currentTurnCalls(messages: ReadonlyArray<ModelMessage>) {
   const start = messages.map((m) => m.role).lastIndexOf("user")
@@ -294,10 +313,7 @@ function currentTurnCalls(messages: ReadonlyArray<ModelMessage>) {
       .slice(start + 1)
       .flatMap((m) => m.toolCalls ?? [])
       .map((call) =>
-        toolCallText(
-          call.function.name,
-          parseArguments(call.function.arguments) ?? {}
-        )
+        callKey(call.function.name, parseArguments(call.function.arguments) ?? {})
       )
   )
 }
@@ -683,7 +699,7 @@ export class PromptApiTextAdapter extends BaseTextAdapter<
 
       try {
         if (reasoning.enabled) {
-          const draft = draftReasoning(session, input, signal, reasoning.budget, limit)
+          const draft = draftReasoning(session, input, options.messages, signal, reasoning.budget, limit)
           let next = await draft.next()
           let opened = false
           const reasoningId = nextId("reasoning")
@@ -1024,13 +1040,14 @@ export class PromptApiTextAdapter extends BaseTextAdapter<
     const generated = hasFields
       ? await promptCopy(session, input, signal, { responseConstraint: schema }, limit)
       : { text: "{}", reached: false }
-    const parsed = parseArguments(generated.text)
+    const written = parseArguments(generated.text)
+    const parsed = written && (withoutNulls(written, schema) as typeof written)
     // Arguments that still parse were complete when the cap was reached.
     if (generated.reached && !parsed) return "length"
     const args = parsed ?? {}
     // Small models sometimes call the tool they just called, with the same
     // arguments, instead of answering from its result.
-    if (currentTurnCalls(options.messages).has(toolCallText(tool.name, args))) {
+    if (currentTurnCalls(options.messages).has(callKey(tool.name, args))) {
       return undefined
     }
     // The call counts toward the cap as the reply reports it, whole: one that
@@ -1198,7 +1215,7 @@ export class PromptApiTextAdapter extends BaseTextAdapter<
       let draftCapReached = false
       if (reasoning.enabled) {
         const reasoningId = nextId("reasoning")
-        const draft = draftReasoning(session, input, signal, reasoning.budget, limit)
+        const draft = draftReasoning(session, input, chatOptions.messages, signal, reasoning.budget, limit)
         let next = await draft.next()
         try {
           while (!next.done) {

@@ -102,7 +102,7 @@ class FakeSession extends EventTarget {
    * until the reply ends, the signal aborts or the stream is cancelled.
    */
   promptStreaming(input: unknown, options: Record<string, unknown> = {}) {
-    const draft = textOf(input).includes("Write short working notes")
+    const draft = textOf(input).includes("write notes for yourself")
     const kind = draft ? "draft" : "stream"
     control.calls.push({ kind, input, options })
     const signal = options.signal as AbortSignal | undefined
@@ -823,4 +823,44 @@ test("guided tool arguments allow no fields the tool doesn't declare, even when 
     chunks.filter((c) => c.type === "TOOL_CALL_END").map((c) => c.input),
     [{ latitude: 47.61, longitude: -122.33 }]
   )
+})
+
+test("a repeat of this turn's call, with its fields in another order, answers instead", async () => {
+  const forecast = {
+    name: "forecast",
+    description: "Forecast for a city",
+    inputSchema: {
+      type: "object",
+      properties: { city: { type: "string" }, days: { type: "integer" } },
+      required: ["city", "days"],
+      additionalProperties: false
+    }
+  }
+  // The arguments the model writes now, fields in another order than before.
+  control.answer = ['{"days":3,', '"city":"Tokyo"}']
+  const chunks = await collect(
+    promptApiText("built-in", { nativeTools: false }).chatStream(
+      chatOptions({
+        threadId: "repeat-reordered",
+        tools: [forecast],
+        toolChoice: "required",
+        messages: [
+          { role: "user", content: "Forecast for Tokyo?" },
+          {
+            role: "assistant",
+            content: "",
+            toolCalls: [
+              {
+                id: "c1",
+                type: "function",
+                function: { name: "forecast", arguments: '{"city":"Tokyo","days":3}' }
+              }
+            ]
+          },
+          { role: "tool", toolCallId: "c1", content: '{"high":20}' }
+        ]
+      })
+    )
+  )
+  assert.equal(chunks.some((c) => c.type.startsWith("TOOL_CALL")), false)
 })

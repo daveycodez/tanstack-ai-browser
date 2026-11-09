@@ -21,7 +21,7 @@ import type {
   StructuredOutputResult
 } from "@tanstack/ai/adapters"
 
-import { toGuidedSchema } from "./guided-schema.js"
+import { toGuidedSchema, withoutNulls } from "./guided-schema.js"
 
 import type { ApfelChatModel } from "./model-meta.js"
 
@@ -164,28 +164,20 @@ type DraftReasoning = {
   details?: ApfelProviderUsageDetails
 }
 
-/** The user messages that carry tool results (see `toOpenAIMessages`). */
-const toolResults = new WeakSet<OpenAIMessage>()
-
+/**
+ * The draft's working notes, for the request that writes the step or the
+ * answer: a user message of their own after the conversation, in the Prompt
+ * API adapter's words.
+ */
 function withWorkingNotes(messages: Array<OpenAIMessage>, notes: string) {
   if (!notes) return messages
-  const instruction = `Working notes to verify against the conversation:\n${notes}\nAnswer the original request above or make the required tool call. Do not return these notes.`
-  // Keep the real current turn and its tool-result ordering intact. A new user
-  // message here can make Apple's model answer the notes instead of the request.
-  // Tool results are user messages too; the notes go with the request itself.
-  let user = messages.length - 1
-  while (
-    user >= 0 &&
-    (messages[user].role !== "user" || toolResults.has(messages[user]))
-  )
-    user--
-  return user < 0
-    ? [...messages, { role: "user" as const, content: instruction }]
-    : messages.map((message, index) =>
-        index === user
-          ? { ...message, content: `${message.content}\n\n${instruction}` }
-          : message
-      )
+  return [
+    ...messages,
+    {
+      role: "user" as const,
+      content: `Working notes to verify against the conversation:\n${notes}\nNow produce the final response or required tool call.`
+    }
+  ]
 }
 
 type MetadataByModality = {
@@ -196,9 +188,20 @@ type MetadataByModality = {
   document: unknown
 }
 
-type OpenAIMessage = {
-  role: "system" | "user" | "assistant"
-  content: string
+/**
+ * A chat message as apfel takes it. Tool calls and their results are
+ * OpenAI's own messages, which apfel turns into the tool calls and outputs of
+ * Apple's transcript, even in a request without tools.
+ */
+type OpenAIMessage =
+  | { role: "system" | "user" | "assistant"; content: string }
+  | { role: "assistant"; content: string; tool_calls: Array<OpenAIToolCall> }
+  | { role: "tool"; content: string; tool_call_id: string }
+
+type OpenAIToolCall = {
+  id: string
+  type: "function"
+  function: { name: string; arguments: string }
 }
 
 type FinishReason = "stop" | "length" | "content_filter" | "tool_calls" | null
@@ -242,8 +245,8 @@ type OpenAICompletion = {
  */
 function toolResultText(m: ModelMessage, name: string) {
   const text = contentText(m.content)
-  if (m.error) return `Result of ${name}: error: ${m.error}`
-  return `Result of ${name}:\n${text && text !== "null" ? text : "nothing."}`
+  if (m.error) return `${name} failed: ${m.error}`
+  return text && text !== "null" ? text : "Nothing."
 }
 
 function contentText(content: ModelMessage["content"]) {
@@ -253,60 +256,144 @@ function contentText(content: ModelMessage["content"]) {
     .join("")
 }
 
-/** A tool call as the model writes it in a guided step (see `stepSchema`). */
-function stepText(name: string, args: string) {
-  let parsed: unknown
-  try {
-    parsed = JSON.parse(args || "{}")
-  } catch {
-    parsed = {}
-  }
-  const hasArgs =
-    !!parsed && typeof parsed === "object" && Object.keys(parsed).length > 0
-  return JSON.stringify({
-    action: name,
-    ...(hasArgs && { arguments: { [name]: parsed } })
-  })
-}
-
 /**
- * The conversation as plain chat messages. The current turn's tool calls are
- * the step JSON the model wrote, and their results user messages, so every
- * request reads them the same way, with or without tools. Tool calls and
- * results from earlier turns are left out; their answers stay. With them in
- * the history, Apple's model wrote its next tool call as broken JSON text most
- * of the time (4 of 12 calls worked, against 12 of 12 without).
+ * The conversation for apfel. Every step is kept, earlier turns' included, as
+ * the Prompt API adapter does, but as OpenAI's tool messages rather than
+ * text: apfel gives them to Apple's model as tool calls and outputs. Written
+ * as text, a result read as the user's latest message (the draft then made
+ * notes on its own instruction), and calls written as JSON taught the model
+ * to answer in JSON, which it then copied in every later turn.
  */
 function toOpenAIMessages(messages: Array<ModelMessage>): Array<OpenAIMessage> {
   const out: Array<OpenAIMessage> = []
-  const currentTurn = messages.map((m) => m.role).lastIndexOf("user")
   const names = new Map<string, string>()
-  for (const [i, m] of messages.entries()) {
+  for (const m of messages) {
     const content = contentText(m.content)
-    const earlier = i < currentTurn
     if (m.role === "tool") {
-      if (earlier) continue
       const name = names.get(m.toolCallId ?? "") ?? "the tool"
-      const result: OpenAIMessage = {
-        role: "user",
+      out.push({
+        role: "tool",
+        tool_call_id: m.toolCallId ?? "",
         content: toolResultText(m, name)
-      }
-      toolResults.add(result)
-      out.push(result)
+      })
     } else if (m.role === "assistant" && m.toolCalls?.length) {
       for (const call of m.toolCalls) names.set(call.id, call.function.name)
-      const steps = earlier
-        ? []
-        : m.toolCalls.map((call) =>
-            stepText(call.function.name, call.function.arguments)
-          )
-      const text = [content, ...steps].filter(Boolean).join("\n")
-      if (text) out.push({ role: "assistant", content: text })
+      out.push({
+        role: "assistant",
+        content,
+        tool_calls: m.toolCalls.map((call) => ({
+          id: call.id,
+          type: "function",
+          function: {
+            name: call.function.name,
+            arguments: call.function.arguments || "{}"
+          }
+        }))
+      })
     } else if (content) {
       out.push({ role: m.role === "user" ? "user" : "assistant", content })
     }
   }
   return out
+}
+
+/** The longest quote of the user's message the draft instruction carries. */
+const QUOTE_CHARS = 500
+
+/**
+ * The draft's instruction, in the Prompt API adapter's words, quoting the
+ * user's latest message: after a tool result, the newest user message is this
+ * instruction itself, and Apple's model took it for the message to reply to.
+ */
+function draftInstruction(messages: ReadonlyArray<ModelMessage>): OpenAIMessage {
+  const latest = [...messages].reverse().find((m) => m.role === "user")
+  const text = latest ? contentText(latest.content).trim().replace(/\s+/g, " ") : ""
+  const quote =
+    text.length > QUOTE_CHARS ? `${text.slice(0, QUOTE_CHARS - 1)}…` : text
+  return {
+    role: "user",
+    content: `Now write notes for yourself before replying to the user's latest message${quote ? `, "${quote}"` : ""}: what's needed, what you already have, and what to do next. Don't call tools or write the reply yet.`
+  }
+}
+
+/** Apple's model's context window: apfel's /v1/models reports 8,192 tokens. */
+const CONTEXT_TOKENS = 8192
+/** Room kept for the reply, out of the window. */
+const REPLY_TOKENS = 1024
+
+/**
+ * A request's size in tokens, estimated: apfel has no way to measure it yet
+ * (its #485), and Apple's tokenizer writes about 3 to 4 characters a token,
+ * so 3 errs on the safe side.
+ */
+const estimateTokens = (messages: Array<OpenAIMessage>) =>
+  messages.reduce(
+    (n, m) =>
+      n +
+      Math.ceil(
+        (m.content.length +
+          ("tool_calls" in m ? JSON.stringify(m.tool_calls).length : 0)) /
+          3
+      ) +
+      4,
+    0
+  )
+
+/**
+ * Whether a message starts one of the user's turns: a user message that
+ * isn't the working notes or the draft's instruction (the adapter's own
+ * messages, told apart by their fixed wording).
+ */
+const startsTurn = (m: OpenAIMessage) =>
+  m.role === "user" &&
+  !/^Working notes to verify against the conversation:|^Now write notes for yourself/.test(
+    m.content
+  )
+
+/**
+ * The messages without their oldest turn, as the Prompt API adapter leaves
+ * turns out: the user's message and everything up to their next one, its
+ * tool calls and results included. Undefined when only the current turn is
+ * left (the system prompt and the current turn always stay).
+ */
+function withoutOldestTurn(messages: Array<OpenAIMessage>) {
+  const starts = messages.flatMap((m, i) => (startsTurn(m) ? [i] : []))
+  if (starts.length < 2) return undefined
+  return [...messages.slice(0, starts[0]), ...messages.slice(starts[1])]
+}
+
+/**
+ * apfel's fetch, fitting each request in Apple's context window as the
+ * Prompt API adapter fits a conversation in Chrome's: the oldest turns are
+ * left out until the estimate fits, and if apfel still answers that the
+ * input exceeds the window, one more turn is left out and the request sent
+ * again.
+ */
+function fitting(send: typeof fetch): typeof fetch {
+  return async (url, init) => {
+    if (typeof init?.body !== "string") return send(url, init)
+    const body = JSON.parse(init.body) as { messages?: Array<OpenAIMessage> }
+    if (!body.messages) return send(url, init)
+    let messages = body.messages
+    while (estimateTokens(messages) > CONTEXT_TOKENS - REPLY_TOKENS) {
+      const fewer = withoutOldestTurn(messages)
+      if (!fewer) break
+      messages = fewer
+    }
+    for (;;) {
+      const response = await send(url, {
+        ...init,
+        body: JSON.stringify({ ...body, messages })
+      })
+      if (response.status !== 400) return response
+      const text = await response.clone().text()
+      const fewer = /context window/i.test(text)
+        ? withoutOldestTurn(messages)
+        : undefined
+      if (!fewer) return response
+      messages = fewer
+    }
+  }
 }
 
 /** A tool's arguments in the subset apfel's guided generation takes, if it has any. */
@@ -319,61 +406,105 @@ function argumentsSchema(tool: Tool) {
 }
 
 /**
- * The schema of one step with tools: the action, then the arguments of the
- * tool it names. Apple's model writes it under apfel's guided generation, so
- * the action is always "answer" or a tool's name, and the arguments hold no
- * fields the tool doesn't declare (guided generation emits none). apfel's
- * schemas have no "one of these objects", so each tool's arguments are an
- * optional property of their own, named after the tool.
+ * The decision's schema, as the Prompt API adapter's: "answer", or one of the
+ * tools. `required` leaves answering out (`toolChoice: "required"`).
  */
-function stepSchema(tools: Array<Tool>, choice: TextOptions["toolChoice"]) {
-  const names = tools.map((tool) => tool.name)
-  const actions =
-    typeof choice === "object"
-      ? [choice.name]
-      : choice === "required"
-        ? names
-        : [...names, "answer"]
-  const args = Object.fromEntries(
-    tools.flatMap((tool) => {
-      const schema = argumentsSchema(tool)
-      return schema ? [[tool.name, schema]] : []
-    })
-  )
+function decisionSchema(toolNames: Array<string>, required: boolean) {
   return {
     type: "object",
     properties: {
       action: {
         type: "string",
-        enum: actions,
-        description: "A tool to call now, or answer to reply to the user."
-      },
-      ...(Object.keys(args).length > 0 && {
-        arguments: {
-          type: "object",
-          description:
-            "The arguments of the tool named in action, under its name.",
-          properties: args,
-          required: []
-        }
-      })
+        enum: required ? toolNames : ["answer", ...toolNames]
+      }
     },
     required: ["action"]
   }
 }
 
-/** The tools, for the model to choose from, in the step's instructions. */
-function toolsInstructions(tools: Array<Tool>) {
-  const list = tools
-    .map((tool) => {
-      const schema = argumentsSchema(tool)
-      const args = schema
-        ? ` Arguments: ${JSON.stringify(schema.properties)}`
-        : ""
-      return `- ${tool.name}: ${tool.description ?? ""}${args}`
-    })
-    .join("\n")
-  return `You can call these tools:\n${list}\n\nDecide the next step. To call a tool, set action to its name and write its arguments under arguments.<its name>. To reply to the user, set action to "answer": the reply itself is written next.`
+/** A value with its objects' keys sorted, at every depth. */
+function sortedKeys(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(sortedKeys)
+  if (!value || typeof value !== "object") return value
+  return Object.fromEntries(
+    Object.keys(value)
+      .sort()
+      .map((key) => [key, sortedKeys((value as Record<string, unknown>)[key])])
+  )
+}
+
+/**
+ * A tool call as a key to compare calls by: the same tool with the same
+ * arguments is the same call, whatever order the model wrote the fields in.
+ */
+const callKey = (name: string, args: Record<string, unknown>) =>
+  JSON.stringify([name, sortedKeys(args)])
+
+/**
+ * The tool calls already made since the user's latest message, as the Prompt
+ * API adapter tracks them: small models sometimes call the tool they just
+ * called, with the same arguments, instead of answering from its result.
+ */
+function currentTurnCalls(messages: ReadonlyArray<ModelMessage>) {
+  const start = messages.map((m) => m.role).lastIndexOf("user")
+  return new Set(
+    messages
+      .slice(start + 1)
+      .flatMap((m) => m.toolCalls ?? [])
+      .map((call) => {
+        let args: unknown
+        try {
+          args = JSON.parse(call.function.arguments || "{}")
+        } catch {
+          args = {}
+        }
+        return callKey(
+          call.function.name,
+          args && typeof args === "object"
+            ? (args as Record<string, unknown>)
+            : {}
+        )
+      })
+  )
+}
+
+/** A tool's description, to its first paragraph and at most 400 characters. */
+function shortDescription(tool: Tool) {
+  const first = (tool.description ?? "").trim().split(/\n\s*\n/)[0] ?? ""
+  const line = first.replace(/\s+/g, " ")
+  return line.length > 400 ? `${line.slice(0, 399)}…` : line
+}
+
+/**
+ * The tools, as every request with tools lists them after the system prompt:
+ * the same words as the Prompt API adapter's, so Apple's model and the
+ * browser's read the same instructions.
+ */
+function toolsList(tools: Array<Tool>) {
+  return [
+    "You can use these tools:",
+    ...tools.map((tool) => `- ${tool.name}: ${shortDescription(tool)}`),
+    "Use a tool when the user asks for one or the answer needs current or outside information; otherwise answer directly. Once you have a tool's result, answer from it."
+  ].join("\n")
+}
+
+/**
+ * The system message with the tools listed after it, if there are any: what
+ * the reasoning draft sees, so it can plan which tool to call, as the other
+ * adapters' models do.
+ */
+function withToolsList(
+  messages: Array<OpenAIMessage>,
+  tools: Array<Tool>
+): Array<OpenAIMessage> {
+  if (tools.length === 0) return messages
+  const [first, ...rest] = messages
+  return first?.role === "system"
+    ? [
+        { role: "system", content: `${first.content}\n\n${toolsList(tools)}` },
+        ...rest
+      ]
+    : [{ role: "system", content: toolsList(tools) }, ...messages]
 }
 
 /** The system prompts as one system message, if there are any. */
@@ -675,13 +806,14 @@ export class ApfelTextAdapter<TModel extends string> extends BaseTextAdapter<
           stream: true,
           stream_options: { include_usage: true },
           messages: [
-            ...systemMessages(options.systemPrompts),
-            ...toOpenAIMessages(options.messages),
-            {
-              role: "user",
-              content:
-                "Write short working notes for the next response. Use facts already available in the conversation. Do not call tools or give the final response yet."
-            }
+            ...withToolsList(
+              [
+                ...systemMessages(options.systemPrompts),
+                ...toOpenAIMessages(options.messages)
+              ],
+              options.toolChoice === "none" ? [] : (options.tools ?? [])
+            ),
+            draftInstruction(options.messages)
           ]
         }),
         signal: controller.signal
@@ -792,7 +924,7 @@ export class ApfelTextAdapter<TModel extends string> extends BaseTextAdapter<
     }
 
     const tools = options.toolChoice === "none" ? [] : (options.tools ?? [])
-    const send = options.wrapFetch ? options.wrapFetch(fetch) : fetch
+    const send = fitting(options.wrapFetch ? options.wrapFetch(fetch) : fetch)
     const url = `${this.baseURL}/chat/completions`
     logger.request(
       `activity=chat provider=apfel model=${model} messages=${options.messages.length} tools=${tools.length} stream=true`,
@@ -813,11 +945,16 @@ export class ApfelTextAdapter<TModel extends string> extends BaseTextAdapter<
       yield runError(`apfel's reasoning draft failed: ${errorText(error)}`)
       return
     }
+    // Every request with tools lists them after the system prompt, the step
+    // and the answer alike, as the Prompt API adapter's session does.
     const conversation = withWorkingNotes(
-      [
-        ...systemMessages(options.systemPrompts),
-        ...toOpenAIMessages(options.messages)
-      ],
+      withToolsList(
+        [
+          ...systemMessages(options.systemPrompts),
+          ...toOpenAIMessages(options.messages)
+        ],
+        tools
+      ),
       draft.notes
     )
 
@@ -1083,10 +1220,11 @@ export class ApfelTextAdapter<TModel extends string> extends BaseTextAdapter<
   }
 
   /**
-   * The guided tool step: one request under `stepSchema`, in which Apple's
-   * model picks a tool and writes its arguments, or picks "answer". apfel
-   * holds the reply to the schema (guided generation), so the action is
-   * always one the step allows and the arguments only the tool's own fields.
+   * The guided tool step, as the Prompt API adapter's: first the decision,
+   * "answer" or a tool, then that tool's arguments, each a request held to
+   * its schema by apfel's guided generation. Neither adds instructions of its
+   * own: the conversation lists the tools, and the schema says what to write.
+   * A named `toolChoice`, or `required` with one tool, skips the decision.
    */
   private async decideStep(
     tools: Array<Tool>,
@@ -1095,81 +1233,92 @@ export class ApfelTextAdapter<TModel extends string> extends BaseTextAdapter<
     send: typeof fetch,
     signal: AbortSignal | undefined
   ): Promise<Step> {
-    // apfel takes one system message: the tools go after the instructions.
-    const instructions = toolsInstructions(tools)
-    const [first, ...rest] = conversation
-    const messages: Array<OpenAIMessage> =
-      first?.role === "system"
-        ? [
-            { role: "system", content: `${first.content}\n\n${instructions}` },
-            ...rest
-          ]
-        : [{ role: "system", content: instructions }, ...conversation]
-    options.logger.request(
-      `activity=tool-step provider=apfel model=${this.model} tools=${tools.length}`,
-      { provider: "apfel", model: this.model }
-    )
-    // The output cap is the answer's: the step is a short JSON of its own
-    // (an undefined field is left out of the request body).
+    // The output cap is the answer's: these are short JSON replies of their
+    // own (an undefined field is left out of the request body).
     const sampling = {
       ...nativeModelOptions(options.modelOptions),
       max_tokens: undefined
     }
-    const response = await send(`${this.baseURL}/chat/completions`, {
-      method: "POST",
-      headers: this.headers,
-      body: JSON.stringify({
-        ...sampling,
-        model: this.model,
-        messages,
-        response_format: {
-          type: "json_schema",
-          json_schema: {
-            name: "step",
-            schema: stepSchema(tools, options.toolChoice)
-          }
-        }
-      }),
-      signal
-    })
-    if (!response.ok) {
-      throw new Error(
-        `apfel returned HTTP ${response.status}: ${await errorBody(response)}`
+    const usages: Array<OpenAIUsage> = []
+    const guided = async (name: string, schema: object) => {
+      options.logger.request(
+        `activity=tool-step provider=apfel model=${this.model} step=${name}`,
+        { provider: "apfel", model: this.model }
       )
+      const response = await send(`${this.baseURL}/chat/completions`, {
+        method: "POST",
+        headers: this.headers,
+        body: JSON.stringify({
+          ...sampling,
+          model: this.model,
+          messages: conversation,
+          response_format: {
+            type: "json_schema",
+            json_schema: { name, schema }
+          }
+        }),
+        signal
+      })
+      if (!response.ok) {
+        throw new Error(
+          `apfel returned HTTP ${response.status}: ${await errorBody(response)}`
+        )
+      }
+      const completion = (await response.json()) as OpenAICompletion
+      if (completion.usage) usages.push(completion.usage)
+      const text = (completion.choices?.[0]?.message?.content ?? "")
+        .trim()
+        .replace(/^```(?:json)?\s*|\s*```$/g, "")
+      try {
+        return JSON.parse(text) as unknown
+      } catch {
+        return undefined
+      }
     }
-    const completion = (await response.json()) as OpenAICompletion
-    const text = (completion.choices?.[0]?.message?.content ?? "")
-      .trim()
-      .replace(/^```(?:json)?\s*|\s*```$/g, "")
-    const step = JSON.parse(text) as {
-      action?: unknown
-      arguments?: Record<string, unknown>
+    // A step that needed no request (a named tool, or "required" with one
+    // tool and no arguments) counts as none, so the draft's usage still shows.
+    const usage = () =>
+      usages.reduce(
+        (sum, u) => ({
+          prompt_tokens: (sum.prompt_tokens ?? 0) + (u.prompt_tokens ?? 0),
+          completion_tokens:
+            (sum.completion_tokens ?? 0) + (u.completion_tokens ?? 0)
+        }),
+        { prompt_tokens: 0, completion_tokens: 0 } as OpenAIUsage
+      )
+
+    const names = tools.map((tool) => tool.name)
+    const choice = options.toolChoice
+    let action: string | undefined
+    if (typeof choice === "object" && names.includes(choice.name)) {
+      action = choice.name
+    } else if (choice === "required" && tools.length === 1) {
+      action = names[0]
+    } else {
+      const decision = await guided(
+        "decision",
+        decisionSchema(names, choice === "required")
+      )
+      const picked =
+        decision && typeof decision === "object" && "action" in decision
+          ? decision.action
+          : undefined
+      action = typeof picked === "string" ? picked : undefined
     }
-    const action =
-      typeof step.action === "string" &&
-      tools.some((tool) => tool.name === step.action)
-        ? step.action
-        : "answer"
-    const written = step.arguments?.[action]
+    const tool = tools.find((t) => t.name === action)
+    if (!tool) return { action: "answer", args: {}, usage: usage() }
+
+    const schema = argumentsSchema(tool)
+    const written = schema ? await guided(tool.name, schema) : {}
     const args =
       written && typeof written === "object" && !Array.isArray(written)
-        ? (written as Record<string, unknown>)
+        ? (withoutNulls(written, schema ?? {}) as Record<string, unknown>)
         : {}
-    return {
-      action,
-      // Optional fields left empty weren't really set.
-      args: Object.fromEntries(
-        Object.entries(args).filter(
-          ([, value]) =>
-            !(
-              value === "" ||
-              value === null ||
-              (Array.isArray(value) && value.length === 0)
-            )
-        )
-      ),
-      usage: completion.usage
+    // A repeat of a call already made this turn: answer from its result.
+    if (currentTurnCalls(options.messages).has(callKey(tool.name, args))) {
+      return { action: "answer", args: {}, usage: usage() }
     }
+    return { action: tool.name, args, usage: usage() }
   }
 
   /**
@@ -1287,7 +1436,9 @@ export class ApfelTextAdapter<TModel extends string> extends BaseTextAdapter<
     signal?.throwIfAborted()
     const emulation = reasoningOptions(chatOptions.reasoning)
     const model = this.model
-    const send = chatOptions.wrapFetch ? chatOptions.wrapFetch(fetch) : fetch
+    const send = fitting(
+      chatOptions.wrapFetch ? chatOptions.wrapFetch(fetch) : fetch
+    )
     chatOptions.logger.request(
       `activity=${stream ? "structuredOutputStream" : "structuredOutput"} provider=apfel model=${model} messages=${chatOptions.messages.length} tools=0 stream=${stream}`,
       { provider: "apfel", model }

@@ -126,6 +126,17 @@ export function toGuidedSchema(
           (key): key is string => typeof key === "string" && key in properties
         )
       : []
+    // An optional field can also be null, so a model that writes every field
+    // can still say it has no value for one (Gemini Nano wrote 0 for
+    // coordinates it didn't have). `withoutNulls` drops those again.
+    const required = new Set(out.required as Array<string>)
+    for (const [key, value] of Object.entries(
+      out.properties as Record<string, JsonSchema>
+    )) {
+      if (!required.has(key)) value.type = [value.type, "null"]
+      if (!required.has(key) && Array.isArray(value.enum))
+        value.enum = [...value.enum, null]
+    }
     // Without this the model adds fields of its own.
     out.additionalProperties = false
   }
@@ -253,4 +264,33 @@ export function supportsNativeTools(
 /** Turns native tool use off for these languages, after a session refused it. */
 export function noNativeTools(languages: ReadonlyArray<string>) {
   nativeSupport.set(languages.join(","), Promise.resolve(false))
+}
+
+/**
+ * Arguments written under `toGuidedSchema`, without the nulls it allows in
+ * optional fields: a null is a field the model left out.
+ */
+export function withoutNulls(value: unknown, schema: JsonSchema): unknown {
+  if (Array.isArray(value)) {
+    const items = isObject(schema.items) ? schema.items : {}
+    return value.map((item) => withoutNulls(item, items))
+  }
+  if (!isObject(value)) return value
+  const properties = isObject(schema.properties) ? schema.properties : {}
+  const required = Array.isArray(schema.required) ? schema.required : []
+  return Object.fromEntries(
+    Object.entries(value).flatMap(([key, field]) =>
+      field === null && !required.includes(key)
+        ? []
+        : [
+            [
+              key,
+              withoutNulls(
+                field,
+                isObject(properties[key]) ? (properties[key] as JsonSchema) : {}
+              )
+            ]
+          ]
+    )
+  )
 }

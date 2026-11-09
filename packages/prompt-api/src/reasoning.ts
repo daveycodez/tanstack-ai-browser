@@ -1,6 +1,7 @@
-import type { ReasoningRequest } from "@tanstack/ai"
+import type { ModelMessage, ReasoningRequest } from "@tanstack/ai"
 import { calibrationSample, internalAbort, smallest, textOfInput, tokenLimiter } from "./limit.js"
 import type { TokenLimiter } from "./limit.js"
+import { contentText } from "./messages.js"
 import type { LanguageModelInput, LanguageModelMessage, LanguageModelSession } from "./types.js"
 
 export type PromptApiReasoning = { levels: "off" | "high"; budget: true }
@@ -22,9 +23,22 @@ export function promptReasoningOptions(request: ReasoningRequest | undefined) {
   return { enabled: request?.level === "high", budget }
 }
 
-const draftInstruction: LanguageModelMessage = {
-  role: "user",
-  content: "Write short working notes for the next response. Use facts already available in the conversation. Do not call tools or give the final response yet."
+/** The longest quote of the user's message the draft instruction carries. */
+const QUOTE_CHARS = 500
+
+/**
+ * The draft's instruction, quoting the user's latest message: after a tool
+ * result, the newest user message is this instruction itself, and small
+ * models took it for the message to reply to.
+ */
+export function draftInstruction(messages: ReadonlyArray<ModelMessage>): LanguageModelMessage {
+  const latest = [...messages].reverse().find((m) => m.role === "user")
+  const text = latest ? contentText(latest.content).trim().replace(/\s+/g, " ") : ""
+  const quote = text.length > QUOTE_CHARS ? `${text.slice(0, QUOTE_CHARS - 1)}…` : text
+  return {
+    role: "user",
+    content: `Now write notes for yourself before replying to the user's latest message${quote ? `, "${quote}"` : ""}: what's needed, what you already have, and what to do next. Don't call tools or write the reply yet.`
+  }
 }
 export function withWorkingNotes(input: LanguageModelInput, notes: string): LanguageModelInput {
   if (!notes) return input
@@ -41,7 +55,7 @@ export function withWorkingNotes(input: LanguageModelInput, notes: string): Lang
  * estimated while it streams, stopped a little past the limit, then measured
  * and trimmed exactly (the rest of the notes streams once the draft stops).
  */
-export async function* draftReasoning(session: LanguageModelSession, input: LanguageModelInput, signal: AbortSignal | undefined, budget?: number, cap?: number): AsyncGenerator<string, DraftReasoningResult> {
+export async function* draftReasoning(session: LanguageModelSession, input: LanguageModelInput, conversation: ReadonlyArray<ModelMessage>, signal: AbortSignal | undefined, budget?: number, cap?: number): AsyncGenerator<string, DraftReasoningResult> {
   signal?.throwIfAborted()
   if (budget !== undefined && (!Number.isSafeInteger(budget) || budget < 0)) throw new RangeError("reasoning.budgetTokens must be a nonnegative safe integer.")
   const began = performance.now()
@@ -54,7 +68,7 @@ export async function* draftReasoning(session: LanguageModelSession, input: Lang
   try {
     draft = await session.clone({ signal })
     const messages: LanguageModelMessage[] = typeof input === "string" ? [{ role: "user", content: input }] : input
-    const prompt = [...messages, draftInstruction]
+    const prompt = [...messages, draftInstruction(conversation)]
     // Calibrated while the model is idle; nothing is measured mid-draft.
     if (limit !== undefined) limiter = await tokenLimiter(session, limit, calibrationSample([textOfInput(prompt)]), signal)
     const stream = draft.promptStreaming(prompt, { signal: stopper.signal })

@@ -16,7 +16,7 @@ await build({ stdin: { contents: `export * from '${root}/packages/apfel/src/inde
 const { apfelText, chat } = await import(pathToFileURL(outfile).href)
 const schema = { type: "object", properties: { moveId: { type: "string", enum: ["b6-a5"] } }, required: ["moveId"], additionalProperties: false }
 const logger = { request() { return undefined }, errors() { return undefined }, provider() { return undefined }, warn() { return undefined } }
-type RequestBody = { model: string; stream?: boolean; max_tokens?: number; temperature?: number; seed?: number; reasoning?: unknown; tools?: unknown; tool_choice?: string; response_format?: unknown; messages: Array<{ role: string; content: string }> }
+type RequestBody = { model: string; stream?: boolean; max_tokens?: number; temperature?: number; seed?: number; reasoning?: unknown; tools?: unknown; tool_choice?: string; response_format?: unknown; messages: Array<{ role: string; content: string; tool_calls?: unknown; tool_call_id?: string }> }
 const state = { requests: [] as Array<{ url: string; body: RequestBody; init: RequestInit }>, tools: false, draftFinish: "length", draftTokens: 4, finalFinish: "stop", draftFailure: false, abortDraft: false, abortFinal: false, controller: new AbortController() }
 const originalFetch = globalThis.fetch
 after(() => { globalThis.fetch = originalFetch })
@@ -37,7 +37,7 @@ function reset() {
     init.signal?.throwIfAborted()
     const body = JSON.parse(String(init.body)) as RequestBody
     state.requests.push({ url: String(url), body, init })
-    const draft = body.messages.at(-1)?.content.includes("Write short working notes") === true
+    const draft = body.messages.at(-1)?.content.includes("write notes for yourself") === true
     if (draft && state.draftFailure) return new Response("draft failed", { status: 503 })
     if (!draft && state.abortFinal) state.controller.abort(new Error("cancel during final"))
     if (body.stream) return stream(draft, body.response_format !== undefined)
@@ -123,11 +123,11 @@ test("Apfel emits reasoning before final text and preserves tool selection and c
     assert.equal(state.requests[0].body.tools, undefined)
     assert.ok(events.some(e => e.type === "REASONING_MESSAGE_CONTENT" && e.delta === "working "))
     if (tools) {
-      // The step offers only the tools for "required", after the draft.
-      const step = state.requests[1].body.response_format as { json_schema: { name: string; schema: { properties: { action: { enum: Array<string> } } } } }
-      assert.equal(step.json_schema.name, "step")
-      assert.deepEqual(step.json_schema.schema.properties.action.enum, ["ping"])
-      assert.match(state.requests[1].body.messages.at(-1)?.content ?? "", /working notes/)
+      // The draft sees the tools, so it can plan which to call.
+      assert.match(state.requests[0].body.messages[0].content, /You can use these tools:\n- ping: Ping/)
+      // "required" with one tool that takes no arguments, as with the Prompt
+      // API: the call needs no request after the draft.
+      assert.equal(state.requests.length, 1)
       const calls = events.filter(e => e.type === "TOOL_CALL_END")
       assert.equal(calls.length, 1); assert.equal(calls[0].toolCallName, "ping")
     } else {
@@ -135,7 +135,8 @@ test("Apfel emits reasoning before final text and preserves tool selection and c
       assert.ok(endReason < events.findIndex(e => e.type === "TEXT_MESSAGE_START"))
     }
     const finish = events.find(e => e.type === "RUN_FINISHED")
-    assert.ok(finish); assert.equal((finish.usage as { completionTokens: number }).completionTokens, 7)
+    // The draft's 4 tokens, and the answer's 3 when there's one.
+    assert.ok(finish); assert.equal((finish.usage as { completionTokens: number }).completionTokens, tools ? 4 : 7)
   }
 })
 
@@ -190,15 +191,17 @@ test("Apfel draft notes preserve the original user turn and authoritative tool-r
   const original = JSON.stringify(messages)
   await collect(apfelText("apple").chatStream({ ...request, messages }))
   const final = state.requests[1].body.messages
-  assert.equal(final.length, 3)
+  assert.equal(final.length, 4)
   assert.equal(final[0].role, "user")
-  assert.match(final[0].content, /^Get the temperature in London/)
-  assert.match(final[0].content, /working notes/)
-  // The current turn's call is the step JSON the model writes, its result a user message.
+  assert.equal(final[0].content, "Get the temperature in London")
+  // The current turn's call and result are OpenAI's tool messages.
   assert.equal(final[1].role, "assistant")
-  assert.equal(final[1].content, '{"action":"lookup_temperature","arguments":{"lookup_temperature":{"city":"London"}}}')
-  assert.equal(final.at(-1)?.role, "user")
-  assert.equal(final.at(-1)?.content, 'Result of lookup_temperature:\n{"temperature":21}')
+  assert.deepEqual(final[1].tool_calls, [{ id: "original-call", type: "function", function: { name: "lookup_temperature", arguments: '{"city":"London"}' } }])
+  assert.equal(final[2].role, "tool")
+  assert.equal(final[2].tool_call_id, "original-call")
+  assert.equal(final[2].content, '{"temperature":21}')
+  // The notes follow in a message of their own, as with the Prompt API.
+  assert.match(final[3].content, /^Working notes to verify against the conversation:/)
   assert.equal(JSON.stringify(messages), original)
 })
 

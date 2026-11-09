@@ -95,6 +95,16 @@ export function toGuidedSchema(
           (key): key is string => typeof key === "string" && key in properties
         )
       : []
+    // An optional field can also be null, as in the Prompt API adapter
+    // (Gemini Nano wrote 0 for coordinates it didn't have). apfel reads a
+    // nullable field as optional, and takes only strings in an enum, so an
+    // enum gets no null of its own. `withoutNulls` drops any null written.
+    const required = new Set(out.required as Array<string>)
+    for (const [key, value] of Object.entries(
+      out.properties as Record<string, JsonSchema>
+    )) {
+      if (!required.has(key)) value.type = [value.type, "null"]
+    }
   }
   if (out.type === "array") {
     out.items = toGuidedSchema(schema.items ?? {}, root, depth + 1)
@@ -125,4 +135,33 @@ function mergeSchemas(a: JsonSchema, b: JsonSchema): JsonSchema {
     ]
   }
   return merged
+}
+
+/**
+ * Arguments written under `toGuidedSchema`, without the nulls it allows in
+ * optional fields: a null is a field the model left out.
+ */
+export function withoutNulls(value: unknown, schema: JsonSchema): unknown {
+  if (Array.isArray(value)) {
+    const items = isObject(schema.items) ? schema.items : {}
+    return value.map((item) => withoutNulls(item, items))
+  }
+  if (!isObject(value)) return value
+  const properties = isObject(schema.properties) ? schema.properties : {}
+  const required = Array.isArray(schema.required) ? schema.required : []
+  return Object.fromEntries(
+    Object.entries(value).flatMap(([key, field]) =>
+      field === null && !required.includes(key)
+        ? []
+        : [
+            [
+              key,
+              withoutNulls(
+                field,
+                isObject(properties[key]) ? (properties[key] as JsonSchema) : {}
+              )
+            ]
+          ]
+    )
+  )
 }

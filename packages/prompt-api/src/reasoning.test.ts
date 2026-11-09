@@ -6,7 +6,7 @@ import { join, resolve } from "node:path"
 import { pathToFileURL } from "node:url"
 import { createRequire } from "node:module"
 
-import { toGuidedSchema } from "./tools.js"
+import { toGuidedSchema, withoutNulls } from "./tools.js"
 
 const root=resolve(process.cwd(),"../..")
 const require=createRequire(join(root,"packages/prompt-api/package.json"))
@@ -42,7 +42,7 @@ class FakeSession {
  async append(input:unknown,options?:Record<string,unknown>){control.events.push({kind:"append",session:this.id,input,options})}
  async measureContextUsage(input:unknown,options?:Record<string,unknown>){const value=10+text(input).length;control.events.push({kind:generating()?"measure-while-generating":"measure",session:this.id,input,options,value});await idle();return value}
  promptStreaming(input:unknown,options:Record<string,unknown>={}){
-  const draft=text(input).includes("Write short working notes")
+  const draft=text(input).includes("write notes for yourself")
   // A constrained stream answers like prompt(), in pieces: the structured-output stream.
   const constrained=!draft&&!!options.responseConstraint
   control.events.push({kind:draft?"draft":constrained?"final":"final-stream",session:this.id,input,options})
@@ -145,7 +145,7 @@ test("emulated Prompt API budget subtracts message overhead and never aborts the
  const start=kinds.indexOf("draft"),end=kinds.indexOf("end",start)
  assert.ok(start>0&&end>start)
  assert.equal(control.events.slice(start,end).filter(e=>e.kind.startsWith("measure")||e.kind.startsWith("clone")).length,0)
- assert.ok(control.events.slice(0,start).some(e=>e.kind==="measure"&&/Write short working notes/.test(text(e.input))),"the draft's prompt calibrates the estimate")
+ assert.ok(control.events.slice(0,start).some(e=>e.kind==="measure"&&/write notes for yourself/.test(text(e.input))),"the draft's prompt calibrates the estimate")
  assert.ok(control.events.slice(end).some(e=>e.kind==="measure"&&text(e.input)==="abcdefghi"),"the whole draft is measured once it ends")
  assert.ok(!kinds.some(k=>k.endsWith("-while-generating")))
 })
@@ -327,4 +327,14 @@ test("Prompt API forced one-tool argument cancellation cleans up its clone and l
  assert.equal(chunks.some(chunk=>chunk.type==="TOOL_CALL_END"),false)
  assert.ok(control.sessions.every(session=>session.destroyed))
  assert.equal(control.discards,1)
+})
+
+test("optional argument fields can be null in the constraint, and nulls are left out of the call", () => {
+ const inputSchema = { type: "object", properties: { city: { type: "string" }, latitude: { type: "number" }, unit: { type: "string", enum: ["C", "F"] } }, required: ["city"] }
+ const schema = toGuidedSchema(inputSchema) as { properties: Record<string, { type: unknown; enum?: unknown[] }> }
+ assert.equal(schema.properties.city.type, "string")
+ assert.deepEqual(schema.properties.latitude.type, ["number", "null"])
+ assert.deepEqual(schema.properties.unit.enum, ["C", "F", null])
+ assert.deepEqual(withoutNulls({ city: "Kyoto", latitude: null, unit: null }, schema), { city: "Kyoto" })
+ assert.deepEqual(withoutNulls({ city: null }, schema), { city: null }, "a required field keeps its null")
 })
