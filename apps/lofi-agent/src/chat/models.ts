@@ -13,9 +13,7 @@ import { webgllmText } from "@tanstack-ai-browser/webgllm"
 import { WEBGLLM_MODEL_REASONING } from "@tanstack-ai-browser/webgllm/model-meta"
 import type { WebGllmChatModel } from "@tanstack-ai-browser/webgllm/model-meta"
 import { apfelText } from "@tanstack-ai-browser/apfel"
-import { APFEL_MODEL_REASONING } from "@tanstack-ai-browser/apfel/model-meta"
 import { promptApiText } from "@tanstack-ai-browser/prompt-api"
-import { PROMPT_API_MODEL_REASONING } from "@tanstack-ai-browser/prompt-api/model-meta"
 import type { Availability } from "@tanstack-ai-browser/prompt-api"
 import { browserModel } from "./browser-model.ts"
 import { useSyncExternalStore } from "react"
@@ -45,6 +43,8 @@ export type ModelId =
   | "lfm2.5-350m-webgl"
   | "lfm2.5-gguf-webgl"
   | "lfm2.5-thinking-gguf-webgl"
+  | "lfm2-tool-gguf-webgl"
+  | "lfm2-tool-webgl"
   | "lfm2.5-350m-gguf-webgl"
   | "qwen3.5-2b-webgl"
   | "qwen3.5-2b-gguf-webgl"
@@ -184,8 +184,8 @@ export const MODELS = [
     /** Runs outside the browser: nothing to download. */
     status: null,
     needsWebGpu: false,
-    /** Off or high: the adapter drafts working notes before answering. */
-    reasoning: APFEL_MODEL_REASONING[APPLE_MODEL]
+    /** Apple's model doesn't reason. */
+    reasoning: undefined
   },
   {
     id: "built-in",
@@ -201,8 +201,8 @@ export const MODELS = [
     /** The browser downloads it, once for every site, with progress. */
     status: builtInStatus.status as ModelStatusStore | null,
     needsWebGpu: false,
-    /** Off or high: the adapter drafts working notes before answering. */
-    reasoning: PROMPT_API_MODEL_REASONING["built-in"]
+    /** The browser's model doesn't reason. */
+    reasoning: undefined
   },
   local("gemma-4-e4b", "onnx-community/gemma-4-E4B-it-ONNX"),
   local("lfm3", "onnx-community/LFM3-1.7B-ONNX"),
@@ -224,6 +224,8 @@ export const MODELS = [
   webgl("lfm2.5-gguf-webgl", "LiquidAI/LFM2.5-1.2B-Instruct-GGUF"),
   webgl("lfm2.5-thinking-webgl", "LiquidAI/LFM2.5-1.2B-Thinking-ONNX"),
   webgl("lfm2.5-thinking-gguf-webgl", "LiquidAI/LFM2.5-1.2B-Thinking-GGUF"),
+  webgl("lfm2-tool-gguf-webgl", "LiquidAI/LFM2-1.2B-Tool-GGUF"),
+  webgl("lfm2-tool-webgl", "onnx-community/LFM2-1.2B-Tool-ONNX"),
   webgl("lfm2.5-350m-webgl", "LiquidAI/LFM2.5-350M-ONNX"),
   webgl("lfm2.5-350m-gguf-webgl", "LiquidAI/LFM2.5-350M-GGUF"),
   webgl("qwen3.5-2b-webgl", "onnx-community/Qwen3.5-2B-ONNX"),

@@ -602,8 +602,8 @@ importers:
   packages/webgllm:
     dependencies:
       webgllm:
-        specifier: ^0.1.6
-        version: 0.1.6
+        specifier: ^0.1.9
+        version: 0.1.9
     devDependencies:
       '@huggingface/transformers':
         specifier: 4.3.2
@@ -5097,8 +5097,8 @@ packages:
   wcwidth@1.0.1:
     resolution: {integrity: sha512-XHPEwS0q6TaxcvG85+8EYkbiCux2XtWG2mkc47Ng2A77BQu9+DqIOJldST4HgPkuea7dvKSj5VgX3P1d4rW8Tg==}
 
-  webgllm@0.1.6:
-    resolution: {integrity: sha512-sjrP0JaQtkNfOeZoZBnzs6gQhT7a76M1TgvHhpdTV0lY4kcd5vlIQiObDzyh/n/Zd1iovSOO/5Dl/khKAQHENA==}
+  webgllm@0.1.9:
+    resolution: {integrity: sha512-obtrqzI+kUfmx7DRWnhJQ6JRbDYlFDl7QcgAFxMT8G5k3wbjsHd5Ux8iB7D84sui7AfXm8aXJoglL5w7TEK+Nw==}
 
   webpack-virtual-modules@0.6.2:
     resolution: {integrity: sha512-66/V2i5hQanC51vBQKPH4aI8NMAcBW59FVBs+rC7eGHupMyfn34q7rZIE+ETlJ+XTevqfUhVVBgSUNSW2flEUQ==}
@@ -10078,7 +10078,7 @@ snapshots:
     dependencies:
       defaults: 1.0.4
 
-  webgllm@0.1.6:
+  webgllm@0.1.9:
     dependencies:
       '@huggingface/jinja': 0.5.10
       '@huggingface/tokenizers': 0.2.0
