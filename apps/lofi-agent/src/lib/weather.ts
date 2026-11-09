@@ -8,7 +8,6 @@
  */
 import { toolDefinition } from "@tanstack/ai"
 
-import { placeName } from "#/lib/places"
 import { setting } from "#/lib/settings"
 
 export const WEATHER_TOOL = "get_weather"
@@ -118,10 +117,6 @@ async function getJson<T>(url: string, signal?: AbortSignal): Promise<T> {
   return (await response.json()) as T
 }
 
-/** Where to look up: a city by name, or a point (from get_current_location). */
-export type WeatherPlace =
-  { city: string } | { latitude: number; longitude: number }
-
 /** A city's coordinates and its name, such as "Kyoto, Japan". */
 async function findCity(city: string, signal?: AbortSignal) {
   const geo = await getJson<Geocoded>(
@@ -146,23 +141,12 @@ async function findCity(city: string, signal?: AbortSignal) {
   return { latitude: place.latitude, longitude: place.longitude, name }
 }
 
-/** A place's weather now and for the next five days. */
+/** A city's weather now and for the next five days. */
 export async function lookUpWeather(
-  where: WeatherPlace,
+  city: string,
   signal?: AbortSignal
 ): Promise<WeatherReport> {
-  // A point is named offline, from the city list, not from whatever city
-  // the model passed with it (models fill in made-up ones).
-  const place =
-    "city" in where
-      ? await findCity(where.city, signal)
-      : {
-          ...where,
-          name:
-            (await placeName(where.latitude, where.longitude).catch(
-              () => undefined
-            )) ?? "Your location"
-        }
+  const place = await findCity(city, signal)
 
   const fahrenheit = usesFahrenheit()
   const forecast = await getJson<Forecast>(
@@ -214,34 +198,24 @@ export async function lookUpWeather(
 export const weatherTool = toolDefinition({
   name: WEATHER_TOOL,
   description:
-    "Get the current weather and a 5-day forecast for a city, or for a latitude and longitude. Use this for any question about weather, temperature or rain. For the weather where the user is, call get_current_location first and pass its latitude and longitude here.",
+    "Get the current weather and a 5-day forecast for a city. Use this for any question about weather, temperature or rain. For the weather where the user is, call get_current_location first and pass the nearest city it returns.",
   inputSchema: {
     type: "object",
     properties: {
       city: {
         type: "string",
         description:
-          'A city the user named, such as "Kyoto" or "Paris, France". Leave it out for the user\'s own location.'
-      },
-      latitude: {
-        type: "number",
-        description: "From get_current_location, instead of a city."
-      },
-      longitude: {
-        type: "number",
-        description: "From get_current_location, instead of a city."
+          'A city, such as "Kyoto" or "Paris, France": one the user named, or the nearest city get_current_location returned.'
       }
-    }
+    },
+    required: ["city"]
   }
 }).server(async (args, context) => {
-  const { city, latitude, longitude } = args as Record<string, unknown>
-  if (typeof latitude === "number" && typeof longitude === "number") {
-    return lookUpWeather({ latitude, longitude }, context?.abortSignal)
-  }
+  const { city } = args as Record<string, unknown>
   if (typeof city === "string" && city.trim()) {
-    return lookUpWeather({ city: city.trim() }, context?.abortSignal)
+    return lookUpWeather(city.trim(), context?.abortSignal)
   }
-  throw new Error("A city, or a latitude and longitude, is needed.")
+  throw new Error("A city is needed.")
 })
 
 /** A tool result as a weather report, if it is one. */
