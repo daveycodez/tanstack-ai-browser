@@ -20,11 +20,21 @@ type Model = {
 }
 
 const MODELS: Record<string, Model> = {
-  gemini: { name: "Gemini Nano", adapter: () => promptApiText("built-in"), switchable: true },
+  gemini: { name: "Gemini Nano", adapter: () => promptApiText("built-in"), switchable: false },
   lfm3: { name: "LFM3 1.7B", adapter: () => webgllmText("LiquidAI/LFM3-1.7B-GGUF"), switchable: true },
   "lfm2.5": {
     name: "LFM2.5 1.2B Instruct",
     adapter: () => webgllmText("LiquidAI/LFM2.5-1.2B-Instruct-GGUF"),
+    switchable: false
+  },
+  "lfm2-tool": {
+    name: "LFM2 1.2B Tool (GGUF)",
+    adapter: () => webgllmText("LiquidAI/LFM2-1.2B-Tool-GGUF"),
+    switchable: false
+  },
+  "lfm2-tool-onnx": {
+    name: "LFM2 1.2B Tool (ONNX)",
+    adapter: () => webgllmText("onnx-community/LFM2-1.2B-Tool-ONNX"),
     switchable: false
   },
   "lfm2.5-thinking": {
@@ -61,6 +71,7 @@ try {
     name: model.name,
     adapter,
     reasoning,
+    ask: params.getAll("ask"),
     progress: (line) => {
       show(line)
       void post("/progress", line)

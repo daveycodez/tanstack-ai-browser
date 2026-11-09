@@ -6,13 +6,12 @@
  * browser (browser.ts); scripts/chat-test.mjs starts either.
  */
 import { chat } from "@tanstack/ai"
-import type { AnyTextAdapter, ChatMiddleware } from "@tanstack/ai"
+import type { AnyTextAdapter } from "@tanstack/ai"
 import { ChatClient, stream } from "@tanstack/ai-client"
 import { createMCPClient } from "@tanstack/ai-mcp"
 
 import { currentSystemPrompt } from "#/lib/settings"
-import { compactToolResult, shorten } from "#/lib/sources"
-import { locationToolDefinition } from "#/lib/location"
+import { describeLocation, locationToolDefinition } from "#/lib/location"
 import { weatherTool } from "#/lib/weather"
 
 /**
@@ -45,10 +44,12 @@ type Args = {
   reasoning?: "off" | "high"
   /** Each turn's line, as it ends. */
   progress?: (line: string) => void
+  /** Messages to send instead of the 7-turn chat (no checks of place or tools). */
+  ask?: Array<string>
 }
 
 /** Runs the chat and returns its log as markdown. */
-export async function run({ name, adapter, reasoning, progress }: Args) {
+export async function run({ name, adapter, reasoning, progress, ask }: Args) {
   // Exa, as the app connects to it (src/lib/mcp.ts).
   const exa = await createMCPClient({
     transport: { type: "http", url: "https://mcp.exa.ai/mcp", headers: {} },
@@ -56,17 +57,6 @@ export async function run({ name, adapter, reasoning, progress }: Args) {
     prior: { kind: "legacy" },
     needsApproval: (tool) => tool.annotations?.readOnlyHint !== true
   })
-
-  const compactToolResults: ChatMiddleware = {
-    name: "compact-tool-results",
-    onAfterToolCall: (_ctx, info) => {
-      if (!info.ok || typeof info.result !== "string") return
-      return {
-        type: "replaceResult",
-        result: shorten(compactToolResult(info.result))
-      }
-    }
-  }
 
   // A run's error, which the client reports here rather than throwing.
   let runError: string | undefined
@@ -91,11 +81,10 @@ export async function run({ name, adapter, reasoning, progress }: Args) {
         tools: [weatherTool, locationToolDefinition],
         mcp: { clients: [exa], connection: "keep-alive" },
         ...(reasoning && { reasoning }),
-        middleware: [compactToolResults],
         abortController
       })
     }),
-    tools: [locationToolDefinition.client(async () => SEATTLE)]
+    tools: [locationToolDefinition.client(async () => describeLocation(SEATTLE))]
   })
 
   const log: Array<string> = [
@@ -104,7 +93,8 @@ export async function run({ name, adapter, reasoning, progress }: Args) {
   ]
   const summary: Array<string> = []
   let total = 0
-  for (const [i, { text, weather, noTools }] of TURNS.entries()) {
+  const turns = ask?.length ? ask.map((text) => ({ text, weather: undefined, noTools: undefined })) : TURNS
+  for (const [i, { text, weather, noTools }] of turns.entries()) {
     const before = client.getMessages().length
     const started = Date.now()
     let error: string | undefined
@@ -201,9 +191,10 @@ function check(
   if (/^\s*[{[]|"action"\s*:/.test(answer)) problems.push("JSON answer")
   if (/Tasks Completed|Final Response|^\s*\**Notes\**:/im.test(answer))
     problems.push("scaffolding")
-  // The test's messages never mention notes: an answer that does is about
-  // the draft's instruction, not the user.
-  if (/\bnotes\b/i.test(answer)) problems.push("answered the notes instruction")
+  // An answer about writing notes is about the draft's instruction, not the
+  // user. ("It also notes the parade" is fine.)
+  if (/working notes|(write|writing|wrote) (the |these |my |some )?notes|notes (for|to) (my|your)self|notes"? structure|own "?notes|notes for (responding|replying)/i.test(answer))
+    problems.push("answered the notes instruction")
   const seen = new Set<string>()
   for (const call of calls) {
     const key = `${call.name}:${sorted(call.args)}`

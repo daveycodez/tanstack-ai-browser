@@ -2,13 +2,14 @@
  * The 7-turn chat test, with the app's real chat setup and tools
  * (scripts/chat-test/run.ts) and no UI.
  *
- *   node apps/lofi-agent/scripts/chat-test.mjs --model apple [--reasoning off|high] [--out log.md]
+ *   node apps/lofi-agent/scripts/chat-test.mjs --model apple [--out log.md]
  *     Apple's model through apfel, in Node. Needs `apfel --serve --cors`.
  *     Also writes every request sent to apfel, as JSON lines, next to the log.
  *
- *   node apps/lofi-agent/scripts/chat-test.mjs --model gemini|lfm3|lfm2.5|lfm2.5-thinking [--reasoning off|high] [--out log.md]
+ *   node apps/lofi-agent/scripts/chat-test.mjs --model gemini|lfm3|lfm2.5|lfm2.5-thinking|lfm2-tool|lfm2-tool-onnx [--reasoning off|high] [--out log.md]
  *     In the browser: Gemini Nano through the Prompt API (which only Chrome
- *     has), or LFM3 or LFM2.5 Instruct or Thinking through webgllm. Serves
+ *     has), or LFM3, LFM2.5 Instruct or Thinking, or LFM2 1.2B Tool (GGUF or
+ *     ONNX) through webgllm. Serves
  *     the test page and waits for it: open the printed address. LFM2.5's
  *     builds can't switch thinking: Instruct never thinks, Thinking always.
  *     With --runs N, the page runs the chat N times, reloading between runs,
@@ -32,10 +33,12 @@ const { values } = parseArgs({
     reasoning: { type: "string", default: "high" },
     out: { type: "string", default: "chat-test.md" },
     port: { type: "string", default: "8791" },
-    runs: { type: "string", default: "1" }
+    runs: { type: "string", default: "1" },
+    // A message to send instead of the 7-turn chat; repeat for several turns.
+    ask: { type: "string", multiple: true }
   }
 })
-const BROWSER_MODELS = ["gemini", "lfm3", "lfm2.5", "lfm2.5-thinking"]
+const BROWSER_MODELS = ["gemini", "lfm3", "lfm2.5", "lfm2.5-thinking", "lfm2-tool", "lfm2-tool-onnx"]
 if (values.model !== "apple" && !BROWSER_MODELS.includes(values.model)) {
   throw new Error(`--model is apple, ${BROWSER_MODELS.join(", ")}.`)
 }
@@ -98,7 +101,7 @@ if (values.model === "apple") {
       : realFetch(input, init)
   const { main } = await import(pathToFileURL(bundle).href)
   await main({
-    reasoning: values.reasoning,
+    ask: values.ask,
     out,
     requests: out.replace(/\.md$/, "") + ".requests.jsonl"
   })

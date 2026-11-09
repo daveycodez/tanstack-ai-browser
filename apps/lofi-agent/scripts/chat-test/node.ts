@@ -8,9 +8,9 @@ import { apfelText } from "@tanstack-ai-browser/apfel"
 
 import { run } from "./run"
 
-type Args = { reasoning: "off" | "high"; out: string; requests: string }
+type Args = { out: string; requests: string; ask?: Array<string> }
 
-export async function main({ reasoning, out, requests }: Args) {
+export async function main({ out, requests, ask }: Args) {
   writeFileSync(requests, "")
   const realFetch = globalThis.fetch
   globalThis.fetch = async (input, init) => {
@@ -24,7 +24,15 @@ export async function main({ reasoning, out, requests }: Args) {
     const body = JSON.parse(String(init.body))
     const decoder = new TextDecoder()
     let text = ""
-    const record = () =>
+    let recorded = false
+    const record = () => {
+      if (recorded) return
+      recorded = true
+      write()
+    }
+    // A reply stopped at its tool call is recorded too, as far as it got.
+    init.signal?.addEventListener("abort", record, { once: true })
+    const write = () =>
       appendFileSync(
         requests,
         JSON.stringify({
@@ -55,7 +63,7 @@ export async function main({ reasoning, out, requests }: Args) {
   const log = await run({
     name: "Apple Foundation Model",
     adapter: apfelText("apple-foundationmodel"),
-    reasoning,
+    ask,
     progress: (line) => console.log(line)
   })
   writeFileSync(out, log)
