@@ -5,8 +5,8 @@
 import ArrowUp from "@gravity-ui/icons/ArrowUp"
 import StopFill from "@gravity-ui/icons/StopFill"
 import { Button, InputGroup, Kbd, TextField, Tooltip } from "@heroui/react"
-import { useLayoutEffect, useRef } from "react"
 import type { ComponentProps, ReactNode } from "react"
+import TextareaAutosize from "react-textarea-autosize"
 
 export function PromptInput({
   label,
@@ -32,30 +32,22 @@ export function PromptInput({
   )
 }
 
-/** Grows with its text up to `maxHeight` pixels, then scrolls. */
+/**
+ * Grows with its text up to `maxRows` lines, then scrolls: HeroUI's
+ * textarea rendered by react-textarea-autosize, which measures again when
+ * the window resizes or fonts load.
+ */
 export function PromptInputTextarea({
-  value,
-  maxHeight = 192,
+  maxRows = 8,
   ...props
-}: Omit<ComponentProps<typeof InputGroup.TextArea>, "value" | "ref"> & {
-  value: string
-  maxHeight?: number
+}: Omit<ComponentProps<typeof InputGroup.TextArea>, "rows" | "render"> & {
+  maxRows?: number
 }) {
-  const ref = useRef<HTMLTextAreaElement>(null)
-  useLayoutEffect(() => {
-    const el = ref.current
-    if (!el) return
-    el.style.height = "auto"
-    el.style.height = `${Math.min(el.scrollHeight, maxHeight)}px`
-    el.style.overflowY = el.scrollHeight > maxHeight ? "auto" : "hidden"
-  }, [value, maxHeight])
   return (
     <InputGroup.TextArea
-      ref={ref}
-      rows={1}
-      value={value}
       className="min-h-0 w-full flex-none resize-none px-3.5 py-0"
       {...props}
+      render={({ style: _style, ...textarea }) => <TextareaAutosize {...textarea} minRows={1} maxRows={maxRows} />}
     />
   )
 }

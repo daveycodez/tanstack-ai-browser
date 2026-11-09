@@ -114,7 +114,7 @@ function EditMessage({
     <PromptInput label="Edit message" className="ms-auto w-full max-w-[85%]">
       <PromptInputTextarea
         value={value}
-        maxHeight={320}
+        maxRows={13}
         autoFocus
         onChange={(e) => setValue(e.target.value)}
         onKeyDown={(e) => {
