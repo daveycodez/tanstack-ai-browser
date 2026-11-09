@@ -7,7 +7,6 @@
  */
 import type { TokenUsage } from "@tanstack/ai"
 import type { TransformersJsProviderUsageDetails } from "@tanstack-ai-browser/transformers-js"
-import type { WllamaProviderUsageDetails } from "@tanstack-ai-browser/wllama"
 
 import { deleteIfPresent, replyStats, threads } from "#/lib/db"
 
@@ -30,7 +29,7 @@ export type GenerationStats = {
 }
 
 /** Timings the adapters report, under the same names. */
-type UsageTimings = TransformersJsProviderUsageDetails & WllamaProviderUsageDetails
+type UsageTimings = TransformersJsProviderUsageDetails
 
 /**
  * A model call's timings as measured from its stream, in `performance.now()`

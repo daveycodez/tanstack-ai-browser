@@ -53,7 +53,7 @@ const nextConfig: NextConfig = {
 
 The package is shaped like `@tanstack/ai-openrouter`'s text adapter:
 
-- `@tanstack-ai-browser/wllama`: `wllamaText(model, config?)`, `WllamaTextAdapter` (with the runtime methods `availability`, `create` and `destroy`), `setMemoryBudget`, and the types `WllamaConfig`, `WllamaTextModelOptions`, `WllamaProviderUsageDetails`, `Availability` and `DownloadProgressCallback`.
+- `@tanstack-ai-browser/wllama`: `wllamaText(model, config?)`, `WllamaTextAdapter` (with the runtime methods `availability`, `create` and `destroy`), `setMemoryBudget`, and the types `WllamaConfig`, `WllamaTextModelOptions`, `Availability` and `DownloadProgressCallback`.
 - `@tanstack-ai-browser/wllama/model-meta`: the catalog, `WLLAMA_CHAT_MODELS`, `WLLAMA_MODEL_META` and `WLLAMA_MODEL_REASONING`, with the types `WllamaChatModel`, `WllamaModelMeta` and `WllamaModelReasoningByName`.
 
 ## Models
@@ -69,17 +69,19 @@ The package is shaped like `@tanstack/ai-openrouter`'s text adapter:
 
 Liquid's models are Q4_K_M: on a Pixel 10 Pro in Firefox, LFM2.5 350M read prompts at 55 tokens/s in Q4_K_M, 40 in Q8_0 and 15 in Q4_0 with wllama's own build. In Chrome on an M3 Ultra, Qwen3.5 2B on WebGPU read about 850 prompt tokens/s and wrote about 60 tokens/s (with other work on the machine).
 
+wllama answers llama.cpp's OpenAI-compatible Chat Completions API in the page, so the adapter is TanStack's Chat Completions adapter (`@tanstack/openai-base`) with the loaded model as its client: messages, tools, structured output, the stream and usage are TanStack's and llama.cpp's. It adds loading the model, the chat template's thinking switch and llama.cpp's option names.
+
 **Tools** work as with any adapter: pass them to `chat({ tools })`, MCP tools included. llama.cpp writes them into the prompt with the model's chat template and parses the model's calls back.
 
 **Reasoning:** thinking (llama.cpp's `reasoning_content`) streams as reasoning events. Qwen3.5 2B doesn't think unless asked; `chat({ reasoning: "high" })` turns it on, through its chat template's `enable_thinking` (llama.cpp's `chat_template_kwargs`). LFM2.5 1.2B Thinking always thinks. `chat({ reasoning })` is a type error for the models that don't reason.
 
-**Options** go in `modelOptions` per call, named as TanStack's OpenRouter adapter names them, so swapping this adapter for `@tanstack/ai-openrouter`'s needs no other change: `maxCompletionTokens`, `temperature`, `topP`, `frequencyPenalty`, `presencePenalty`, `seed`, `stop` and `parallelToolCalls`, plus llama.cpp's `topK`, `minP` and `repetitionPenalty` (its `repeat_penalty`). `parallelToolCalls` goes to llama.cpp as `parallel_tool_calls` with tools: false constrains the model to one tool call, and the adapter keeps only the first in case a template's parser returns more; left out, llama.cpp allows several where the chat template supports them. The adapter maps them to llama.cpp's own settings; sampling left out comes from the model card (`WLLAMA_MODEL_META[model].sampling`). Without `maxCompletionTokens`, a reply may run to the context limit, as llama.cpp's default.
+**Options** go in `modelOptions` per call, named as TanStack's OpenRouter adapter names them, so swapping this adapter for `@tanstack/ai-openrouter`'s needs no other change: `maxCompletionTokens`, `temperature`, `topP`, `frequencyPenalty`, `presencePenalty`, `seed`, `stop` and `parallelToolCalls`, plus llama.cpp's `topK`, `minP` and `repetitionPenalty` (its `repeat_penalty`). `parallelToolCalls` goes to llama.cpp as `parallel_tool_calls` with tools: false constrains the model to one tool call; left out, llama.cpp allows several where the chat template supports them. The adapter maps them to llama.cpp's own settings; sampling left out comes from the model card (`WLLAMA_MODEL_META[model].sampling`). Without `maxCompletionTokens`, a reply may run to the context limit, as llama.cpp's default.
 
-**Structured output:** `chat({ outputSchema })` constrains the answer to the schema with llama.cpp's JSON Schema grammar. With `stream: true` it streams as OpenRouter's does (`structuredOutputStream`): `RUN_STARTED`, the thinking as `REASONING_*` events, the raw JSON as `TEXT_MESSAGE_*` deltas, then a `CUSTOM` `structured-output.complete` event with `{ object, raw, reasoning? }` and `RUN_FINISHED` with usage; a failure (or the output limit) ends with `RUN_ERROR`.
+**Structured output:** `chat({ outputSchema })` sends the schema as given in `response_format`, and llama.cpp constrains the answer to it with its JSON Schema grammar. With `stream: true` it streams as TanStack's standard events.
 
 **Context:** `wllamaText(model, { contextLength })` sets how many tokens a chat may hold, prompt and reply together. By default it's the model's whole context window, read from its GGUF (262,144 for Qwen3.5 2B, 128,000 for LFM2.5). Unlike Transformers.js and the WebGL engine, which grow their attention memory as a chat fills it, llama.cpp reserves it for the whole context when the model loads, which can be GBs for a full window. Fine on a desktop; on an iPhone set 8,192. On the CPU, where that memory is WebAssembly's (4 GB at most), set it too: a model whose whole window doesn't fit there (Qwen3.5 2B's 262,144 tokens take 3 GB) fails to load with an error. Changing it loads the model again.
 
-**Usage** is in each call's `RUN_FINISHED` event, as with any TanStack AI adapter: `promptTokens`, `completionTokens`, `totalTokens`, and `promptTokensDetails.cachedTokens` for the start of the prompt llama.cpp reused from an earlier call. Timings are in `usage.providerUsageDetails` (`WllamaProviderUsageDetails`: `firstTokenMs`, `promptMs`, `decodeMs`, `decodeTokens`).
+**Usage** is in each call's `RUN_FINISHED` event, as llama.cpp reports it: `promptTokens`, `completionTokens`, `totalTokens`, and `promptTokensDetails.cachedTokens` for the start of the prompt llama.cpp reused from an earlier call. Timings aren't in it: measure them from the stream, as for any adapter.
 
 **Prompt reuse:** use the standard TanStack AI option, for example
 `chat({ adapter, messages, threadId, promptCache: "none" })` or
@@ -91,7 +93,7 @@ inserted into caller/system messages.
 `"none"` maps internally to llama.cpp's public `cache_prompt: false`. Omitted, `"short"`,
 and `"long"` policies preserve native runtime defaults and introduce no TTL. The standard
 key has no advertised native slot/session equivalent, so the adapter does not invent one.
-Actual reuse comes from llama.cpp's `timings.cache_n`, forwarded as
+Actual reuse comes from llama.cpp's reported `cached_tokens`, forwarded as
 `promptTokensDetails.cachedTokens`; enabling caching alone does not prove a hit.
 
 Reuse lasts as long as the loaded model: llama.cpp keeps what it has read in memory, and

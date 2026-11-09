@@ -65,6 +65,7 @@
     "test": "node --import @swc-node/register/esm-register --test \"src/**/*.test.ts\""
   },
   "dependencies": {
+    "@tanstack/openai-base": "^1.0.2",
     "@wllama/wllama": "3.8.1"
   }
 }

@@ -4,10 +4,6 @@
  * `@tanstack-ai-browser/wllama/model-meta`.
  */
 export { wllamaText, WllamaTextAdapter } from "./adapter.js"
-export type {
-  WllamaConfig,
-  WllamaProviderUsageDetails,
-  WllamaTextModelOptions
-} from "./adapter.js"
+export type { WllamaConfig, WllamaTextModelOptions } from "./adapter.js"
 export type { Availability, DownloadProgressCallback } from "./client.js"
 export { setMemoryBudget } from "./model-memory.js"
