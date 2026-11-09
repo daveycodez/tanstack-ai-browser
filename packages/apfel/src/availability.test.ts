@@ -9,7 +9,7 @@ afterEach(() => {
   globalThis.fetch = originalFetch
 })
 
-test("available when apfel lists the model at the adapter's baseURL; it reports 1, as nothing downloads", async () => {
+test("available when apfel lists the model at the adapter's baseURL; create resolves to the adapter", async () => {
   const asked: Array<{ url: string; headers: unknown }> = []
   globalThis.fetch = (async (url: string, init: RequestInit) => {
     asked.push({ url, headers: init.headers })
@@ -18,28 +18,15 @@ test("available when apfel lists the model at the adapter's baseURL; it reports 
   const adapter = apfelText("apple-foundationmodel", { baseURL, defaultHeaders: { Authorization: "Bearer t" } })
   assert.equal(await adapter.availability(), "available")
   assert.deepEqual(asked[0], { url: `${baseURL}/models`, headers: { Authorization: "Bearer t" } })
-  const progress: Array<number> = []
-  assert.equal(await adapter.create({ onDownloadProgress: (value) => progress.push(value) }), adapter)
-  assert.deepEqual(progress, [1])
-  await adapter.destroy()
+  assert.equal(await adapter.create(), adapter)
 })
 
-test("unavailable when apfel doesn't answer, fails, or doesn't serve the model; loading rejects", async () => {
+test("unavailable when apfel doesn't answer, fails, or doesn't serve the model; create rejects", async () => {
   const adapter = apfelText("apple-foundationmodel", { baseURL })
   globalThis.fetch = (async () => {
     throw new TypeError("Failed to fetch")
   }) as typeof fetch
   assert.equal(await adapter.availability(), "unavailable")
-  const unhandled: Array<unknown> = []
-  const onUnhandled = (reason: unknown) => unhandled.push(reason)
-  process.on("unhandledRejection", onUnhandled)
-  try {
-    void adapter.create()
-    await new Promise((resolve) => setTimeout(resolve, 20))
-    assert.deepEqual(unhandled, [])
-  } finally {
-    process.off("unhandledRejection", onUnhandled)
-  }
   await assert.rejects(adapter.create(), /didn't answer/)
   globalThis.fetch = (async () => new Response("no", { status: 500 })) as typeof fetch
   assert.equal(await adapter.availability(), "unavailable")
@@ -47,22 +34,22 @@ test("unavailable when apfel doesn't answer, fails, or doesn't serve the model; 
   assert.equal(await adapter.availability(), "unavailable")
 })
 
-test("create's signal: aborted before, nothing is asked; aborting during the check rejects at once and reports nothing", async () => {
+test("create's signal: aborted before, nothing is asked; aborting during the check stops it with an AbortError", async () => {
   let asked = 0
   let requestSignal: AbortSignal | undefined
   globalThis.fetch = ((_url: string, init: RequestInit) => {
     asked++
     requestSignal = init.signal ?? undefined
-    return new Promise<Response>(() => undefined)
+    return new Promise<Response>((_resolve, reject) =>
+      init.signal?.addEventListener("abort", () => reject(init.signal?.reason))
+    )
   }) as typeof fetch
   const adapter = apfelText("apple-foundationmodel", { baseURL })
-  await assert.rejects(adapter.create({ signal: AbortSignal.abort() }), (error: unknown) => error instanceof DOMException && error.name === "AbortError")
+  await assert.rejects(adapter.create({ signal: AbortSignal.abort() }), { name: "AbortError" })
   assert.equal(asked, 0)
-  const heard: Array<number> = []
   const controller = new AbortController()
-  const checking = adapter.create({ onDownloadProgress: (value) => heard.push(value), signal: controller.signal })
+  const checking = adapter.create({ signal: controller.signal })
   controller.abort()
   await assert.rejects(checking, { name: "AbortError" })
   assert.equal(requestSignal?.aborted, true, "the request was stopped")
-  assert.deepEqual(heard, [])
 })

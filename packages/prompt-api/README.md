@@ -12,116 +12,83 @@ import { promptApiText } from "@tanstack-ai-browser/prompt-api"
 
 const adapter = promptApiText("built-in")
 if ((await adapter.availability()) !== "unavailable") {
-  const stream = chat({ adapter, messages, threadId })
+  const stream = chat({ adapter, messages, threadId, tools })
 }
 ```
 
-The package is shaped like `@tanstack/ai-openrouter`'s text adapter. The root has `promptApiText(model, config?)`, `PromptApiTextAdapter` (with the runtime methods below) and the types `PromptApiConfig`, `PromptApiTextModelOptions`, `PromptApiProviderUsageDetails`, `Availability` and `DownloadProgressCallback`. `@tanstack-ai-browser/prompt-api/model-meta` has `PROMPT_API_CHAT_MODELS` (one model, `"built-in"`: whichever the browser provides), `PROMPT_API_MODEL_META` and `PROMPT_API_MODEL_REASONING`, with the types `PromptApiChatModel`, `PromptApiModelMeta` and `PromptApiModelReasoningByName`.
+The root has `promptApiText(model, config?)`, `PromptApiTextAdapter` and the types `PromptApiConfig`, `PromptApiTextModelOptions`, `PromptApiProviderUsageDetails`, `Availability` and `DownloadProgressCallback`. `@tanstack-ai-browser/prompt-api/model-meta` has `PROMPT_API_CHAT_MODELS` (one model, `"built-in"`: whichever the browser provides) and `PROMPT_API_MODEL_META`, with the types `PromptApiChatModel` and `PromptApiModelMeta`.
 
 The Prompt API is in desktop Chrome and Edge (tested in Chrome 156, where web pages have it without flags), on devices with enough memory, GPU and disk (Chrome asks for 22 GB free and either a GPU with more than 4 GB or 16 GB of RAM). It isn't in Web Workers, and a cross-origin iframe needs `allow="language-model"`.
 
 ## The model
 
-The adapter has the same three runtime methods as this project's other adapters:
+- `adapter.availability()` is the browser's own `LanguageModel.availability()` for the adapter's `languages` and `inputs`: `"available"`, `"downloadable"`, `"downloading"` or `"unavailable"` (no Prompt API, or the device can't run it). Give the adapter `inputs: ["image"]` or `["audio"]` if users send them (audio needs a GPU).
+- `adapter.create({ onDownloadProgress?, signal? }?)` downloads the model if it isn't on the device and starts it, with the download's progress, 0 to 1, then 1 once it's ready (the config's `onDownloadProgress` hears it too). Chrome wants a click on the page before it downloads, so call it from the click that turns the model on. `chat()` doesn't need it: its first session does the same. Aborting `signal` aborts the browser's `create()`.
+- `onContextOverflow` in the config is called when a thread's session overflows its context window (the session's `contextoverflow` event); Chrome then drops the oldest messages after the system prompt. Without it, a warning is logged.
+- `adapter.destroy()` closes every thread's session (see Sessions); the browser keeps the model.
 
-- `adapter.availability()` is the browser's own `LanguageModel.availability()` for the adapter's `languages` and `inputs`: `"available"` (on the device), `"downloadable"` or `"downloading"` (it downloads when a session starts), or `"unavailable"` (no Prompt API, as on a server or in other browsers, or the device can't run it). Give the adapter what your sessions will use, as Chrome asks: `inputs: ["image"]` or `["audio"]` if users send them (audio needs a GPU).
-- `adapter.create({ onDownloadProgress?, signal }?)` downloads the model if it isn't on the device and starts it, ahead of the first message, with the download's progress, 0 to 1 (Chrome reports a fraction only, never bytes), then 1 once it's ready. Aborting `signal` rejects that call at once with an `AbortError` and stops its progress reports; the browser's `LanguageModel.create()` (and so its download) is aborted when no other call still waits on it. It resolves to the adapter, and rejects on failure; it's fine to leave unawaited. Chrome wants a click on the page before it downloads, so call it from the click that turns the model on. `chat()` doesn't need it: its first session does the same, and reports to the config's `onDownloadProgress`. Chrome's download of Gemini Nano took about 85 seconds on a fast connection, and loading it into memory takes about 6 to 8 seconds the first time after Chrome starts.
-- `adapter.destroy()` frees every session the adapters keep (they share them). The browser keeps the model itself, so there's no memory budget to set here.
-
-`languages` (`["en"]` by default) tells the model which languages to expect in and out; Chrome's model takes `en`, `es`, `ja`, `de` and `fr`, and checks its safety filters for the output language. `reasoning: "high"` opts into adapter-emulated working notes before the final pass; omitted or `"off"` uses the ordinary single-pass flow. See the emulated reasoning details below. `modelOptions` follows TanStack's OpenRouter adapter's names where the Prompt API has the setting: `temperature`, plus the camelCase extensions `topK` and `samplingMode`. `samplingMode` picks a sampling preset (`"most-predictable"` to `"most-creative"`); Chrome takes it on web pages only in its Sampling Parameters origin trial. `temperature` and `topK` work in extensions only. `maxCompletionTokens` caps the reply, emulated by the adapter (see below), and `parallelToolCalls: false` keeps only a reply's first tool call. The Prompt API has no nucleus sampling, penalties or stop sequences, so there's no `topP`, `frequencyPenalty`, `presencePenalty` or `stop`.
-
-## Output cap (`maxCompletionTokens`)
-
-The Prompt API has no output cap, so `modelOptions.maxCompletionTokens` is emulated, the same way as the emulated reasoning's thinking budget. The adapter can't count the reply while the model writes it: Chrome runs one operation at a time per model, so `measureContextUsage` (on the session or any clone) and `clone()` wait until a generation in progress finishes. Counting as the reply streams would only cut the text after the model had written all of it. So the cap is held in three steps:
-
-1. **Calibrate, before generating** (the model is idle, so measuring is instant): the request's own text is measured with `measureContextUsage`, less an empty message's overhead, for a ratio of UTF-8 bytes per token. Bytes rather than characters, because the ratio varies far less across scripts (a CJK character is 3 bytes and about a token; English runs about 4 bytes a token), and no token is shorter than a byte, so the ratio never goes below 1 (tokens ≤ bytes). If the request has under 64 bytes of text, earlier messages (most recent first) are added, then a fixed English reference sentence, which is still measured with the model's own tokenizer.
-2. **Estimate, while generating**, never calling the model: tokens ≈ bytes ÷ ratio. Text streams live while the estimate is within 0.75 × the cap and the text is within the cap in UTF-8 bytes (no token is shorter than a byte, so text sent live never passes the cap); after that it's held back. Once the estimate passes 1.25 × the cap + 8 tokens, an internal abort stops the generation (the caller's signal is never aborted). The stop line overshoots a little so the trim below finds the cap's worth of text unless the reply has a fifth fewer tokens per byte than the request, and the 8 tokens (about 0.15 s of Gemini Nano) cover short caps.
-3. **Trim exactly, once the generation has stopped** (ended or aborted; the model is idle again): the text is measured and cut to the longest prefix within the cap (a binary search by code point, re-checked because token counts aren't monotonic), and the held-back text up to the cut is sent.
-
-- `chatStream` then ends with `RUN_FINISHED` `finishReason: "length"`, as TanStack's OpenRouter adapter does on a length stop.
-- Structured output (`structuredOutputStream`, `structuredOutput`) fails with `RUN_ERROR` code `max_tokens` (the message says to raise `maxCompletionTokens`), unless the JSON happened to be complete. A capped `structuredOutput()` streams internally to be counted; its answer is still one delta.
-- Tool calls count whole: one the cap cuts into is left out, never sent half-written; with guided tools, a call that doesn't fit the cap whole (arguments cut off, or the call as counted past it, even with no arguments) sends nothing (`finishReason: "length"`). The routing decision is the adapter's, not the reply, and doesn't count.
-- With emulated reasoning, the cap covers the working notes and the answer together, as OpenAI and OpenRouter count reasoning toward `max_completion_tokens`: the draft stops at its own `budgetTokens` or at the cap, whichever comes first, and the answer gets what's left. Notes that use up the cap leave no answer (`finishReason: "length"`).
-- A reply stopped at the cap isn't kept in the thread's session (an aborted prompt leaves its history unspecified); the next request starts a new one.
-- It's **best-effort**, in two ways. An estimate that runs high stops the generation before the cap's worth of text: the reply is what there is, shorter than the cap, and still ends as a length stop (`finishReason: "length"`, `outputTokenLimitReached: true`), since it was cut for the cap; it isn't resumed. An estimate that runs low lets the model write further past the cap before the abort, but no further text: what's past the cap is held back and trimmed. The model also writes up to about a quarter past the cap (plus 8 tokens) before the abort, which costs time, not text.
-- Calibration costs two measurements before the first token, and the trim a dozen or so after the stop, all while the model is idle (about a millisecond each in Chrome). A call without a cap measures nothing extra and passes the caller's signal straight through.
-- `maxCompletionTokens` must be a nonnegative safe integer (0 writes nothing), like the other adapters'. Usage reports `outputTokenLimit`, `outputTokenMeasurement: "estimate-then-context-usage"`, `outputTokenLimitEnforcement: "best-effort"` and `outputTokenLimitReached` in `usage.providerUsageDetails`.
-
-`parallelToolCalls: false` keeps only the first tool call of a reply. Only the browser's own tool use can write several calls in one reply; guided tool calls are always one per step, so there `false` and `true` both hold.
-
-## Images and audio
-
-User messages can carry images and audio (TanStack AI's `image` and `audio` parts, as base64 data or a URL); they're loaded into Blobs only when a session reads them, and the session is created expecting them. A URL from another site needs CORS. The model can't write images or audio, and it can't read video or documents.
-
-## Tool calls
-
-Pass tools to `chat({ tools })` as with any adapter, MCP tools included; `chat()` runs them.
-
-The Prompt API spec has tool use: the session writes tool calls, the page runs them and sends the results back. Where the browser has it (its `LanguageModelToolCall` classes, and a session with tools available), the adapter uses it. Chrome 156 doesn't have it on web pages yet. `promptApiText("built-in", { nativeTools: false })` turns it off.
-
-Without it, tools go through guided generation (`responseConstraint` holds a reply to a JSON Schema), in two short constrained calls on copies of the session (`clone()`) before anything else:
-
-1. The decision: `{"action": "answer"}` or the name of a tool.
-2. For a tool, its arguments, held to the tool's original input schema. If the browser cannot enforce that schema, the request fails explicitly.
-
-An answer then streams from the session unconstrained, with Markdown. Asked to write tool calls as text instead, Gemini Nano made up an answer about current events rather than search; with the decision constrained it picked right in 10 of 10 test prompts. A step costs about 0.3 seconds for the decision, plus 0.2 to 2 seconds to write a tool's arguments. The model sees past calls as `{"tool", "arguments"}` JSON and results as `Result of <tool>:` messages. `toolChoice` works: `"none"` skips the decision, `"required"` leaves answering out, and a named tool skips straight to its arguments (both always use guided generation).
-
-## Structured output
-
-`chat({ outputSchema })` uses native constrained generation (`responseConstraint`) with the schema as given. Unsupported schemas fail explicitly. The adapter implements TanStack AI's `structuredOutputStream`, so `chat({ outputSchema, stream: true })` streams the JSON as the model writes it (`promptStreaming` under the constraint), with the same events as TanStack's OpenRouter adapter:
-
-`RUN_STARTED` → (`REASONING_START`, `REASONING_MESSAGE_START`, `REASONING_MESSAGE_CONTENT`…, `REASONING_MESSAGE_END`, `REASONING_END`, with emulated reasoning) → `TEXT_MESSAGE_START`, `TEXT_MESSAGE_CONTENT`… (raw JSON deltas), `TEXT_MESSAGE_END` → `CUSTOM` `structured-output.complete` (`{ object, raw, reasoning? }`) → `RUN_FINISHED` (with `usage`).
-
-A failure ends the stream with `RUN_ERROR` instead, with a `code`: `aborted`, `parse-error`, `empty-response` or `unsupported-schema`. `chat()` uses this stream for `stream: false` too; the adapter's own `structuredOutput()` makes one non-streamed constrained `prompt()`. Each event carries `metadata.tanstack.source` (`{ provider, api, model }`).
+`languages` (`["en"]` by default) tells the model which languages to expect in and out; Chrome's model takes `en`, `es`, `ja`, `de` and `fr`. `modelOptions` takes what a session takes: `samplingMode` (`"most-predictable"` to `"most-creative"`; on web pages only in Chrome's Sampling Parameters origin trial), and `temperature` and `topK` (extensions only). The Prompt API has no output cap, nucleus sampling, penalties or stop sequences, so there's no `maxCompletionTokens`, `topP` or `stop`. The model doesn't reason, so `chat()` offers no `reasoning` option for it, and a `reasoning` request is ignored.
 
 ## Sessions
 
-Each thread keeps one session, which holds the conversation the model has read. When the next request extends it (a follow-up, or the step after a tool call), only the new messages are read; anything else (an edited message, another system prompt, tools or options, an image in a text-only thread) starts a new session, and the adapter's logger says why. Only the system prompt is an initial prompt; the conversation is appended after it, so when a thread outgrows the context the browser drops its oldest turns (never the system prompt), and a new session leaves out the oldest turns that don't fit. When the browser drops turns, `RUN_FINISHED`'s `usage.providerUsageDetails.contextOverflow` is `true`. A single message too long for the model fails with an error that says so.
+Each thread (`chat()`'s `threadId`) keeps a session, created with the system prompt (and the tools, see below) as its initial prompt. A step prompts it with only the messages it doesn't hold yet: the user's next message, or a tool's result. If the conversation doesn't go on from what the session holds (an edited or regenerated message, a new system prompt or tool list, other sampling settings), the session is closed and a new one reads the whole conversation. A step stopped at a tool call isn't in the session (Chrome drops a stopped turn whole), so the next step sends it along with the result. Structured output prompts the same session.
 
-Structured output (`chat({ outputSchema })`) keeps a separate input-prefix session
-and generates on a disposable clone. It reuses matching system instructions, options,
-and compatible history; without a `threadId`, matching system/options bases are reused
-for stateless calls too. Generated JSON and optional working notes never enter that
-base. Changing a schema does not require a new base: the original schema is still
-passed to each constrained prompt unchanged. Structured bases and chat/tool sessions
-share the existing four-session cache bound but have separate identities, so finalizing
-JSON cannot replace a tool conversation. Only base preparation is serialized for calls
-sharing a structured prefix; their clones can generate independently. Cancellation,
-failed generation and unsupported schemas destroy the clone without discarding its
-healthy base. `destroy()` frees retained structured bases too, and
-structured-output usage reports the prefix reused in `promptTokensDetails.cachedTokens`.
-This count excludes new input and newly appended history; it is not a guarantee that
-all prompt tokens or the generated output were cached.
+A session holds its conversation in the model's memory, about 100 MB for 6,000 tokens in Chrome 156, and only `destroy()` frees it (a session that's just dropped keeps it for a while). So four threads keep a session at most, and the least recently used one closes first. A conversation too long for the model fails with an error that says so.
 
-The standard `chat({ promptCache })` option controls managed reuse in both streaming
-and structured-output paths. `promptCache: 'none'` uses a fresh per-request session,
-reports no managed cached tokens, and destroys that session when the call completes,
-fails, or is cancelled; it also disables anonymous structured bases. This does not
-unload browser model weights or prevent the inference cache needed inside a single
-generation. `promptCache.key` selects the cache identity instead of `threadId`, while
-AG-UI run correlation still uses the caller's original thread. Reuse additionally
-requires matching instructions/options and compatible supplied history. `short` and
-`long` use the existing bounded, opportunistic session cache; this adapter does not
-promise provider retention durations or add a TTL. Direct adapter calls that omit
-`promptCache` retain their existing behavior. Emulated-reasoning streaming calls
-remain ephemeral regardless of a supplied cache key, so working notes cannot leak
-into retained conversational state.
+## Tool calls
 
-An aborted or failed call frees its session, and the next request starts again from the messages. Aborting a request never destroys the session a thread keeps, and a kept session the browser destroyed is replaced on the next request. `destroy()` frees every kept session.
+Pass tools to `chat({ tools })` as with any adapter; `chat()` runs them. The Prompt API's own tool use doesn't work on web pages yet (in Chrome 156 a session that expects tool calls fails to start, and `tools` alone are never called), so tools go by prompt. The tools are added to the system prompt as JSON, with how to call them:
 
-## Usage
+````
+You are a helpful AI assistant with access to tools.
 
-Each call's token counts are in `RUN_FINISHED`'s `usage`: `promptTokens` (the session's whole context), `completionTokens`, and `promptTokensDetails.cachedTokens` for what a reused session had already read. The reply is measured once it's done, so counting never holds up the first token; the counts are close, not exact (the Prompt API counts whole messages). Timings are in `usage.providerUsageDetails` (`PromptApiProviderUsageDetails`: `firstTokenMs`, `promptMs`, `decodeMs`, `decodeTokens`, `contextUsage`, `contextWindow`, `contextOverflow`). With Gemini Nano in Chrome on an M3 Ultra: about 55 to 60 tokens/s, the first token 70 ms after a short prompt (0.3 s with tools, for the decision), and prompts read at 700 to 1,700 tokens/s.
+# Available Tools
+[
+  {
+    "name": "get_weather",
+    "description": "Weather for a city",
+    "parameters": { …the tool's input schema… }
+  }
+]
+
+# Tool Calling Instructions
+Only request one tool call at a time. Wait for tool results before asking for another tool.
+
+To call a tool, output JSON in this exact format inside a ```tool_call code fence:
+
+```tool_call
+{"name": "tool_name", "arguments": {"param1": "value1", "param2": "value2"}}
+```
+
+Tool responses will be provided in ```tool_result fences. Each line contains JSON like:
+```tool_result
+{"id": "call_123", "name": "tool_name", "result": {...}, "error": false}
+```
+Use the `result` payload (and treat `error` as a boolean flag) when continuing the conversation.
+
+Important:
+- Use exact tool and parameter names from the schema above
+- Arguments must be a valid JSON object matching the tool's parameters
+- You can include brief reasoning before or after the tool call
+- If no tool is needed, respond directly without tool_call fences
+````
+
+The reply streams as text until a ```` ```tool_call ```` fence starts (```` ```tool-call ````, `<tool_call>…</tool_call>`, `<|tool_call>…<tool_call|>`, `<|tool_call_start|>…<|tool_call_end|>` and a Python-style `[name(key="value")]` work too); the fence is held back, and the first fence to close ends the reply: the generation stops (text after the fence, in the piece that closed it, is shown after the call), and with a valid call the step ends with `TOOL_CALL_START`, `TOOL_CALL_ARGS`, `TOOL_CALL_END` and `RUN_FINISHED` `finishReason: "tool_calls"`. One call per step. A call reads `name` (or `tool`, `tool_name`) and `arguments` (or `parameters`), as an object or a JSON string, maybe wrapped in a `tool_call` or `function` key; Python-style calls and `call:name{key:value}` are read too; a reply that is only a call's JSON, without a fence, is read as the call; an unclosed fence at the end of the reply is read as the reply's last. Other code fences are text.
+
+A call is valid when its tool exists and its arguments fit the tool's input schema (types, enums, required fields, and unknown fields where `additionalProperties` is `false`, at any depth). One that isn't is repaired once, as webgllm repairs, with output held to a schema by the Prompt API's `responseConstraint`: on a copy of the session (`clone()`), so neither the failed attempt nor the repair prompt enters the thread's session, the model gets the conversation, its failed attempt and `That tool call wasn't valid: <reason>. Write it again.` A call to a known tool is asked for its arguments, held to that tool's schema; an unknown tool or a fence that isn't JSON is asked first for the tool's name (an enum of the tools), then its arguments. The repaired call is checked again. If the repair fails too (or Chrome can't enforce the schema), the fence is shown as text and the step finishes with `"stop"`; there's no second repair. The step stopped at the call isn't in the thread's session (Chrome drops a stopped turn), so the next step sends the repaired call as `chat()` returns it; when the reply had already finished, the session holds the failed call, so the thread starts a new session.
+
+In later steps the model sees its earlier calls as the same fences and the results as a user message with a ```` ```tool_result ```` fence, one line per result: `{"id", "name", "result", "error"}`, where `result` is the tool's JSON output (or its text, or the error message) and `error` is a boolean. `toolChoice: "none"` leaves the tools out; the Prompt API can't force a tool, so `"required"` and a named tool work like `"auto"`.
+
+## Structured output
+
+`chat({ outputSchema })` prompts the thread's session once under the Prompt API's `responseConstraint`, with the schema as given; the result is parsed as JSON and `chat()` validates it. A schema Chrome can't enforce fails with an error that says so, as does an answer that isn't JSON.
+
+## Images and audio
+
+User messages can carry images and audio (TanStack AI's `image` and `audio` parts, as base64 data or a URL); they're loaded into Blobs, and the session is created expecting them. A URL from another site needs CORS. The model can't write images or audio, and it can't read video or documents.
+
+## Errors, aborts and usage
+
+A failure ends the stream with `RUN_ERROR`, in words for the user (no Prompt API, the device can't run the model, a click needed before the download, too long for the model…). Aborting the request (`abortController` or `request.signal`) stops the generation and ends the stream without an error. `RUN_FINISHED`'s `usage` has `promptTokens` and `completionTokens` measured with the session's tokenizer once the reply is done (close, not exact: the Prompt API counts whole messages), and `providerUsageDetails` has the session's `contextUsage` and `contextWindow`.
 
 **Status:** early (0.0.x); the API may change, and so does the Prompt API. See the [repository README](https://github.com/daveycodez/tanstack-ai-browser#readme).
-
-
-### Opt-in emulated reasoning
-
-`reasoning: "high"` (or `{ level: "high", budgetTokens: 512 }`) enables an adapter-owned two-pass flow. An isolated draft produces short working notes, then the final pass uses those notes while retaining the browser's native JSON Schema constraint or tool handling. `reasoning: "off"` and an omitted option preserve the ordinary one-pass behavior.
-
-This is **emulation**, not access to native hidden model reasoning or a browser thinking-effort control. An explicit budget is held like the output cap above, and for the same reason (Chrome can't measure while the draft is being written): calibrated on the draft's prompt before it starts, estimated while it streams (notes within 0.75 × the budget stream live), stopped by an internal abort once the estimate passes 1.25 × the budget + 8 tokens, then measured with `measureContextUsage` (less the empty-message overhead) and trimmed exactly to the budget once the draft has stopped; the held-back notes stream then. The adapter aborts only its draft stream and leaves the caller's signal and final pass active. With `maxCompletionTokens` too, the draft stops at the smaller of the two, and the answer gets the cap less the notes' measured tokens. Without a budget or cap, the draft runs to its end and its notes are measured once. No fallback thinking budget is imposed when the caller omits one.
-
-The working notes stream as standard AG-UI `REASONING_*` events, in `chatStream` and in `structuredOutputStream` (where they're also `structured-output.complete`'s `reasoning`), as reasoning does with any TanStack AI adapter; there are no adapter-specific callbacks. Usage marks `reasoningEmulated: true`, `reasoningTokenMeasurement: "context-usage"`, and `reasoningBudgetEnforcement: "best-effort"`; `thinkingTokens` is the kept notes' context-measured count, not a native generated-token count, and `thinkingBudgetExhausted` says the budget stopped the draft.
-
-Opt-in calls use disposable sessions so working notes never enter retained conversation history. This trades retained-prefix reuse for isolation. Draft, counter, and final sessions are destroyed after the call. Sampling and the model's settings are unchanged.

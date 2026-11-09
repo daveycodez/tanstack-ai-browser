@@ -84,8 +84,9 @@ test("apfel structured requests preserve exact schema and current tool-result me
   const requests=control.requests.map(entry=>entry.request as Record<string,unknown>)
   assert.deepEqual(requests[0].messages,requests[1].messages)
   const messages=requests[0].messages as Array<{role:string;content:string}>
-  assert.deepEqual(messages.map(message=>message.role),["system","user","assistant","tool"])
-  assert.equal(messages.at(-1)?.content,history.at(-1)?.content)
+  // Tool calls and results are written as the Prompt API adapter writes them: fences in the text.
+  assert.deepEqual(messages.map(message=>message.role),["system","user","assistant","user"])
+  assert.equal(messages.at(-1)?.content,'```tool_result\n{"name":"lookup","result":{"result":"unchanged"},"error":false,"id":"call-1"}\n```')
   assert.equal(messages[0].content,"Stable instructions")
 })
 

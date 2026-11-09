@@ -1,10 +1,7 @@
 /**
  * The models apfel serves: Apple's on-device Foundation Model, with what it
- * supports and its reasoning levels (emulated by the adapter: a draft of
- * working notes before the answer).
+ * supports. It doesn't reason, so `chat()` offers no `reasoning` option for it.
  */
-import type { ModelReasoning } from "@tanstack/ai"
-import type { ModelReasoningCapability } from "@tanstack/ai/adapter-internals"
 
 /** What a model apfel serves supports. */
 export type ApfelModelMeta = {
@@ -13,10 +10,8 @@ export type ApfelModelMeta = {
   supports: {
     input: ReadonlyArray<"text">
     output: ReadonlyArray<"text">
-    capabilities: ReadonlyArray<"tools" | "thinking">
+    capabilities: ReadonlyArray<"tools">
   }
-  /** Reasoning levels for `chat({ reasoning })`. */
-  reasoning: { levels: { off: string; high: string }; budget: true }
 }
 
 const APPLE_FOUNDATION_MODEL = {
@@ -24,9 +19,8 @@ const APPLE_FOUNDATION_MODEL = {
   supports: {
     input: ["text"],
     output: ["text"],
-    capabilities: ["tools", "thinking"]
-  },
-  reasoning: { levels: { off: "off", high: "high" }, budget: true }
+    capabilities: ["tools"]
+  }
 } as const satisfies ApfelModelMeta
 
 /** The models apfel serves: Apple's on-device Foundation Model. */
@@ -39,16 +33,3 @@ export type ApfelChatModel = (typeof APFEL_CHAT_MODELS)[number]
 export const APFEL_MODEL_META: Readonly<Record<ApfelChatModel, ApfelModelMeta>> = {
   [APPLE_FOUNDATION_MODEL.name]: APPLE_FOUNDATION_MODEL
 }
-
-const APFEL_REASONING = {
-  [APPLE_FOUNDATION_MODEL.name]: APPLE_FOUNDATION_MODEL.reasoning
-} as const
-
-/** The reasoning levels of each model: off and high, with a token budget. */
-export type ApfelModelReasoningByName = {
-  [K in keyof typeof APFEL_REASONING]: ModelReasoningCapability<(typeof APFEL_REASONING)[K]>
-}
-
-/** Reasoning data of each model, for `supportedReasoningLevels()`. */
-export const APFEL_MODEL_REASONING: Readonly<Record<ApfelChatModel, ModelReasoning>> =
-  APFEL_REASONING

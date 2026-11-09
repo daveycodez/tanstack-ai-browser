@@ -7,6 +7,5 @@ export type {
   ApfelConfig,
   Availability,
   ApfelProviderUsageDetails,
-  DownloadProgressCallback,
   ApfelTextModelOptions
 } from "./adapter.js"
