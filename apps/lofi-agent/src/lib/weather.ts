@@ -87,6 +87,7 @@ type Geocoded = {
     name: string
     admin1?: string
     country?: string
+    country_code?: string
     latitude: number
     longitude: number
   }>
@@ -118,17 +119,36 @@ async function getJson<T>(url: string, signal?: AbortSignal): Promise<T> {
 }
 
 /** A city's coordinates and its name, such as "Kyoto, Japan". */
-async function findCity(city: string, signal?: AbortSignal) {
+/** Places the geocoder finds for a name, likeliest (most populous) first. */
+async function geocode(name: string, count: number, signal?: AbortSignal) {
   const geo = await getJson<Geocoded>(
     `https://geocoding-api.open-meteo.com/v1/search?${new URLSearchParams({
-      name: city,
-      count: "1",
+      name,
+      count: String(count),
       language: "en",
       format: "json"
     })}`,
     signal
   )
-  const place = geo.results?.[0]
+  return geo.results ?? []
+}
+
+/**
+ * A city's coordinates and its name, such as "Kyoto, Japan". The geocoder
+ * reads "New York, United States" but not "New York, USA", so when the
+ * whole name finds nothing, the city alone is looked up and the place whose
+ * region, country or country code matches the rest is taken, else the
+ * likeliest.
+ */
+async function findCity(city: string, signal?: AbortSignal) {
+  let place = (await geocode(city, 1, signal))[0]
+  const [first, ...rest] = city.split(",").map((part) => part.trim())
+  if (!place && rest.length > 0 && first) {
+    const found = await geocode(first, 10, signal)
+    const wanted = rest.map((part) => part.toLowerCase())
+    const matches = (value: string | undefined) => !!value && wanted.includes(value.toLowerCase())
+    place = found.find((p) => matches(p.admin1) || matches(p.country) || matches(p.country_code)) ?? found[0]
+  }
   if (!place) throw new Error(`No place called "${city}" was found.`)
   // The region too where it isn't the city's own name.
   const name = [
@@ -198,14 +218,14 @@ export async function lookUpWeather(
 export const weatherTool = toolDefinition({
   name: WEATHER_TOOL,
   description:
-    "Get the current weather and a 5-day forecast for a city. Use this for any question about weather, temperature or rain. For the weather where the user is, call get_current_location first and pass the nearest city it returns.",
+    "Get the current weather and a 5-day forecast for a city. Use this for any question about weather, temperature or rain. For the weather where the user is, when they name no place, call get_current_location first: don't guess a city.",
   inputSchema: {
     type: "object",
     properties: {
       city: {
         type: "string",
         description:
-          'A city, such as "Kyoto" or "Paris, France": one the user named, or the nearest city get_current_location returned.'
+          "The city the user named, or the nearest city get_current_location returned."
       }
     },
     required: ["city"]

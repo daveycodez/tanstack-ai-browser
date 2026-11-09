@@ -11,7 +11,6 @@ import { stream } from "@tanstack/ai-react"
 
 import { getMcpClients, reportMcpDiscoveryError } from "#/lib/mcp"
 import { currentSystemPrompt } from "#/lib/settings"
-import { compactToolResult, shorten } from "#/lib/sources"
 import { locationToolDefinition, locationToolSetting } from "#/lib/location"
 import { weatherTool, weatherToolSetting } from "#/lib/weather"
 import {
@@ -35,23 +34,6 @@ const replyStats: ChatMiddleware = {
       `${ctx.runId}:${ctx.iteration}`,
       statsFromUsage(usage)
     )
-}
-
-/**
- * Tool results in a short form, for small models' small context windows:
- * search results as a numbered source list, cut to a few thousand
- * characters. The model and the stream (which the source chips read) both
- * get the short form.
- */
-const compactToolResults: ChatMiddleware = {
-  name: "compact-tool-results",
-  onAfterToolCall: (_ctx, info) => {
-    if (!info.ok || typeof info.result !== "string") return
-    return {
-      type: "replaceResult",
-      result: shorten(compactToolResult(info.result))
-    }
-  }
 }
 
 /** The model a session forwarded with this run, if it's one we have. */
@@ -122,7 +104,7 @@ async function* reply(
     // reason get none. The type is the levels these adapters declare;
     // effortFor already picked one this model has.
     ...(reasoning && { reasoning: reasoning as "off" | "high" }),
-    middleware: [replyStats, compactToolResults],
+    middleware: [replyStats],
     abortController
   })
 }

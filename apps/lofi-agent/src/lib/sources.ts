@@ -1,11 +1,11 @@
 /**
- * Sources from tool results. Search results and DeepWiki answers are
- * rewritten into a short form for the model: numbered `[n] Title — URL`
- * lines it can cite. The same lines are read back to show the sources.
+ * Sources from tool results, read from what the tools return: Exa's
+ * search results, JSON search results, and DeepWiki answers. The model
+ * gets the results as the tools wrote them.
  */
 
 export type Source = {
-  /** The number the model sees, `[n]`. */
+  /** Its place in the tool's results, from 1: what `[n]` in an answer refers to. */
   n: number
   url: string
   title: string
@@ -15,13 +15,8 @@ export type Source = {
   snippet?: string
 }
 
-/** Results kept from one search, and snippet length per result. */
-const MAX_RESULTS = 8
+/** Excerpt length per source. */
 const MAX_SNIPPET = 400
-
-/** A `[n] Title — URL` line, and the excerpt line under it, if any. */
-const LINE =
-  /^\[(\d+)\] (.+?) — (https?:\/\/\S+)[ \t]*$(?:\n(?!\[\d+\] )(\S[^\n]*))?/gm
 
 export function siteOf(url: string) {
   try {
@@ -48,16 +43,17 @@ function snippet(text: string) {
 
 type Item = { title: string; url: string; text?: string }
 
-function numbered(items: Array<Item>) {
-  return items
-    .slice(0, MAX_RESULTS)
-    .map((item, i) => {
-      const title = item.title.replace(/\s+/g, " ").trim() || siteOf(item.url)
-      const line = `[${i + 1}] ${title} — ${item.url}`
-      const text = item.text ? snippet(item.text) : ""
-      return text ? `${line}\n${text}` : line
-    })
-    .join("\n\n")
+function toSources(items: Array<Item>): Array<Source> {
+  return items.map((item, i) => {
+    const text = item.text ? snippet(item.text) : ""
+    return {
+      n: i + 1,
+      title: item.title.replace(/\s+/g, " ").trim() || siteOf(item.url),
+      url: item.url,
+      site: siteOf(item.url),
+      ...(text && { snippet: text })
+    }
+  })
 }
 
 /** Exa's text format: blocks of "Title: …\nURL: …\n…\nHighlights: …". */
@@ -106,7 +102,7 @@ function jsonItems(text: string): Array<Item> {
  * DeepWiki answers: `<cite repo path start end/>` tags point at source
  * files, and the answer ends with wiki page links and a link to the search.
  */
-function deepWikiAnswer(text: string) {
+function deepWikiItems(text: string): Array<Item> {
   const items: Array<Item> = []
   const seen = new Set<string>()
   const add = (item: Item) => {
@@ -141,49 +137,14 @@ function deepWikiAnswer(text: string) {
   }
   const search = /View this search on DeepWiki: (https:\/\/\S+)/.exec(text)
   if (search) add({ title: "DeepWiki search", url: search[1] })
-  if (items.length === 0) return null
-  const body = text
-    .replace(/\s*<cite\s+[^>]*?\/?>/g, "")
-    .replace(/\n*Wiki pages you might want to explore:[\s\S]*$/, "")
-    .trim()
-  return `${body}\n\nSources:\n${numbered(items)}`
+  return items
 }
 
-/**
- * A tool result in the short form above, when it holds search results or a
- * DeepWiki answer. Anything else comes back unchanged.
- */
-export function compactToolResult(text: string) {
-  const items = jsonItems(text)
-  if (items.length > 0) return numbered(items)
-  const exa = exaItems(text)
-  if (exa.length > 0) return numbered(exa)
-  return deepWikiAnswer(text) ?? text
-}
-
-/** The numbered sources in a tool result written by compactToolResult. */
-export function parseSources(text: string): Array<Source> {
-  return [...text.matchAll(LINE)].map((m) => ({
-    n: Number(m[1]),
-    title: m[2],
-    url: m[3],
-    site: siteOf(m[3]),
-    ...(m[4] && { snippet: m[4] })
-  }))
-}
-
-/**
- * Small models have small context windows, so long tool results are cut to
- * this many characters.
- */
-const MAX_RESULT_CHARS = 6000
-
-/** Cuts a result to MAX_RESULT_CHARS, keeping a trailing Sources list whole. */
-export function shorten(text: string) {
-  if (text.length <= MAX_RESULT_CHARS) return text
-  const at = text.lastIndexOf("\n\nSources:\n")
-  const tail = at >= 0 ? text.slice(at) : ""
-  const head = at >= 0 ? text.slice(0, at) : text
-  const room = Math.max(0, MAX_RESULT_CHARS - tail.length)
-  return `${head.slice(0, room)}\n…(cut to ${MAX_RESULT_CHARS} characters)${tail}`
+/** The sources in a tool result, in the tool's order; none if it holds none. */
+export function sourcesOf(text: string): Array<Source> {
+  for (const read of [jsonItems, exaItems, deepWikiItems]) {
+    const items = read(text)
+    if (items.length > 0) return toSources(items)
+  }
+  return []
 }
