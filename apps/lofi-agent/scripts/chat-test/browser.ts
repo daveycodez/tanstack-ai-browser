@@ -1,26 +1,65 @@
 /**
- * The chat test in the browser, on its built-in model through the Prompt API
- * (Gemini Nano in Chrome). Served by scripts/chat-test.mjs, which it sends
- * each turn's line and then the log.
+ * The chat test in the browser: on its built-in model through the Prompt API
+ * (Gemini Nano in Chrome), or on LFM3 or LFM2.5 through webgllm, the app's
+ * default engine. Served by scripts/chat-test.mjs, which it sends each
+ * turn's line and then the log.
  */
+import type { AnyTextAdapter } from "@tanstack/ai"
 import { promptApiText } from "@tanstack-ai-browser/prompt-api"
+import { webgllmText } from "@tanstack-ai-browser/webgllm"
 
 import { run } from "./run"
 
-const reasoning =
-  new URLSearchParams(window.location.search).get("reasoning") === "off" ? "off" : "high"
+type Model = {
+  name: string
+  adapter: () => AnyTextAdapter & { create?: (options?: object) => Promise<unknown> }
+  /** Whether `reasoning` switches its thinking on and off. */
+  switchable: boolean
+  /** Its reasoning when it can't switch: always on, or none. */
+  fixed?: "high"
+}
+
+const MODELS: Record<string, Model> = {
+  gemini: { name: "Gemini Nano", adapter: () => promptApiText("built-in"), switchable: true },
+  lfm3: { name: "LFM3 1.7B", adapter: () => webgllmText("LiquidAI/LFM3-1.7B-GGUF"), switchable: true },
+  "lfm2.5": {
+    name: "LFM2.5 1.2B Instruct",
+    adapter: () => webgllmText("LiquidAI/LFM2.5-1.2B-Instruct-GGUF"),
+    switchable: false
+  },
+  "lfm2.5-thinking": {
+    name: "LFM2.5 1.2B Thinking",
+    adapter: () => webgllmText("LiquidAI/LFM2.5-1.2B-Thinking-GGUF"),
+    switchable: false,
+    fixed: "high"
+  }
+}
+
+const params = new URLSearchParams(window.location.search)
+const model = MODELS[params.get("model") ?? "gemini"] ?? MODELS.gemini
+const reasoning = model.switchable
+  ? params.get("reasoning") === "off"
+    ? "off"
+    : "high"
+  : model.fixed
 const post = (path: string, body: string) =>
   fetch(path, { method: "POST", body })
-recordPrompts()
+if ("LanguageModel" in globalThis) recordPrompts()
 
 const show = (line: string) => {
   document.body.append(Object.assign(document.createElement("div"), { textContent: line }))
 }
 
 try {
+  const adapter = model.adapter()
+  // A local model loads (and downloads, the first time) before the chat.
+  if (adapter.create) {
+    show(`Loading ${model.name}…`)
+    await adapter.create()
+  }
   const log = await run({
-    name: "Gemini Nano",
-    adapter: promptApiText("built-in"),
+    name: model.name,
+    adapter,
     reasoning,
     progress: (line) => {
       show(line)

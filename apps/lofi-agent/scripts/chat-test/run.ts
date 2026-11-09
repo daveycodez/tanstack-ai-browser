@@ -15,15 +15,18 @@ import { compactToolResult, shorten } from "#/lib/sources"
 import { locationToolDefinition } from "#/lib/location"
 import { weatherTool } from "#/lib/weather"
 
-/** The user's messages, and the place each turn's weather must be for. */
-const TURNS: Array<{ text: string; weather?: string }> = [
-  { text: "hey!" },
+/**
+ * The user's messages, the place each turn's weather must be for, and the
+ * turns that need no tools.
+ */
+const TURNS: Array<{ text: string; weather?: string; noTools?: true }> = [
+  { text: "hey!", noTools: true },
   { text: "What's the weather where I am?", weather: "Seattle" },
   { text: "What do you think, is it a good day for a walk?" },
   { text: "Any fun indoor events happening in Seattle this weekend?" },
   { text: "How about the weather in Kyoto?", weather: "Kyoto" },
   { text: "Honestly, which would you rather be in today?" },
-  { text: "thanks!" }
+  { text: "thanks!", noTools: true }
 ]
 
 const SEATTLE = {
@@ -38,7 +41,8 @@ type Args = {
   /** The model's name, for the log's title. */
   name: string
   adapter: AnyTextAdapter
-  reasoning: "off" | "high"
+  /** Left out for a model that doesn't reason. */
+  reasoning?: "off" | "high"
   /** Each turn's line, as it ends. */
   progress?: (line: string) => void
 }
@@ -86,7 +90,7 @@ export async function run({ name, adapter, reasoning, progress }: Args) {
         systemPrompts: [currentSystemPrompt()],
         tools: [weatherTool, locationToolDefinition],
         mcp: { clients: [exa], connection: "keep-alive" },
-        reasoning,
+        ...(reasoning && { reasoning }),
         middleware: [compactToolResults],
         abortController
       })
@@ -95,12 +99,12 @@ export async function run({ name, adapter, reasoning, progress }: Args) {
   })
 
   const log: Array<string> = [
-    `# ${name}: 7-turn chat (reasoning ${reasoning})`,
+    `# ${name}: 7-turn chat (reasoning ${reasoning ?? "none"})`,
     ""
   ]
   const summary: Array<string> = []
   let total = 0
-  for (const [i, { text, weather }] of TURNS.entries()) {
+  for (const [i, { text, weather, noTools }] of TURNS.entries()) {
     const before = client.getMessages().length
     const started = Date.now()
     let error: string | undefined
@@ -117,6 +121,7 @@ export async function run({ name, adapter, reasoning, progress }: Args) {
     const added = client.getMessages().slice(before + 1)
     const { body, answer, calls } = describe(added)
     const problems = check(answer, calls, error, weather)
+    if (noTools && calls.length) problems.push(`called ${calls.map((c) => c.name).join(", ")}`)
     summary.push(
       `| ${i + 1}. ${text} | ${calls.map((c) => c.name).join(", ") || "—"} | ${problems.length ? `✗ ${problems.join("; ")}` : "✓"} | ${seconds} s |`
     )

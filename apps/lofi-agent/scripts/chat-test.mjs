@@ -6,9 +6,11 @@
  *     Apple's model through apfel, in Node. Needs `apfel --serve --cors`.
  *     Also writes every request sent to apfel, as JSON lines, next to the log.
  *
- *   node apps/lofi-agent/scripts/chat-test.mjs --model gemini [--reasoning off|high] [--out log.md]
- *     Gemini Nano through the Prompt API, which only Chrome has: serves the
- *     test page and waits for it. Open the printed address in Chrome.
+ *   node apps/lofi-agent/scripts/chat-test.mjs --model gemini|lfm3|lfm2.5|lfm2.5-thinking [--reasoning off|high] [--out log.md]
+ *     In the browser: Gemini Nano through the Prompt API (which only Chrome
+ *     has), or LFM3 or LFM2.5 Instruct or Thinking through webgllm. Serves
+ *     the test page and waits for it: open the printed address. LFM2.5's
+ *     builds can't switch thinking: Instruct never thinks, Thinking always.
  *     With --runs N, the page runs the chat N times, reloading between runs,
  *     and the logs are written as log-1.md, log-2.md, …
  *
@@ -16,6 +18,7 @@
  */
 import { appendFileSync, readFileSync, writeFileSync } from "node:fs"
 import { createServer } from "node:http"
+import { createRequire } from "node:module"
 import { dirname, join, resolve } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 import { parseArgs } from "node:util"
@@ -32,8 +35,9 @@ const { values } = parseArgs({
     runs: { type: "string", default: "1" }
   }
 })
-if (values.model !== "apple" && values.model !== "gemini") {
-  throw new Error("--model is apple or gemini.")
+const BROWSER_MODELS = ["gemini", "lfm3", "lfm2.5", "lfm2.5-thinking"]
+if (values.model !== "apple" && !BROWSER_MODELS.includes(values.model)) {
+  throw new Error(`--model is apple, ${BROWSER_MODELS.join(", ")}.`)
 }
 if (values.reasoning !== "off" && values.reasoning !== "high") {
   throw new Error("--reasoning is off or high.")
@@ -115,8 +119,21 @@ await build({
   plugins: [appPlugin],
   logLevel: "warning"
 })
+// webgllm runs its model in a module worker, which its client starts from
+// "./worker.js" next to the bundle.
+const worker = join(cache, "worker.js")
+await build({
+  entryPoints: [
+    join(dirname(createRequire(join(app, "../../packages/webgllm/package.json")).resolve("webgllm")), "worker.js")
+  ],
+  outfile: worker,
+  bundle: true,
+  platform: "browser",
+  format: "esm",
+  logLevel: "warning"
+})
 const page = `<!doctype html><meta charset="utf-8"><title>Chat test</title>
-<body style="font: 14px system-ui; padding: 16px"><div>Running the 7-turn chat on Gemini Nano…</div>
+<body style="font: 14px system-ui; padding: 16px"><div>Running the 7-turn chat…</div>
 <script type="module" src="/browser.js"></script>`
 
 const runs = Number(values.runs)
@@ -154,6 +171,7 @@ const server = createServer(async (req, res) => {
   const files = {
     "/": [page, "text/html"],
     "/browser.js": [readFileSync(bundle, "utf8"), "text/javascript"],
+    "/worker.js": [readFileSync(worker, "utf8"), "text/javascript"],
     "/data/cities.json": [cities, "application/json"]
   }
   const file = files[path]
@@ -162,6 +180,6 @@ const server = createServer(async (req, res) => {
 })
 server.listen(Number(values.port), () =>
   console.log(
-    `Open http://localhost:${values.port}/?reasoning=${values.reasoning} in Chrome.`
+    `Open http://localhost:${values.port}/?model=${values.model}&reasoning=${values.reasoning} in Chrome.`
   )
 )
