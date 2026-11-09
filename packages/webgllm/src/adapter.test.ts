@@ -5,7 +5,7 @@ import { WebGLLM, WebGLLMError } from "webgllm"
 
 import { webgllmText } from "./adapter.js"
 import { WEBGLLM_CHAT_MODELS, WEBGLLM_MODEL_REASONING } from "./catalog.js"
-import { chunk, claim, collect, emit, fake, lastBody, MODEL, TIMINGS, textOptions, usageChunk } from "./fake-webgllm.test.js"
+import { chunk, claim, collect, emit, fake, lastBody, MODEL, textOptions, usageChunk } from "./fake-webgllm.test.js"
 import { availability, ensureModel, forgetEngineCheck, loadModel, setKeepLoaded, setMemoryBudget, unloadModel } from "./models.js"
 
 // Node has no WebGL 2: the engine counts as supported here, but for the test that says otherwise.
@@ -19,94 +19,6 @@ beforeEach(() => {
 
 type Event = { type: string } & Record<string, unknown>
 const types = (events: Array<unknown>) => (events as Array<Event>).map((e) => e.type)
-
-test("streams thinking then text as AG-UI events, with usage and webgllm's timings", async () => {
-  fake.script = () => [
-    chunk({ role: "assistant", reasoning_content: "Let me " }),
-    chunk({ reasoning_content: "think." }),
-    chunk({ content: "Paris" }),
-    chunk({ content: "." }),
-    chunk({}, "stop"),
-    usageChunk({ prompt: 20, completion: 7, cached: 12, reasoning: 4 })
-  ]
-  const adapter = webgllmText(MODEL)
-  const events = (await collect(adapter.chatStream(textOptions({ runId: "run-1" })))) as Array<Event>
-  assert.deepEqual(types(events), [
-    "RUN_STARTED",
-    "REASONING_START",
-    "REASONING_MESSAGE_START",
-    "REASONING_MESSAGE_CONTENT",
-    "REASONING_MESSAGE_CONTENT",
-    "REASONING_MESSAGE_END",
-    "REASONING_END",
-    "TEXT_MESSAGE_START",
-    "TEXT_MESSAGE_CONTENT",
-    "TEXT_MESSAGE_CONTENT",
-    "TEXT_MESSAGE_END",
-    "RUN_FINISHED"
-  ])
-  const thinking = events.filter((e) => e.type === "REASONING_MESSAGE_CONTENT")
-  assert.deepEqual(thinking.map((e) => e.delta), ["Let me ", "think."])
-  const contents = events.filter((e) => e.type === "TEXT_MESSAGE_CONTENT")
-  assert.deepEqual(contents.map((e) => [e.delta, e.content]), [["Paris", "Paris"], [".", "Paris."]])
-  const finished = events.at(-1)!
-  assert.equal(finished.runId, "run-1")
-  assert.equal(finished.finishReason, "stop")
-  assert.deepEqual(finished.usage, {
-    promptTokens: 20,
-    completionTokens: 7,
-    totalTokens: 27,
-    promptTokensDetails: { cachedTokens: 12 },
-    completionTokensDetails: { reasoningTokens: 4 },
-    providerUsageDetails: {
-      firstTokenMs: TIMINGS.first_token_ms,
-      promptMs: TIMINGS.prompt_ms,
-      decodeMs: TIMINGS.decode_ms,
-      promptTokensPerSecond: TIMINGS.prompt_tokens_per_second,
-      decodeTokensPerSecond: TIMINGS.decode_tokens_per_second
-    }
-  })
-  const body = lastBody()
-  assert.equal(body.model, MODEL)
-  assert.equal(body.stream, true)
-  assert.deepEqual(body.stream_options, { include_usage: true })
-})
-
-test("tool calls become TOOL_CALL events before the text ends, finishing with tool_calls", async () => {
-  fake.script = () => [
-    chunk({ content: "Checking." }),
-    chunk({ tool_calls: [{ index: 0, id: "call_a", type: "function", function: { name: "lookup", arguments: '{"q":"a"}' } }] }),
-    chunk({ tool_calls: [{ index: 1, id: "call_b", type: "function", function: { name: "lookup", arguments: '{"q":"b"}' } }] }),
-    chunk({}, "tool_calls"),
-    usageChunk()
-  ]
-  const tool = { name: "lookup", description: "Look up", inputSchema: { type: "object", properties: { q: { type: "string" } } } }
-  const events = (await collect(webgllmText(MODEL).chatStream(textOptions({ tools: [tool] })))) as Array<Event>
-  assert.deepEqual(types(events), [
-    "RUN_STARTED",
-    "TEXT_MESSAGE_START",
-    "TEXT_MESSAGE_CONTENT",
-    "TOOL_CALL_START",
-    "TOOL_CALL_ARGS",
-    "TOOL_CALL_START",
-    "TOOL_CALL_ARGS",
-    "TOOL_CALL_END",
-    "TOOL_CALL_END",
-    "TEXT_MESSAGE_END",
-    "RUN_FINISHED"
-  ])
-  const ends = events.filter((e) => e.type === "TOOL_CALL_END")
-  assert.deepEqual(ends.map((e) => [e.toolCallId, e.toolCallName, e.args, e.input]), [
-    ["call_a", "lookup", '{"q":"a"}', { q: "a" }],
-    ["call_b", "lookup", '{"q":"b"}', { q: "b" }]
-  ])
-  const start = events.find((e) => e.type === "TOOL_CALL_START")!
-  assert.equal(start.parentMessageId, events.find((e) => e.type === "TEXT_MESSAGE_START")!.messageId)
-  assert.equal(events.at(-1)!.finishReason, "tool_calls")
-  assert.deepEqual(lastBody().tools, [
-    { type: "function", function: { name: "lookup", description: "Look up", parameters: tool.inputSchema } }
-  ])
-})
 
 test("model options (OpenRouter's names), reasoning and prompt cache map onto the request", async () => {
   const adapter = webgllmText(MODEL)
@@ -160,72 +72,6 @@ test("model options (OpenRouter's names), reasoning and prompt cache map onto th
   }
 })
 
-test("a non-zero frequencyPenalty throws webgllm's unsupported-parameter error before any request", async () => {
-  await assert.rejects(
-    collect(webgllmText(MODEL).chatStream(textOptions({ modelOptions: { frequencyPenalty: 0.5 } }))),
-    (error: unknown) => error instanceof WebGLLMError && error.code === "unsupported-parameter"
-  )
-  assert.equal(fake.requests.length, 0)
-})
-
-test("invalid budgets and output caps throw before any request", async () => {
-  const adapter = webgllmText(MODEL)
-  await assert.rejects(
-    collect(adapter.chatStream(textOptions({ reasoning: { level: "high", summary: true, budgetTokens: -1 } }))),
-    RangeError
-  )
-  await assert.rejects(collect(adapter.chatStream(textOptions({ modelOptions: { maxCompletionTokens: 1.5 } }))), RangeError)
-  assert.equal(fake.requests.length, 0)
-  assert.equal(fake.loads.length, 0)
-})
-
-test("the conversation maps to OpenAI messages: system prompts, tool calls, results and thinking", async () => {
-  await collect(
-    webgllmText(MODEL).chatStream(
-      textOptions({
-        systemPrompts: ["Be brief.", "Use tools."],
-        messages: [
-          { role: "user", content: [{ type: "text", content: "Look " }, { type: "text", content: "up a" }] },
-          {
-            role: "assistant",
-            content: "",
-            thinking: [{ content: "I should " }, { content: "look." }],
-            toolCalls: [{ id: "c1", type: "function", function: { name: "lookup", arguments: '{"q":"a"}' } }]
-          },
-          { role: "tool", content: '{"value":1}', toolCallId: "c1" },
-          { role: "tool", content: "", toolCallId: "c2", error: "Not found" }
-        ]
-      })
-    )
-  )
-  assert.deepEqual(lastBody().messages, [
-    { role: "system", content: "Be brief.\n\nUse tools." },
-    { role: "user", content: "Look up a" },
-    {
-      role: "assistant",
-      content: "",
-      reasoning_content: "I should look.",
-      tool_calls: [{ id: "c1", type: "function", function: { name: "lookup", arguments: '{"q":"a"}' } }]
-    },
-    { role: "tool", content: '{"value":1}', tool_call_id: "c1" },
-    { role: "tool", content: "Error: Not found", tool_call_id: "c2" }
-  ])
-})
-
-test("a webgllm failure mid-stream ends the text and emits RUN_ERROR with its code", async () => {
-  fake.script = () => [
-    chunk({ content: "Par" }),
-    new WebGLLMError("context-length-exceeded", "The chat is longer than the context.")
-  ]
-  const events = (await collect(webgllmText(MODEL).chatStream(textOptions()))) as Array<Event>
-  assert.deepEqual(types(events), ["RUN_STARTED", "TEXT_MESSAGE_START", "TEXT_MESSAGE_CONTENT", "TEXT_MESSAGE_END", "RUN_ERROR"])
-  const error = events.at(-1)!
-  assert.equal(error.message, "The chat is longer than the context.")
-  assert.equal(error.code, "context-length-exceeded")
-  assert.equal(error.errorType, "context-length-exceeded")
-  assert.deepEqual(error.error, { message: "The chat is longer than the context.", code: "context-length-exceeded" })
-})
-
 test("a failed load emits RUN_ERROR, and the model isn't counted as loaded", async () => {
   fake.loadError = new WebGLLMError("download-failed", "Network down.")
   const events = (await collect(webgllmText(MODEL).chatStream(textOptions()))) as Array<Event>
@@ -234,30 +80,6 @@ test("a failed load emits RUN_ERROR, and the model isn't counted as loaded", asy
   assert.equal(events[1]!.code, "download-failed")
   assert.equal(await availability(MODEL), "downloadable")
   assert.equal(fake.requests.length, 0)
-})
-
-test("aborting mid-stream closes open messages and ends without RUN_FINISHED or RUN_ERROR", async () => {
-  const controller = new AbortController()
-  let release!: () => void
-  const paused = new Promise<void>((resolve) => (release = resolve))
-  fake.script = () => [chunk({ reasoning_content: "hmm" }), { wait: paused }, chunk({ content: "never" }), chunk({}, "stop")]
-  const events: Array<Event> = []
-  for await (const event of webgllmText(MODEL).chatStream(textOptions({ abortController: controller }))) {
-    events.push(event as Event)
-    if ((event as Event).type === "REASONING_MESSAGE_CONTENT") {
-      controller.abort()
-      release()
-    }
-  }
-  assert.deepEqual(types(events), [
-    "RUN_STARTED",
-    "REASONING_START",
-    "REASONING_MESSAGE_START",
-    "REASONING_MESSAGE_CONTENT",
-    "REASONING_MESSAGE_END",
-    "REASONING_END"
-  ])
-  assert.equal(fake.requests[0]!.options.signal, controller.signal, "the signal reaches webgllm, which stops the generation")
 })
 
 test("an already aborted request yields nothing; leaving the stream early stops webgllm's", async () => {

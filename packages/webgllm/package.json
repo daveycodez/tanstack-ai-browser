@@ -62,6 +62,7 @@
     "@tanstack/ai": "^1.0.0"
   },
   "dependencies": {
+    "@tanstack/openai-base": "^1.0.2",
     "webgllm": "^0.1.9"
   },
   "devDependencies": {

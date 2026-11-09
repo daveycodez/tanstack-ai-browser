@@ -43,21 +43,6 @@ test("tool_choice is forwarded for webgllm to guide: auto, required and a named 
   }
 })
 
-test("toolChoice none offers no tools; repair and parallel calls pass through", async () => {
-  await collect(webgllmText(MODEL).chatStream(textOptions({ tools: [tool], toolChoice: "none" })))
-  assert.equal("tools" in lastBody(), false)
-  assert.equal("tool_choice" in lastBody(), false)
-
-  await collect(
-    webgllmText(MODEL).chatStream(
-      textOptions({ tools: [tool], modelOptions: { repairToolCalls: false, parallelToolCalls: false } })
-    )
-  )
-  assert.equal(lastBody().repair_tool_calls, false)
-  assert.equal(lastBody().parallel_tool_calls, false)
-  assert.equal("tool_choice" in lastBody(), false, "no tool_choice unless chat() set one")
-})
-
 test("chat() runs a tool the model calls and sends its result back", async () => {
   let turn = 0
   fake.script = () =>

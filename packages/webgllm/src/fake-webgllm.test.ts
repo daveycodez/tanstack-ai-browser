@@ -256,8 +256,43 @@ webgllm.chat.completions.create = (async (body: ChatCompletionCreateParamsStream
   fake.requests.push({ body, options })
   options.signal?.throwIfAborted()
   if (fake.createError) throw fake.createError
+  if (body.stream !== true) return completion(body, fake.script(body))
   return stream(fake.script(body), options.signal)
 }) as typeof webgllm.chat.completions.create
+
+/** A request without `stream`: the scripted chunks as one completion, as webgllm answers it. */
+async function completion(body: { model: string }, steps: Array<Step>) {
+  let content = ""
+  let reasoning = ""
+  let finish: FinishReason | null = null
+  let usage: ChatCompletionChunk["usage"]
+  for (const step of steps) {
+    if (step instanceof Error) throw step
+    if ("wait" in step) {
+      await step.wait
+      continue
+    }
+    const choice = step.choices[0]
+    content += choice?.delta.content ?? ""
+    reasoning += choice?.delta.reasoning_content ?? ""
+    finish = choice?.finish_reason ?? finish
+    usage = step.usage ?? usage
+  }
+  return {
+    id: "chatcmpl-fake",
+    object: "chat.completion",
+    created: 0,
+    model: body.model,
+    choices: [
+      {
+        index: 0,
+        message: { role: "assistant", content, ...(reasoning && { reasoning_content: reasoning }) },
+        finish_reason: finish ?? "stop"
+      }
+    ],
+    ...(usage && { usage })
+  }
+}
 
 /** A chatStream call's options. */
 export function textOptions(

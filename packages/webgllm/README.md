@@ -19,9 +19,9 @@ const stream = chat({
 
 It needs WebGL 2 with float render targets (`EXT_color_buffer_float`) and OffscreenCanvas in workers, which current Chrome, Firefox and Safari have; an adapter's `availability()` says `"unavailable"` where they're missing.
 
-The package is shaped like `@tanstack/ai-openrouter`'s text adapter. The root has `webgllmText(model, config?)`, `WebGllmTextAdapter` (with the runtime methods `availability`, `create` and `destroy`), `setMemoryBudget` and the types `WebGllmConfig`, `WebGllmTextModelOptions`, `WebGllmProviderUsageDetails`, `Availability` and `DownloadProgressCallback`; `@tanstack-ai-browser/webgllm/model-meta` has the catalog (below).
+The package is shaped like `@tanstack/ai-openrouter`'s text adapter. The root has `webgllmText(model, config?)`, `WebGllmTextAdapter` (with the runtime methods `availability`, `create` and `destroy`), `setMemoryBudget` and the types `WebGllmConfig`, `WebGllmTextModelOptions`, `Availability` and `DownloadProgressCallback`; `@tanstack-ai-browser/webgllm/model-meta` has the catalog (below).
 
-The engine is the [`webgllm`](https://www.npmjs.com/package/webgllm) package, behind OpenAI's Chat Completions API. This package maps TanStack AI's chat options to its requests and its streamed chunks back to AG-UI events; tool-call parsing and repair, thinking, guided tool choice and schema-constrained answers are webgllm's own. See [webgllm.dev](https://webgllm.dev) and its README for how the engine works, its memory and speed.
+The engine is the [`webgllm`](https://www.npmjs.com/package/webgllm) package, behind OpenAI's Chat Completions API in the page. The adapter is TanStack's Chat Completions adapter (`@tanstack/openai-base`) with the shared `WebGLLM` instance as its client, so messages, tools, structured output and the stream are TanStack's; it adds loading the model, webgllm's reasoning levels and thinking budget, and its options. Tool-call parsing and repair, thinking, guided tool choice and schema-constrained answers are webgllm's own. See [webgllm.dev](https://webgllm.dev) and its README for how the engine works, its memory and speed.
 
 ## The adapter
 
@@ -38,7 +38,7 @@ What maps to what:
 | ------------------------------------------------- | ------------------------------------------------------------------------ |
 | `systemPrompts`, `messages` (tool calls, results, thinking) | `messages` (a failed tool's error as its result)                |
 | `tools` (their `inputSchema`)                     | `tools` (function `parameters`)                                          |
-| `toolChoice` (`auto`, `none`, `required`, a tool) | `tool_choice`; `none` offers no tools                                    |
+| `toolChoice` (`auto`, `none`, `required`, a tool) | `tool_choice`; with `none` webgllm offers the model no tools            |
 | `outputSchema`                                    | `response_format: { type: "json_schema" }`, plus a prompt asking for JSON |
 | `reasoning` level / `budgetTokens`                | `reasoning_effort` (`none` or `high`) / `thinking_budget_tokens`          |
 | `promptCache: "none"`                             | `cache_prompt: false`                                                    |
@@ -59,11 +59,11 @@ What maps to what:
 | `topK`, `minP`, `repetitionPenalty` | `top_k`, `min_p`, `repetition_penalty` | webgllm's own |
 | `repairToolCalls`     | `repair_tool_calls`     | webgllm's own: false skips its tool-call repair |
 
-Unset sampling fields take the model card's values (webgllm's), and there's no output cap unless you set one. Events come back as TanStack's: reasoning start/content/end, text start/content/end, tool call start/args/end, and `RUN_FINISHED` with the finish reason and usage: prompt and completion tokens, `promptTokensDetails.cachedTokens`, `completionTokensDetails.reasoningTokens`, and webgllm's timings in `usage.providerUsageDetails` (`firstTokenMs`, `promptMs`, `decodeMs`, `promptTokensPerSecond`, `decodeTokensPerSecond`). A failure is a `RUN_ERROR` whose `code` is webgllm's error code (`download-failed`, `context-length-exceeded`, `out-of-memory`, …); aborting the request stops the generation and ends the stream without one.
+Unset sampling fields take the model card's values (webgllm's), and there's no output cap unless you set one. Events come back as TanStack's Chat Completions adapter writes them: reasoning, text and tool call events, and `RUN_FINISHED` with the finish reason and token usage. Timings aren't in it: measure them from the stream, as for any adapter. A model that fails to load ends the run with a `RUN_ERROR` whose `code` is webgllm's (`download-failed`, `storage-full`, `webgl2-unavailable`); other failures are TanStack's `RUN_ERROR`. Aborting the request stops the generation and ends the stream without one.
 
 ## Thinking and structured output
 
-`chat({ outputSchema })` sends one streamed request with `response_format: json_schema`; webgllm constrains the answer to the schema while it's written. With `stream: true` the adapter's `structuredOutputStream` streams it as standard events: `RUN_STARTED`, the thinking as `REASONING_*` events, the raw JSON as `TEXT_MESSAGE_CONTENT` deltas, a `CUSTOM` `structured-output.complete` event with `{ object, raw, reasoning? }`, and `RUN_FINISHED` with usage. `stream: false` resolves to the validated object.
+`chat({ outputSchema })` sends the schema as given in `response_format: json_schema`, and asks for JSON matching it in the system prompt too; webgllm constrains the answer to the schema while it's written. With `stream: true` it streams as TanStack's standard events, the raw JSON as `TEXT_MESSAGE_CONTENT` deltas and a `CUSTOM` `structured-output.complete` event with the object; `stream: false` resolves to the validated object.
 
 ```ts
 const stream = chat({
@@ -80,7 +80,7 @@ for await (const event of stream) {
 }
 ```
 
-A failure is a `RUN_ERROR`: webgllm's error code, `structured-output-parse-failed` for an answer that isn't JSON, or `max_tokens` when the answer hit `maxCompletionTokens`. Aborting stops the generation and ends the stream without one.
+A failure is a `RUN_ERROR`, as in a chat. Aborting stops the generation and ends the stream without one.
 
 ## Models and loading
 
