@@ -74,3 +74,49 @@ export async function compare(
   }
   return report
 }
+
+/** The chat test's 7 turns, in one conversation on `model`: each turn's tool calls and answer. */
+export async function sevenTurns(model: ModelId, effort: "off" | "high" = "off") {
+  const turns = [
+    "hey!",
+    "What's the weather where I am?",
+    "What do you think, is it a good day for a walk?",
+    "Any fun indoor events happening in Seattle this weekend?",
+    "How about the weather in Kyoto?",
+    "Honestly, which would you rather be in today?",
+    "thanks!"
+  ]
+  checkMcpServers()
+  for (let i = 0; i < 50 && getMcpClients().length === 0; i++) await new Promise((r) => setTimeout(r, 200))
+  const failed = await prepareModel(model)
+  if (failed) throw failed
+  let error: string | undefined
+  const client = new ChatClient({
+    threadId: `seven-${model}-${Math.random().toString(36).slice(2)}`,
+    connection: browserChatConnection,
+    tools: [locationTool],
+    forwardedProps: { model, effort },
+    onError: (e: Error) => {
+      error = e.message
+    }
+  })
+  const out: Array<{ turn: string; tools: Array<string>; reply: string; error?: string }> = []
+  for (const turn of turns) {
+    const seen = client.getMessages().length
+    error = undefined
+    await client.sendMessage(turn)
+    while (client.getIsLoading()) await new Promise((r) => setTimeout(r, 200))
+    const parts = client
+      .getMessages()
+      .slice(seen)
+      .filter((m) => m.role === "assistant")
+      .flatMap((m) => m.parts as Array<Part>)
+    out.push({
+      turn,
+      tools: parts.filter((p) => p.type === "tool-call").map((p) => `${p.name}(${p.arguments ?? ""})`),
+      reply: parts.filter((p) => p.type === "text").map((p) => p.content ?? "").join(" | ").replace(/\s+/g, " ").slice(0, 120),
+      ...(error && { error })
+    })
+  }
+  return out
+}
