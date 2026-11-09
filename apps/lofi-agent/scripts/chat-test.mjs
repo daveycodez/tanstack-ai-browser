@@ -17,7 +17,7 @@
  *
  * Writes a markdown log of every turn: notes, tool calls, answer and checks.
  */
-import { appendFileSync, readFileSync, writeFileSync } from "node:fs"
+import { appendFileSync, existsSync, readFileSync, realpathSync, writeFileSync } from "node:fs"
 import { createServer } from "node:http"
 import { createRequire } from "node:module"
 import { dirname, join, resolve } from "node:path"
@@ -67,6 +67,20 @@ const appPlugin = {
       contents: settingsStub,
       loader: "js"
     }))
+    // A workspace package's own dependencies, from that package's folder
+    // (the bundle runs from the app's, which doesn't have them).
+    b.onResolve({ filter: /^[^.#/]/ }, ({ path, importer }) => {
+      const at = importer.indexOf("/packages/")
+      if (at === -1 || path.startsWith("@tanstack-ai-browser/")) return undefined
+      const dir = importer.slice(0, importer.indexOf("/", at + "/packages/".length))
+      const name = path.split("/").slice(0, path.startsWith("@") ? 2 : 1).join("/")
+      const root = join(dir, "node_modules", name)
+      if (!existsSync(join(root, "package.json"))) return undefined
+      const { exports, module, main } = JSON.parse(readFileSync(join(root, "package.json"), "utf8"))
+      const entry = exports?.[`.${path.slice(name.length)}`] ?? (path === name ? (exports?.["."] ?? module ?? main) : undefined)
+      const file = typeof entry === "string" ? entry : (entry?.import ?? entry?.default)
+      return typeof file === "string" ? { path: realpathSync(join(root, file)), external: true } : undefined
+    })
     // Workspace packages from their source, not their last build.
     b.onResolve({ filter: /^@tanstack-ai-browser\/[^/]+(\/.+)?$/ }, ({ path }) => {
       const [, name, sub] = path.match(/^@tanstack-ai-browser\/([^/]+)\/?(.*)$/)
