@@ -8,13 +8,11 @@
  * model before a call, its reasoning levels and thinking budget, and its
  * sampling options.
  */
-import { EventType, normalizeSystemPrompts } from "@tanstack/ai"
-import type { AdapterYieldChunk, ModelMessage, ModelReasoning, TextOptions } from "@tanstack/ai"
+import type { AdapterYieldChunk, ModelReasoning, TextOptions } from "@tanstack/ai"
 import { resolveReasoning } from "@tanstack/ai/adapter-internals"
 import type { StructuredOutputOptions, StructuredOutputResult } from "@tanstack/ai/adapters"
 import { OpenAIBaseChatCompletionsTextAdapter } from "@tanstack/openai-base"
 import type { OpenAIClientLike } from "@tanstack/openai-base"
-import { WebGLLMError } from "webgllm"
 
 import { modelMeta } from "./catalog.js"
 import type { WebGllmChatModel, WebGllmModelReasoningByName } from "./catalog.js"
@@ -31,7 +29,7 @@ export type WebGllmTextModelOptions = {
   temperature?: number
   topP?: number
   presencePenalty?: number
-  /** Not supported by webgllm: anything but 0 throws its `unsupported-parameter` error. */
+  /** Not supported by webgllm: anything but 0 is refused with its `unsupported-parameter` error. */
   frequencyPenalty?: number
   /** Text that ends the reply where it appears (not included). */
   stop?: string | Array<string>
@@ -79,9 +77,8 @@ type ResolveReasoning<TModel extends string> = TModel extends keyof WebGllmModel
 
 type MetadataByModality = { text: unknown; image: unknown; audio: unknown; video: unknown; document: unknown }
 
-/** A Chat Completions request, and one of its messages, as the base adapter writes them. */
+/** A Chat Completions request, as the base adapter writes it. */
 type CreateParams = Parameters<OpenAIClientLike["chat"]["completions"]["create"]>[0]
-type MessageParam = CreateParams["messages"][number]
 
 /** The engine as an OpenAI client: Chat Completions is all the adapter calls. */
 const client = {
@@ -109,9 +106,6 @@ function effortLevels(model: WebGllmChatModel): ModelReasoning | undefined {
 
 /** `modelOptions` with webgllm's names. */
 function toRequestOptions(o: WebGllmTextModelOptions | undefined): Record<string, unknown> {
-  if ((o?.frequencyPenalty ?? 0) !== 0) {
-    throw new WebGLLMError("unsupported-parameter", "frequencyPenalty isn't supported; presencePenalty and repetitionPenalty are.")
-  }
   const fields = {
     max_completion_tokens: o?.maxCompletionTokens,
     temperature: o?.temperature,
@@ -120,6 +114,7 @@ function toRequestOptions(o: WebGllmTextModelOptions | undefined): Record<string
     min_p: o?.minP,
     repetition_penalty: o?.repetitionPenalty,
     presence_penalty: o?.presencePenalty,
+    frequency_penalty: o?.frequencyPenalty,
     stop: o?.stop,
     seed: o?.seed,
     parallel_tool_calls: o?.parallelToolCalls,
@@ -130,48 +125,6 @@ function toRequestOptions(o: WebGllmTextModelOptions | undefined): Record<string
 
 const signalOf = (options: TextOptions) =>
   options.abortController?.signal ?? (options.request as RequestInit | undefined)?.signal ?? undefined
-
-/**
- * The options with the caller's signal as `request.signal`, which is where
- * the base adapter reads it (a legacy `abortController` included).
- */
-function withSignal<T extends TextOptions>(options: T): T {
-  const signal = signalOf(options)
-  if (!signal || (options.request as RequestInit | undefined)?.signal === signal) return options
-  return { ...options, request: { ...(options.request as RequestInit | undefined), signal } }
-}
-
-const isAbort = (error: unknown, signal: AbortSignal | undefined) =>
-  !!signal?.aborted || (error instanceof DOMException && error.name === "AbortError")
-
-/** A stream that ends quietly when the caller aborts it, as TanStack's adapters do, without a RUN_ERROR. */
-async function* quietOnAbort(
-  events: AsyncIterable<AdapterYieldChunk>,
-  signal: AbortSignal | undefined
-): AsyncIterable<AdapterYieldChunk> {
-  for await (const event of events) {
-    if (event.type === EventType.RUN_ERROR && signal?.aborted) return
-    yield event
-  }
-}
-
-/** A run that failed to load its model: RUN_STARTED, then RUN_ERROR with webgllm's code. */
-function* loadFailed(model: string, options: TextOptions, error: unknown): Generator<AdapterYieldChunk> {
-  const text = error instanceof Error ? error.message : String(error)
-  const code = error instanceof WebGLLMError ? error.code : undefined
-  const message = `Couldn't load ${model}: ${text}`
-  const runId = options.runId ?? `run_${Date.now().toString(36)}`
-  yield { type: EventType.RUN_STARTED, runId, threadId: options.threadId, model, timestamp: Date.now() }
-  yield {
-    type: EventType.RUN_ERROR,
-    runId,
-    model,
-    timestamp: Date.now(),
-    message,
-    ...(code && { code, errorType: code }),
-    error: { message, ...(code && { code }) }
-  } as AdapterYieldChunk
-}
 
 export class WebGllmTextAdapter<TModel extends WebGllmChatModel> extends OpenAIBaseChatCompletionsTextAdapter<
   TModel,
@@ -254,35 +207,18 @@ export class WebGllmTextAdapter<TModel extends WebGllmChatModel> extends OpenAIB
   }
 
   override async *chatStream(options: TextOptions<WebGllmTextModelOptions>): AsyncIterable<AdapterYieldChunk> {
-    try {
-      await this.ready(options)
-    } catch (error) {
-      if (!isAbort(error, signalOf(options))) yield* loadFailed(this.model, options, error)
-      return
-    }
-    yield* quietOnAbort(super.chatStream(withSignal(options)), signalOf(options))
+    await this.ready(options)
+    yield* super.chatStream(options)
   }
 
-  override async *structuredOutputStream(
-    options: StructuredOutputOptions<WebGllmTextModelOptions>
-  ): AsyncIterable<AdapterYieldChunk> {
-    try {
-      await this.ready(options.chatOptions)
-    } catch (error) {
-      if (!isAbort(error, signalOf(options.chatOptions))) yield* loadFailed(this.model, options.chatOptions, error)
-      return
-    }
-    yield* quietOnAbort(
-      super.structuredOutputStream(withSchemaHint({ ...options, chatOptions: withSignal(options.chatOptions) })),
-      signalOf(options.chatOptions)
-    )
-  }
-
-  override async structuredOutput(
-    options: StructuredOutputOptions<WebGllmTextModelOptions>
-  ): Promise<StructuredOutputResult<unknown>> {
+  override async *structuredOutputStream(options: StructuredOutputOptions<WebGllmTextModelOptions>): AsyncIterable<AdapterYieldChunk> {
     await this.ready(options.chatOptions)
-    return super.structuredOutput(withSchemaHint({ ...options, chatOptions: withSignal(options.chatOptions) }))
+    yield* super.structuredOutputStream(options)
+  }
+
+  override async structuredOutput(options: StructuredOutputOptions<WebGllmTextModelOptions>): Promise<StructuredOutputResult<unknown>> {
+    await this.ready(options.chatOptions)
+    return super.structuredOutput(options)
   }
 
   /** The request, with webgllm's option names, thinking budget and prompt cache. */
@@ -308,34 +244,9 @@ export class WebGllmTextAdapter<TModel extends WebGllmChatModel> extends OpenAIB
     return text ? { text } : undefined
   }
 
-  /** A turn's thinking goes back as `reasoning_content`, and a failed tool's error as its result. */
-  protected override convertMessage(message: ModelMessage): MessageParam {
-    if (message.role === "tool" && message.error) {
-      return { role: "tool" as const, tool_call_id: message.toolCallId ?? "", content: `Error: ${message.error}` }
-    }
-    const converted = super.convertMessage(message)
-    const thinking = message.role === "assistant" ? message.thinking?.map((t) => t.content).join("") : undefined
-    return thinking ? Object.assign(converted, { reasoning_content: thinking }) : converted
-  }
-
   /** Schemas as given: webgllm constrains to any JSON Schema, without OpenAI's strict-mode rewrite. */
   protected override makeStructuredOutputCompatible(schema: Record<string, any>) {
     return schema
-  }
-}
-
-/**
- * Structured output with the schema in the system prompt too: small models
- * constrained to a schema they weren't asked for write poor values.
- */
-function withSchemaHint<T extends StructuredOutputOptions<WebGllmTextModelOptions>>(options: T): T {
-  const hint = `Answer with only a JSON value matching this JSON Schema:\n${JSON.stringify(options.outputSchema)}`
-  return {
-    ...options,
-    chatOptions: {
-      ...options.chatOptions,
-      systemPrompts: [...normalizeSystemPrompts(options.chatOptions.systemPrompts), { content: hint }]
-    }
   }
 }
 

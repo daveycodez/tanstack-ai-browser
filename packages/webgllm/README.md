@@ -39,7 +39,7 @@ What maps to what:
 | `systemPrompts`, `messages` (tool calls, results, thinking) | `messages` (a failed tool's error as its result)                |
 | `tools` (their `inputSchema`)                     | `tools` (function `parameters`)                                          |
 | `toolChoice` (`auto`, `none`, `required`, a tool) | `tool_choice`; with `none` webgllm offers the model no tools            |
-| `outputSchema`                                    | `response_format: { type: "json_schema" }`, plus a prompt asking for JSON |
+| `outputSchema`                                    | `response_format: { type: "json_schema" }`                              |
 | `reasoning` level / `budgetTokens`                | `reasoning_effort` (`none` or `high`) / `thinking_budget_tokens`          |
 | `promptCache: "none"`                             | `cache_prompt: false`                                                    |
 | `modelOptions`                                    | see below                                                                |
@@ -63,7 +63,7 @@ Unset sampling fields take the model card's values (webgllm's), and there's no o
 
 ## Thinking and structured output
 
-`chat({ outputSchema })` sends the schema as given in `response_format: json_schema`, and asks for JSON matching it in the system prompt too; webgllm constrains the answer to the schema while it's written. With `stream: true` it streams as TanStack's standard events, the raw JSON as `TEXT_MESSAGE_CONTENT` deltas and a `CUSTOM` `structured-output.complete` event with the object; `stream: false` resolves to the validated object.
+`chat({ outputSchema })` sends the schema as given in `response_format: json_schema`, as an OpenAI call would; webgllm constrains the answer to the schema while it's written. With `stream: true` it streams as TanStack's standard events, the raw JSON as `TEXT_MESSAGE_CONTENT` deltas and a `CUSTOM` `structured-output.complete` event with the object; `stream: false` resolves to the validated object.
 
 ```ts
 const stream = chat({

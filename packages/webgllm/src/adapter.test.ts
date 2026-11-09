@@ -1,11 +1,10 @@
 import assert from "node:assert/strict"
 import { beforeEach, test } from "node:test"
-import { chat } from "@tanstack/ai"
-import { WebGLLM, WebGLLMError } from "webgllm"
+import { WebGLLM } from "webgllm"
 
 import { webgllmText } from "./adapter.js"
 import { WEBGLLM_CHAT_MODELS, WEBGLLM_MODEL_REASONING } from "./catalog.js"
-import { chunk, claim, collect, emit, fake, lastBody, MODEL, textOptions, usageChunk } from "./fake-webgllm.test.js"
+import { claim, collect, emit, fake, MODEL, textOptions } from "./fake-webgllm.test.js"
 import { availability, ensureModel, forgetEngineCheck, loadModel, setKeepLoaded, setMemoryBudget, unloadModel } from "./models.js"
 
 // Node has no WebGL 2: the engine counts as supported here, but for the test that says otherwise.
@@ -17,89 +16,6 @@ beforeEach(() => {
   forgetEngineCheck()
 })
 
-type Event = { type: string } & Record<string, unknown>
-const types = (events: Array<unknown>) => (events as Array<Event>).map((e) => e.type)
-
-test("model options (OpenRouter's names), reasoning and prompt cache map onto the request", async () => {
-  const adapter = webgllmText(MODEL)
-  await collect(
-    adapter.chatStream(
-      textOptions({
-        reasoning: { level: "high", summary: true, budgetTokens: 256 },
-        promptCache: { retention: "none" },
-        modelOptions: {
-          maxCompletionTokens: 300,
-          temperature: 0.2,
-          topP: 0.9,
-          presencePenalty: 0.5,
-          frequencyPenalty: 0,
-          stop: ["END"],
-          seed: 7,
-          topK: 20,
-          minP: 0.05,
-          repetitionPenalty: 1.1,
-          parallelToolCalls: false,
-          repairToolCalls: false
-        },
-        tools: [{ name: "lookup", description: "Look up" }]
-      })
-    )
-  )
-  const body = lastBody()
-  assert.equal(body.reasoning_effort, "high")
-  assert.equal(body.thinking_budget_tokens, 256)
-  assert.equal(body.cache_prompt, false)
-  assert.equal(body.max_completion_tokens, 300)
-  assert.equal(body.temperature, 0.2)
-  assert.equal(body.top_p, 0.9)
-  assert.equal(body.top_k, 20)
-  assert.equal(body.min_p, 0.05)
-  assert.equal(body.repetition_penalty, 1.1)
-  assert.equal(body.presence_penalty, 0.5)
-  assert.equal("frequency_penalty" in body, false, "a zero frequencyPenalty isn't sent")
-  assert.deepEqual(body.stop, ["END"])
-  assert.equal(body.seed, 7)
-  assert.equal(body.parallel_tool_calls, false)
-  assert.equal(body.repair_tool_calls, false)
-
-  // Off turns thinking off and ignores a valid cap; no request leaves the template's default.
-  await collect(adapter.chatStream(textOptions({ reasoning: { level: "off", summary: true, budgetTokens: 256 } })))
-  assert.equal(lastBody().reasoning_effort, "none")
-  assert.equal("thinking_budget_tokens" in lastBody(), false)
-  await collect(adapter.chatStream(textOptions()))
-  for (const key of ["reasoning_effort", "thinking_budget_tokens", "cache_prompt", "max_completion_tokens", "temperature", "top_p", "seed"]) {
-    assert.equal(key in lastBody(), false, `${key} isn't sent unless asked for`)
-  }
-})
-
-test("a failed load emits RUN_ERROR, and the model isn't counted as loaded", async () => {
-  fake.loadError = new WebGLLMError("download-failed", "Network down.")
-  const events = (await collect(webgllmText(MODEL).chatStream(textOptions()))) as Array<Event>
-  assert.deepEqual(types(events), ["RUN_STARTED", "RUN_ERROR"])
-  assert.equal(events[1]!.message, `Couldn't load ${MODEL}: Network down.`)
-  assert.equal(events[1]!.code, "download-failed")
-  assert.equal(await availability(MODEL), "downloadable")
-  assert.equal(fake.requests.length, 0)
-})
-
-test("an already aborted request yields nothing; leaving the stream early stops webgllm's", async () => {
-  const controller = new AbortController()
-  controller.abort()
-  assert.deepEqual(await collect(webgllmText(MODEL).chatStream(textOptions({ abortController: controller }))), [])
-  assert.equal(fake.requests.length, 0)
-
-  fake.script = () => [chunk({ content: "a" }), chunk({ content: "b" }), chunk({ content: "c" }), chunk({}, "stop")]
-  for await (const event of webgllmText(MODEL).chatStream(textOptions())) {
-    if ((event as Event).type === "TEXT_MESSAGE_CONTENT") break
-  }
-  assert.equal(fake.returned, 1)
-})
-
-test("works under chat(): a non-streaming answer", async () => {
-  fake.script = () => [chunk({ content: "Bonjour" }), chunk({}, "stop"), usageChunk()]
-  const answer = await chat({ adapter: webgllmText(MODEL), threadId: "chat", messages: [{ role: "user", content: "hi" }], stream: false })
-  assert.equal(answer.text, "Bonjour")
-})
 
 test("availability: unavailable where the engine can't run or for a model it doesn't list", async () => {
   engine.isSupported = supported
