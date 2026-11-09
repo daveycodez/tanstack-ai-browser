@@ -297,8 +297,8 @@ test("the shared memory registry: holds what webgllm's workers claim, makes room
 test("WEBGLLM_MODEL_REASONING has every model, in TanStack's shape", () => {
   const reasoning = WEBGLLM_MODEL_REASONING[MODEL]
   assert.ok(reasoning)
-  assert.equal(reasoning.levels.high, "true")
-  assert.equal(reasoning.levels.off, "false")
+  assert.equal(reasoning.levels.high, "high")
+  assert.equal(reasoning.levels.off, "none")
   assert.equal(reasoning.budget, true)
 })
 

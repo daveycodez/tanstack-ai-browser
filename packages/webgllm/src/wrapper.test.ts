@@ -1,7 +1,7 @@
 /**
  * What the adapter adds to TanStack's Chat Completions adapter: loading the
  * model, webgllm's option names, reasoning levels and thinking budget, the
- * history it reads, structured output's schema and hint, and aborts.
+ * history it reads, structured output's schema, and aborts.
  */
 import assert from "node:assert/strict"
 import { beforeEach, test } from "node:test"

@@ -80,30 +80,6 @@ type MetadataByModality = { text: unknown; image: unknown; audio: unknown; video
 /** A Chat Completions request, as the base adapter writes it. */
 type CreateParams = Parameters<OpenAIClientLike["chat"]["completions"]["create"]>[0]
 
-/** The engine as an OpenAI client: Chat Completions is all the adapter calls. */
-const client = {
-  baseURL: "webgllm:",
-  chat: {
-    completions: {
-      create: (body: unknown, options?: { signal?: AbortSignal | null }) =>
-        webgllm.chat.completions.create(body as never, options?.signal ? { signal: options.signal } : {})
-    }
-  }
-} as unknown as OpenAIClientLike
-
-/**
- * A model's reasoning levels with webgllm's `reasoning_effort` values: its
- * catalog gives the template's switch ("true", "false").
- */
-function effortLevels(model: WebGllmChatModel): ModelReasoning | undefined {
-  const reasoning = modelMeta(model).reasoning
-  if (!reasoning) return undefined
-  const levels = Object.fromEntries(
-    Object.entries(reasoning.levels).map(([level, value]) => [level, value === "false" ? "none" : "high"])
-  )
-  return { ...reasoning, levels } as ModelReasoning
-}
-
 /** `modelOptions` with webgllm's names. */
 function toRequestOptions(o: WebGllmTextModelOptions | undefined): Record<string, unknown> {
   const fields = {
@@ -143,7 +119,8 @@ export class WebGllmTextAdapter<TModel extends WebGllmChatModel> extends OpenAIB
   private readonly keepLoaded: boolean | undefined
 
   constructor(config: WebGllmConfig, model: TModel) {
-    super(model, "webgllm", client, { strictFallbackWarning: false })
+    // Chat Completions (`chat.completions.create`) is all the adapter calls.
+    super(model, "webgllm", webgllm as unknown as OpenAIClientLike, { strictFallbackWarning: false })
     this.contextLength = config.contextLength
     this.onDownloadProgress = config.onDownloadProgress
     this.keepLoaded = config.keepLoaded
@@ -225,7 +202,7 @@ export class WebGllmTextAdapter<TModel extends WebGllmChatModel> extends OpenAIB
   protected override mapOptionsToRequest(options: TextOptions): CreateParams & { stream: true } {
     const modelOptions = options.modelOptions as WebGllmTextModelOptions | undefined
     const request = super.mapOptionsToRequest({ ...options, modelOptions: toRequestOptions(modelOptions) })
-    const resolved = resolveReasoning(options.reasoning, effortLevels(this.model))
+    const resolved = resolveReasoning(options.reasoning, this.modelReasoning(this.model))
     const budget = resolved?.value === "high" ? resolved.budgetTokens : undefined
     return Object.assign(request, {
       ...(budget !== undefined && { thinking_budget_tokens: budget }),
@@ -234,7 +211,7 @@ export class WebGllmTextAdapter<TModel extends WebGllmChatModel> extends OpenAIB
   }
 
   protected override modelReasoning(model: string) {
-    return effortLevels(model as WebGllmChatModel)
+    return modelMeta(model as WebGllmChatModel).reasoning as ModelReasoning | undefined
   }
 
   /** webgllm streams thinking as `reasoning_content`. */
