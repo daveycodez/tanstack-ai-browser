@@ -22,7 +22,7 @@ const stream = chat({
 
 The package is shaped like `@tanstack/ai-openrouter`'s text adapter:
 
-- `@tanstack-ai-browser/transformers-js`: `transformersJsText(model, config?)`, `TransformersJsTextAdapter` (with the runtime methods `availability`, `create` and `destroy`), `setMemoryBudget`, and the types `TransformersJsConfig`, `TransformersJsTextModelOptions`, `TransformersJsProviderUsageDetails`, `Availability` and `DownloadProgressCallback`.
+- `@tanstack-ai-browser/transformers-js`: `transformersJsText(model, config?)`, `TransformersJsTextAdapter` (with the runtime methods `availability`, `create` and `destroy`), `setMemoryBudget`, and the types `TransformersJsConfig`, `TransformersJsTextModelOptions`, `Availability` and `DownloadProgressCallback`.
 - `@tanstack-ai-browser/transformers-js/model-meta`: the catalog, `TRANSFORMERS_JS_CHAT_MODELS`, `TRANSFORMERS_JS_MODEL_META` and `TRANSFORMERS_JS_MODEL_REASONING`, with the types `TransformersJsChatModel`, `TransformersJsModelMeta` and `TransformersJsModelReasoningByName`.
 
 ## Models
@@ -50,7 +50,7 @@ Any other Hugging Face ONNX model works too, given how it writes tool calls and 
 
 **Options** go in `modelOptions` per call, named as TanStack's OpenRouter adapter names them, so swapping this adapter for `@tanstack/ai-openrouter`'s needs no other change: `maxCompletionTokens` (the most tokens to generate, thinking included), `temperature`, `topP`, `seed` and `parallelToolCalls`, plus this engine's `topK` and `repetitionPenalty`. Sampling left out comes from the model card (`TRANSFORMERS_JS_MODEL_META[model].sampling`). `parallelToolCalls: false` keeps only the first tool call of a reply: the model may still write more, and the adapter drops them (the prompt doesn't change, so the prompt cache still applies); true or left out, every call it writes. This engine has no `frequencyPenalty`, `presencePenalty` or `stop`: anything but 0 (or no stop sequences) throws rather than being ignored.
 
-**Usage** is in each call's `RUN_FINISHED` event, as with any TanStack AI adapter: `promptTokens`, `completionTokens`, `totalTokens`, and `promptTokensDetails.cachedTokens` for the start of the prompt the model reused from an earlier call. Timings are in `usage.providerUsageDetails` (`TransformersJsProviderUsageDetails`: `firstTokenMs`, `promptMs`, `decodeMs`, `decodeTokens`), for example in `chat()` middleware's `onUsage`.
+**Usage** is in each call's `RUN_FINISHED` event, as with any TanStack AI adapter: `promptTokens`, `completionTokens`, `totalTokens`, and `promptTokensDetails.cachedTokens` for the start of the prompt the model reused from an earlier call. Timings aren't in it: measure them from the stream, as for any adapter.
 
 **Without WebGPU** (Firefox on Android, for one), there's nothing to set: the worker sees there's no GPU adapter and runs the model on the CPU through ONNX Runtime's WebAssembly backend, from its `q4` weights. It's slower, with the same features, prompt caching in memory and on disk included. `adapter.availability()` says `"unavailable"` where a model can't run in this browser (on a server, which has no Web Worker, or without WebGPU for a model without CPU weights: `TRANSFORMERS_JS_MODEL_META[model].cpu`, pinned or not; any other Hugging Face id is taken to have them). Models whose q4 graph looks up its embedding with GatherBlockQuantized don't run on the CPU: the ONNX Runtime build Transformers.js imports has no CPU kernel for it ([microsoft/onnxruntime#33961](https://github.com/microsoft/onnxruntime/issues/33961)). It uses several threads where the page is cross-origin isolated, else one.
 
@@ -73,12 +73,11 @@ instruction tokens. Templates requiring a user query use tokenizer-only A/B prob
 their shared prefix is intersected with the actual full prompt. Probe text never
 reaches model inference. One latest prefix per tokenizer is memoized by exact
 system/tools/thinking, within the existing cache budgets.
-Structured request serialization is unchanged: schema guidance stays in the
-system prompt, and the same schema separately constrains decoding. Current tool
-results/thinking retain the original chat-template turn semantics. Native common/end
-checkpoint scheduling is unchanged.
-`promptTokensDetails.cachedTokens` and `usage.providerUsageDetails.promptMs` report
-actual reuse and processing; stable formatting alone is not a guaranteed cache hit.
+Structured output sends the caller's system prompt as given; the schema constrains
+decoding. The whole conversation, earlier turns' tool calls and results included, is
+written with the model's chat template. Native common/end checkpoint scheduling is unchanged.
+`promptTokensDetails.cachedTokens` reports actual reuse; stable formatting alone is not a
+guaranteed cache hit.
 
 The standard SDK `promptCache: "none"` disables automatic prompt-state reuse and
 retention for that call: no prior in-memory or disk prompt cache is read, no prompt
@@ -114,4 +113,4 @@ With `stream: true`, the structured answer streams as OpenRouter's does (`struct
 
 `modelOptions.maxCompletionTokens` limits total output, including thinking. Omitting it uses a declared model generation limit when present, otherwise remaining model context. The adapter does not shorten the model's context unless the caller sets `contextLength`.
 
-Auto tools retain the model's native routing and answer protocol. Parsed calls must name a declared tool and match its argument schema before any tool-call event is emitted; invalid arguments are regenerated under the selected tool's constrained schema. Required and named choices use guided selection/arguments. Arguments are emitted as normal TanStack AI tool-call events. Unsupported schemas, constraint dead ends, and truncated structured responses fail explicitly; no unconstrained repair or automatic retry is added.
+Auto tools retain the model's native routing and answer protocol: the calls the model writes are emitted as normal TanStack AI tool-call events, and `chat()` checks them against their tools; tool-call markup no call was read from is shown as text. Required and named choices use guided selection/arguments. Unsupported schemas, constraint dead ends, and truncated structured responses fail explicitly.

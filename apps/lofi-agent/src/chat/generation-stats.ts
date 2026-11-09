@@ -6,7 +6,6 @@
  * collection, by thread id, until the chat is deleted.
  */
 import type { TokenUsage } from "@tanstack/ai"
-import type { TransformersJsProviderUsageDetails } from "@tanstack-ai-browser/transformers-js"
 
 import { deleteIfPresent, replyStats, threads } from "#/lib/db"
 
@@ -28,9 +27,6 @@ export type GenerationStats = {
   decodeMs?: number
 }
 
-/** Timings the adapters report, under the same names. */
-type UsageTimings = TransformersJsProviderUsageDetails
-
 /**
  * A model call's timings as measured from its stream, in `performance.now()`
  * ms: when it started, and when it generated its first and last output.
@@ -38,31 +34,22 @@ type UsageTimings = TransformersJsProviderUsageDetails
 export type CallClock = { start: number; first?: number; last?: number }
 
 /**
- * A model call's stats from its usage: token counts, and the adapter's
- * timings, or else those measured from the stream (`clock`): the first
- * token's time from the call's start, which also stands for reading the
- * prompt (prompt speed divides the tokens not cached by it), and decoding
- * from the first output to the last, which tokens per second divides the
- * tokens after the first by.
+ * A model call's stats: its token counts, and its timings measured from the
+ * stream (`clock`). The first token's time, from the call's start, also
+ * stands for reading the prompt (prompt speed divides the tokens not cached
+ * by it); decoding runs from the first output to the last, and tokens per
+ * second divides the tokens after the first by it.
  */
 export function statsFromUsage(usage: TokenUsage, clock?: CallClock): GenerationStats {
-  const timings = usage.providerUsageDetails as UsageTimings | undefined
   const cachedTokens = usage.promptTokensDetails?.cachedTokens
-  const first = clock?.first !== undefined ? clock.first - clock.start : undefined
-  const decode = clock?.first !== undefined && clock.last !== undefined ? clock.last - clock.first : undefined
-  const firstTokenMs = timings?.firstTokenMs ?? first
-  const decodeMs = timings?.decodeMs ?? decode
+  const firstTokenMs = clock?.first !== undefined ? clock.first - clock.start : undefined
+  const decodeMs = clock?.first !== undefined && clock.last !== undefined ? clock.last - clock.first : undefined
   return {
     inputTokens: usage.promptTokens,
     ...(cachedTokens && { cachedTokens }),
     outputTokens: usage.completionTokens,
-    ...(firstTokenMs !== undefined && { firstTokenMs }),
-    // Without the adapter's, reading the prompt is the wait for the first token.
-    ...((timings?.promptMs ?? first) !== undefined && { promptMs: timings?.promptMs ?? first }),
-    ...(decodeMs !== undefined && {
-      decodeMs,
-      decodeTokens: timings?.decodeTokens ?? Math.max(usage.completionTokens - 1, 0)
-    })
+    ...(firstTokenMs !== undefined && { firstTokenMs, promptMs: firstTokenMs }),
+    ...(decodeMs !== undefined && { decodeMs, decodeTokens: Math.max(usage.completionTokens - 1, 0) })
   }
 }
 

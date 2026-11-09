@@ -1,4 +1,4 @@
-import { chooseGuidedTool, addGuidedUsage, closeObjects, validateStructuredValue } from "./constraint/index.js"
+import { chooseGuidedTool, addGuidedUsage, closeObjects } from "./constraint/index.js"
 /**
  * A TanStack AI text adapter for Transformers.js models that run in the
  * browser, on WebGPU in a Web Worker. Hand it to `chat()` like any hosted
@@ -133,24 +133,6 @@ export type TransformersJsTextModelOptions = {
 }
 
 /**
- * Timings of one model call, in milliseconds, in `RUN_FINISHED`'s
- * `usage.providerUsageDetails`.
- */
-export type TransformersJsProviderUsageDetails = {
-  /** From the request to the first generated token, reading the prompt included. */
-  firstTokenMs?: number
-  /** From starting to read the prompt (the model loaded) to the first token. */
-  promptMs?: number
-  /** From the first generated token to the last. */
-  decodeMs?: number
-  /** Tokens generated after the first one, over `decodeMs`. */
-  decodeTokens?: number
-  thinkingTokens?: number
-  thinkingBudgetTokens?: number
-  thinkingBudgetExhausted?: boolean
-}
-
-/**
  * The reasoning levels of a model, for `chat({ reasoning })`. A model this
  * package doesn't list gets the on/off toggle (the chat template's
  * `enable_thinking`). `never`: a listed model that doesn't reason. A listed
@@ -179,8 +161,6 @@ const DEFAULT_SAMPLING: Sampling = {
  */
 function thinkingOptions(request: ReasoningRequest | undefined, model: string) {
   const budget = request?.budgetTokens
-  if (budget !== undefined && (!Number.isSafeInteger(budget) || budget < 0))
-    throw new RangeError("reasoning.budgetTokens must be a nonnegative safe integer.")
   const reasoning = modelReasoning(model)
   if (!reasoning) return { thinking: false }
   const value = resolveReasoning(request, reasoning)?.value
@@ -191,7 +171,7 @@ function thinkingOptions(request: ReasoningRequest | undefined, model: string) {
 
 /**
  * A call's sampling and output cap: `modelOptions` over the model card's
- * sampling, in the worker's names. Options this engine can't honour throw.
+ * sampling, in the worker's names. Options Transformers.js can't honour throw.
  */
 function generationSettings(
   options: TransformersJsTextModelOptions | undefined,
@@ -206,23 +186,8 @@ function generationSettings(
     seed,
     frequencyPenalty,
     presencePenalty,
-    stop,
-    parallelToolCalls
+    stop
   } = options ?? {}
-  if (parallelToolCalls !== undefined && typeof parallelToolCalls !== "boolean")
-    throw new TypeError("parallelToolCalls must be a boolean.")
-  if (maxCompletionTokens !== undefined && (!Number.isSafeInteger(maxCompletionTokens) || maxCompletionTokens < 0))
-    throw new RangeError("maxCompletionTokens must be a nonnegative safe integer.")
-  if (!Number.isFinite(temperature) || temperature < 0)
-    throw new RangeError("temperature must be a nonnegative number.")
-  if (topP !== undefined && (!Number.isFinite(topP) || topP <= 0 || topP > 1))
-    throw new RangeError("topP must be a number in (0, 1].")
-  if (!Number.isSafeInteger(topK) || topK < 0)
-    throw new RangeError("topK must be a nonnegative safe integer.")
-  if (!Number.isFinite(repetitionPenalty) || repetitionPenalty <= 0)
-    throw new RangeError("repetitionPenalty must be a positive number.")
-  if (seed !== undefined && !Number.isSafeInteger(seed))
-    throw new RangeError("seed must be a safe integer.")
   if (frequencyPenalty !== undefined && frequencyPenalty !== 0)
     throw new Error("transformers-js doesn't support frequencyPenalty; use repetitionPenalty.")
   if (presencePenalty !== undefined && presencePenalty !== 0)
@@ -257,9 +222,7 @@ type MetadataByModality = {
 
 /** A tool call's text content, or the error a failed tool gave. */
 function toolResultText(m: ModelMessage) {
-  const text = contentText(m.content)
-  if (m.error) return `Error: ${m.error}`
-  return text && text !== "null" ? text : "The tool returned nothing."
+  return m.error ? `Error: ${m.error}` : contentText(m.content)
 }
 
 function contentText(content: ModelMessage["content"]) {
@@ -310,22 +273,14 @@ function withThinking(turn: ChatTurn, thinking: string, format: ToolFormat) {
   return turn
 }
 
-/**
- * The conversation as chat-template turns. Tool calls and results from
- * earlier turns are left out and their answers kept: small models copy the
- * shape of past calls badly and get lost in old results. The current turn's
- * calls and results stay, since the model answers from them.
- */
+/** The conversation as chat-template turns, tool calls and results written in the model's format. */
 function toChatTurns(messages: Array<ModelMessage>, format: ToolFormat) {
   const chat: Array<ChatTurn> = []
-  const currentTurn = messages.map((m) => m.role).lastIndexOf("user")
   // Tool names by call id, for the results.
   const toolNames = new Map<string, string>()
-  for (const [i, m] of messages.entries()) {
+  for (const m of messages) {
     const content = contentText(m.content)
-    const earlier = i < currentTurn
     if (m.role === "tool") {
-      if (earlier) continue
       const name = m.toolCallId ? toolNames.get(m.toolCallId) : undefined
       chat.push({
         role: "tool",
@@ -343,7 +298,7 @@ function toChatTurns(messages: Array<ModelMessage>, format: ToolFormat) {
         args: parseArguments(call.function.arguments)
       }
     })
-    if (m.role === "user" || calls.length === 0 || earlier) {
+    if (m.role === "user" || calls.length === 0) {
       if (content) chat.push({ role: m.role, content })
       continue
     }
@@ -370,27 +325,14 @@ function toToolSpecs(tools: Array<Tool> | undefined): Array<ToolSpec> {
   }))
 }
 
-/** A model call's counts as TanStack AI usage, its timings as provider details. */
+/** A model call's counts as TanStack AI usage. */
 function usageOf(stats: RunTimings): TokenUsage {
-  const usage = buildBaseUsage<TransformersJsProviderUsageDetails>({
+  const usage = buildBaseUsage({
     promptTokens: stats.inputTokens,
     completionTokens: stats.outputTokens,
     totalTokens: stats.inputTokens + stats.outputTokens
   })
-  if (stats.cachedTokens > 0) {
-    usage.promptTokensDetails = { cachedTokens: stats.cachedTokens }
-  }
-  usage.providerUsageDetails = {
-    ...(stats.firstTokenMs !== null && { firstTokenMs: stats.firstTokenMs }),
-    ...(stats.promptMs !== null && { promptMs: stats.promptMs }),
-    ...(stats.thinkingTokens !== undefined && { thinkingTokens: stats.thinkingTokens }),
-    ...(stats.thinkingBudgetTokens !== undefined && { thinkingBudgetTokens: stats.thinkingBudgetTokens }),
-    ...(stats.thinkingBudgetExhausted !== undefined && { thinkingBudgetExhausted: stats.thinkingBudgetExhausted }),
-    ...(stats.firstTokenMs !== null && {
-      decodeMs: stats.decodeMs,
-      decodeTokens: Math.max(stats.outputTokens - 1, 0)
-    })
-  }
+  if (stats.cachedTokens > 0) usage.promptTokensDetails = { cachedTokens: stats.cachedTokens }
   return usage
 }
 
@@ -729,29 +671,12 @@ export class TransformersJsTextAdapter<
     const allParsed = markup && options.tools?.length && options.toolChoice !== "none" ? parseToolCalls(markup) : []
     // parallelToolCalls: false keeps the first call only (before validating or repairing the rest).
     const parsed = options.modelOptions?.parallelToolCalls === false ? allParsed.slice(0, 1) : allParsed
-    const nativeTools = !!options.tools?.length && options.toolChoice !== "none"
-    if (markup && parsed.length === 0 && !nativeTools) addText(markup)
+    // Markup no call was read from is shown as text.
+    if (markup && parsed.length === 0) addText(markup)
     yield* events.splice(0)
-    let usage = stats ? usageOf(stats) : undefined
+    const usage = stats ? usageOf(stats) : undefined
     try {
       if (failure) throw new Error(failure)
-      if (markup && nativeTools && parsed.length === 0) throw new Error("The model returned malformed tool-call markup.")
-      for (const call of parsed) {
-        signal?.throwIfAborted()
-        const tool = options.tools?.find(tool => tool.name === call.name)
-        if (!tool) throw new Error(`The model requested an undeclared tool: ${call.name}`)
-        const schema = tool.inputSchema ?? { type: "object", properties: {}, additionalProperties: false }
-        if (!await validateStructuredValue(schema, call.args)) {
-          const repair = await this.structuredOutput({
-            chatOptions: { ...options, systemPrompts: [...normalizeSystemPrompts(options.systemPrompts), { content: `Return the correct arguments for the selected tool ${call.name}. ${tool.description}. Draft arguments to correct: ${JSON.stringify(call.args)}` }] },
-            outputSchema: schema as Record<string, unknown>
-          })
-          signal?.throwIfAborted()
-          if (!repair.data || typeof repair.data !== "object" || Array.isArray(repair.data) || !await validateStructuredValue(schema, repair.data)) throw new Error(`Invalid arguments for tool: ${call.name}`)
-          call.args = repair.data as Record<string, unknown>
-          usage = addGuidedUsage(usage, repair.usage)
-        }
-      }
     } catch (error) {
       if (textStarted) yield { type: EventType.TEXT_MESSAGE_END, messageId, model, timestamp: timestamp() }
       if (signal?.aborted) return
@@ -924,15 +849,12 @@ export class TransformersJsTextAdapter<
     signal?.throwIfAborted()
     const system = normalizeSystemPrompts(chatOptions.systemPrompts)
       .map((p) => p.content)
-      .concat(
-        `Answer with only a JSON value matching this JSON Schema:\n${JSON.stringify(outputSchema)}`
-      )
       .join("\n\n")
     const markers = THINKING_MARKERS[this.toolFormat]
     const stream = generate({
       id: nextId("call"),
       chat: [
-        { role: "system", content: system },
+        ...(system ? [{ role: "system" as const, content: system }] : []),
         ...toChatTurns(chatOptions.messages, this.toolFormat)
       ],
       tools: [],

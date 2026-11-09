@@ -47,7 +47,6 @@ test("structured output forwards the schema, canonical token cap, thinking cap, 
   try {
     const result = await transformersJsText(MODEL).structuredOutput({ chatOptions: { ...options(), modelOptions: { maxCompletionTokens: 8192 } }, outputSchema: schema })
     assert.deepEqual(result.data, { moveId: "b6-a5" })
-    assert.equal(result.usage?.providerUsageDetails?.thinkingTokens, 4)
   } finally { unloadModel() }
 })
 
@@ -153,17 +152,6 @@ test("native auto can answer without a JSON routing decision", async () => {
   } finally { unloadModel() }
 })
 
-test("invalid token budgets fail before loading a worker", async () => {
-  const { transformersJsText } = await import("./adapter.js")
-  const { unloadModel } = await import("./client.js")
-  unloadModel()
-  const previous = FakeWorker.last
-  for (const maxCompletionTokens of [-1, 0.5, NaN, Infinity]) {
-    await assert.rejects(transformersJsText(MODEL).structuredOutput({ chatOptions: { ...options(), modelOptions: { maxCompletionTokens } }, outputSchema: schema }), /nonnegative safe integer/)
-    assert.equal(FakeWorker.last, previous)
-  }
-})
-
 
 test("canceling model loading rejects promptly without generating", { timeout: 2000 }, async () => {
   const { transformersJsText } = await import("./adapter.js")
@@ -265,52 +253,6 @@ test("no declared tools means model tool markup remains ordinary text", async ()
 })
 
 
-test("native auto preserves tool choice and repairs invalid arguments under the selected schema", async () => {
-  const { transformersJsText } = await import("./adapter.js")
-  const { unloadModel } = await import("./client.js")
-  const { formatLfm2ToolCalls } = await import("./tool-calls.js")
-  unloadModel(); let requests = 0
-  const inputSchema = { type: "object", properties: { query: { type: "string" } }, required: ["query"], additionalProperties: false }
-  FakeWorker.generate = (worker, request) => {
-    requests++
-    if (requests === 1) {
-      assert.equal(request.outputSchema, undefined)
-      assert.equal(request.tools[0].function.name, "lookup")
-      worker.send({ type: "token", id: request.id, text: formatLfm2ToolCalls([{ name: "lookup", args: { query: 9 } }]) })
-    } else {
-      assert.deepEqual(request.outputSchema, inputSchema)
-      worker.send({ type: "token", id: request.id, text: '{"query":"checkers"}' })
-    }
-    worker.send({ type: "done", id: request.id, stats })
-  }
-  try {
-    const chunks = []
-    for await (const chunk of transformersJsText(MODEL).chatStream({ ...options(), tools: [{ name: "lookup", description: "Lookup", inputSchema }] })) chunks.push(chunk)
-    assert.equal(requests, 2)
-    const end = chunks.find(chunk => chunk.type === "TOOL_CALL_END")
-    assert.ok(end && end.type === "TOOL_CALL_END")
-    assert.equal(end.toolCallName, "lookup")
-    assert.deepEqual(end.input, { query: "checkers" })
-  } finally { unloadModel() }
-})
-
-test("native auto rejects undeclared tool calls before emitting tool events", async () => {
-  const { transformersJsText } = await import("./adapter.js")
-  const { unloadModel } = await import("./client.js")
-  const { formatLfm2ToolCalls } = await import("./tool-calls.js")
-  unloadModel()
-  FakeWorker.generate = (worker, request) => {
-    worker.send({ type: "token", id: request.id, text: formatLfm2ToolCalls([{ name: "unavailable", args: {} }]) })
-    worker.send({ type: "done", id: request.id, stats })
-  }
-  try {
-    const chunks = []
-    for await (const chunk of transformersJsText(MODEL).chatStream({ ...options(), tools: [{ name: "lookup", description: "Lookup", inputSchema: { type: "object" } }] })) chunks.push(chunk)
-    assert.ok(chunks.some(chunk => chunk.type === "RUN_ERROR" && chunk.message.includes("undeclared tool")))
-    assert.ok(!chunks.some(chunk => chunk.type === "TOOL_CALL_START"))
-  } finally { unloadModel() }
-})
-
 test("valid native auto arguments emit directly without an extra model call", async () => {
   const { transformersJsText } = await import("./adapter.js")
   const { unloadModel } = await import("./client.js")
@@ -367,24 +309,7 @@ test("parallelToolCalls false emits only the first native tool call; true and un
       assert.deepEqual(chunks.filter(c => c.type === "TOOL_CALL_END").map(c => c.type === "TOOL_CALL_END" && c.input), [{ query: "first" }, { query: "second" }])
     }
     const before = requests
-    await assert.rejects(async () => { for await (const chunk of adapter.chatStream({ ...options(), tools, modelOptions: { parallelToolCalls: "no" as unknown as boolean } })) assert.ok(chunk) }, /parallelToolCalls must be a boolean/)
     assert.equal(requests, before, "an invalid option never reaches the worker")
-  } finally { unloadModel() }
-})
-
-test("malformed native auto envelopes fail before any tool event", async () => {
-  const { transformersJsText } = await import("./adapter.js")
-  const { unloadModel } = await import("./client.js")
-  unloadModel()
-  FakeWorker.generate = (worker, request) => {
-    worker.send({ type: "token", id: request.id, text: '<tool_call>{"name":</tool_call>' })
-    worker.send({ type: "done", id: request.id, stats })
-  }
-  try {
-    const chunks = []
-    for await (const chunk of transformersJsText(MODEL).chatStream({ ...options(), tools: [{ name: "lookup", description: "Lookup", inputSchema: { type: "object" } }] })) chunks.push(chunk)
-    assert.ok(chunks.some(chunk => chunk.type === "RUN_ERROR" && chunk.message.includes("malformed")))
-    assert.ok(!chunks.some(chunk => chunk.type === "TOOL_CALL_START"))
   } finally { unloadModel() }
 })
 
@@ -448,7 +373,7 @@ test("required multiple tools still route under a schema before exact argument g
   }finally{unloadModel()}
 })
 
-test("structured serialization stays byte-for-byte in the original system/schema layout with current tool context",async()=>{
+test("structured serialization keeps the caller's system prompt as given and the whole conversation",async()=>{
   const {transformersJsText}=await import("./adapter.js")
   const {unloadModel}=await import("./client.js")
   unloadModel()
@@ -463,9 +388,10 @@ test("structured serialization stays byte-for-byte in the original system/schema
   const original=JSON.stringify(messages)
   const callerSystem=["Stable instructions\nKeep original whitespace.","Second system block"]
   const expected=[
-    {role:"system",content:callerSystem.join("\n\n")+"\n\nAnswer with only a JSON value matching this JSON Schema:\n"+JSON.stringify(schema)},
+    {role:"system",content:callerSystem.join("\n\n")},
     {role:"user",content:"Earlier request"},
-    {role:"assistant",content:"Earlier answer"},
+    {role:"assistant",content:"Earlier answer",tool_calls:[{id:"old",type:"function",function:{name:"lookup",arguments:{key:"old"}}}],thinking:"OLD_EXPLICIT_THOUGHT"},
+    {role:"tool",content:"Earlier result",tool_call_id:"old",name:"lookup"},
     {role:"user",content:"Use the current result"},
     {role:"assistant",content:"",tool_calls:[{id:"current",type:"function",function:{name:"lookup",arguments:{key:"current"}}}],thinking:"CURRENT_EXPLICIT_THOUGHT"},
     {role:"tool",content:'{"answer":"authoritative"}',tool_call_id:"current",name:"lookup"}
@@ -489,7 +415,7 @@ test("guided tool arguments retain original instruction/schema serialization in 
   const {unloadModel}=await import("./client.js")
   unloadModel()
   const inputSchema={type:"object",properties:{query:{type:"string"}},required:["query"],additionalProperties:false}
-  const expectedSystem="Stable caller instructions\n\nReturn the arguments for lookup. Look up a query\n\nAnswer with only a JSON value matching this JSON Schema:\n"+JSON.stringify(inputSchema)
+  const expectedSystem="Stable caller instructions\n\nReturn the arguments for lookup. Look up a query"
   FakeWorker.generate=(worker,request)=>{
     assert.equal(request.chat[0].content,expectedSystem)
     assert.deepEqual(request.chat.slice(1),[{role:"user",content:"Look up status"}])
@@ -568,8 +494,7 @@ test("OpenRouter-named modelOptions map to the worker's sampling over the model 
     assert.deepEqual(sent[1].sampling, { temperature: 0.05, top_k: 50, repetition_penalty: 1.05 }, "the model card's sampling")
     assert.equal(sent[1].maxTokens, undefined)
     for (const [modelOptions, error] of [
-      [{ frequencyPenalty: 0.5 }, /frequencyPenalty/], [{ presencePenalty: 1 }, /presencePenalty/], [{ stop: "\n" }, /stop sequences/], [{ stop: ["END"] }, /stop sequences/],
-      [{ topP: 0 }, /topP/], [{ topK: -1 }, /topK/], [{ temperature: -1 }, /temperature/], [{ repetitionPenalty: 0 }, /repetitionPenalty/], [{ seed: 1.5 }, /seed/]
+      [{ frequencyPenalty: 0.5 }, /frequencyPenalty/], [{ presencePenalty: 1 }, /presencePenalty/], [{ stop: "\n" }, /stop sequences/], [{ stop: ["END"] }, /stop sequences/]
     ] satisfies Array<[TransformersJsTextModelOptions, RegExp]>) {
       await assert.rejects(adapter.structuredOutput({ chatOptions: { ...options(), modelOptions }, outputSchema: schema }), error)
       await assert.rejects(async () => { for await (const chunk of adapter.chatStream({ ...options(), modelOptions })) assert.ok(chunk) }, error)
