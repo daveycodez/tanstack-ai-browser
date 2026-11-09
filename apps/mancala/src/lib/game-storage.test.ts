@@ -108,8 +108,8 @@ test("opponent updates merge with moves and reject replies for the previous mode
   const { a, b, close } = await tabs()
   try {
     const game = await a.ensureGame()
-    const original = resolveOpponent({ model: "prompt-api", thinking: false })
-    const changed = resolveOpponent({ model: "prompt-api", thinking: true })
+    const original = resolveOpponent({ model: "LiquidAI/LFM3-1.7B-GGUF", thinking: false })
+    const changed = resolveOpponent({ model: "LiquidAI/LFM3-1.7B-GGUF", thinking: true })
     await a.setOpponent(original)
     const [accepted] = await Promise.all([
       a.commitMove(game.sessionId, 0, 0),

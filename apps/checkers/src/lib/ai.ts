@@ -245,11 +245,10 @@ export async function chooseAiMove(
         ? chat({
             ...options,
             adapter: apfelText(APFEL_MODEL) as AnyTextAdapter,
-            reasoning,
             modelOptions: { maxCompletionTokens: MAX_OUTPUT_TOKENS }
           })
         : opponent.model === "prompt-api"
-        ? chat({ ...options, adapter: promptApiText("built-in"), reasoning })
+        ? chat({ ...options, adapter: promptApiText("built-in") })
         : chat({
             ...options,
             // Runtime catalog metadata determines the selected model's reasoning support.
