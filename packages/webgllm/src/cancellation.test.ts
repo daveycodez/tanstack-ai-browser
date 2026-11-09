@@ -92,8 +92,9 @@ test("webgllm: structured cancellation via request.signal and legacy controller"
 
 test("installed TanStack chat forwards abortController through structured chatOptions.request.signal", async () => {
   reset(); const p = await adapterPackage(); const adapter = await adapterFor(); const controller = new AbortController()
-  let seen = false
-  const check = (request: TestOptions) => { seen = true; assert.ok(request.chatOptions.request); assert.equal(request.chatOptions.abortController, undefined); assert.equal((request.chatOptions.request as Request).signal, controller.signal) }
+  let seen: AbortSignal | undefined
+  // chat() passes a signal of its own, tied to the caller's controller.
+  const check = (request: TestOptions) => { assert.ok(request.chatOptions.request); assert.equal(request.chatOptions.abortController, undefined); seen = (request.chatOptions.request as Request).signal }
   // chat() uses structuredOutputStream when the adapter has it (stream: false drains it), else structuredOutput.
   if (adapter.structuredOutputStream) {
     const original = adapter.structuredOutputStream.bind(adapter)
@@ -103,5 +104,6 @@ test("installed TanStack chat forwards abortController through structured chatOp
     adapter.structuredOutput = request => { check(request); return original(request) }
   }
   await p.chat({ adapter, threadId:"forwarding-contract", messages:[{role:"user",content:"Choose a move"}], outputSchema:schema, abortController:controller, stream:false })
-  assert.equal(seen,true);assert.equal(state.signal,controller.signal)
+  assert.ok(seen); assert.equal(state.signal, seen)
+  controller.abort(); assert.equal(seen.aborted, true)
 })

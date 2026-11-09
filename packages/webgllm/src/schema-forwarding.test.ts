@@ -301,5 +301,9 @@ test("chat({ outputSchema, abortController }) forwards the signal to webgllm thr
     stream: false
   })
   assert.deepEqual(result, { moveId: "b6-a5" })
-  assert.equal(fake.requests.at(-1)!.options.signal, controller.signal)
+  // chat() passes a signal of its own, tied to the caller's controller.
+  const signal = fake.requests.at(-1)!.options.signal as AbortSignal
+  assert.ok(signal)
+  controller.abort()
+  assert.equal(signal.aborted, true)
 })

@@ -513,7 +513,7 @@ export class WllamaTextAdapter<
     let timings: ResultTimings | undefined
     let firstTokenMs: number | null = null
     let failure: string | undefined
-    let requested = 0
+    let requested: number
 
     const endReasoning = function* () {
       if (reasoning !== "open") return

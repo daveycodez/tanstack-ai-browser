@@ -81,7 +81,7 @@ async function create(
     if (loaderUrl && message.includes("blob:")) {
       message += ". A Content Security Policy may block MediaPipe's blob: URLs: allow blob: in the worker's script-src and connect-src, or pass cacheWasm: false."
     }
-    throw new Error(`MediaPipe couldn't load ${modelUrl}: ${message}`)
+    throw new Error(`MediaPipe couldn't load ${modelUrl}: ${message}`, { cause: error })
   } finally {
     if (loaderUrl) URL.revokeObjectURL(loaderUrl)
     if (wasmUrl) URL.revokeObjectURL(wasmUrl)

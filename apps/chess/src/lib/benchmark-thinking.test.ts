@@ -2,7 +2,7 @@ import assert from "node:assert/strict"
 import { readFileSync } from "node:fs"
 import { test } from "node:test"
 import { runInNewContext } from "node:vm"
-import ts from "typescript"
+import ts from "@typescript/typescript6"
 import { opponentOption, usesEmulatedReasoning } from "./opponents.ts"
 import type { OpponentModel, ThinkingSupport } from "./opponents.ts"
 

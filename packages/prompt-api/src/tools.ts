@@ -70,7 +70,7 @@ Important:
 /** Earlier tool calls in the conversation, as the model would have written them. */
 export function toolCallFence(calls: NonNullable<ModelMessage["toolCalls"]>): string {
   const lines = calls.map((call) => {
-    let args: unknown = {}
+    let args: unknown
     try {
       args = JSON.parse(call.function.arguments || "{}")
     } catch {
