@@ -18,22 +18,48 @@ import {
   startReply,
   statsFromUsage
 } from "./generation-stats"
+import type { CallClock } from "./generation-stats"
 import { ABORTED, untilAborted } from "./abortable"
 import { isReasoningLevel, selectedModel } from "./model"
 import { currentModelId, effortFor, isModelId, modelInfo, prepareModel } from "./models"
 
+/** What the model generated: its first one is the call's first token, its last the end of decoding. */
+const GENERATED = new Set<string>([
+  "TEXT_MESSAGE_CONTENT",
+  "REASONING_MESSAGE_CONTENT",
+  "TOOL_CALL_START",
+  "TOOL_CALL_ARGS"
+])
+
+/** Each model call's timings, measured here from its stream, by run and step. */
+const clocks = new Map<string, CallClock>()
+
 /**
  * Each model call's usage, as the adapter reports it when the call ends, to
- * the stats line. A reply that calls tools makes one call per step.
+ * the stats line, with timings measured from the stream where the adapter
+ * reports none. A reply that calls tools makes one call per step.
  */
 const replyStats: ChatMiddleware = {
   name: "reply-stats",
-  onUsage: (ctx, usage) =>
-    recordGeneration(
-      ctx.threadId,
-      `${ctx.runId}:${ctx.iteration}`,
-      statsFromUsage(usage)
-    )
+  onIteration: (ctx) => {
+    clocks.set(`${ctx.runId}:${ctx.iteration}`, { start: performance.now() })
+  },
+  onChunk: (ctx, chunk) => {
+    if (!GENERATED.has(chunk.type)) return
+    const clock = clocks.get(`${ctx.runId}:${ctx.iteration}`)
+    if (!clock) return
+    clock.first ??= performance.now()
+    clock.last = performance.now()
+  },
+  onUsage: (ctx, usage) => {
+    const key = `${ctx.runId}:${ctx.iteration}`
+    const clock = clocks.get(key)
+    clocks.delete(key)
+    recordGeneration(ctx.threadId, key, statsFromUsage(usage, clock))
+  },
+  // A call that fails or stops reports no usage.
+  onModelError: (ctx) => void clocks.delete(`${ctx.runId}:${ctx.iteration}`),
+  onAbort: (ctx) => void clocks.delete(`${ctx.runId}:${ctx.iteration}`)
 }
 
 /** The model a session forwarded with this run, if it's one we have. */

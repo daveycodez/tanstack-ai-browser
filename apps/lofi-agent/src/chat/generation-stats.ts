@@ -32,21 +32,37 @@ export type GenerationStats = {
 /** Timings the adapters report, under the same names. */
 type UsageTimings = TransformersJsProviderUsageDetails & WllamaProviderUsageDetails
 
-/** A model call's stats from its usage: token counts, and the adapter's timings. */
-export function statsFromUsage(usage: TokenUsage): GenerationStats {
+/**
+ * A model call's timings as measured from its stream, in `performance.now()`
+ * ms: when it started, and when it generated its first and last output.
+ */
+export type CallClock = { start: number; first?: number; last?: number }
+
+/**
+ * A model call's stats from its usage: token counts, and the adapter's
+ * timings, or else those measured from the stream (`clock`): the first
+ * token's time from the call's start, which also stands for reading the
+ * prompt (prompt speed divides the tokens not cached by it), and decoding
+ * from the first output to the last, which tokens per second divides the
+ * tokens after the first by.
+ */
+export function statsFromUsage(usage: TokenUsage, clock?: CallClock): GenerationStats {
   const timings = usage.providerUsageDetails as UsageTimings | undefined
   const cachedTokens = usage.promptTokensDetails?.cachedTokens
+  const first = clock?.first !== undefined ? clock.first - clock.start : undefined
+  const decode = clock?.first !== undefined && clock.last !== undefined ? clock.last - clock.first : undefined
+  const firstTokenMs = timings?.firstTokenMs ?? first
+  const decodeMs = timings?.decodeMs ?? decode
   return {
     inputTokens: usage.promptTokens,
     ...(cachedTokens && { cachedTokens }),
     outputTokens: usage.completionTokens,
-    ...(timings?.firstTokenMs !== undefined && {
-      firstTokenMs: timings.firstTokenMs
-    }),
-    ...(timings?.promptMs !== undefined && { promptMs: timings.promptMs }),
-    ...(timings?.decodeMs !== undefined && {
-      decodeMs: timings.decodeMs,
-      decodeTokens: timings.decodeTokens ?? Math.max(usage.completionTokens - 1, 0)
+    ...(firstTokenMs !== undefined && { firstTokenMs }),
+    // Without the adapter's, reading the prompt is the wait for the first token.
+    ...((timings?.promptMs ?? first) !== undefined && { promptMs: timings?.promptMs ?? first }),
+    ...(decodeMs !== undefined && {
+      decodeMs,
+      decodeTokens: timings?.decodeTokens ?? Math.max(usage.completionTokens - 1, 0)
     })
   }
 }
