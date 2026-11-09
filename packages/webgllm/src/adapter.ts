@@ -205,7 +205,7 @@ export class WebGllmTextAdapter<TModel extends WebGllmChatModel> extends OpenAIB
     const resolved = resolveReasoning(options.reasoning, this.modelReasoning(this.model))
     const budget = resolved?.value === "high" ? resolved.budgetTokens : undefined
     return Object.assign(request, {
-      ...(budget !== undefined && { thinking_budget_tokens: budget }),
+      ...(budget !== undefined && { reasoning: { max_tokens: budget } }),
       ...(options.promptCache?.retention === "none" && { cache_prompt: false })
     })
   }

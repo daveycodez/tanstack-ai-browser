@@ -40,7 +40,7 @@ What maps to what:
 | `tools` (their `inputSchema`)                     | `tools` (function `parameters`)                                          |
 | `toolChoice` (`auto`, `none`, `required`, a tool) | `tool_choice`; with `none` webgllm offers the model no tools            |
 | `outputSchema`                                    | `response_format: { type: "json_schema" }`                              |
-| `reasoning` level / `budgetTokens`                | `reasoning_effort` (`none` or `high`) / `thinking_budget_tokens`          |
+| `reasoning` level / `budgetTokens`                | `reasoning_effort` (`none` or `high`) / `reasoning.max_tokens`          |
 | `promptCache: "none"`                             | `cache_prompt: false`                                                    |
 | `modelOptions`                                    | see below                                                                |
 

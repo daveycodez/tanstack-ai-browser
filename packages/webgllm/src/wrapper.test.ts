@@ -102,16 +102,16 @@ test("modelOptions go with webgllm's names", async () => {
   assert.equal(body.maxCompletionTokens, undefined)
 })
 
-test("reasoning: off and high as webgllm's reasoning_effort, a budget as thinking_budget_tokens", async () => {
+test("reasoning: off and high as webgllm's reasoning_effort, a budget as reasoning.max_tokens", async () => {
   await collect(webgllmText(MODEL).chatStream(textOptions({ reasoning: { level: "off", summary: false } })))
   assert.equal((lastBody() as unknown as Record<string, unknown>).reasoning_effort, "none")
   await collect(webgllmText(MODEL).chatStream(textOptions({ reasoning: { level: "high", summary: false, budgetTokens: 256 } })))
   const body = lastBody() as unknown as Record<string, unknown>
   assert.equal(body.reasoning_effort, "high")
-  assert.equal(body.thinking_budget_tokens, 256)
+  assert.deepEqual(body.reasoning, { max_tokens: 256 })
   // Off ignores a budget; a model that doesn't think gets neither.
   await collect(webgllmText(MODEL).chatStream(textOptions({ reasoning: { level: "off", summary: false } })))
-  assert.equal((lastBody() as unknown as Record<string, unknown>).thinking_budget_tokens, undefined)
+  assert.equal((lastBody() as unknown as Record<string, unknown>).reasoning, undefined)
   await collect(webgllmText("LiquidAI/LFM2.5-350M-GGUF").chatStream(textOptions({ model: "LiquidAI/LFM2.5-350M-GGUF" })))
   assert.equal((lastBody() as unknown as Record<string, unknown>).reasoning_effort, undefined)
 })
