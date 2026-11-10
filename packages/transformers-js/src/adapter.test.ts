@@ -80,7 +80,7 @@ test("text streams as one message, then RUN_FINISHED with usage", async () => {
   assert.equal(chunks[3].content, "Hello there")
 })
 
-test("the conversation and tools go to the chat template, with the defaults' sampling", async () => {
+test("the conversation and tools go to the chat template, with the model card's sampling", async () => {
   await run({
     systemPrompts: ["Be brief."],
     tools: [{ name: "get_weather", description: "Weather", inputSchema: { type: "object", properties: { city: { type: "string" } } } }],
@@ -113,8 +113,14 @@ test("the conversation and tools go to the chat template, with the defaults' sam
       function: { name: "get_weather", description: "Weather", parameters: { type: "object", properties: { city: { type: "string" } } } }
     }
   ])
-  assert.deepEqual(request.options, { max_new_tokens: 4096, do_sample: true })
+  // LFM3's card: its repo's generation_config.json doesn't carry it.
+  assert.deepEqual(request.options, { max_new_tokens: 4096, do_sample: true, temperature: 0.1, top_k: 50, repetition_penalty: 1.1 })
   assert.equal(request.enableThinking, false)
+})
+
+test("a model whose repo carries its sampling gets none from the adapter", async () => {
+  await run({ model: "onnx-community/Qwen3.5-2B-ONNX" }, "onnx-community/Qwen3.5-2B-ONNX")
+  assert.deepEqual((generateRequests().at(-1) as Generate).options, { max_new_tokens: 4096 })
 })
 
 test("modelOptions and reasoning map to generate options and enable_thinking", async () => {
@@ -127,7 +133,6 @@ test("modelOptions and reasoning map to generate options and enable_thinking", a
   assert.deepEqual(request.options, {
     max_new_tokens: 100,
     do_sample: false,
-    temperature: 0,
     top_p: 0.9,
     top_k: 20,
     repetition_penalty: 1.1
@@ -170,6 +175,13 @@ test("thinking between <think> tags comes back as REASONING events, then the ans
   ])
   assert.equal(chunks.filter((c) => c.type === "REASONING_MESSAGE_CONTENT").map((c) => c.delta).join(""), "Let me check.")
   assert.equal((chunks.find((c) => c.type === "TEXT_MESSAGE_CONTENT") as Chunk).content, "\n\nHi!")
+})
+
+test("text after a tool call in the same piece is dropped", async () => {
+  FakeWorker.reply = (worker) => worker.stream(["<|tool_call_start|>[get_weather(city=\"Oslo\")]<|tool_call_end|>I am checking"])
+  const chunks = await run({ tools: [{ name: "get_weather", description: "Weather" }] })
+  assert.ok(!chunks.some((c) => c.type === "TEXT_MESSAGE_CONTENT"))
+  assert.equal((chunks.find((c) => c.type === "TOOL_CALL_END") as Chunk).toolCallName, "get_weather")
 })
 
 test("toolChoice none sends no tools", async () => {

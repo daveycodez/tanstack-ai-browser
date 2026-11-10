@@ -211,7 +211,7 @@ function partialStart(text: string) {
  * Reads a streamed reply: `push` each piece and get back the text that can
  * be shown now; text inside a call's delimiters (or a bare `[name(…)]`) is
  * held back. The first call read ends the reply (stop generating then):
- * `call` is the call, and `trailing` the text after it in the same piece.
+ * `call` is the call; text after it is dropped.
  * Delimiters with no call inside are text. `end` gives the rest, an
  * unclosed call as text.
  */
@@ -219,7 +219,6 @@ export function toolCallReader() {
   let buffer = ""
   let start: (Delimiter & { python?: boolean }) | undefined
   let call: ParsedToolCall | undefined
-  let trailing = ""
 
   const read = (): string => {
     let shown = ""
@@ -248,8 +247,7 @@ export function toolCallReader() {
       call = parseToolCall(start.python ? block : block.slice(start.start.length, close))
       buffer = buffer.slice(block.length)
       start = undefined
-      if (call) trailing = buffer
-      else shown += block
+      if (!call) shown += block
     }
     return shown
   }
@@ -257,9 +255,6 @@ export function toolCallReader() {
   return {
     get call() {
       return call
-    },
-    get trailing() {
-      return trailing
     },
     push(piece: string): string {
       buffer += piece

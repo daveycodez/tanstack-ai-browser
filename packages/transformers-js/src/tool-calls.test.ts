@@ -21,7 +21,6 @@ test("the reader holds back a call split across pieces and shows the text around
   const shown = pieces.map((piece) => (reader.call ? "" : reader.push(piece))).join("")
   assert.equal(shown, "Sure ")
   assert.deepEqual(reader.call, { name: "f", arguments: {} })
-  assert.equal(reader.trailing, " after")
 })
 
 test("a fence with no call in it is text", () => {

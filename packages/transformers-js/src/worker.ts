@@ -24,9 +24,6 @@ const scope = self as unknown as {
 }
 const post = (reply: WorkerReply) => scope.postMessage(reply)
 
-/** Sampling a request leaves out. */
-const DEFAULTS = { do_sample: true, top_k: 3, temperature: 0.7, max_new_tokens: 4096 }
-
 let loaded: { tokenizer: PreTrainedTokenizer; model: PreTrainedModel } | null = null
 const stopping = new InterruptableStoppingCriteria()
 /** The last generation's cache, and the tokens in it (prompt and reply). */
@@ -122,7 +119,6 @@ async function generate({ messages, options, tools, enableThinking }: GenerateRe
   stoppingCriteria.push(stopping)
   const settings = {
     ...inputs,
-    ...DEFAULTS,
     ...options,
     streamer,
     stopping_criteria: stoppingCriteria,

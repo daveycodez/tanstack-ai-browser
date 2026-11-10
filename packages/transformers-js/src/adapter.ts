@@ -19,7 +19,7 @@ import { availability, generate, interrupt, loadModel, unloadModel } from "./cli
 import type { Availability, DownloadProgressCallback } from "./client.js"
 import { toTemplateMessages, toTemplateTools } from "./messages.js"
 import { TRANSFORMERS_JS_MODEL_META, TRANSFORMERS_JS_MODEL_REASONING } from "./model-meta.js"
-import type { TransformersJsChatModel, TransformersJsModelReasoningByName } from "./model-meta.js"
+import type { Sampling, TransformersJsChatModel, TransformersJsModelReasoningByName } from "./model-meta.js"
 import type { Device, Dtype, GenerationOptions, LoadSettings } from "./protocol.js"
 import { thinkingSplitter } from "./thinking.js"
 import type { Piece } from "./thinking.js"
@@ -73,12 +73,21 @@ const modelReasoning = (model: string): ModelReasoning | undefined =>
   listed(model) ? TRANSFORMERS_JS_MODEL_REASONING[model] : UNLISTED_REASONING
 
 /** The call's `generate()` options, unset ones left to the worker's defaults. */
-function generationOptions(options: TransformersJsTextModelOptions | undefined, thinking: boolean): GenerationOptions {
-  const { maxCompletionTokens, temperature, topP, topK, repetitionPenalty } = options ?? {}
+/**
+ * Transformers.js's `generate()` options: `modelOptions` over the model
+ * card's sampling (`sampling` in the catalog). Left unset, the repo's own
+ * `generation_config.json` applies.
+ */
+function generationOptions(
+  options: TransformersJsTextModelOptions | undefined,
+  card: Sampling | undefined,
+  thinking: boolean
+): GenerationOptions {
+  const { maxCompletionTokens, temperature, topP, topK, repetitionPenalty } = { ...card, ...options }
   const fields = {
     max_new_tokens: maxCompletionTokens || (thinking ? 8192 : 4096),
-    do_sample: temperature === undefined || temperature > 0,
-    temperature,
+    do_sample: temperature === undefined ? undefined : temperature > 0,
+    temperature: temperature || undefined,
     top_p: topP,
     top_k: topK,
     repetition_penalty: repetitionPenalty
@@ -174,7 +183,8 @@ export class TransformersJsTextAdapter<TModel extends string> extends BaseTextAd
       await loadModel(this.settings, this.onDownloadProgress, signal)
       const tools = options.toolChoice === "none" ? [] : (options.tools ?? [])
       const enableThinking = resolveReasoning(options.reasoning, modelReasoning(model))?.value === "true"
-      const generation = generationOptions(options.modelOptions, enableThinking)
+      const card = listed(model)?.sampling
+      const generation = generationOptions(options.modelOptions, card, enableThinking)
       const system = normalizeSystemPrompts(options.systemPrompts)
         .map((p) => p.content)
         .join("\n\n")
@@ -203,10 +213,7 @@ export class TransformersJsTextAdapter<TModel extends string> extends BaseTextAd
           if (!thinking) {
             yield* textEvents(reader.push(delta))
             // The first call ends the reply: the worker stops, and later text is dropped.
-            if (reader.call) {
-              interrupt()
-              yield* textEvents(reader.trailing)
-            }
+            if (reader.call) interrupt()
             continue
           }
           if (!reasoningOpen) {

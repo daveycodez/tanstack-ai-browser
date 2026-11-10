@@ -1,7 +1,8 @@
 /**
  * The models this package lists: Hugging Face ONNX builds that run in the
- * browser, with what each supports, its reasoning levels, and whether it
- * runs on the CPU. Any other Hugging Face id works too (see
+ * browser, with what each supports, its reasoning levels, whether it runs
+ * on the CPU, and its card's sampling where its repo's
+ * `generation_config.json` doesn't carry it. Any other Hugging Face id works too (see
  * `transformersJsText`).
  */
 import type { ModelReasoning } from "@tanstack/ai"
@@ -24,7 +25,30 @@ export type TransformersJsModelMeta = {
    * through WebAssembly where there's no WebGPU.
    */
   cpu?: boolean
+  /**
+   * The model card's recommended sampling, for a repo whose
+   * `generation_config.json` doesn't carry it (Transformers.js applies that
+   * file's settings itself). `modelOptions` override it.
+   */
+  sampling?: Sampling
 }
+
+/** Sampling, as a model card recommends it. Temperature 0 is greedy decoding. */
+export type Sampling = {
+  temperature: number
+  topK?: number
+  topP?: number
+  repetitionPenalty?: number
+}
+
+/** LFM3's card ("General": chat, tool use, agents, coding). */
+const LFM3_SAMPLING = { temperature: 0.1, topK: 50, repetitionPenalty: 1.1 } as const satisfies Sampling
+/** LFM2.5 Instruct's card. */
+const LFM2_5_SAMPLING = { temperature: 0.1, topK: 50, repetitionPenalty: 1.05 } as const satisfies Sampling
+/** LFM2.5 Thinking's card. */
+const LFM2_5_THINKING_SAMPLING = { temperature: 0.05, topK: 50, repetitionPenalty: 1.05 } as const satisfies Sampling
+/** LFM2 1.2B Tool's card: greedy decoding. */
+const LFM2_TOOL_SAMPLING = { temperature: 0 } as const satisfies Sampling
 
 /** A chat template that takes `enable_thinking` (LFM3, Gemma 4, Qwen3.5). */
 const THINKING_SWITCH = { levels: { off: "false", high: "true" }, budget: false } as const
@@ -48,27 +72,31 @@ const LFM3_1_7B_WEB = {
   supports: TOOLS_AND_THINKING,
   size: "1.7b",
   reasoning: THINKING_SWITCH,
-  cpu: true
+  cpu: true,
+  sampling: LFM3_SAMPLING
 } as const satisfies TransformersJsModelMeta
 
 const LFM3_1_7B = {
   name: "onnx-community/LFM3-1.7B-ONNX",
   supports: TOOLS_AND_THINKING,
   size: "1.7b",
-  reasoning: THINKING_SWITCH
+  reasoning: THINKING_SWITCH,
+  sampling: LFM3_SAMPLING
 } as const satisfies TransformersJsModelMeta
 
 const LFM2_5_1_2B = {
   name: "LiquidAI/LFM2.5-1.2B-Instruct-ONNX",
   supports: TOOLS,
-  size: "1.2b"
+  size: "1.2b",
+  sampling: LFM2_5_SAMPLING
 } as const satisfies TransformersJsModelMeta
 
 const LFM2_5_1_2B_THINKING = {
   name: "LiquidAI/LFM2.5-1.2B-Thinking-ONNX",
   supports: TOOLS_AND_THINKING,
   size: "1.2b",
-  reasoning: ALWAYS_THINKS
+  reasoning: ALWAYS_THINKS,
+  sampling: LFM2_5_THINKING_SAMPLING
 } as const satisfies TransformersJsModelMeta
 
 /** LFM2.5 re-exported to compute logits for a prompt's last token only. */
@@ -76,7 +104,8 @@ const LFM2_5_1_2B_WEB = {
   name: "daveycodez/LFM2.5-1.2B-Web-ONNX",
   supports: TOOLS,
   size: "1.2b",
-  cpu: true
+  cpu: true,
+  sampling: LFM2_5_SAMPLING
 } as const satisfies TransformersJsModelMeta
 
 const LFM2_5_1_2B_THINKING_WEB = {
@@ -84,7 +113,8 @@ const LFM2_5_1_2B_THINKING_WEB = {
   supports: TOOLS_AND_THINKING,
   size: "1.2b",
   reasoning: ALWAYS_THINKS,
-  cpu: true
+  cpu: true,
+  sampling: LFM2_5_THINKING_SAMPLING
 } as const satisfies TransformersJsModelMeta
 
 /** LFM2 1.2B Tool: short, precise tool calls without thinking. */
@@ -92,14 +122,16 @@ const LFM2_1_2B_TOOL = {
   name: "onnx-community/LFM2-1.2B-Tool-ONNX",
   supports: TOOLS,
   size: "1.2b",
-  cpu: true
+  cpu: true,
+  sampling: LFM2_TOOL_SAMPLING
 } as const satisfies TransformersJsModelMeta
 
 /** LFM2.5 350M: the smallest and quickest, for short answers and tool calls. */
 const LFM2_5_350M = {
   name: "LiquidAI/LFM2.5-350M-ONNX",
   supports: TOOLS,
-  size: "350m"
+  size: "350m",
+  sampling: LFM2_5_SAMPLING
 } as const satisfies TransformersJsModelMeta
 
 /** Qwen3.5 2B, its text model only (embedding and decoder, 1.38 GB in q4f16). */

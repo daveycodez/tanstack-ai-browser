@@ -31,7 +31,8 @@ export type TemplateTool = {
 /** Transformers.js `generate()` options. */
 export type GenerationOptions = {
   max_new_tokens: number
-  do_sample: boolean
+  /** Left out, the repo's `generation_config.json` decides. */
+  do_sample?: boolean
   temperature?: number
   top_k?: number
   top_p?: number
