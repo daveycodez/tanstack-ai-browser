@@ -9,7 +9,7 @@
  * WebLLM is the official `@mlc-ai/web-llm` package, unmodified, used
  * through its public API.
  */
-import { hasModelInCache, WebWorkerMLCEngine } from "@mlc-ai/web-llm"
+import { hasModelInCache, prebuiltAppConfig, WebWorkerMLCEngine } from "@mlc-ai/web-llm"
 import type { AppConfig, ChatOptions } from "@mlc-ai/web-llm"
 
 /**
@@ -56,6 +56,8 @@ const hasWebGpu = () =>
 /** One engine, in its own worker, and the model it holds. */
 function engineSlot(name: string) {
   let engine: WebWorkerMLCEngine | null = null
+  /** Settles when the last caller to `acquire` the engine releases it. */
+  let turns: Promise<void> = Promise.resolve()
   let loaded: {
     model: string
     key: string
@@ -83,6 +85,28 @@ function engineSlot(name: string) {
 
   return {
     /**
+     * Waits for the engine to itself, after the callers before, and resolves
+     * to the call that hands it on. WebLLM queues generations but stops them
+     * with one engine-wide interrupt, so a request holds the engine from its
+     * load to its reply's end, and one cancelled while it waits (`signal`)
+     * gives up its turn without touching the engine.
+     */
+    async acquire(signal?: AbortSignal): Promise<() => void> {
+      signal?.throwIfAborted()
+      let release = () => undefined as void
+      const mine = new Promise<void>((resolve) => (release = resolve))
+      const before = turns
+      turns = before.then(() => mine)
+      try {
+        await abortable(before, signal)
+      } catch (error) {
+        void before.then(release)
+        throw error
+      }
+      return release
+    },
+
+    /**
      * The model, loaded with `settings` (downloading it the first time), in
      * place of any other. `onDownloadProgress` hears the download, 0 to 1,
      * then 1 once the model is ready. Aborting `signal` stops this caller's
@@ -109,7 +133,8 @@ function engineSlot(name: string) {
         loaded = current
         current.promise = (async () => {
           current.downloading = !(await stored(model, settings.appConfig))
-          if (settings.appConfig) engine.setAppConfig(settings.appConfig)
+          // The worker keeps the last catalog it was given: give it this load's.
+          engine.setAppConfig(settings.appConfig ?? prebuiltAppConfig)
           await engine.reload(model, settings.chatOptions)
         })().finally(() => {
           current.downloading = false

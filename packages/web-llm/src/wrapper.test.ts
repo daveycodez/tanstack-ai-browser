@@ -25,6 +25,8 @@ const control = {
   reloads: [] as Array<{ model: string; chatOptions: unknown }>,
   unloads: 0,
   interrupts: 0,
+  /** Requests that got the engine's lock and began generating (WebLLM's prefill). */
+  prefills: [] as Array<Request>,
   cached: new Set<string>(),
   /** Progress values each reload reports. */
   progress: [] as Array<number>,
@@ -58,12 +60,23 @@ await build({
             export const hasModelInCache=async(model)=>control.cached.has(model);
             export const ModelType={LLM:0,embedding:1,VLM:2};
             export const prebuiltAppConfig={model_list:[{model_id:"Qwen3-1.7B-q4f16_1-MLC"},{model_id:"Qwen2.5-0.5B-Instruct-q4f16_1-MLC"},{model_id:"Phi-3.5-vision-instruct-q4f16_1-MLC",model_type:2},{model_id:"snowflake-arctic-embed-s-q0f32-MLC-b4",model_type:1}]};
+            // Like WebLLM: the worker keeps the last catalog it was given
+            // (the prebuilt one at first), reload looks the model up in it,
+            // generations wait for the model's lock, and the interrupt is
+            // the engine's, ending whichever generation runs.
             export class WebWorkerMLCEngine{
               constructor(worker,config){
                 this.report=config.initProgressCallback;
+                this.appConfig=prebuiltAppConfig;
+                this.lock=Promise.resolve();
+                const engine=this;
                 this.chat={completions:{create:async(request)=>{
                   control.requests.push(request);
-                  if(request.stream) return (async function*(){yield* control.chunks;if(control.hold) await control.hold})();
+                  if(request.stream) return (async function*(){
+                    const before=engine.lock;let release;engine.lock=new Promise((r)=>(release=r));
+                    await before;
+                    try{control.prefills.push(request);yield* control.chunks;if(control.hold) await control.hold}finally{release()}
+                  })();
                   return {choices:[{index:0,finish_reason:"stop",message:{role:"assistant",content:'{"city":"Oslo"}'}}]};
                 }}};
                 this.embeddings={create:async(request)=>{
@@ -71,8 +84,9 @@ await build({
                   return {data:request.input.map((_,index)=>({index,embedding:[index,1]})),usage:{prompt_tokens:3,total_tokens:3}};
                 }};
               }
-              setAppConfig(){}
+              setAppConfig(appConfig){this.appConfig=appConfig}
               async reload(model,chatOptions){
+                if(!this.appConfig.model_list.some((record)=>record.model_id===model)) throw new Error("Cannot find model record in appConfig for "+model);
                 control.reloads.push({model,chatOptions});
                 for(const progress of control.progress) this.report({progress,timeElapsed:0,text:""});
                 await control.reloadGate;
@@ -99,7 +113,7 @@ type Adapter = {
 type EmbeddingAdapter = { model: string; createEmbeddings(options: Record<string, unknown>): Promise<{ embeddings: Array<{ vector: Array<number>; index: number }> }> }
 type Module = {
   webLlmText: (model: string, config?: Record<string, unknown>) => Adapter & { inputModalities: ReadonlyArray<string> }
-  webLlmEmbedding: (model?: string) => EmbeddingAdapter
+  webLlmEmbedding: (model?: string, config?: Record<string, unknown>) => EmbeddingAdapter
 }
 /** A fresh copy of the adapter's module: its own engine, loaded model and WebGPU check. */
 let copies = 0
@@ -131,6 +145,7 @@ beforeEach(() => {
   control.reloads = []
   control.unloads = 0
   control.interrupts = 0
+  control.prefills = []
   control.cached = new Set()
   control.progress = []
   control.reloadGate = Promise.resolve()
@@ -296,4 +311,57 @@ test("embeddings: WebLLM's embeddings.create, a vector per input, in their own e
   assert.deepEqual(result.embeddings, [{ vector: [0, 1], index: 0 }, { vector: [1, 1], index: 1 }])
   assert.deepEqual(control.requests.at(-1), { model: adapter.model, input: ["a", "b"] })
   assert.equal(control.reloads.at(-1)!.model, adapter.model)
+})
+
+test("a tool call's JSON is read whole: call syntax inside its string arguments is text", async () => {
+  const tools = [{ name: "search", description: "Search", inputSchema: { type: "object", properties: { query: { type: "string" } } } }]
+  for (const query of ["call:bogus{arg:value}", "[bogus(arg=1)]", "<tool_call>bogus</tool_call>"]) {
+    const call = JSON.stringify({ name: "search", arguments: { query } })
+    control.chunks = [delta({ role: "assistant", content: "```tool_call\n" + call + "\n```" }), delta({}, "stop")]
+    const { events } = await run(webLlmText(MODEL), { tools })
+    const end = events.find((e) => e.type === "TOOL_CALL_END")
+    assert.equal(end?.toolCallName ?? end?.toolName, "search", query)
+    const args = events.filter((e) => e.type === "TOOL_CALL_ARGS").map((e) => e.delta).join("")
+    assert.deepEqual(JSON.parse(args), { query }, query)
+  }
+})
+
+test("cancelling a request queued behind another reply skips it and leaves the reply running", async () => {
+  const { webLlmText } = await fresh()
+  control.hold = new Promise((resolve) => (control.release = resolve))
+  control.chunks = [delta({ role: "assistant", content: "Hi" })]
+  let first = false
+  let firstDone = false
+  const running = (async () => {
+    for await (const event of webLlmText(MODEL).chatStream(options())) {
+      if (event.type === "TEXT_MESSAGE_CONTENT") first = true
+    }
+    firstDone = true
+  })()
+  while (!first) await new Promise((resolve) => setTimeout(resolve, 0))
+  const controller = new AbortController()
+  const queued = run(webLlmText(MODEL), { request: { signal: controller.signal } })
+  await new Promise((resolve) => setTimeout(resolve, 10))
+  controller.abort()
+  await queued
+  await new Promise((resolve) => setTimeout(resolve, 10))
+  assert.equal(control.interrupts, 0, "the queued request's cancel doesn't interrupt the running reply")
+  assert.equal(firstDone, false, "the running reply goes on")
+  control.release()
+  await running
+  assert.equal(control.prefills.length, 1, "the cancelled request never generates")
+})
+
+test("each load applies its catalog: a default adapter loads a stock model after a custom one, in both engines", async () => {
+  const { webLlmText, webLlmEmbedding } = await fresh()
+  const custom = (model_id: string, model_type?: number) => ({ model_list: [{ model_id, model: "https://example.com/m", model_lib: "https://example.com/m.wasm", ...(model_type !== undefined && { model_type }) }] })
+  await webLlmText("Custom-Chat-MLC", { appConfig: custom("Custom-Chat-MLC") }).create()
+  await webLlmText(MODEL).create()
+  assert.deepEqual(control.reloads.map((r) => r.model), ["Custom-Chat-MLC", MODEL])
+
+  const embedding = webLlmEmbedding("Custom-Embed-MLC", { appConfig: custom("Custom-Embed-MLC", 1) })
+  await embedding.createEmbeddings({ logger, model: embedding.model, input: ["a"] })
+  const stock = webLlmEmbedding()
+  await stock.createEmbeddings({ logger, model: stock.model, input: ["a"] })
+  assert.deepEqual(control.reloads.slice(2).map((r) => r.model), ["Custom-Embed-MLC", stock.model])
 })

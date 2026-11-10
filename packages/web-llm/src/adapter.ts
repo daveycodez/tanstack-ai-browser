@@ -76,11 +76,6 @@ function toResponseFormat(format: unknown): ResponseFormat {
 }
 
 /**
- * WebLLM's engine as an OpenAI client: each request loads the model with
- * the adapter's settings (at once when it's loaded with them) and goes to
- * WebLLM's `chat.completions.create`. WebLLM takes no AbortSignal: the
- * caller's signal stops the generation with the engine's `interruptGenerate`.
- */
 /** Marks a request whose tools are in its system prompt: the client reads calls out of its reply. */
 const PROMPT_TOOLS = Symbol("promptTools")
 
@@ -207,48 +202,52 @@ async function* withThinking(stream: AsyncIterable<Chunk>): AsyncIterable<Chunk>
   }
 }
 
+/**
+ * WebLLM's engine as an OpenAI client: each request waits for the engine to
+ * itself, loads the model with the adapter's settings (at once when it's
+ * loaded with them) and goes to WebLLM's `chat.completions.create`. WebLLM
+ * takes no AbortSignal: the caller's signal stops the generation with the
+ * engine's `interruptGenerate`.
+ */
 function clientFor(model: WebLlmModel, settings: LoadSettings, onDownloadProgress?: DownloadProgressCallback): OpenAIClientLike {
   const create = async (body: Record<string, unknown>, options?: { signal?: AbortSignal | null }) => {
     const signal = options?.signal ?? undefined
-    const engine = await chatEngine.loadModel(model, settings, { ...(onDownloadProgress && { onDownloadProgress }), ...(signal && { signal }) })
-    const promptTools = PROMPT_TOOLS in body
-    const fields: Record<string | symbol, unknown> = { ...body }
-    delete fields[PROMPT_TOOLS]
-    const request = {
-      ...fields,
-      ...(body.response_format !== undefined && { response_format: toResponseFormat(body.response_format) })
-    } as unknown as ChatCompletionRequest
-    const interrupt = () => engine.interruptGenerate()
-    const read = (stream: unknown) => {
-      const split = withThinking(stream as AsyncIterable<Chunk>)
-      return promptTools ? withToolCalls(split, interrupt) : split
+    // The engine is this request's from its load to its reply's end: a
+    // cancel while it waits for its turn never reaches the engine.
+    const release = await chatEngine.acquire(signal)
+    let interrupt = () => undefined as void
+    const done = () => {
+      signal?.removeEventListener("abort", interrupt)
+      release()
     }
-    if (!signal) {
-      const result = await engine.chat.completions.create(request)
-      return request.stream ? read(result) : result
-    }
-    signal.throwIfAborted()
-    signal.addEventListener("abort", interrupt, { once: true })
-    const release = () => signal.removeEventListener("abort", interrupt)
-    let result: Awaited<ReturnType<typeof engine.chat.completions.create>>
+    let streaming = false
     try {
-      result = await engine.chat.completions.create(request)
-    } catch (error) {
-      release()
-      throw error
+      const engine = await chatEngine.loadModel(model, settings, { ...(onDownloadProgress && { onDownloadProgress }), ...(signal && { signal }) })
+      const promptTools = PROMPT_TOOLS in body
+      const fields: Record<string | symbol, unknown> = { ...body }
+      delete fields[PROMPT_TOOLS]
+      const request = {
+        ...fields,
+        ...(body.response_format !== undefined && { response_format: toResponseFormat(body.response_format) })
+      } as unknown as ChatCompletionRequest
+      interrupt = () => engine.interruptGenerate()
+      signal?.throwIfAborted()
+      signal?.addEventListener("abort", interrupt, { once: true })
+      const result = await engine.chat.completions.create(request)
+      if (!request.stream) return result
+      const split = withThinking(result as AsyncIterable<Chunk>)
+      const stream = promptTools ? withToolCalls(split, interrupt) : split
+      streaming = true
+      return (async function* () {
+        try {
+          yield* stream
+        } finally {
+          done()
+        }
+      })()
+    } finally {
+      if (!streaming) done()
     }
-    if (!request.stream) {
-      release()
-      return result
-    }
-    const stream = read(result) as AsyncIterable<unknown>
-    return (async function* () {
-      try {
-        yield* stream
-      } finally {
-        release()
-      }
-    })()
   }
   return { baseURL: "web-llm:", chat: { completions: { create } } } as unknown as OpenAIClientLike
 }

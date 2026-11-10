@@ -98,23 +98,25 @@ export const toolResultFence = (lines: ReadonlyArray<string>) => `\`\`\`tool_res
  * The first tool call in a fence's body: a JSON object (or an array of them,
  * or one per line) with `name` and `arguments` (or `parameters`), the
  * arguments possibly a JSON string; or a Python-style call,
- * `[name(key="v")]`; or `call:name{key:value}`.
+ * `[name(key="v")]`; or `call:name{key:value}`. A body that is JSON is read
+ * as JSON only, so call syntax inside its strings is text; the other forms
+ * must start the body (`call:…` must be all of it).
  */
 export function parseToolCall(body: string): ParsedToolCall | undefined {
   const text = body.trim()
-  // `call:name{key:value,…}`
-  const colon = /call:(\w+)\{([^}]*)\}/.exec(text)
-  if (colon) return { name: colon[1], arguments: parseColonArguments(colon[2]) }
-  // Python style, `[name(key="value")]` or `name(key="value")`
-  if (/^\[?\s*\w+\(/.test(text)) {
-    const call = parsePythonCall(text)
-    if (call) return call
-  }
   const candidates: Array<unknown> = []
   try {
     const value = JSON.parse(text) as unknown
     candidates.push(...(Array.isArray(value) ? value : [value]))
   } catch {
+    // `call:name{key:value,…}`
+    const colon = /^call:(\w+)\{([^}]*)\}$/.exec(text)
+    if (colon) return { name: colon[1], arguments: parseColonArguments(colon[2]) }
+    // Python style, `[name(key="value")]` or `name(key="value")`
+    if (/^\[?\s*\w+\(/.test(text)) {
+      const call = parsePythonCall(text)
+      if (call) return call
+    }
     for (const line of text.split("\n")) {
       try {
         candidates.push(JSON.parse(line) as unknown)
