@@ -76,7 +76,10 @@ async function load({ model: id, device, dtype }: LoadSettings) {
       device: on,
       // fp16 activations on the GPU; the CPU kernels want fp32 ones.
       dtype: dtype ?? (on === "webgpu" ? "q4f16" : "q4"),
-      progress_callback: progressReporter()
+      progress_callback: progressReporter(),
+      // ONNX Runtime's constant folding copies a tied embedding table read
+      // through a Reshape or Transpose (LFM's) into a second, full copy.
+      session_options: { extra: { "optimization.disable_specified_optimizers": "ConstantFolding" } }
     })
   ])
   tokenizer.chat_template ??= await standaloneTemplate(id)
