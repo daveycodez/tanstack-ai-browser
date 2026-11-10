@@ -2,13 +2,14 @@
  * A TanStack AI text adapter for Apple's on-device Foundation Model, served
  * by apfel. apfel speaks OpenAI's Chat Completions API, so this is TanStack's
  * OpenAI-compatible adapter pointed at it: tool calls and structured output
- * go to apfel as `tools` and `response_format`, and `modelOptions` as given.
- * It adds `availability()` and `create()`, which ask apfel whether it serves
- * the model.
+ * go to apfel as `tools` and `response_format`, image parts as `image_url`
+ * parts, and `modelOptions` as given. It adds `availability()` and
+ * `create()`, which ask apfel whether it serves the model.
  */
 import { openaiCompatibleText } from "@tanstack/ai-openai/compatible"
 import type { OpenAICompatibleChatAdapter } from "@tanstack/ai-openai/compatible"
 
+import { APFEL_MODEL_META } from "./model-meta.js"
 import type { ApfelChatModel } from "./model-meta.js"
 
 export type ApfelConfig = {
@@ -32,6 +33,8 @@ export type Availability = "unavailable" | "downloadable" | "downloading" | "ava
 
 /** TanStack's OpenAI-compatible adapter for apfel, with apfel's availability. */
 export type ApfelTextAdapter = OpenAICompatibleChatAdapter<ApfelModel, ApfelTextModelOptions> & {
+  /** Text and images for Apple's model; not known for another model. */
+  readonly inputModalities: ReadonlyArray<"text" | "image"> | undefined
   /** "available" if apfel answers and serves the model, else "unavailable". */
   availability(signal?: AbortSignal): Promise<Availability>
   /** Resolves to this adapter if apfel serves the model, else rejects. Nothing loads. */
@@ -87,6 +90,7 @@ export function apfelText(modelOrConfig?: ApfelModel | ApfelConfig, maybeConfig:
   }
 
   const apfel: ApfelTextAdapter = Object.assign(adapter, {
+    inputModalities: Object.hasOwn(APFEL_MODEL_META, model) ? APFEL_MODEL_META[model as ApfelChatModel].supports.input : undefined,
     availability,
     async create({ signal }: { signal?: AbortSignal } = {}) {
       signal?.throwIfAborted()

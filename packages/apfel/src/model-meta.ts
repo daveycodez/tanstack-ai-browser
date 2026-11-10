@@ -1,6 +1,8 @@
 /**
  * The models apfel serves: Apple's on-device Foundation Model, with what it
  * supports. It doesn't reason, so `chat()` offers no `reasoning` option for it.
+ * It reads images on macOS 27 and later; on older macOS apfel gives it only
+ * text read from the image.
  */
 
 /** What a model apfel serves supports. */
@@ -8,7 +10,7 @@ export type ApfelModelMeta = {
   /** The model's id, as apfel lists it. */
   name: string
   supports: {
-    input: ReadonlyArray<"text">
+    input: ReadonlyArray<"text" | "image">
     output: ReadonlyArray<"text">
     capabilities: ReadonlyArray<"tools">
   }
@@ -17,7 +19,7 @@ export type ApfelModelMeta = {
 const APPLE_FOUNDATION_MODEL = {
   name: "apple-foundationmodel",
   supports: {
-    input: ["text"],
+    input: ["text", "image"],
     output: ["text"],
     capabilities: ["tools"]
   }

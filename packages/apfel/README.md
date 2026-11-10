@@ -21,6 +21,10 @@ if ((await adapter.availability()) === "available") {
 
 Start apfel with `apfel --serve --cors`.
 
+## Images
+
+Image parts go to apfel as OpenAI `image_url` parts, so `adapter.inputModalities` lists `"image"` for Apple's model. Apple's model reads images natively on macOS 27 and later; on older macOS, apfel passes it only the text and labels it reads from the image.
+
 ## Config
 
 - `baseURL`: apfel's API, up to `/v1`. It defaults to `http://127.0.0.1:11434/v1`.

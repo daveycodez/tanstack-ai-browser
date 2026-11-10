@@ -48,3 +48,34 @@ test("a chat goes to apfel's Chat Completions with tools, and OpenRouter-style o
   assert.equal(body.seed, 1)
   assert.equal((body.tools as Array<{ function: { name: string } }>)[0].function.name, "get_weather")
 })
+
+test("Apple's model takes images, sent to apfel as image_url parts with a data URL", async () => {
+  const bodies: Array<{ messages: Array<{ content: unknown }> }> = []
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    bodies.push(JSON.parse(String(init?.body ?? (input as Request).body)))
+    return sse([chunk({ role: "assistant", content: "A blue circle." }), chunk({}, "stop")])
+  }) as typeof fetch
+  const adapter = apfelText({ baseURL: "http://apfel.test/v1" })
+  assert.deepEqual(adapter.inputModalities, ["text", "image"])
+  assert.equal(apfelText("some-other-model").inputModalities, undefined)
+  await chat({
+    adapter,
+    threadId: "apfel-image-test",
+    messages: [
+      {
+        role: "user",
+        content: [
+          { type: "text", content: "What is this?" },
+          { type: "image", source: { type: "data", value: "iVBORw0KGgo=", mimeType: "image/png" } }
+        ]
+      }
+    ],
+    stream: false
+  })
+  const content = bodies[0].messages.at(-1)?.content as Array<{ type: string; image_url?: { url: string } }>
+  assert.deepEqual(
+    content.map((p) => p.type),
+    ["text", "image_url"]
+  )
+  assert.equal(content[1].image_url?.url, "data:image/png;base64,iVBORw0KGgo=")
+})
