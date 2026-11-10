@@ -399,6 +399,9 @@ importers:
       '@tanstack-ai-browser/transformers-js':
         specifier: workspace:*
         version: link:../../packages/transformers-js
+      '@tanstack-ai-browser/web-llm':
+        specifier: workspace:*
+        version: link:../../packages/web-llm
       '@tanstack-ai-browser/webgllm':
         specifier: workspace:*
         version: link:../../packages/webgllm
@@ -616,6 +619,22 @@ importers:
       '@huggingface/transformers':
         specifier: 4.3.2
         version: 4.3.2(@types/node@26.6.6)
+    devDependencies:
+      '@tanstack/ai':
+        specifier: 1.2.0
+        version: 1.2.0(zod@4.6.7)
+      esbuild:
+        specifier: 0.28.2
+        version: 0.28.2
+
+  packages/web-llm:
+    dependencies:
+      '@mlc-ai/web-llm':
+        specifier: ^0.2.87
+        version: 0.2.87
+      '@tanstack/openai-base':
+        specifier: ^1.0.2
+        version: 1.0.2(@tanstack/ai@1.2.0(zod@4.6.7))(undici@7.30.1)(ws@8.22.1)(zod@4.6.7)
     devDependencies:
       '@tanstack/ai':
         specifier: 1.2.0
@@ -1806,6 +1825,9 @@ packages:
 
   '@mediapipe/tasks-text@1.2.2':
     resolution: {integrity: sha512-ZIpsH9ct6ApbWsbs1MlO+Ya85OtmKzW2bb1x+NPuQJ9Kfhpmdk0VdQ1FTYNLOyD2rEbG/IyGtFByEHjmV0fg6w==}
+
+  '@mlc-ai/web-llm@0.2.87':
+    resolution: {integrity: sha512-34N19988MdaEtzh8Mq/IOrfKCk2HRDOrXgEkLT28r3aiyAU6ZJSUB+v35t7zyU+0QEaFl91Y4U5SuPN/cwoHNw==}
 
   '@modelcontextprotocol/client@2.4.0':
     resolution: {integrity: sha512-LgrD2OphHuG12vfKFKz6SOnq7bKHQmhGJIAYdD+MZBn2npHEyry6uD8zvktodtl5CQM85MO0anUyD9JwmUmxww==}
@@ -4490,6 +4512,10 @@ packages:
     resolution: {integrity: sha512-8XPvpAA8uyhfteu8pIvQxpJZ7SYYdpUivZpGy6sFsBuKRY/7rQGavedeB8aK+Zkyq6upMFVL/9AW6vOYzfRyLg==}
     engines: {node: '>=10'}
 
+  loglevel@1.9.2:
+    resolution: {integrity: sha512-HgMmCqIJSAKqo68l0rS2AanEWfkxaZ5wNiEFb5ggm08lDs9Xl2KxBlX3PTcaD2chBM1gXAYf491/M2Rv8Jwayg==}
+    engines: {node: '>= 0.6.0'}
+
   long@5.3.2:
     resolution: {integrity: sha512-mNAgZ1GmyNhD7AuqnTG3/VQ26o760+ZYBPKjPvugO8+nLbYfX6TVpJPseBvopbdY+qpZ/lKUnmEc1LeZYS3QAA==}
 
@@ -6700,6 +6726,10 @@ snapshots:
   '@keyv/serialize@1.1.1': {}
 
   '@mediapipe/tasks-text@1.2.2': {}
+
+  '@mlc-ai/web-llm@0.2.87':
+    dependencies:
+      loglevel: 1.9.2
 
   '@modelcontextprotocol/client@2.4.0':
     dependencies:
@@ -9423,6 +9453,8 @@ snapshots:
     dependencies:
       chalk: 4.1.2
       is-unicode-supported: 0.1.0
+
+  loglevel@1.9.2: {}
 
   long@5.3.2: {}
 

@@ -22,6 +22,7 @@
     "@tanstack-ai-browser/apfel": "workspace:*",
     "@tanstack-ai-browser/prompt-api": "workspace:*",
     "@tanstack-ai-browser/transformers-js": "workspace:*",
+    "@tanstack-ai-browser/web-llm": "workspace:*",
     "@tanstack-ai-browser/webgllm": "workspace:*",
     "@tanstack-ai-browser/wllama": "workspace:*",
     "@tanstack/ai": "1.2.0",

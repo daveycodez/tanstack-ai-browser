@@ -8,6 +8,7 @@
 | ------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------- |
 | [`@tanstack-ai-browser/transformers-js`](packages/transformers-js) | [Transformers.js](https://huggingface.co/docs/transformers.js) models on WebGPU in a Web Worker, tuned to work in Safari on iPhone |
 | [`@tanstack-ai-browser/webgllm`](packages/webgllm)                 | LFM3, LFM2.5 and Qwen3.5 on [webgllm](https://webgllm.dev)'s WebGL 2 inference engine (GGUF or ONNX weights), with or without WebGPU |
+| [`@tanstack-ai-browser/web-llm`](packages/web-llm)                 | [WebLLM](https://webllm.mlc.ai)'s catalog of MLC models on WebGPU in a Web Worker                                                     |
 | [`@tanstack-ai-browser/wllama`](packages/wllama)                   | GGUF models on the CPU with [wllama](https://github.com/ngxson/wllama) (llama.cpp in WebAssembly), no WebGPU needed                |
 | [`@tanstack-ai-browser/prompt-api`](packages/prompt-api)           | The browser's built-in model through the Prompt API: Gemini Nano in Chrome, Phi-4-mini in Edge                                     |
 | [`@tanstack-ai-browser/apfel`](packages/apfel)                     | Apple's on-device Foundation Model, served on a Mac by [apfel](https://apfel.franzai.com)                                          |

@@ -12,6 +12,9 @@ import type { WllamaChatModel } from "@tanstack-ai-browser/wllama/model-meta"
 import { webgllmText } from "@tanstack-ai-browser/webgllm"
 import { WEBGLLM_MODEL_REASONING } from "@tanstack-ai-browser/webgllm/model-meta"
 import type { WebGllmChatModel } from "@tanstack-ai-browser/webgllm/model-meta"
+import { webLlmText } from "@tanstack-ai-browser/web-llm"
+import { WEB_LLM_CHAT_MODELS, WEB_LLM_MODEL_META } from "@tanstack-ai-browser/web-llm/model-meta"
+import type { WebLlmChatModel } from "@tanstack-ai-browser/web-llm/model-meta"
 import { apfelText } from "@tanstack-ai-browser/apfel"
 import { promptApiText } from "@tanstack-ai-browser/prompt-api"
 import type { Availability } from "@tanstack-ai-browser/prompt-api"
@@ -47,6 +50,7 @@ export type ModelId =
   | "lfm2.5-350m-gguf-webgl"
   | "qwen3.5-2b-webgl"
   | "qwen3.5-2b-gguf-webgl"
+  | `web-llm:${WebLlmChatModel}`
   | "built-in"
 
 /** The app reaches apfel on this Mac at its default address. */
@@ -101,12 +105,27 @@ const IOS_CONTEXT = 8192
 /** `{ contextLength }` on iOS, nothing elsewhere (the model's own). */
 const iosContext = () => (isIos() ? { contextLength: IOS_CONTEXT } : {})
 
-/** A model's maker's logo in /public/icons (LobeHub icons, MIT). */
-const makerIcon = (model: string) =>
-  /qwen/i.test(model) ? "/icons/qwen.svg" : "/icons/liquid.svg"
-
 /** A model's name in the picker: its Hugging Face repo name, as written. */
 const repoName = (model: string) => model.slice(model.indexOf("/") + 1)
+
+/**
+ * Makers' logos in /public/icons (LobeHub icons, MIT), by how their models'
+ * names start. Others' fine-tunes (TinyLlama, OpenHermes, NeuralHermes,
+ * WizardMath) get the neutral one.
+ */
+const MAKER_ICONS: ReadonlyArray<readonly [RegExp, string]> = [
+  [/^lfm/i, "/icons/liquid.svg"],
+  [/^qwen/i, "/icons/qwen.svg"],
+  [/^llama/i, "/icons/meta.svg"],
+  [/^phi/i, "/icons/microsoft.svg"],
+  [/^smollm/i, "/icons/huggingface.svg"],
+  [/^gemma/i, "/icons/gemma.svg"],
+  [/^stablelm/i, "/icons/stability.svg"]
+]
+
+/** A model's maker's logo, from its name; a neutral one for a maker not listed. */
+const makerIcon = (model: string) =>
+  MAKER_ICONS.find(([name]) => name.test(repoName(model)))?.[1] ?? "/icons/model.svg"
 
 /** A Transformers.js model of the package's list, in the picker. */
 const local = (id: ModelId, model: TransformersJsChatModel) => {
@@ -157,6 +176,62 @@ const webgl = (id: ModelId, model: WebGllmChatModel) => {
     status: status as ModelStatusStore | null,
     needsWebGpu: false,
     reasoning: WEBGLLM_MODEL_REASONING[model] as ModelReasoning | undefined
+  }
+}
+
+/**
+ * A model of WebLLM's catalog, on WebGPU only, by its WebLLM name (without
+ * the "-MLC" every one has). No iOS context length: WebLLM loads each model
+ * with its catalog's context window, 4,096 tokens for most, already under
+ * the 8,192 the others are cut to.
+ */
+/**
+ * The GPU memory a WebLLM model may need (its catalog's `vram_required_MB`)
+ * to load in iPhone Safari, whose tab is killed near 2 GB.
+ */
+const WEB_LLM_MEMORY_MB = 1536
+
+/** A WebLLM build that loads on an iPhone; Gemma 2's Japanese build is left out. */
+const fitsIphone = (model: WebLlmChatModel) =>
+  (WEB_LLM_MODEL_META[model]?.vram_required_MB ?? Infinity) <= WEB_LLM_MEMORY_MB && !model.includes("-jpn-")
+
+/**
+ * Each WebLLM model once, at its lowest quantization: the fewest weight bits
+ * (`q3`, then `q4`, then unquantized `q0` at 16 bits, then 32), 16-bit
+ * activations before 32-bit, and its whole context before a `-1k` build.
+ */
+function lowestQuants(models: ReadonlyArray<WebLlmChatModel>): Array<WebLlmChatModel> {
+  const rank = (model: string) => {
+    const [, weights = "4", activations = "16"] = /-q(\d+)f(\d+)/.exec(model) ?? []
+    const bits = weights === "0" ? Number(activations) : Number(weights)
+    return [bits, Number(activations), model.endsWith("-1k") ? 1 : 0]
+  }
+  const better = (a: string, b: string) => {
+    const [x, y] = [rank(a), rank(b)]
+    const at = x.findIndex((value, i) => value !== y[i])
+    return at !== -1 && x[at]! < y[at]!
+  }
+  const best = new Map<string, WebLlmChatModel>()
+  for (const model of models) {
+    const base = model.replace(/-q\d+f\d+(_\d+)?/, "").replace(/-MLC(-1k)?$/, "")
+    const kept = best.get(base)
+    if (!kept || better(model, kept)) best.set(base, model)
+  }
+  return [...best.values()]
+}
+
+const webLlm = (model: WebLlmChatModel) => {
+  const { status, onDownloadProgress } = statusStore()
+  return {
+    id: `web-llm:${model}` as const,
+    // One quantization per model (lowestQuants): its name without it.
+    name: model.replace(/-q\d+f\d+(_\d+)?/, "").replace(/-MLC(-1k)?$/, ""),
+    icon: makerIcon(model),
+    adapter: webLlmText(model, { onDownloadProgress }),
+    status: status as ModelStatusStore | null,
+    needsWebGpu: true,
+    /** WebLLM gives no reasoning levels (its thinking comes in the text). */
+    reasoning: undefined
   }
 }
 
@@ -217,7 +292,8 @@ export const MODELS = [
   webgl("lfm2.5-350m-webgl", "LiquidAI/LFM2.5-350M-ONNX"),
   webgl("lfm2.5-350m-gguf-webgl", "LiquidAI/LFM2.5-350M-GGUF"),
   webgl("qwen3.5-2b-webgl", "onnx-community/Qwen3.5-2B-ONNX"),
-  webgl("qwen3.5-2b-gguf-webgl", "unsloth/Qwen3.5-2B-GGUF")
+  webgl("qwen3.5-2b-gguf-webgl", "unsloth/Qwen3.5-2B-GGUF"),
+  ...lowestQuants(WEB_LLM_CHAT_MODELS.filter(fitsIphone)).map(webLlm)
 ] satisfies Array<{
   id: ModelId
   name: string
@@ -228,6 +304,7 @@ export const MODELS = [
     | ReturnType<typeof wllamaText>
     | ReturnType<typeof promptApiText>
     | ReturnType<typeof webgllmText>
+    | ReturnType<typeof webLlmText>
   status: ModelStatusStore | null
   needsWebGpu: boolean
   reasoning: ModelReasoning | undefined
@@ -242,6 +319,7 @@ export const PROVIDERS = [
   { id: "prompt-api", name: "Prompt API" },
   { id: "transformers-js", name: "Transformers.js" },
   { id: "webgllm", name: "WebGLLM" },
+  { id: "web-llm", name: "WebLLM" },
   { id: "wllama", name: "Wllama" }
 ] as const
 
@@ -406,14 +484,16 @@ const useWllamaOnWebGpu = () =>
 
 /**
  * Which backend a provider's models run on here, for the picker: WebGPU or
- * Wasm (the CPU, in WebAssembly) for Transformers.js and wllama; nothing for
- * the others (WebGL says so itself; apfel and the Prompt API aren't ours).
+ * Wasm (the CPU, in WebAssembly) for Transformers.js and wllama, WebGPU for
+ * WebLLM (its only one); nothing for the others (WebGL says so itself; apfel
+ * and the Prompt API aren't ours).
  */
 export function useBackends(): Partial<Record<string, string>> {
   const webGpu = useHasWebGpu()
   const wllama = useWllamaOnWebGpu()
   return {
     "transformers-js": webGpu ? "WebGPU" : "Wasm",
+    "web-llm": "WebGPU",
     ...(wllama !== null && { wllama: wllama ? "WebGPU" : "Wasm" })
   }
 }
