@@ -61,7 +61,7 @@ Unset sampling fields take the model's own config from WebLLM's catalog.
 What WebLLM doesn't do, and the adapter leaves as WebLLM has it:
 
 - **Tools:** by prompt, for every model. WebLLM takes OpenAI's `tools` for its five Hermes models only (`functionCallingModelIds`), and not with a system prompt, so the adapter sends none: the system prompt lists the tools as JSON and asks for a call as JSON in a ```` ```tool_call ```` fence, earlier calls go back in that fence and results in a ```` ```tool_result ```` user message. The adapter reads the first call out of the streamed reply (the fence, `<tool_call>` tags, and the other common ways small models write one), stops the generation there and emits it as `TOOL_CALL_*` events; `chat()` checks it against the tools and runs it. Small models may not call tools reliably; that's the model.
-- **Reasoning:** WebLLM's catalog doesn't say which models think, and it streams thinking (Qwen3's, DeepSeek R1's) inside the text, in `<think>` tags, rather than in a field of its own. So the adapter has no reasoning levels, and `chat({ reasoning })` does nothing.
+- **Thinking:** WebLLM streams a model's thinking (Qwen3's, DeepSeek R1's) inside the text, in `<think>` tags. The adapter splits it out, so it comes back as `REASONING_*` events, apart from the answer. WebLLM's catalog doesn't say which models think, so the adapter offers no reasoning levels, and `chat({ reasoning })` does nothing.
 - **Images:** the adapter takes text only.
 
 Events come back as TanStack's Chat Completions adapter writes them: text and tool call events, and `RUN_FINISHED` with the finish reason and token usage. Aborting the request stops the generation (WebLLM's `interruptGenerate`) and ends the stream.

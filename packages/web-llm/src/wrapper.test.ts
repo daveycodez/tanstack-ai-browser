@@ -250,3 +250,12 @@ test("tools by prompt: none sent to WebLLM, listed in the system prompt; a fence
   assert.equal(text, "Checking. ")
   assert.equal(control.interrupts, 1)
 })
+
+test("thinking between <think> tags comes back as REASONING events, the rest as text", async () => {
+  control.chunks = [delta({ role: "assistant", content: "<think>" }), delta({ content: "Let me check." }), delta({ content: "</think>\n\nHi!" }), delta({}, "stop")]
+  const { events } = await run(webLlmText(MODEL))
+  const reasoning = events.filter((e) => e.type === "REASONING_MESSAGE_CONTENT").map((e) => e.delta).join("")
+  const text = events.filter((e) => e.type === "TEXT_MESSAGE_CONTENT").map((e) => e.delta).join("")
+  assert.equal(reasoning, "Let me check.")
+  assert.equal(text, "\n\nHi!")
+})

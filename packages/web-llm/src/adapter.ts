@@ -19,6 +19,7 @@ import type { Availability, DownloadProgressCallback, LoadSettings } from "./cli
 import type { WebLlmChatModel } from "./catalog.js"
 import { toolCallFence, toolCallReader, toolResultFence, toolResultLine, toolSystemPrompt } from "./tools.js"
 import type { ParsedToolCall } from "./tools.js"
+import { thinkingSplitter } from "./thinking.js"
 
 export type WebLlmConfig = {
   /**
@@ -204,6 +205,33 @@ async function* withToolCalls(stream: AsyncIterable<Chunk>, interrupt: () => voi
   }
 }
 
+/**
+ * A streamed reply with its thinking (between `<think>` and `</think>`) as
+ * `reasoning_content` deltas, which `extractReasoning` reads, and the rest
+ * as content.
+ */
+async function* withThinking(stream: AsyncIterable<Chunk>): AsyncIterable<Chunk> {
+  const splitter = thinkingSplitter()
+  const out = (chunk: Chunk, pieces: ReturnType<typeof splitter.push>) =>
+    pieces.map((piece) => ({
+      ...chunk,
+      choices: [{ index: 0, delta: piece.thinking ? { reasoning_content: piece.text } : { content: piece.text }, finish_reason: null }]
+    }))
+  for await (const chunk of stream) {
+    const first = chunk.choices?.[0]
+    const text = typeof first?.delta?.content === "string" ? first.delta.content : ""
+    if (!text && !first?.finish_reason) {
+      yield chunk
+      continue
+    }
+    if (text) yield* out(chunk, splitter.push(text))
+    if (first?.finish_reason) {
+      yield* out(chunk, splitter.end())
+      yield { ...chunk, choices: [{ index: 0, delta: {}, finish_reason: first.finish_reason }] }
+    }
+  }
+}
+
 function clientFor(model: WebLlmModel, settings: LoadSettings, onDownloadProgress?: DownloadProgressCallback): OpenAIClientLike {
   const create = async (body: Record<string, unknown>, options?: { signal?: AbortSignal | null }) => {
     const signal = options?.signal ?? undefined
@@ -216,7 +244,10 @@ function clientFor(model: WebLlmModel, settings: LoadSettings, onDownloadProgres
       ...(body.response_format !== undefined && { response_format: toResponseFormat(body.response_format) })
     } as unknown as ChatCompletionRequest
     const interrupt = () => engine.interruptGenerate()
-    const read = (stream: unknown) => (promptTools ? withToolCalls(stream as AsyncIterable<Chunk>, interrupt) : stream)
+    const read = (stream: unknown) => {
+      const split = withThinking(stream as AsyncIterable<Chunk>)
+      return promptTools ? withToolCalls(split, interrupt) : split
+    }
     if (!signal) {
       const result = await engine.chat.completions.create(request)
       return request.stream ? read(result) : result
@@ -318,6 +349,12 @@ export class WebLlmTextAdapter<TModel extends WebLlmModel> extends OpenAIBaseCha
     if (tools.length === 0) return request
     const messages = withPromptTools(request.messages as unknown as Array<RequestMessage>, tools)
     return Object.assign(request, { messages, [PROMPT_TOOLS]: true }) as typeof request
+  }
+
+  /** Thinking, as `withThinking` split it out of the text. */
+  protected override extractReasoning(chunk: unknown) {
+    const text = (chunk as Chunk).choices?.[0]?.delta?.reasoning_content
+    return typeof text === "string" && text ? { text } : undefined
   }
 
   /** Schemas as given: WebLLM's grammar takes any JSON Schema, without OpenAI's strict-mode rewrite. */
