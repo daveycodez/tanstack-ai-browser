@@ -8,6 +8,10 @@ test("calls are read in each model's way of writing them", () => {
   assert.deepEqual(parseToolCall('{"name": "f", "parameters": "{\\"a\\": 1}"}'), { name: "f", arguments: { a: 1 } })
   assert.deepEqual(parseToolCall('[f(a="x, y", b=True, c=[1, 2])]'), { name: "f", arguments: { a: "x, y", b: true, c: [1, 2] } })
   assert.deepEqual(parseToolCall("call:f{a:3,b:hi}"), { name: "f", arguments: { a: 3, b: "hi" } })
+  assert.deepEqual(
+    parseToolCall("\n<function=get_weather>\n<parameter=city>\nOslo\n</parameter>\n<parameter=days>\n3\n</parameter>\n</function>\n"),
+    { name: "get_weather", arguments: { city: "Oslo", days: 3 } }
+  )
   assert.equal(parseToolCall("just text"), undefined)
 })
 

@@ -2,7 +2,7 @@
  * Tool calls read from the model's text. The tools go to the model through
  * its chat template (`apply_chat_template({ tools })`), and each model writes
  * calls its own way: in a ```tool_call fence, `<tool_call>` tags, Gemma's
- * `<|tool_call>call:name{…}<tool_call|>`, or LFM2's
+ * `<|tool_call>call:name{…}<tool_call|>`, Qwen3.5's `<function=…>` XML in `<tool_call>` tags, or LFM2's
  * `<|tool_call_start|>[name(…)]<|tool_call_end|>`. The adapter reads the
  * first call out of the streamed text; `chat()` checks it against the tools.
  */
@@ -57,6 +57,20 @@ const isObject = (value: unknown): value is Record<string, unknown> =>
  */
 export function parseToolCall(body: string): ParsedToolCall | undefined {
   const text = body.trim()
+  // Qwen3.5's: <function=name><parameter=key>value</parameter></function>.
+  const xml = /<function=([^>\s]+)>([\s\S]*?)(?:<\/function>|$)/.exec(text)
+  if (xml) {
+    const args: Record<string, unknown> = {}
+    for (const [, key, raw] of xml[2].matchAll(/<parameter=([^>\s]+)>([\s\S]*?)<\/parameter>/g)) {
+      const value = raw.trim()
+      try {
+        args[key] = JSON.parse(value) as unknown
+      } catch {
+        args[key] = value
+      }
+    }
+    return { name: xml[1], arguments: args }
+  }
   const colon = /call:(\w+)\{([^}]*)\}/.exec(text)
   if (colon) return { name: colon[1], arguments: parseColonArguments(colon[2]) }
   if (/^\[?\s*\w+\(/.test(text)) {

@@ -152,6 +152,26 @@ test("a tool call becomes TOOL_CALL events, stops the worker, and finishes with 
   assert.ok(lastWorker().posted.some((r) => r.type === "interrupt"))
 })
 
+test("thinking between <think> tags comes back as REASONING events, then the answer as text", async () => {
+  FakeWorker.reply = (worker) => worker.stream(["<think>", "Let me ", "check.", "</think>", "\n\nHi!"])
+  const chunks = await run()
+  assert.deepEqual(chunks.map((c) => c.type), [
+    "RUN_STARTED",
+    "REASONING_START",
+    "REASONING_MESSAGE_START",
+    "REASONING_MESSAGE_CONTENT",
+    "REASONING_MESSAGE_CONTENT",
+    "REASONING_MESSAGE_END",
+    "REASONING_END",
+    "TEXT_MESSAGE_START",
+    "TEXT_MESSAGE_CONTENT",
+    "TEXT_MESSAGE_END",
+    "RUN_FINISHED"
+  ])
+  assert.equal(chunks.filter((c) => c.type === "REASONING_MESSAGE_CONTENT").map((c) => c.delta).join(""), "Let me check.")
+  assert.equal((chunks.find((c) => c.type === "TEXT_MESSAGE_CONTENT") as Chunk).content, "\n\nHi!")
+})
+
 test("toolChoice none sends no tools", async () => {
   await run({ tools: [{ name: "get_weather", description: "Weather" }], toolChoice: "none" })
   assert.equal((generateRequests().at(-1) as Generate).tools, undefined)

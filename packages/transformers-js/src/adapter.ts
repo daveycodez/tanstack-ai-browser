@@ -21,6 +21,8 @@ import { toTemplateMessages, toTemplateTools } from "./messages.js"
 import { TRANSFORMERS_JS_MODEL_META, TRANSFORMERS_JS_MODEL_REASONING } from "./model-meta.js"
 import type { TransformersJsChatModel, TransformersJsModelReasoningByName } from "./model-meta.js"
 import type { Device, Dtype, GenerationOptions, LoadSettings } from "./protocol.js"
+import { thinkingSplitter } from "./thinking.js"
+import type { Piece } from "./thinking.js"
 import { toolCallReader } from "./tool-calls.js"
 
 export type TransformersJsConfig = {
@@ -177,12 +179,43 @@ export class TransformersJsTextAdapter<TModel extends string> extends BaseTextAd
         .map((p) => p.content)
         .join("\n\n")
       const reader = toolCallReader()
+      const splitter = thinkingSplitter()
+      const reasoningId = nextId("reasoning")
+      let reasoningOpen = false
       let text = ""
+      const closeReasoning = function* (): Generator<AdapterYieldChunk> {
+        if (!reasoningOpen) return
+        reasoningOpen = false
+        yield { type: EventType.REASONING_MESSAGE_END, messageId: reasoningId, model, timestamp: timestamp() }
+        yield { type: EventType.REASONING_END, messageId: reasoningId, model, timestamp: timestamp() }
+      }
       const textEvents = function* (delta: string): Generator<AdapterYieldChunk> {
         if (!delta) return
+        yield* closeReasoning()
         if (!text) yield { type: EventType.TEXT_MESSAGE_START, messageId, role: "assistant", model, timestamp: timestamp() }
         text += delta
         yield { type: EventType.TEXT_MESSAGE_CONTENT, messageId, delta, content: text, model, timestamp: timestamp() }
+      }
+      /** Thinking as reasoning events; the answer through the tool-call reader. */
+      const pieceEvents = function* (pieces: Array<Piece>): Generator<AdapterYieldChunk> {
+        for (const { thinking, text: delta } of pieces) {
+          if (reader.call) return
+          if (!thinking) {
+            yield* textEvents(reader.push(delta))
+            // The first call ends the reply: the worker stops, and later text is dropped.
+            if (reader.call) {
+              interrupt()
+              yield* textEvents(reader.trailing)
+            }
+            continue
+          }
+          if (!reasoningOpen) {
+            reasoningOpen = true
+            yield { type: EventType.REASONING_START, messageId: reasoningId, model, timestamp: timestamp() }
+            yield { type: EventType.REASONING_MESSAGE_START, messageId: reasoningId, role: "reasoning", model, timestamp: timestamp() }
+          }
+          yield { type: EventType.REASONING_MESSAGE_CONTENT, messageId: reasoningId, delta, model, timestamp: timestamp() }
+        }
       }
       let counts = { inputTokens: 0, outputTokens: 0 }
       const events = generate(
@@ -196,16 +229,11 @@ export class TransformersJsTextAdapter<TModel extends string> extends BaseTextAd
       )
       for await (const event of events) {
         if (event.type === "done") counts = event
-        else if (!reader.call) {
-          yield* textEvents(reader.push(event.text))
-          // The first call ends the reply: the worker stops, and later text is dropped.
-          if (reader.call) {
-            interrupt()
-            yield* textEvents(reader.trailing)
-          }
-        }
+        else yield* pieceEvents(splitter.push(event.text))
       }
       signal?.throwIfAborted()
+      yield* pieceEvents(splitter.end())
+      yield* closeReasoning()
       yield* textEvents(reader.end())
       if (text) yield { type: EventType.TEXT_MESSAGE_END, messageId, model, timestamp: timestamp() }
       const call = reader.call

@@ -105,6 +105,8 @@ async function generate({ messages, options, tools, enableThinking }: GenerateRe
   }) as unknown as { input_ids: Tensor; attention_mask: Tensor }
   const prompt = tokenIds(inputs.input_ids)
   if (reuse && !startsWith(prompt, reuse.tokens)) await dropCache()
+  // A thought the chat template opened in the prompt (Qwen3.5's): the reply starts inside it.
+  if (/<think>\s*$/.test(tokenizer.decode(prompt.slice(-8)))) post({ status: "update", output: "<think>" })
 
   let outputTokens = 0
   const streamer = new TextStreamer(tokenizer, {

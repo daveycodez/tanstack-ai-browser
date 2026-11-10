@@ -34,7 +34,7 @@ Pages post their lines to `/log`, which the server prints as `[page] …`. On to
 - `run=tjs` or `tjs-cpu`: Transformers.js on WebGPU (q4f16), or on the CPU (q4), through the transformers-js package's worker.
 - `run=wllama-pkg` or `wllama-pkg-cpu`: wllama through the wllama package's client, on WebGPU or the CPU only (`debug: true`, so llama.cpp's buffer lines reach the log).
 - `run=wllama` or `wllama-cpu`: wllama directly on a GGUF in `MODELS_DIR` (`model=` its file name).
-- Options: `ctx=8192` (the load's context; left out, the model's whole window, except Transformers.js's 8,192), `len=512` (prompt tokens), `q=quote` or `q=capital` (other questions).
+- Options: `ctx=8192` (the load's context for wllama and webgllm; left out, the model's whole window. Transformers.js takes none), `len=512` (prompt tokens), `q=quote` or `q=capital` (other questions).
 
 `driver.html` runs these on a phone: open it once, then write `{"id":"<unique>","url":"/compare.html?…"}` to `$MODELS_DIR/job.json` for each job. `ios-tab.mjs` runs JavaScript in an iPhone Safari tab over `ios_webkit_debug_proxy`.
 
@@ -71,10 +71,6 @@ Qwen3.5 2B, the same prompts with thinking off, 96-token replies (`?set=qwen&ste
 | onnx-community's q4f16, this engine (`&graph=onnx/decoder_model_merged_q4f16.onnx`) | 0.741 | 18/20 | 1 |
 
 The q4f16 build talks before one call, and answers "sort [5, 3, 9, 1] with Python" with a code block (that doesn't sort) instead of a call.
-
-## tjs-mem.html: the Transformers.js worker's speed
-
-`?model=onnx-community/Qwen3.5-2B-ONNX&len=2048&max=128&ctx=8192`: the transformers-js package's worker (debug on) loads the model, reads a chat prompt padded to about `len` tokens (counted with the model's own tokenizer from Hugging Face) and writes `max` tokens greedily. It prints the load time and the prompt and writing speeds. The worker no longer counts memory: measure the browser's processes instead (`footprint` on a Mac). `&wait=` ms between load and prompt, `&runs=` prompts in a row.
 
 ## tjs-quality.html
 
