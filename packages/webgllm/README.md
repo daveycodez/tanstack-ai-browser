@@ -85,7 +85,7 @@ A failure is a `RUN_ERROR`, as in a chat. Aborting stops the generation and ends
 
 `@tanstack-ai-browser/webgllm/model-meta` has the catalog: `WEBGLLM_CHAT_MODELS` lists the models webgllm runs and `WEBGLLM_MODEL_META` has each one's files, capabilities and sampling (webgllm's catalog). `WEBGLLM_MODEL_REASONING` has each model's reasoning levels in TanStack's shape, for `supportedReasoningLevels()`. Their types are `WebGllmChatModel`, `WebGllmModelMeta` and `WebGllmModelReasoningByName`. LFM3 thinks by default and Qwen3.5 doesn't; `chat({ reasoning })` switches it.
 
-`webgllmText` also takes any Hugging Face repo webgllm can resolve (a supported architecture, in ONNX or GGUF): webgllm reads its files and sampling from the Hub. `chat({ reasoning })` then sends `reasoning_effort` `"none"` or `"high"`, which webgllm applies where the model's chat template can switch thinking.
+`webgllmText` also takes any Hugging Face repo webgllm can resolve (a supported architecture, in ONNX or GGUF), or the URL of a model's `.gguf` file or `.onnx` graph with its tokenizer files in the same folder: webgllm reads its files and sampling from there. `chat({ reasoning })` then sends `reasoning_effort` `"none"` or `"high"`, which webgllm applies where the model's chat template can switch thinking.
 
 ```ts
 import { webgllmText } from "@tanstack-ai-browser/webgllm"

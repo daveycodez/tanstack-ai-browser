@@ -99,7 +99,7 @@ type ResolveReasoning<TModel extends string> = TModel extends keyof WebGllmModel
     ? never
     : { levels: "off" | "high"; budget: false }
 
-/** A model the catalog lists, or any Hugging Face repo webgllm can resolve. */
+/** A model the catalog lists, any Hugging Face repo webgllm can resolve, or the URL of a `.gguf` file or `.onnx` graph. */
 export type WebGllmModel = WebGllmChatModel | (string & {})
 
 /** The switch for a model the catalog doesn't list: webgllm's `reasoning_effort`, a hint it ignores where it can't apply. */
