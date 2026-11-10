@@ -23,6 +23,7 @@ The Prompt API is in desktop Chrome and Edge (tested in Chrome 156, where web pa
 ## The model
 
 - `adapter.availability()` is the browser's own `LanguageModel.availability()` for the adapter's `languages` and `inputs`: `"available"`, `"downloadable"`, `"downloading"` or `"unavailable"` (no Prompt API, or the device can't run it). Give the adapter `inputs: ["image"]` or `["audio"]` if users send them (audio needs a GPU).
+- `adapter.availableInputModalities()` resolves to the kinds of input the browser's model takes here (`"text"`, `"image"`, `"audio"`): each kind `LanguageModel.availability()` doesn't call `"unavailable"` for the adapter's `languages`, asked one kind at a time. `inputModalities` lists what the Prompt API can take; this says what this device can, so offer attachments by it. Empty where there's no model.
 - `adapter.create({ onDownloadProgress?, signal? }?)` downloads the model if it isn't on the device and starts it, with the download's progress, 0 to 1, then 1 once it's ready (the config's `onDownloadProgress` hears it too). Chrome wants a click on the page before it downloads, so call it from the click that turns the model on. `chat()` doesn't need it: its first session does the same. Aborting `signal` aborts the browser's `create()`.
 - `onContextOverflow` in the config is called when a thread's session overflows its context window (the session's `contextoverflow` event); Chrome then drops the oldest messages after the system prompt.
 - `adapter.destroy()` closes every thread's session (see Sessions); the browser keeps the model.

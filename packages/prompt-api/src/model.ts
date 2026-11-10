@@ -17,6 +17,9 @@ export type { Availability, SamplingMode } from "./types.js"
 /** Kinds of input besides text a session can be told to expect. */
 export type MediaInput = "image" | "audio"
 
+/** Every kind of input besides text, in the order `availableInputModalities` asks. */
+export const MEDIA_INPUTS: ReadonlyArray<MediaInput> = ["image", "audio"]
+
 /** Languages the model is told to expect, in and out, by default. */
 export const DEFAULT_LANGUAGES = ["en"] as const
 

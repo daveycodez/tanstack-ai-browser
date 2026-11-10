@@ -18,7 +18,7 @@ import { BaseTextAdapter } from "@tanstack/ai/adapters"
 import type { StructuredOutputOptions, StructuredOutputResult } from "@tanstack/ai/adapters"
 
 import { contentText, mediaIn, toLanguageModelMessages } from "./messages.js"
-import { baseOptions, createSession, DEFAULT_LANGUAGES, promptApiAvailability } from "./model.js"
+import { baseOptions, createSession, DEFAULT_LANGUAGES, MEDIA_INPUTS, promptApiAvailability } from "./model.js"
 import type { Availability, MediaInput } from "./model.js"
 import type { PromptApiChatModel } from "./model-meta.js"
 import { toolCallReader, toolSystemPrompt } from "./tools.js"
@@ -162,6 +162,23 @@ export class PromptApiTextAdapter extends BaseTextAdapter<
    */
   availability(): Promise<Availability> {
     return promptApiAvailability(baseOptions(this.languages, this.inputs))
+  }
+
+  /**
+   * The kinds of input the browser's model takes here, of the
+   * `inputModalities` the Prompt API has: each kind the browser's
+   * `LanguageModel.availability()` doesn't call "unavailable" for this
+   * adapter's `languages` (images need more of the device, audio a GPU).
+   * Empty where there's no model. Sessions expect what each conversation has.
+   */
+  async availableInputModalities(): Promise<Array<"text" | MediaInput>> {
+    if ((await promptApiAvailability(baseOptions(this.languages))) === "unavailable") return []
+    const media = await Promise.all(
+      MEDIA_INPUTS.map(async (kind) =>
+        (await promptApiAvailability(baseOptions(this.languages, [kind]))) === "unavailable" ? [] : [kind]
+      )
+    )
+    return ["text", ...media.flat()]
   }
 
   /**

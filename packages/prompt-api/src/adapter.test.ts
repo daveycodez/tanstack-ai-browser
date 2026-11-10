@@ -301,6 +301,32 @@ test("availability is the browser's answer for the adapter's languages and input
   }
 })
 
+test("availableInputModalities asks the browser about each kind of input: what it doesn't make unavailable", async () => {
+  const asked: Array<unknown> = []
+  const api = (globalThis as unknown as { LanguageModel: { availability: (o: { expectedInputs: Array<{ type: string }> }) => Promise<string> } }).LanguageModel
+  const original = api.availability
+  // Images on the device, audio not on this one (it needs a GPU).
+  api.availability = async (options) => {
+    asked.push(options.expectedInputs)
+    return options.expectedInputs.some((input) => input.type === "audio") ? "unavailable" : "available"
+  }
+  try {
+    // As an app makes it: no inputs given.
+    const adapter = promptApiText({ languages: ["ja"] })
+    assert.deepEqual(await adapter.availableInputModalities(), ["text", "image"])
+    assert.deepEqual(asked, [
+      [{ type: "text", languages: ["ja"] }],
+      [{ type: "text", languages: ["ja"] }, { type: "image" }],
+      [{ type: "text", languages: ["ja"] }, { type: "audio" }]
+    ])
+    // No model at all: nothing.
+    api.availability = async () => "unavailable"
+    assert.deepEqual(await adapter.availableInputModalities(), [])
+  } finally {
+    api.availability = original
+  }
+})
+
 test("create reports the download between 0 and 1, then 1, to both listeners, and frees its session", async () => {
   control.progress = [0, 0.5, 1]
   const own: Array<number> = []

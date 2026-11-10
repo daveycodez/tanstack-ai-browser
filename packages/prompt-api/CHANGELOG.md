@@ -1,5 +1,9 @@
 ## Unreleased
 
+### Features
+
+- `adapter.availableInputModalities()`: the kinds of input (`"text"`, `"image"`, `"audio"`) the browser's model takes on this device, each asked of `LanguageModel.availability()` with its own `expectedInputs`, so an app offers only the attachments the device can read.
+
 ### ⚠️ Breaking Changes
 
 - Runtime API: the runtime functions `isSupported`, `loadModel`, `unloadModel` and `modelStatus` and the types `ModelStatus` and `Store` are replaced by methods on the adapter, named and valued as in the browser's Prompt API: `adapter.availability()` resolves to an `Availability` (`"unavailable"`, `"downloadable"`, `"downloading"` or `"available"`: on the device, no download needed), `adapter.create({ onDownloadProgress?, signal }?)` loads the model ahead of time with its download's progress (0 to 1, then 1 once ready) and resolves to the adapter, and `adapter.destroy()` unloads it. Its `signal` stops that caller's wait at once (an `AbortError`), and aborts the browser's `LanguageModel.create()` when no other call waits on it. The config takes `onDownloadProgress` too, for a download the first `chat()` starts. Adapters for the same model share the loaded model, so `destroy()` on one unloads it for all of them. The `Availability` and `DownloadProgressCallback` types are exported. `availability()` is the browser's own `LanguageModel.availability()` for the adapter's `languages` and new `inputs` option (`isSupported`'s `samplingMode` option is gone); `destroy()` frees the sessions the adapters keep, as `unloadModel()` did (the browser keeps its model).
