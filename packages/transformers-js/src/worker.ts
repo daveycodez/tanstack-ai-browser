@@ -322,12 +322,6 @@ async function isCached(
 }
 
 /**
- * The bytes a model's memory claim assumes when the Hub doesn't report its
- * weights' sizes: as much as the largest models here take.
- */
-const UNKNOWN_MODEL_BYTES = 2.5e9
-
-/**
  * The chat template a repo keeps in its own `chat_template.jinja`, which
  * Transformers.js 4.3's AutoTokenizer doesn't read (until
  * huggingface/transformers.js#1880 ships), from the same host and revision
@@ -411,17 +405,6 @@ async function modelClass(
   }
 }
 
-/** Resolves when the page answers a "claim" (see claimMemory). */
-let claimed: (() => void) | null = null
-
-/** Asks the page to make room for the model, and waits until it has. */
-function claimMemory(loadId: number, modelId: string, bytes: number) {
-  return new Promise<void>((resolve) => {
-    claimed = resolve
-    ctx.postMessage({ type: "claim", loadId, modelId, bytes: Math.round(bytes) })
-  })
-}
-
 let current: {
   modelId: string
   dtype: WeightsDtype
@@ -472,14 +455,6 @@ async function loadRuntime(
   const known = sizes.every((size) => typeof size === "number" && size > 0)
   // Bytes to download, for progress: unknown when a size probe failed.
   const total = known ? sizes.reduce<number>((sum, size) => sum + (size ?? 0), 0) : 0
-  // Room for it first: the page unloads other runtimes' models past the
-  // memory budget. On the GPU it takes about its weights (plus the cache);
-  // on the CPU, ONNX Runtime's working buffers too.
-  await claimMemory(
-    loadId,
-    modelId,
-    (known ? total : UNKNOWN_MODEL_BYTES) * (device === "wasm" ? 1.3 : 1.15)
-  )
   ctx.postMessage({ type: "progress", loadId, modelId, progress: 0, cached })
   // Bytes downloaded per file, from Transformers.js's progress reports;
   // whole percents only.
@@ -1680,10 +1655,7 @@ const errorMessage = (error: unknown) =>
   error instanceof Error ? error.message : String(error)
 
 ctx.onmessage = ({ data }) => {
-  if (data.type === "claimed") {
-    claimed?.()
-    claimed = null
-  } else if (data.type === "load") {
+  if (data.type === "load") {
     load(data.loadId, data.modelId, data.dtype, data.contextLength).catch(() => undefined)
   } else if (data.type === "generate") {
     generate(

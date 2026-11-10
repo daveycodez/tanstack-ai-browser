@@ -44,7 +44,7 @@ await build({
         bundle.onLoad({ filter: /.*/, namespace: "stub" }, () => ({
           contents: `
             const control=globalThis.__wllamaWrapper;
-            export const configureRuntime=()=>{};export const setContextLength=()=>{};export const setKeepLoaded=()=>{};
+            export const configureRuntime=()=>{};export const setContextLength=()=>{};
             export const availability=async()=>"available";export const loadModel=async()=>({});export const unloadModel=async()=>{};export const waitForModel=async()=>({});
             export const streamChat=async function*(model,request,signal){control.requests.push({request,signal});yield* control.chunks;};
             export const completeChat=async(model,request,signal)=>{control.requests.push({request,signal});return {choices:[{index:0,finish_reason:"stop",message:{role:"assistant",content:'{"city":"Oslo"}'}}]}};

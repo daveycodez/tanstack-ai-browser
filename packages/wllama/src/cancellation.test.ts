@@ -24,8 +24,7 @@ test("Wllama caller aborts stop both loading waits, while the shared background 
     const outfile = join(temporary, "client.mjs")
     await build({ entryPoints: [join(root, "packages/wllama/src/client.ts")], outfile, bundle: true, format: "esm", platform: "node", logLevel: "error", plugins: [{ name: "public-wllama-runtime", setup(bundle) {
       bundle.onResolve({ filter: /@wllama\/wllama\/esm\/index\.js$/ }, () => ({ path: "vendor", namespace: "contract" }))
-      bundle.onResolve({ filter: /^\.\/model-memory\.js$/ }, () => ({ path: "memory", namespace: "contract" }))
-      bundle.onLoad({ filter: /.*/, namespace: "contract" }, args => ({ contents: args.path === "memory" ? 'export const claimMemory=async()=>{};export const releaseMemory=()=>{};export const touchMemory=()=>{};' : `
+      bundle.onLoad({ filter: /.*/, namespace: "contract" }, () => ({ contents: `
         const control=globalThis.__wllamaCancel;
         export const LoggerWithoutDebug={};
         export class ModelManager { async getModels(){ return [] } }

@@ -19,7 +19,7 @@ const stream = chat({
 
 It needs WebGL 2 with float render targets (`EXT_color_buffer_float`) and OffscreenCanvas in workers, which current Chrome, Firefox and Safari have; an adapter's `availability()` says `"unavailable"` where they're missing.
 
-The package is shaped like `@tanstack/ai-openrouter`'s text adapter. The root has `webgllmText(model, config?)`, `WebGllmTextAdapter` (with the runtime methods `availability`, `create` and `destroy`), `setMemoryBudget` and the types `WebGllmConfig`, `WebGllmTextModelOptions`, `Availability` and `DownloadProgressCallback`; `@tanstack-ai-browser/webgllm/model-meta` has the catalog (below).
+The package is shaped like `@tanstack/ai-openrouter`'s text adapter. The root has `webgllmText(model, config?)`, `WebGllmTextAdapter` (with the runtime methods `availability`, `create` and `destroy`) and the types `WebGllmConfig`, `WebGllmTextModelOptions`, `Availability` and `DownloadProgressCallback`; `@tanstack-ai-browser/webgllm/model-meta` has the catalog (below).
 
 The engine is the [`webgllm`](https://www.npmjs.com/package/webgllm) package, behind OpenAI's Chat Completions API in the page. The adapter is TanStack's Chat Completions adapter (`@tanstack/openai-base`) with the shared `WebGLLM` instance as its client, so messages, tools, structured output and the stream are TanStack's; it adds loading the model, webgllm's reasoning levels and thinking budget, and its options. Tool-call parsing and repair, thinking, guided tool choice and schema-constrained answers are webgllm's own. See [webgllm.dev](https://webgllm.dev) and its README for how the engine works, its memory and speed.
 
@@ -28,7 +28,6 @@ The engine is the [`webgllm`](https://www.npmjs.com/package/webgllm) package, be
 `webgllmText(model, config?)` takes:
 
 - `contextLength`: most tokens a chat may hold, prompt and reply together; the model's whole context by default (LFM3: 262,144), never more. Smaller takes less memory. Changing it loads the model again.
-- `keepLoaded`: keeps the model loaded when another model loads past the memory budget (below).
 
 There are no callbacks of its own: thinking, text, tool calls and structured output all come back as TanStack's standard stream events, so an app can swap this adapter for TanStack's OpenAI or OpenRouter adapter without other changes.
 
@@ -95,13 +94,11 @@ await adapter.create({ onDownloadProgress: (progress) => console.log(progress) }
 await adapter.destroy() // frees its GPU memory
 ```
 
-The methods have the Prompt API's values and meanings. `availability()` is `"unavailable"` where the engine can't run (checked once per page: webgllm's check makes a WebGL context) or for a model webgllm doesn't list, `"downloading"` while this page downloads the model (however the load started: `create` or an adapter's first chat), `"available"` when the model is loaded for the adapter's `contextLength` or every file it loads is in webgllm's storage (`webgllm.models.downloaded()`, which reads the Origin Private File System only), else `"downloadable"`. It makes no request (no `webgllm.models.retrieve()`, which asks Hugging Face for file sizes) and starts no worker. `create({ onDownloadProgress?, signal }?)` reports the download, 0 to 1, then 1 once the model is ready (at once if it already is); it resolves to the adapter, and rejects on failure (fine to leave unawaited). Aborting `signal` rejects that call at once with an `AbortError` and stops its progress reports; when no other caller (another call, or a chat waiting for the model) still waits on the load, webgllm cancels it and the model is left unloaded (`availability()` is back to `"downloadable"`). The config's `onDownloadProgress` hears a download the first chat starts too. Adapters for the same model share it, so `destroy()` on one unloads it for all of them; other models stay loaded while they fit the memory budget.
+The methods have the Prompt API's values and meanings. `availability()` is `"unavailable"` where the engine can't run (checked once per page: webgllm's check makes a WebGL context), `"downloading"` while this page downloads the model (however the load started: `create` or an adapter's first chat), `"available"` when the model is loaded or every file it loads is in webgllm's storage (`webgllm.models.downloaded()`, which reads the Origin Private File System only), else `"downloadable"`. It makes no request (no `webgllm.models.retrieve()`, which asks Hugging Face for file sizes) and starts no worker. `create({ onDownloadProgress?, signal }?)` reports the download, 0 to 1, then 1 once the model is ready (at once if it already is); it resolves to the adapter, and rejects on failure (fine to leave unawaited). Aborting `signal` rejects that call at once with an `AbortError` and stops its progress reports; when no other caller (another call, or a chat waiting for the model) still waits on the load, webgllm cancels it and the model is left unloaded (`availability()` is back to `"downloadable"`). The config's `onDownloadProgress` hears a download the first chat starts too. Adapters for the same model share it, so `destroy()` on one unloads it for all of them.
 
 ## Memory
 
-This project's runtimes (this one, Transformers.js and wllama) share one memory budget: before a model loads, the least recently used models of any runtime are unloaded until everything fits. The budget is 1.5 GB on iOS (a Safari tab gets about 2 GB), half the device's memory where the browser says, else 4 GB; `setMemoryBudget(bytes)` changes it for all of them. A webgllm model counts as 1.4× its download size (its textures, measured). The adapter's `keepLoaded` keeps a model loaded past the budget, from its next load.
-
-The shared `WebGLLM` instance holds its own models to the same budget, with the bytes its workers measure as the attention cache grows.
+The page shares one `WebGLLM` instance, which keeps models loaded while they fit its memory budget and unloads the least recently used past it. See webgllm's README for its budget.
 
 ## License
 

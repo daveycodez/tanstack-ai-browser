@@ -22,7 +22,7 @@ const stream = chat({
 
 The package is shaped like `@tanstack/ai-openrouter`'s text adapter:
 
-- `@tanstack-ai-browser/transformers-js`: `transformersJsText(model, config?)`, `TransformersJsTextAdapter` (with the runtime methods `availability`, `create` and `destroy`), `setMemoryBudget`, and the types `TransformersJsConfig`, `TransformersJsTextModelOptions`, `Availability` and `DownloadProgressCallback`.
+- `@tanstack-ai-browser/transformers-js`: `transformersJsText(model, config?)`, `TransformersJsTextAdapter` (with the runtime methods `availability`, `create` and `destroy`) and the types `TransformersJsConfig`, `TransformersJsTextModelOptions`, `Availability` and `DownloadProgressCallback`.
 - `@tanstack-ai-browser/transformers-js/model-meta`: the catalog, `TRANSFORMERS_JS_CHAT_MODELS`, `TRANSFORMERS_JS_MODEL_META` and `TRANSFORMERS_JS_MODEL_REASONING`, with the types `TransformersJsChatModel`, `TransformersJsModelMeta` and `TransformersJsModelReasoningByName`.
 
 ## Models

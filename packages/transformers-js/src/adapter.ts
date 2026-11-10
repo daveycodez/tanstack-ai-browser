@@ -27,7 +27,6 @@ import {
   generate,
   loadModel,
   setDebug,
-  setKeepLoaded,
   unloadModel
 } from "./client.js"
 import type { Availability, DownloadProgressCallback } from "./client.js"
@@ -75,14 +74,6 @@ export type TransformersJsConfig = {
   dtype?: WeightsDtype
   /** Memory and cache logs from the worker, in the console. */
   debug?: boolean
-  /**
-   * Keeps the model loaded when another runtime (WebGL, wllama) loads one
-   * past the page's memory budget (see `setMemoryBudget`); by default the
-   * least recently used model is unloaded to make room. Applies once the
-   * adapter uses the model (`create()` or a call); left out, the model
-   * keeps what another adapter of it set.
-   */
-  keepLoaded?: boolean
   /**
    * The model's download progress, 0 to 1, when a call (`chat()`, say)
    * starts its download; then 1 once it's ready. To load it ahead of time
@@ -386,7 +377,6 @@ export class TransformersJsTextAdapter<
   private readonly contextLength: number | undefined
   private readonly dtype: WeightsDtype
   private readonly onDownloadProgress: DownloadProgressCallback | undefined
-  private readonly keepLoaded: boolean | undefined
   private readonly debug: boolean
 
   constructor(config: TransformersJsConfig, model: TModel) {
@@ -402,19 +392,15 @@ export class TransformersJsTextAdapter<
     this.contextLength = config.contextLength
     this.dtype = config.dtype ?? modelMeta(model)?.dtype ?? "q4f16"
     this.onDownloadProgress = config.onDownloadProgress
-    this.keepLoaded = config.keepLoaded
     this.debug = config.debug ?? false
   }
 
   /**
-   * Applies this adapter's runtime options (`debug`, `keepLoaded`) when it
-   * uses the model, not when it's constructed: constructing an adapter
-   * changes nothing shared. `keepLoaded` left out leaves the model's as
-   * another adapter set it.
+   * Applies this adapter's `debug` when it uses the model, not when it's
+   * constructed: constructing an adapter changes nothing shared.
    */
   private useModel() {
     if (this.debug) setDebug(true)
-    if (this.keepLoaded !== undefined) setKeepLoaded(this.model, this.keepLoaded)
   }
 
   /**

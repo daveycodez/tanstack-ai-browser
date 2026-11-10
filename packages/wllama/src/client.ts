@@ -17,7 +17,6 @@ import type {
   WllamaLogger
 } from "@wllama/wllama/esm/index.js"
 
-import { claimMemory, releaseMemory, touchMemory } from "./model-memory.js"
 import { modelMeta, modelUrl } from "./catalog.js"
 import { callProgress, LoadWaiters } from "./shared-load.js"
 import type { WllamaChatModel } from "./catalog.js"
@@ -137,47 +136,18 @@ let loaded: {
   ready: boolean
 } | null = null
 
-/** This runtime's name in the shared memory registry. */
-const OWNER = "wllama"
-
-/** Models never unloaded to make room for another runtime's (see setKeepLoaded). */
-const keepLoaded = new Set<WllamaChatModel>()
-
-/**
- * Keeps `model` loaded when another runtime (Transformers.js, WebGL) loads a
- * model past the memory budget; by default the least recently used goes.
- */
-export function setKeepLoaded(model: WllamaChatModel, keep: boolean) {
-  if (keep) keepLoaded.add(model)
-  else keepLoaded.delete(model)
-}
-
 /**
  * Frees the loaded model (stopping its download, if it's downloading).
- * Given a model, only if it's the one loaded (or loading). Another runtime
- * loading a model past the memory budget calls it too.
+ * Given a model, only if it's the one loaded (or loading).
  */
 export async function unloadModel(model?: WllamaChatModel) {
   if (model !== undefined && loaded?.model !== model) return
   const current = loaded
-  releaseMemory(OWNER)
   if (!current) return
   loaded = null
   downloading.delete(current.model)
   current.abort.abort()
   await current.wllama.exit().catch(() => undefined)
-}
-
-/** A file's size from a one-byte range request, or undefined. */
-async function remoteSize(url: string, signal: AbortSignal) {
-  try {
-    const res = await fetch(url, { headers: { Range: "bytes=0-0" }, signal })
-    void res.body?.cancel().catch(() => undefined)
-    const total = /\/(\d+)$/.exec(res.headers.get("Content-Range") ?? "")?.[1]
-    return total ? Number(total) : undefined
-  } catch {
-    return undefined
-  }
 }
 
 /** Each model's contextLength, from its adapter (see setContextLength). */
@@ -247,22 +217,6 @@ async function removeSavedStates() {
 }
 
 /**
- * Memory a model takes, as multiples of its GGUF file's size, while it loads
- * and once loaded. wllama 3.8.1 keeps the whole file in the worker's
- * WebAssembly memory for as long as the model is loaded, and on WebGPU
- * llama.cpp holds the weights on the GPU as well, so a model on WebGPU takes
- * about three times its file. Measured with macOS `footprint` (page and GPU
- * process) in Chrome on an M3 Ultra, at 8,192 tokens, peak and loaded:
- * Qwen3.5 2B (1.28 GB) 3.3-3.4x and 3.0x on WebGPU, 1.8x and 1.25x on the
- * CPU; LFM2.5 1.2B (731 MB) 2.7x and 2.2x on WebGPU, 1.6x and 1.25x on the
- * CPU. The factors are a little above the largest of each.
- */
-const MEMORY_FACTORS = {
-  gpu: { loading: 3.5, loaded: 3.1 },
-  cpu: { loading: 1.9, loaded: 1.35 }
-}
-
-/**
  * How long wllama may take to start and load a model once its file is
  * downloaded: a minute, plus a minute per GB of file. wllama 3.8.1 never
  * settles a load whose WebAssembly fails to load or compile (a 404, say);
@@ -289,10 +243,7 @@ async function startLoad(
   const { contextLength } = settings
   const url = modelUrl(model)
   const meta = modelMeta(model)
-  // A canceled load stops at each step, before claiming memory (which
-  // could unload another runtime's model) and before downloading.
-  const factors = MEMORY_FACTORS[(await runsOnWebGpu(settings)) ? "gpu" : "cpu"]
-  signal.throwIfAborted()
+  // A canceled load stops at each step, before downloading.
   void removeSavedStates()
   // A model already in storage loads from it, without the network.
   const saved = await wllama.modelManager.getModels()
@@ -305,26 +256,6 @@ async function startLoad(
       void old.remove().catch(() => undefined)
     }
   }
-  // Room for it first: other runtimes' models past the memory budget are
-  // unloaded, by what it takes while it loads; once loaded, its claim drops
-  // to what it keeps.
-  const fileBytes =
-    saved.find((m) => m.url === url)?.size ?? (await remoteSize(url, signal)) ?? 0
-  signal.throwIfAborted()
-  // Canceled while other models are unloaded for it, the claim stops there
-  // and records nothing.
-  const claim = async (bytes: number) => {
-    await claimMemory({
-      owner: OWNER,
-      model,
-      bytes,
-      keepLoaded: keepLoaded.has(model),
-      unload: unloadModel,
-      signal
-    })
-    signal.throwIfAborted()
-  }
-  await claim(fileBytes * factors.loading)
   // The download first, then wllama's start and the load, which has a
   // deadline of its own (see startupDeadline).
   const file = await wllama.modelManager.getModelOrDownload(
@@ -357,7 +288,7 @@ async function startLoad(
       swa_full: true,
       ...(settings.threads && { n_threads: settings.threads })
     }),
-    startupDeadline(file.size > 0 ? file.size : fileBytes),
+    startupDeadline(file.size),
     `wllama didn't start or load ${meta.name} in time (is its WebAssembly file at ${settings.wasmUrl}?).`
   )
   // wllama 3.8.1 resolves the load even when llama.cpp couldn't load the
@@ -370,7 +301,6 @@ async function startLoad(
       `llama.cpp couldn't load ${meta.name} or create its context: its architecture may be newer than wllama's llama.cpp, or a smaller contextLength may fit (see the console).`
     )
   }
-  await claim(fileBytes * factors.loaded)
   return wllama
 }
 
@@ -477,7 +407,6 @@ export function loadModel(
       if (loaded !== current) return
       loaded = null
       downloading.delete(model)
-      releaseMemory(OWNER)
       void wllama.exit().catch(() => undefined)
     }
   )
@@ -572,7 +501,6 @@ export async function streamChat(
 ): Promise<AsyncIterable<ChatCompletionChunk>> {
   const wllama = await waitForModel(model, signal)
   signal?.throwIfAborted()
-  touchMemory(OWNER)
   const chunks = await wllama.createChatCompletion({
     ...request,
     stream: true,
@@ -589,7 +517,6 @@ export async function completeChat(
 ): Promise<ChatCompletionResponse> {
   const wllama = await waitForModel(model, signal)
   signal?.throwIfAborted()
-  touchMemory(OWNER)
   try {
     const response = await wllama.createChatCompletion({
       ...request,

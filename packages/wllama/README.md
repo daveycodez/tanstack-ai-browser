@@ -53,7 +53,7 @@ const nextConfig: NextConfig = {
 
 The package is shaped like `@tanstack/ai-openrouter`'s text adapter:
 
-- `@tanstack-ai-browser/wllama`: `wllamaText(model, config?)`, `WllamaTextAdapter` (with the runtime methods `availability`, `create` and `destroy`), `setMemoryBudget`, and the types `WllamaConfig`, `WllamaTextModelOptions`, `Availability` and `DownloadProgressCallback`.
+- `@tanstack-ai-browser/wllama`: `wllamaText(model, config?)`, `WllamaTextAdapter` (with the runtime methods `availability`, `create` and `destroy`) and the types `WllamaConfig`, `WllamaTextModelOptions`, `Availability` and `DownloadProgressCallback`.
 - `@tanstack-ai-browser/wllama/model-meta`: the catalog, `WLLAMA_CHAT_MODELS`, `WLLAMA_MODEL_META` and `WLLAMA_MODEL_REASONING`, with the types `WllamaChatModel`, `WllamaModelMeta` and `WllamaModelReasoningByName`.
 
 ## Models

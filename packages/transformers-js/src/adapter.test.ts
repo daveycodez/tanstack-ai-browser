@@ -773,95 +773,30 @@ test("create with a signal: aborted before, it rejects without starting; the onl
   }
 })
 
-test("constructing an adapter changes nothing shared; keepLoaded and debug apply when it uses the model, and an adapter without keepLoaded leaves another's", { timeout: 2000 }, async () => {
+test("constructing an adapter changes nothing shared; debug applies when it uses the model", { timeout: 2000 }, async () => {
   const { transformersJsText } = await import("./adapter.js")
   const CPU_MODEL = "onnx-community/LFM2-1.2B-Tool-ONNX"
-  const held = () => (globalThis as unknown as Record<symbol, { held: Map<string, { keepLoaded: boolean }> }>)[Symbol.for("@tanstack-ai-browser/model-memory")]!.held
-  /** Loads through `adapter`, with the worker's memory claim: what the page told the registry. */
-  const loadClaiming = async (adapter: ReturnType<typeof transformersJsText>) => {
+  /** Loads through `adapter`: the worker it ran in. */
+  const load = async (adapter: ReturnType<typeof transformersJsText>) => {
     await adapter.destroy()
     FakeWorker.ready = false
     const ready = adapter.create()
-    const load = FakeWorker.last.posted.filter((request): request is Extract<WorkerRequest, { type: "load" }> => request.type === "load").at(-1)!
-    FakeWorker.last.send({ type: "claim", loadId: load.loadId, modelId: CPU_MODEL, bytes: 1 })
-    await new Promise((resolve) => setTimeout(resolve, 0))
-    FakeWorker.last.send({ type: "ready", loadId: load.loadId, modelId: CPU_MODEL })
+    const request = FakeWorker.last.posted.filter((r): r is Extract<WorkerRequest, { type: "load" }> => r.type === "load").at(-1)!
+    FakeWorker.last.send({ type: "ready", loadId: request.loadId, modelId: CPU_MODEL })
     await ready
     FakeWorker.ready = true
-    return { keepLoaded: held().get("transformers-js")?.keepLoaded, worker: FakeWorker.last.name }
+    return FakeWorker.last.name
   }
-  const keeper = transformersJsText(CPU_MODEL, { keepLoaded: true, debug: true })
+  const debugging = transformersJsText(CPU_MODEL, { debug: true })
   const plain = transformersJsText(CPU_MODEL)
   try {
-    assert.deepEqual(await loadClaiming(plain), { keepLoaded: false, worker: "transformers-js" }, "constructing the keepLoaded, debug adapter changed nothing")
-    assert.deepEqual(await loadClaiming(keeper), { keepLoaded: true, worker: "transformers-js:debug" }, "using it applies both")
-    const later = transformersJsText(CPU_MODEL)
-    assert.equal((await loadClaiming(later)).keepLoaded, true, "an adapter without keepLoaded, constructed and used later, leaves it")
-    assert.equal((await loadClaiming(transformersJsText(CPU_MODEL, { keepLoaded: false }))).keepLoaded, false, "an explicit false sets it")
+    assert.equal(await load(plain), "transformers-js", "constructing the debug adapter changed nothing")
+    assert.equal(await load(debugging), "transformers-js:debug", "using it applies it")
   } finally {
     FakeWorker.ready = true
     await plain.destroy()
   }
 })
-
-test("a load canceled while its memory claim waits for another runtime records no reservation and starts no new worker", { timeout: 2000 }, async () => {
-  const { transformersJsText } = await import("./adapter.js")
-  const { setMemoryBudget } = await import("./model-memory.js")
-  const CPU_MODEL = "onnx-community/LFM2-1.2B-Tool-ONNX"
-  const held = (globalThis as unknown as Record<symbol, { held: Map<string, unknown> }>)[Symbol.for("@tanstack-ai-browser/model-memory")]!.held
-  const adapter = transformersJsText(CPU_MODEL)
-  await adapter.destroy(); FakeWorker.ready = false
-  let finishUnload!: () => void
-  const unloading = new Promise<void>((resolve) => { finishUnload = resolve })
-  setMemoryBudget(100)
-  held.set("other-runtime", { owner: "other-runtime", model: "m", bytes: 80, keepLoaded: false, lastUsed: 0, unload: () => unloading })
-  try {
-    const controller = new AbortController()
-    const loading = adapter.create({ signal: controller.signal })
-    const worker = FakeWorker.last
-    const load = worker.posted.filter((request): request is Extract<WorkerRequest, { type: "load" }> => request.type === "load").at(-1)!
-    worker.send({ type: "claim", loadId: load.loadId, modelId: CPU_MODEL, bytes: 50 })
-    await new Promise((resolve) => setTimeout(resolve, 0))
-    controller.abort()
-    await assert.rejects(loading, { name: "AbortError" })
-    assert.equal(worker.terminated, true)
-    finishUnload()
-    await new Promise((resolve) => setTimeout(resolve, 10))
-    assert.equal(held.has("transformers-js"), false, "the canceled load's reservation isn't recorded")
-    assert.equal(FakeWorker.last, worker, "no new worker was started to answer it")
-    assert.equal(worker.posted.some((request) => request.type === "claimed"), false)
-  } finally {
-    held.delete("other-runtime")
-    setMemoryBudget(undefined)
-    FakeWorker.ready = true
-    await adapter.destroy()
-  }
-})
-
-test("a claim for a replaced load records nothing, and is still answered to its own worker so it can move on", { timeout: 2000 }, async () => {
-  const { loadModel, unloadModel } = await import("./client.js")
-  const CPU_MODEL = "onnx-community/LFM2-1.2B-Tool-ONNX"
-  const held = (globalThis as unknown as Record<symbol, { held: Map<string, unknown> }>)[Symbol.for("@tanstack-ai-browser/model-memory")]!.held
-  await unloadModel(); FakeWorker.ready = false
-  try {
-    const first = loadModel(CPU_MODEL, { dtype: "q4f16" })
-    const worker = FakeWorker.last
-    const firstLoad = worker.posted.filter((request): request is Extract<WorkerRequest, { type: "load" }> => request.type === "load").at(-1)!
-    const second = loadModel(CPU_MODEL, { dtype: "q4" })
-    await assert.rejects(first, /Switched/)
-    worker.send({ type: "claim", loadId: firstLoad.loadId, modelId: CPU_MODEL, bytes: 50 })
-    await new Promise((resolve) => setTimeout(resolve, 0))
-    assert.equal(held.has("transformers-js"), false)
-    assert.equal(worker.posted.filter((request) => request.type === "claimed").length, 1, "answered to the same worker")
-    const secondLoad = worker.posted.filter((request): request is Extract<WorkerRequest, { type: "load" }> => request.type === "load").at(-1)!
-    worker.send({ type: "ready", loadId: secondLoad.loadId, modelId: CPU_MODEL })
-    await second
-  } finally {
-    FakeWorker.ready = true
-    await unloadModel()
-  }
-})
-
 test("availability() reads Cache Storage only: no fetch, worker, IndexedDB or OPFS calls", async () => {
   const { transformersJsText } = await import("./adapter.js")
   const { unloadModel } = await import("./client.js")

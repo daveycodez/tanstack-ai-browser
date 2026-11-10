@@ -34,7 +34,7 @@ function adapterPackage(): Promise<AdapterPackage> {
       bundle.onResolve({ filter: /^\.\/client\.js$/ }, args => args.importer.endsWith(`/transformers-js/src/adapter.ts`) ? { path: "transformers-js", namespace: "controlled" } : undefined)
       bundle.onLoad({ filter: /.*/, namespace: "controlled" }, () => ({ contents: `
         const c=globalThis.__cancellationContract;
-        export const loadModel=()=>c.initialize(); export const availability=async()=>"available"; export const unloadModel=async()=>{}; export const setKeepLoaded=()=>{};export const setDebug=()=>{};
+        export const loadModel=()=>c.initialize(); export const availability=async()=>"available"; export const unloadModel=async()=>{}; export const setDebug=()=>{};
         export async function* generate(request){try{yield await c.generate(request.signal);return {stats:c.stats}}finally{c.returned++}}
       ` }))
     } }] })

@@ -49,8 +49,7 @@ type Control = {
   download?: { signal: AbortSignal; progress: (p: { loaded: number; total: number }) => void }
   /** wllama instances ended. */
   exits: number
-  /** Memory claims, with their keepLoaded flag, and each load's n_ctx. */
-  claims: Array<boolean>
+  /** Each load's n_ctx. */
   contexts: Array<number>
   /** Each load's native options. */
   loadOptions: Array<Record<string, unknown>>
@@ -76,7 +75,6 @@ async function withClient(name: string, body: (client: Built, control: Control, 
     progressed: null,
     calls: [],
     exits: 0,
-    claims: [],
     contexts: [],
     loadOptions: []
   }
@@ -92,10 +90,7 @@ async function withClient(name: string, body: (client: Built, control: Control, 
     const outfile = join(temporary, `${name}.mjs`)
     await build({ stdin: { contents: 'export * from "./client.ts"; export { wllamaText } from "./adapter.ts"', resolveDir: join(root, "packages/wllama/src"), loader: "ts" }, outfile, bundle: true, format: "esm", platform: "node", logLevel: "error", plugins: [{ name: "fake-wllama", setup(bundle) {
       bundle.onResolve({ filter: /@wllama\/wllama\/esm\/index\.js$/ }, () => ({ path: "wllama", namespace: "fake" }))
-      bundle.onResolve({ filter: /^\.\/model-memory\.js$/ }, () => ({ path: "memory", namespace: "fake" }))
-      bundle.onLoad({ filter: /.*/, namespace: "fake" }, args => ({ contents: args.path === "memory"
-        ? "export const claimMemory=async(m)=>{if(m.signal?.aborted)return false;globalThis.__wllamaAvailability.claims.push(m.keepLoaded);return true};export const releaseMemory=()=>{};export const touchMemory=()=>{};"
-        : `
+      bundle.onLoad({ filter: /.*/, namespace: "fake" }, () => ({ contents: `
         const control=globalThis.__wllamaAvailability;
         export const LoggerWithoutDebug={};
         export class ModelManager { constructor(){control.calls.push("new ModelManager")} async getModels(){ control.calls.push("ModelManager.getModels"); return control.stored } }
@@ -150,26 +145,18 @@ test("availability: downloadable; downloading during the download; available onc
   })
 })
 
-test("constructing an adapter changes nothing shared; its context and keepLoaded apply when it uses the model, and an adapter without keepLoaded leaves another's", { timeout: 5000 }, async () => {
+test("constructing an adapter changes nothing shared; its context applies when it uses the model", { timeout: 5000 }, async () => {
   await withClient("construct", async (client, control, release) => {
     release()
-    const keeper = client.wllamaText(MODEL, { keepLoaded: true, contextLength: 2048 })
+    const small = client.wllamaText(MODEL, { contextLength: 2048 })
     const plain = client.wllamaText(MODEL)
     await plain.create()
-    assert.deepEqual([control.claims.at(-1), control.contexts.at(-1)], [false, 0], "constructing the other adapter changed nothing")
+    assert.equal(control.contexts.at(-1), 0, "constructing the other adapter changed nothing")
     await plain.destroy()
-    await keeper.create()
-    assert.deepEqual([control.claims.at(-1), control.contexts.at(-1)], [true, 2048], "using it applies its options")
-    await keeper.destroy()
-    const later = client.wllamaText(MODEL)
-    await later.create()
-    assert.deepEqual([control.claims.at(-1), control.contexts.at(-1)], [true, 0], "a later adapter without keepLoaded leaves it; its own context applies")
-    await later.destroy()
-    await client.wllamaText(MODEL, { keepLoaded: false }).create()
-    assert.equal(control.claims.at(-1), false, "an explicit false sets it")
+    await small.create()
+    assert.equal(control.contexts.at(-1), 2048, "using it applies its context")
   })
 })
-
 test("the same progress callback hears 1 on every load call: once for a shared load, then at once on the ready model; a chat's own wait reports nothing more", { timeout: 5000 }, async () => {
   await withClient("same-callback", async (client, control, release) => {
     const heard: Array<number> = []
@@ -263,7 +250,7 @@ test("create's signal: aborted before, nothing starts; the only waiter aborting 
   })
 })
 
-test("a load canceled while wllama lists its storage claims no memory and downloads nothing", { timeout: 5000 }, async () => {
+test("a load canceled while wllama lists its storage downloads nothing", { timeout: 5000 }, async () => {
   await withClient("cancel-before-claim", async (client, control, release) => {
     release()
     let list!: () => void
@@ -275,7 +262,6 @@ test("a load canceled while wllama lists its storage claims no memory and downlo
     await assert.rejects(loading, { name: "AbortError" })
     list()
     await new Promise((resolve) => setTimeout(resolve, 10))
-    assert.deepEqual(control.claims, [], "no memory claimed, so nothing evicted")
     assert.equal(control.download, undefined, "no download started")
   })
 })
@@ -306,30 +292,6 @@ test("a load with other native options (gpu, threads) loads the model again, wit
     await loading
     assert.equal(control.loadOptions.at(-1)?.n_threads, 2)
   })
-})
-
-test("claimMemory canceled while another runtime's model unloads stops there and records nothing", async () => {
-  const { claimMemory, setMemoryBudget } = await import("./model-memory.js")
-  setMemoryBudget(100)
-  const held = (globalThis as unknown as Record<symbol, { held: Map<string, unknown> }>)[Symbol.for("@tanstack-ai-browser/model-memory")]!.held
-  let finish!: () => void
-  const unloading = new Promise<void>((resolve) => { finish = resolve })
-  let secondUnloaded = false
-  held.set("a", { owner: "a", model: "a", bytes: 60, keepLoaded: false, lastUsed: 0, unload: () => unloading })
-  held.set("b", { owner: "b", model: "b", bytes: 30, keepLoaded: false, lastUsed: 1, unload: () => { secondUnloaded = true } })
-  try {
-    const controller = new AbortController()
-    const claiming = claimMemory({ owner: "wllama", model: MODEL, bytes: 90, keepLoaded: false, unload: () => undefined, signal: controller.signal })
-    controller.abort()
-    finish()
-    assert.equal(await claiming, false)
-    assert.equal(held.has("wllama"), false, "nothing recorded")
-    assert.equal(secondUnloaded, false, "no other model unloaded after the cancel")
-    assert.equal(await claimMemory({ owner: "wllama", model: MODEL, bytes: 1, keepLoaded: false, unload: () => undefined, signal: AbortSignal.abort() }), false)
-  } finally {
-    for (const owner of ["a", "b", "wllama"]) held.delete(owner)
-    setMemoryBudget(undefined)
-  }
 })
 
 test("availability() lists wllama's storage only: no fetch, worker or engine calls", async () => {

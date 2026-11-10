@@ -1,7 +1,8 @@
 /**
  * A stand-in for the shared WebGLLM instance's methods, so the adapter's
- * tests run without workers or models: loads resolve at once, and each
- * completion streams the chunks the test scripts. (No tests of its own.)
+ * tests run without workers or models: loads resolve at once (after the
+ * scripted download progress), and each completion streams the chunks the
+ * test scripts. (No tests of its own.)
  */
 import type {
   ChatCompletionChunk,
@@ -10,14 +11,15 @@ import type {
   CompletionTimings,
   FinishReason,
   LoadModelOptions,
+  LoadProgress,
   RequestOptions,
   WebGLLMEventMap
 } from "webgllm"
 import { resolveDebugOption } from "@tanstack/ai/adapter-internals"
 import type { TextOptions } from "@tanstack/ai"
 
+import { webgllm } from "./adapter.js"
 import type { WebGllmTextModelOptions } from "./adapter.js"
-import { unloadModel, webgllm } from "./models.js"
 
 export const MODEL = "LiquidAI/LFM3-1.7B-GGUF"
 
@@ -28,44 +30,29 @@ export const fake = {
   requests: [] as Array<{ body: ChatCompletionCreateParamsStreaming; options: RequestOptions }>,
   loads: [] as Array<{ model: string; options: LoadModelOptions }>,
   unloads: [] as Array<string | undefined>,
-  /** Models the fake holds loaded. */
-  loaded: new Set<string>(),
-  /** Models asked about with models.retrieve or models.list (which fetch from Hugging Face). */
-  retrieved: [] as Array<string>,
-  /** Models whose files the fake's storage holds (models.downloaded), and the models asked about. */
+  /** Models the fake holds loaded, with the context each was loaded for. */
+  loaded: new Map<string, number | undefined>(),
+  /** Models whose files the fake's storage holds (models.downloaded). */
   stored: new Set<string>(),
-  downloadedAsked: [] as Array<string>,
-  /** Bytes each load's worker claims through onMemoryClaim, as the real worker measures them. */
-  memory: 1_400_000_000,
-  /** Holds each load's memory claim until it resolves. */
-  claimGate: undefined as Promise<void> | undefined,
+  /** Download progress each load reports before it finishes. */
+  progress: [] as Array<LoadProgress>,
   /** Rejects the next loads with it. */
   loadError: undefined as Error | undefined,
   /** Holds loads until it resolves. */
   loadGate: undefined as Promise<void> | undefined,
-  /** Rejects create() itself with it (before any chunk). */
-  createError: undefined as Error | undefined,
-  /** Set when the adapter stopped reading a stream early. */
-  returned: 0,
   /** The steps of each completion, from its request. */
   script: (() => [chunk({ role: "assistant", content: "Hello" }), chunk({}, "stop"), usageChunk()]) as (
     body: ChatCompletionCreateParamsStreaming
   ) => Array<Step>,
   reset() {
-    void unloadModel()
     this.requests = []
     this.loads = []
     this.unloads = []
     this.loaded.clear()
-    this.retrieved = []
     this.stored.clear()
-    this.downloadedAsked = []
-    this.memory = 1_400_000_000
-    this.claimGate = undefined
+    this.progress = []
     this.loadError = undefined
     this.loadGate = undefined
-    this.createError = undefined
-    this.returned = 0
     this.script = () => [chunk({ role: "assistant", content: "Hello" }), chunk({}, "stop"), usageChunk()]
   }
 }
@@ -133,7 +120,6 @@ function stream(steps: Array<Step>, signal: AbortSignal | undefined): AsyncItera
     },
     async return() {
       done = true
-      fake.returned++
       return { value: undefined, done: true }
     }
   }
@@ -144,18 +130,6 @@ function stream(steps: Array<Step>, signal: AbortSignal | undefined): AsyncItera
 export function emit<K extends keyof WebGLLMEventMap>(type: K, event: WebGLLMEventMap[K]) {
   ;(webgllm as unknown as { dispatch(type: K, event: WebGLLMEventMap[K]): void }).dispatch(type, event)
 }
-
-type Options = { onMemoryClaim?: (claim: { model: string; bytes: number; signal: AbortSignal }) => Promise<void> | void }
-const options = () => (webgllm as unknown as { options: Options }).options
-
-/** A worker's memory claim for `model`, awaited as webgllm awaits it before allocating (cache growth, say). */
-export async function claim(model: string, bytes: number, signal = new AbortController().signal) {
-  await options().onMemoryClaim?.({ model, bytes, signal })
-}
-
-/** Loads in flight, one per model, shared by their callers as webgllm shares them. */
-const pending = new Map<string, { promise: Promise<void>; contextLength?: number; waiters: number; gone: AbortController }>()
-const loadedFor = new Map<string, number | undefined>()
 
 const abortable = (promise: Promise<void>, signal?: AbortSignal) =>
   signal
@@ -168,94 +142,34 @@ const abortable = (promise: Promise<void>, signal?: AbortSignal) =>
       ])
     : promise
 
-// Like webgllm's pool: one load per model, its callers waiting on it; "loadstart",
-// a memory claim, then "load", or "error" and "unload" ("failed"). A caller that
-// gives up only stops waiting; the last one to leave unloads it ("aborted").
+// Like webgllm's loadModel: at once when loaded for that context; otherwise
+// the scripted download progress (with webgllm's events), then "load".
 webgllm.loadModel = async (model, options = {}) => {
   options.signal?.throwIfAborted()
   fake.loads.push({ model, options })
-  if (fake.loaded.has(model) && loadedFor.get(model) === options.contextLength) return
-  let load = pending.get(model)
-  if (!load || load.contextLength !== options.contextLength) {
-    const gone = new AbortController()
-    emit("loadstart", { model, ...(options.contextLength !== undefined && { contextLength: options.contextLength }) })
-    const promise = (async () => {
-      if (fake.claimGate) await fake.claimGate
-      await claim(model, fake.memory, gone.signal)
-      if (fake.loadGate) await fake.loadGate
-      gone.signal.throwIfAborted()
-      if (fake.loadError) {
-        pending.delete(model)
-        emit("error", { model, error: fake.loadError })
-        emit("unload", { model, reason: "failed" })
-        throw fake.loadError
-      }
-      pending.delete(model)
-      fake.loaded.add(model)
-      loadedFor.set(model, options.contextLength)
-      emit("load", { model, contextLength: options.contextLength ?? 32_768 })
-    })()
-    promise.catch(() => undefined)
-    load = { promise, waiters: 0, gone, ...(options.contextLength !== undefined && { contextLength: options.contextLength }) }
-    pending.set(model, load)
+  if (fake.loaded.has(model) && fake.loaded.get(model) === options.contextLength) return
+  for (const progress of fake.progress) {
+    emit("progress", progress)
+    options.onProgress?.(progress)
   }
-  load.waiters++
-  try {
-    await abortable(load.promise, options.signal)
-  } catch (error) {
-    if (options.signal?.aborted && load.waiters === 1 && pending.get(model) === load) {
-      pending.delete(model)
-      load.gone.abort(error)
-      emit("unload", { model, reason: "aborted" })
-    }
-    throw error
-  } finally {
-    load.waiters--
+  await abortable(fake.loadGate ?? Promise.resolve(), options.signal)
+  if (fake.loadError) {
+    emit("error", { model, error: fake.loadError })
+    throw fake.loadError
   }
+  fake.loaded.set(model, options.contextLength)
+  emit("load", { model, contextLength: options.contextLength ?? 32_768 })
 }
-// Whatever unloads a model (an eviction, a crash), webgllm forgets it.
-webgllm.addEventListener("unload", ({ model }) => {
-  fake.loaded.delete(model)
-  loadedFor.delete(model)
-})
 webgllm.unloadModel = async (model) => {
   fake.unloads.push(model)
-  for (const [name, load] of [...pending]) {
-    if (model !== undefined && name !== model) continue
-    pending.delete(name)
-    load.gone.abort(new Error(`${name} was unloaded.`))
-    emit("unload", { model: name, reason: "unloaded" })
-  }
-  for (const name of model === undefined ? [...fake.loaded] : fake.loaded.has(model) ? [model] : []) {
-    fake.loaded.delete(name)
-    loadedFor.delete(name)
-    emit("unload", { model: name, reason: "unloaded" })
+  for (const name of model === undefined ? [...fake.loaded.keys()] : [model]) {
+    if (fake.loaded.delete(name)) emit("unload", { model: name, reason: "unloaded" })
   }
 }
-webgllm.models.downloaded = async (model) => {
-  fake.downloadedAsked.push(model)
-  return fake.loaded.has(model) || fake.stored.has(model)
-}
-webgllm.models.list = async () => {
-  fake.retrieved.push("*")
-  return []
-}
-webgllm.models.retrieve = async (model) => {
-  fake.retrieved.push(model)
-  return {
-    id: model,
-    format: "gguf",
-    contextLength: 32_768,
-    size: 1_000_000_000,
-    downloaded: true,
-    loaded: fake.loaded.has(model),
-    supports: { tools: true, thinking: true }
-  }
-}
+webgllm.models.downloaded = async (model) => fake.loaded.has(model) || fake.stored.has(model)
 webgllm.chat.completions.create = (async (body: ChatCompletionCreateParamsStreaming, options: RequestOptions = {}) => {
   fake.requests.push({ body, options })
   options.signal?.throwIfAborted()
-  if (fake.createError) throw fake.createError
   if (body.stream !== true) return completion(body, fake.script(body))
   return stream(fake.script(body), options.signal)
 }) as typeof webgllm.chat.completions.create

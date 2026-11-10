@@ -12,10 +12,10 @@ const { build } = await import(pathToFileURL(require.resolve("esbuild")).href) a
 const temporary = await mkdtemp(join(tmpdir(), "wllama-load-failure-"))
 after(() => rm(temporary, { recursive: true, force: true }))
 
-test("a load llama.cpp reports as failed rejects, frees its worker and memory, and the next load works", { timeout: 5000 }, async () => {
+test("a load llama.cpp reports as failed rejects, frees its worker, and the next load works", { timeout: 5000 }, async () => {
   const nativeNavigator = Object.getOwnPropertyDescriptor(globalThis, "navigator")
   const originalFetch = globalThis.fetch
-  const control = { success: false, exits: 0, claims: [] as number[], released: 0 }
+  const control = { success: false, exits: 0 }
   ;(globalThis as { __wllamaLoadFailure?: typeof control }).__wllamaLoadFailure = control
   Object.defineProperty(globalThis, "navigator", { configurable: true, value: {} })
   globalThis.fetch = async () => new Response(null, { headers: { "content-range": "bytes 0-0/1000" } })
@@ -23,10 +23,7 @@ test("a load llama.cpp reports as failed rejects, frees its worker and memory, a
     const outfile = join(temporary, "client.mjs")
     await build({ entryPoints: [join(root, "packages/wllama/src/client.ts")], outfile, bundle: true, format: "esm", platform: "node", logLevel: "error", plugins: [{ name: "public-wllama-runtime", setup(bundle) {
       bundle.onResolve({ filter: /@wllama\/wllama\/esm\/index\.js$/ }, () => ({ path: "wllama", namespace: "contract" }))
-      bundle.onResolve({ filter: /^\.\/model-memory\.js$/ }, () => ({ path: "memory", namespace: "contract" }))
-      bundle.onLoad({ filter: /.*/, namespace: "contract" }, args => ({ contents: args.path === "memory" ? `
-        const control=globalThis.__wllamaLoadFailure;
-        export const claimMemory=async(m)=>{control.claims.push(m.bytes)};export const releaseMemory=()=>{control.released++};export const touchMemory=()=>{};` : `
+      bundle.onLoad({ filter: /.*/, namespace: "contract" }, () => ({ contents: `
         const control=globalThis.__wllamaLoadFailure;
         export const LoggerWithoutDebug={};
         export class ModelManager { async getModels(){ return [] } }
@@ -44,12 +41,10 @@ test("a load llama.cpp reports as failed rejects, frees its worker and memory, a
     await assert.rejects(client.loadModel(model), /couldn't load unsloth\/Qwen3\.5-2B-GGUF/)
     await new Promise(resolve => setTimeout(resolve, 0))
     assert.equal(control.exits, 1, "the failed load's worker is ended")
-    assert.equal(control.released, 1, "its memory claim is released")
     control.success = true
     const progress: number[] = []
     await client.loadModel(model, (value: number) => progress.push(value))
     assert.deepEqual(progress, [1], "the failed promise isn't cached; a ready model reports 1")
-    assert.ok((control.claims.at(-1) ?? 0) < (control.claims.at(-2) ?? 0), "the claim drops to the loaded estimate")
     await client.unloadModel()
   } finally {
     globalThis.fetch = originalFetch

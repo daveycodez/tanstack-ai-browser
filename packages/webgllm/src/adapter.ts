@@ -13,11 +13,40 @@ import { resolveReasoning } from "@tanstack/ai/adapter-internals"
 import type { StructuredOutputOptions, StructuredOutputResult } from "@tanstack/ai/adapters"
 import { OpenAIBaseChatCompletionsTextAdapter } from "@tanstack/openai-base"
 import type { OpenAIClientLike } from "@tanstack/openai-base"
+import { WebGLLM } from "webgllm"
+import type { LoadProgress } from "webgllm"
 
 import { modelMeta } from "./catalog.js"
 import type { WebGllmChatModel, WebGllmModelReasoningByName } from "./catalog.js"
-import { availability, ensureModel, loadModel, setKeepLoaded, touchModel, unloadModel, webgllm } from "./models.js"
-import type { Availability, DownloadProgressCallback } from "./models.js"
+
+/**
+ * Where a model stands in this browser, with the Prompt API's values
+ * (`LanguageModel.availability()`).
+ */
+export type Availability = "unavailable" | "downloadable" | "downloading" | "available"
+
+/** A download's progress, from 0 to 1. */
+export type DownloadProgressCallback = (progress: number) => void
+
+/** The page's one engine, shared by every adapter. Exported for tests. */
+export const webgllm = new WebGLLM()
+
+let supported: boolean | undefined
+/** Whether the engine runs here, checked once: webgllm's check makes a WebGL context. */
+const engineRuns = () => (supported ??= WebGLLM.isSupported())
+
+/** Models downloading in this page, from webgllm's events. */
+const downloading = new Set<string>()
+webgllm.addEventListener("progress", ({ model, phase, cached }) => {
+  if (phase === "download" && !cached) downloading.add(model)
+})
+for (const type of ["load", "error", "unload"] as const) {
+  webgllm.addEventListener(type, ({ model }) => downloading.delete(model))
+}
+
+/** The download's share of webgllm's load progress (downloading is its first 90%). */
+const downloadShare = ({ progress, loadedBytes, totalBytes }: LoadProgress) =>
+  totalBytes ? Math.min((loadedBytes ?? 0) / totalBytes, 1) : Math.min(progress / 0.9, 1)
 
 /**
  * Per-call `modelOptions`, named like TanStack's OpenRouter adapter's, and
@@ -55,14 +84,6 @@ export type WebGllmConfig = {
    * memory and refuses longer chats sooner. Changing it loads the model again.
    */
   contextLength?: number
-  /**
-   * Keeps the model loaded when another model (of webgllm, Transformers.js
-   * or wllama) loads past the page's memory budget (see `setMemoryBudget`);
-   * by default the least recently used model is unloaded to make room.
-   * Applies once the adapter uses the model (`create()` or a call); left
-   * out, the model keeps what another adapter of it set.
-   */
-  keepLoaded?: boolean
   /**
    * The model's download progress, 0 to 1, when a call (`chat()`, say)
    * starts its download; then 1 once it's ready. To load it ahead of time
@@ -116,26 +137,26 @@ export class WebGllmTextAdapter<TModel extends WebGllmChatModel> extends OpenAIB
 
   private readonly contextLength: number | undefined
   private readonly onDownloadProgress: DownloadProgressCallback | undefined
-  private readonly keepLoaded: boolean | undefined
 
   constructor(config: WebGllmConfig, model: TModel) {
     // Chat Completions (`chat.completions.create`) is all the adapter calls.
     super(model, "webgllm", webgllm as unknown as OpenAIClientLike, { strictFallbackWarning: false })
     this.contextLength = config.contextLength
     this.onDownloadProgress = config.onDownloadProgress
-    this.keepLoaded = config.keepLoaded
   }
 
   /**
    * Where the model stands in this browser, with the Prompt API's values:
    * "unavailable" where the engine can't run (WebGL 2 with float render
-   * targets, in a worker; not on a server; checked once per page),
-   * "downloading" while this page downloads it, "available" when it's
-   * loaded for this adapter's `contextLength` or its files are all in
-   * webgllm's storage, else "downloadable". It reads storage only.
+   * targets, in a worker), "downloading" while this page downloads it,
+   * "available" when it's loaded or its files are in webgllm's storage,
+   * else "downloadable". It reads storage only.
    */
-  availability(): Promise<Availability> {
-    return availability(this.model, this.contextLength)
+  async availability(): Promise<Availability> {
+    if (!engineRuns()) return "unavailable"
+    if (downloading.has(this.model)) return "downloading"
+    const stored = await webgllm.models.downloaded(this.model).catch(() => false)
+    return stored ? "available" : "downloadable"
   }
 
   /**
@@ -143,58 +164,49 @@ export class WebGllmTextAdapter<TModel extends WebGllmChatModel> extends OpenAIB
    * first time), with the download's progress, 0 to 1, then 1 once it's
    * ready. Resolves to this adapter; rejects if it can't load (fine to leave
    * unawaited). `chat()` doesn't need it: its first call loads the model.
-   * Aborting `signal` rejects at once; webgllm cancels the load if nothing
-   * else waits on it.
    */
   create(options: { onDownloadProgress?: DownloadProgressCallback; signal?: AbortSignal } = {}): Promise<this> {
-    const own = this.onDownloadProgress
-    const theirs = options.onDownloadProgress
-    this.useModel()
-    const ready = loadModel(this.model, {
-      contextLength: this.contextLength,
-      ...(options.signal && { signal: options.signal }),
-      onDownloadProgress:
-        own && theirs
-          ? (progress) => {
-              own(progress)
-              theirs(progress)
-            }
-          : (own ?? theirs)
-    }).then(() => this)
-    // Callers may leave it: an unawaited failure isn't an unhandled rejection.
+    const ready = this.load(options.signal, options.onDownloadProgress).then(() => this)
     ready.catch(() => undefined)
     return ready
   }
 
-  /** Unloads the model for every adapter of it, freeing its GPU memory. Its files stay. Never rejects. */
+  /** Unloads the model, freeing its GPU memory. Its files stay. Never rejects. */
   destroy(): Promise<void> {
-    return unloadModel(this.model)
+    return webgllm.unloadModel(this.model).catch(() => undefined)
   }
 
-  /** Applies this adapter's `keepLoaded` when it uses the model, not when it's constructed. */
-  private useModel() {
-    if (this.keepLoaded !== undefined) setKeepLoaded(this.model, this.keepLoaded)
-  }
-
-  /** Loads the model if it isn't, for this adapter's context length. */
-  private async ready(options: TextOptions) {
-    this.useModel()
-    await ensureModel(this.model, this.contextLength, signalOf(options), this.onDownloadProgress)
-    touchModel(this.model)
+  /**
+   * Loads the model for this adapter's context length; webgllm returns at
+   * once when it's loaded for it, and shares a load between its callers.
+   */
+  private async load(signal?: AbortSignal | null, onDownloadProgress?: DownloadProgressCallback) {
+    const report = (progress: number) => {
+      this.onDownloadProgress?.(progress)
+      onDownloadProgress?.(progress)
+    }
+    await webgllm.loadModel(this.model, {
+      ...(this.contextLength !== undefined && { contextLength: this.contextLength }),
+      ...(signal && { signal }),
+      onProgress: (progress) => {
+        if (progress.phase === "download" && !progress.cached) report(downloadShare(progress))
+      }
+    })
+    report(1)
   }
 
   override async *chatStream(options: TextOptions<WebGllmTextModelOptions>): AsyncIterable<AdapterYieldChunk> {
-    await this.ready(options)
+    await this.load(signalOf(options))
     yield* super.chatStream(options)
   }
 
   override async *structuredOutputStream(options: StructuredOutputOptions<WebGllmTextModelOptions>): AsyncIterable<AdapterYieldChunk> {
-    await this.ready(options.chatOptions)
+    await this.load(signalOf(options.chatOptions))
     yield* super.structuredOutputStream(options)
   }
 
   override async structuredOutput(options: StructuredOutputOptions<WebGllmTextModelOptions>): Promise<StructuredOutputResult<unknown>> {
-    await this.ready(options.chatOptions)
+    await this.load(signalOf(options.chatOptions))
     return super.structuredOutput(options)
   }
 

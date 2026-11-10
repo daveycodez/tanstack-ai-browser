@@ -9,14 +9,9 @@ import { WebGLLM, WebGLLMError } from "webgllm"
 
 import { webgllmText } from "./adapter.js"
 import { chunk, collect, fake, lastBody, MODEL, textOptions, usageChunk } from "./fake-webgllm.test.js"
-import { forgetEngineCheck } from "./models.js"
 
-const engine = WebGLLM as unknown as { isSupported: () => boolean }
-beforeEach(() => {
-  fake.reset()
-  engine.isSupported = () => true
-  forgetEngineCheck()
-})
+;(WebGLLM as unknown as { isSupported: () => boolean }).isSupported = () => true
+beforeEach(() => fake.reset())
 
 type Event = { type: string } & Record<string, unknown>
 const types = (events: Array<unknown>) => (events as Array<Event>).map((e) => e.type)

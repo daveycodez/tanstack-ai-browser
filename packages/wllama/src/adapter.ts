@@ -22,7 +22,6 @@ import {
   configureRuntime,
   loadModel,
   setContextLength,
-  setKeepLoaded,
   streamChat,
   unloadModel,
   waitForModel
@@ -41,14 +40,6 @@ export type WllamaConfig = {
    * model again.
    */
   contextLength?: number
-  /**
-   * Keeps the model loaded when another runtime (Transformers.js, WebGL)
-   * loads one past the page's memory budget (see `setMemoryBudget`); by
-   * default the least recently used model is unloaded to make room.
-   * Applies once the adapter uses the model (`create()` or a call); left
-   * out, the model keeps what another adapter of it set.
-   */
-  keepLoaded?: boolean
   /**
    * Where wllama's WebAssembly file is served. By default, the installed
    * `@wllama/wllama`'s own file on jsDelivr, at its version; serve
@@ -199,7 +190,6 @@ export class WllamaTextAdapter<TModel extends WllamaChatModel> extends OpenAIBas
   private useModel() {
     const config = this.loadConfig
     setContextLength(this.model, config.contextLength)
-    if (config.keepLoaded !== undefined) setKeepLoaded(this.model, config.keepLoaded)
     configureRuntime({
       ...(config.wasmUrl && { wasmUrl: config.wasmUrl }),
       ...(config.compat && { compat: config.compat }),
