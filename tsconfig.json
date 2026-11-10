@@ -19,6 +19,9 @@
       "path": "./packages/webgllm"
     },
     {
+      "path": "./packages/web-llm"
+    },
+    {
       "path": "./packages/mediapipe"
     }
   ],

@@ -20,11 +20,11 @@ export const PROMPT_API_OPTION: OpponentOption = {
   id: "prompt-api",
   label: "Prompt API",
   detail: "Built-in browser model",
-  thinking: "optional"
+  thinking: "none"
 }
 export const APFEL_MODEL = "apple-foundationmodel" as const
 export const DEV_OPPONENTS: OpponentOption[] = import.meta.env?.DEV === true
-  ? [{ id: APFEL_MODEL, label: "Apple-FoundationModel", detail: "Apfel on this Mac", thinking: "optional" }]
+  ? [{ id: APFEL_MODEL, label: "Apple-FoundationModel", detail: "Apfel on this Mac", thinking: "none" }]
   : []
 export const usesEmulatedReasoning = (model: OpponentModel) => model === "prompt-api" || model === APFEL_MODEL
 export const isWebGlOpponent = (model: OpponentModel): model is WebGllmChatModel => !usesEmulatedReasoning(model)

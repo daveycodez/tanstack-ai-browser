@@ -7,16 +7,20 @@ import type { ModelReasoning } from "@tanstack/ai"
 import type { ModelReasoningCapability } from "@tanstack/ai/adapter-internals"
 
 /**
- * Sampling settings from a model's card, in `modelOptions`' names
- * (OpenRouter's convention): used unless a call's `modelOptions` overrides it.
+ * Sampling settings from a model's card, in llama.cpp's request fields (the
+ * names `modelOptions` takes): used unless a call's `modelOptions` sets them.
  */
 export type Sampling = {
   temperature: number
-  topK: number
+  top_k: number
   /** llama.cpp's repetition penalty (`--repeat-penalty`). */
-  repetitionPenalty: number
+  repeat_penalty: number
   /** Nucleus sampling: the likeliest tokens up to this probability. */
-  topP?: number
+  top_p?: number
+  /** Drops tokens less likely than this share of the likeliest one's odds. */
+  min_p?: number
+  /** Lowers the odds of tokens that have appeared at all. */
+  presence_penalty?: number
 }
 
 export type WllamaModelMeta = {
@@ -35,6 +39,8 @@ export type WllamaModelMeta = {
   reasoning?: ModelReasoning
   /** Sampling from the model card, used unless `modelOptions` overrides it. */
   sampling: Sampling
+  /** The card's sampling while the chat template thinks, where it differs. */
+  thinkingSampling?: Sampling
 }
 
 // Reasoning shapes, each level's value being the chat template's
@@ -60,26 +66,27 @@ const TOOLS = {
 /** The cards' llama.cpp settings: `--temp 0.1 --top-k 50 --repeat-penalty 1.05`. */
 const LFM2_5_SAMPLING = {
   temperature: 0.1,
-  topK: 50,
-  repetitionPenalty: 1.05
+  top_k: 50,
+  repeat_penalty: 1.05
 } as const satisfies Sampling
 /** LFM2.5 Thinking's card: `--temp 0.05 --top-k 50 --repeat-penalty 1.05`. */
 const LFM2_5_THINKING_SAMPLING = {
   temperature: 0.05,
-  topK: 50,
-  repetitionPenalty: 1.05
+  top_k: 50,
+  repeat_penalty: 1.05
 } as const satisfies Sampling
 
-/**
- * Qwen3.5's generation config: temperature 0.6, top-k 20, top-p 0.95, no
- * repetition penalty.
- */
+/** Qwen3.5's card, text tasks without thinking (its default). */
 const QWEN_3_5_SAMPLING = {
-  temperature: 0.6,
-  topK: 20,
-  topP: 0.95,
-  repetitionPenalty: 1
+  temperature: 1,
+  top_k: 20,
+  top_p: 1,
+  min_p: 0,
+  presence_penalty: 2,
+  repeat_penalty: 1
 } as const satisfies Sampling
+/** Qwen3.5's card, text tasks with thinking. */
+const QWEN_3_5_THINKING_SAMPLING = { ...QWEN_3_5_SAMPLING, top_p: 0.95, presence_penalty: 1.5 } as const satisfies Sampling
 
 // Liquid's models are Q4_K_M: in wllama's WebAssembly build it reads
 // prompts and writes tokens about three times as fast as Q4_0 (llama.cpp
@@ -131,7 +138,8 @@ const QWEN_3_5_2B = {
   supports: TOOLS_AND_THINKING,
   size: "2b",
   reasoning: THINKING_SWITCH,
-  sampling: QWEN_3_5_SAMPLING
+  sampling: QWEN_3_5_SAMPLING,
+  thinkingSampling: QWEN_3_5_THINKING_SAMPLING
 } as const satisfies WllamaModelMeta
 
 export const WLLAMA_CHAT_MODELS = [
@@ -177,8 +185,26 @@ export const WLLAMA_MODEL_REASONING: Readonly<Record<string, ModelReasoning>> =
 export const modelMeta = (model: WllamaChatModel): WllamaModelMeta =>
   WLLAMA_MODEL_META[model]
 
-/** Where a model's GGUF file downloads from: its latest version (main) on Hugging Face. */
-export const modelUrl = (model: WllamaChatModel) => {
-  const { name, file } = modelMeta(model)
-  return `https://huggingface.co/${name}/resolve/main/${file}`
+/** A model the catalog lists, a GGUF file's URL, or a GGUF file on Hugging Face as `owner/repo/file.gguf`. */
+export type WllamaModel = WllamaChatModel | (string & {})
+
+/** Whether the catalog lists `model`. */
+export const listed = (model: string): model is WllamaChatModel =>
+  Object.prototype.hasOwnProperty.call(WLLAMA_MODEL_META, model)
+
+/**
+ * Where a model's GGUF file downloads from: a listed model's file, or the
+ * named one, at its latest version (main) on Hugging Face.
+ */
+export const modelUrl = (model: WllamaModel) => {
+  if (listed(model)) {
+    const { name, file } = modelMeta(model)
+    return `https://huggingface.co/${name}/resolve/main/${file}`
+  }
+  if (/^https?:\/\//.test(model)) return model
+  const [owner, repo, ...path] = model.split("/")
+  if (!owner || !repo || path.length === 0 || !model.endsWith(".gguf")) {
+    throw new Error(`${model} isn't a model this package lists: name its GGUF file, as "owner/repo/file.gguf" or a URL.`)
+  }
+  return `https://huggingface.co/${owner}/${repo}/resolve/main/${path.join("/")}`
 }

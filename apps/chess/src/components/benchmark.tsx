@@ -357,7 +357,7 @@ export function BenchmarkView() {
 
   useEffect(() => {
     mounted.current = true
-    void promptApiText("built-in")
+    void promptApiText()
       .availability()
       .then((availability) => availability !== "unavailable")
       .then((supported) => {

@@ -201,7 +201,7 @@ export async function chooseAiMove(
       unloadWebGl()
       activeWebGlModel = undefined
     }
-    await untilAborted(loadWithStatus("prompt-api", promptApiText("built-in")), signal)
+    await untilAborted(loadWithStatus("prompt-api", promptApiText()), signal)
   } else if (isWebGlOpponent(opponent.model)) {
     await waitForModel(opponent.model, signal)
   } else if (activeWebGlModel) {
@@ -259,17 +259,16 @@ export async function chooseAiMove(
         ? chat({
             ...chatOptions,
             adapter: apfelText(APFEL_MODEL),
-            reasoning,
-            modelOptions: { maxCompletionTokens: 8192 }
+            modelOptions: { max_tokens: 8192 }
           })
         : opponent.model === "prompt-api"
-        ? chat({ ...chatOptions, adapter: promptApiText("built-in"), reasoning })
+        ? chat({ ...chatOptions, adapter: promptApiText() })
         : chat({
             ...chatOptions,
             // Runtime catalog metadata determines the selected model's reasoning support.
             adapter: webgllmText(opponent.model as WebGllmChatModel) as AnyTextAdapter,
             ...(thinkingSupport !== "none" && { reasoning }),
-            modelOptions: { maxCompletionTokens: 8192, ...(options?.webglTemperature !== undefined && { temperature: options.webglTemperature }) }
+            modelOptions: { max_completion_tokens: 8192, ...(options?.webglTemperature !== undefined && { temperature: options.webglTemperature }) }
           })
     const { object: answer } = await readStructuredAnswer(stream, generationSignal, {
       onGenerating: () => onPhase?.("generating"),

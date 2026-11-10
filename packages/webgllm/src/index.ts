@@ -4,6 +4,4 @@
  * The model catalog is in `@tanstack-ai-browser/webgllm/model-meta`.
  */
 export { webgllmText, WebGllmTextAdapter } from "./adapter.js"
-export type { WebGllmConfig, WebGllmProviderUsageDetails, WebGllmTextModelOptions } from "./adapter.js"
-export { setMemoryBudget } from "./models.js"
-export type { Availability, DownloadProgressCallback } from "./models.js"
+export type { Availability, DownloadProgressCallback, WebGllmConfig, WebGllmModel, WebGllmTextModelOptions } from "./adapter.js"

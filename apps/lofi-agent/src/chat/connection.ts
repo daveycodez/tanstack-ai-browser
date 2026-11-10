@@ -6,51 +6,26 @@
  * hosted model's adapter.
  */
 import { chat, chatParamsFromRequestBody } from "@tanstack/ai"
-import type { ChatMiddleware, StreamChunk } from "@tanstack/ai"
+import type { StreamChunk } from "@tanstack/ai"
 import { stream } from "@tanstack/ai-react"
 
 import { getMcpClients, reportMcpDiscoveryError } from "#/lib/mcp"
 import { currentSystemPrompt } from "#/lib/settings"
-import { compactToolResult, shorten } from "#/lib/sources"
-import {
-  recordGeneration,
-  startReply,
-  statsFromUsage
-} from "./generation-stats"
+import { locationToolDefinition, locationToolSetting } from "#/lib/location"
+import { weatherTool, weatherToolSetting } from "#/lib/weather"
+import { recordGeneration, startReply } from "./generation-stats"
+import { replyStatsMiddleware } from "./call-stats"
 import { ABORTED, untilAborted } from "./abortable"
 import { isReasoningLevel, selectedModel } from "./model"
-import { currentModelId, effortFor, isModelId, modelInfo, prepareModel } from "./models"
-
-/**
- * Each model call's usage, as the adapter reports it when the call ends, to
- * the stats line. A reply that calls tools makes one call per step.
- */
-const replyStats: ChatMiddleware = {
-  name: "reply-stats",
-  onUsage: (ctx, usage) =>
-    recordGeneration(
-      ctx.threadId,
-      `${ctx.runId}:${ctx.iteration}`,
-      statsFromUsage(usage)
-    )
-}
-
-/**
- * Tool results in a short form, for small models' small context windows:
- * search results as a numbered source list, cut to a few thousand
- * characters. The model and the stream (which the source chips read) both
- * get the short form.
- */
-const compactToolResults: ChatMiddleware = {
-  name: "compact-tool-results",
-  onAfterToolCall: (_ctx, info) => {
-    if (!info.ok || typeof info.result !== "string") return
-    return {
-      type: "replaceResult",
-      result: shorten(compactToolResult(info.result))
-    }
-  }
-}
+import { messagesFor } from "./media"
+import {
+  currentModelId,
+  effortFor,
+  inputModalities,
+  isModelId,
+  modelInfo,
+  prepareModel
+} from "./models"
 
 /** The model a session forwarded with this run, if it's one we have. */
 function readModel(forwarded: Record<string, unknown> | undefined) {
@@ -80,6 +55,14 @@ async function* reply(
   if (params.messages.at(-1)?.role === "user") startReply(params.threadId)
   const model = readModel(params.forwardedProps)
   const reasoning = effortFor(model, readEffort(params.forwardedProps))
+  // Media the model can't read: refused in the message being answered (a
+  // queued or regenerated one), left out of earlier ones for this model
+  // only. The saved chat keeps it.
+  const messages = messagesFor(
+    params.messages,
+    inputModalities(model),
+    modelInfo(model).name
+  )
   // stop() aborts the run, here in the page.
   const abortController = new AbortController()
   signal?.addEventListener("abort", () => abortController.abort(), {
@@ -95,13 +78,20 @@ async function* reply(
   if (failed) throw failed
   yield* chat({
     adapter: modelInfo(model).adapter,
-    messages: params.messages,
+    messages,
     threadId: params.threadId,
     runId: params.runId,
     ...(params.parentRunId && { parentRunId: params.parentRunId }),
     ...(params.resume && { resume: params.resume }),
     // The user's system prompt from Settings, then the date.
     systemPrompts: [currentSystemPrompt()],
+    // The built-in tools, unless turned off in Settings. The location tool
+    // is a client tool: only its definition here, so the run pauses for
+    // useChat to run its browser part (components/chat/thread.tsx).
+    tools: [
+      ...(weatherToolSetting.get() ? [weatherTool] : []),
+      ...(locationToolSetting.get() ? [locationToolDefinition] : [])
+    ],
     // The MCP servers' tools, Exa's web search first. The clients stay open
     // between runs; a server that fails to list its tools is left out.
     mcp: {
@@ -113,7 +103,9 @@ async function* reply(
     // reason get none. The type is the levels these adapters declare;
     // effortFor already picked one this model has.
     ...(reasoning && { reasoning: reasoning as "off" | "high" }),
-    middleware: [replyStats, compactToolResults],
+    // Each call's usage and its timings measured from the stream, to the
+    // stats line, for this reply only.
+    middleware: [replyStatsMiddleware(recordGeneration)],
     abortController
   })
 }

@@ -6,7 +6,6 @@
 export { PromptApiTextAdapter, promptApiText } from "./adapter.js"
 export type {
   PromptApiConfig,
-  PromptApiProviderUsageDetails,
   PromptApiTextModelOptions
 } from "./adapter.js"
 export type { Availability, DownloadProgressCallback } from "./types.js"

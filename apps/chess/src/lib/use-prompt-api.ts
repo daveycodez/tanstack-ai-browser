@@ -6,7 +6,7 @@ export function usePromptApiAvailable() {
   useEffect(() => {
     let active = true
     const check = () => {
-      void promptApiText("built-in")
+      void promptApiText()
         .availability()
         .then((availability) => {
           if (active) setAvailable(availability !== "unavailable")

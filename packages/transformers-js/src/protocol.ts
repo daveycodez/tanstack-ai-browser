@@ -1,138 +1,83 @@
-/** Messages between the page and the local-model worker. */
+/**
+ * Messages between the page (client.ts) and the worker (worker.ts). The
+ * worker holds one model and runs one generation at a time.
+ */
+import type { GenerationConfig } from "@huggingface/transformers"
 
-export type ChatTurn = {
+/** Where the model runs: WebGPU, or the CPU through WebAssembly. */
+export type Device = "webgpu" | "wasm"
+
+/** The ONNX weights to load (Transformers.js's `dtype`). */
+export type Dtype = "q4f16" | "q4" | "fp16" | "fp32" | "q8" | "int8" | "uint8" | "bnb4"
+
+/**
+ * The model to load, and how. Left out, the worker picks the device and
+ * weights. `vision` loads it with its vision encoder and processor
+ * (Transformers.js's `AutoModelForImageTextToText`), for images.
+ */
+export type LoadSettings = { model: string; device?: Device; dtype?: Dtype; vision?: boolean }
+
+/** A part of a user message's content, as chat templates read it: an image stands in its place. */
+export type TemplatePart = { type: "text"; text: string } | { type: "image" }
+
+/** A chat message as Hugging Face chat templates read it. */
+export type TemplateMessage = {
   role: "system" | "user" | "assistant" | "tool"
-  content: string
-  /** The reply's thinking; LFM3's template keeps it for the current turn. */
-  thinking?: string
-  /** The reply's thinking, as Gemma 4's template reads it. */
-  reasoning?: string
-  /** Past tool calls, for templates that write them themselves. */
-  tool_calls?: Array<{
-    id?: string
-    type: "function"
-    function: { name: string; arguments: Record<string, unknown> }
-  }>
-  /** A tool result's call, and its tool's name (Gemma 4 writes it). */
+  /** Parts for a user message with images. */
+  content: string | Array<TemplatePart>
+  /** A mapping, not a JSON string: templates serialize the arguments themselves. */
+  tool_calls?: Array<{ id: string; type: "function"; function: { name: string; arguments: unknown } }>
   tool_call_id?: string
   name?: string
 }
 
-/** A tool as chat templates take it (OpenAI's function format). */
-export type ToolSpec = {
+/** A tool as chat templates take it (`apply_chat_template({ tools })`). */
+export type TemplateTool = {
   type: "function"
   function: { name: string; description: string; parameters: unknown }
 }
 
 /**
- * Sampling as the worker takes it (its own wire format; the adapter maps
- * `modelOptions`' camelCase names to it).
+ * Transformers.js's `generate()` settings (its `GenerationConfig`), as a
+ * call may set them: the worker sets the streamer and what it returns.
+ * Left out, the repo's `generation_config.json` decides.
  */
-export type WorkerSampling = {
-  temperature: number
-  top_k: number
-  repetition_penalty: number
-  /** Nucleus sampling: the likeliest tokens up to this probability. */
-  top_p?: number
-  /** Seeds the sampler's random draws, for repeatable samples. */
-  seed?: number
-}
+export type GenerationSettings = Partial<
+  Omit<
+    GenerationConfig,
+    | "streamer"
+    | "return_dict_in_generate"
+    | "num_return_sequences"
+    | "output_attentions"
+    | "output_hidden_states"
+    | "output_scores"
+  >
+>
 
-/** Token counts and timings of one generation, measured in the worker. */
-export type RunTimings = {
-  /** Tokens of the prompt, including any already in the model's cache. */
-  inputTokens: number
-  /** Tokens at the start of the prompt the model had read on an earlier run. */
-  cachedTokens: number
-  /** Tokens the model generated (the end-of-turn token included). */
-  outputTokens: number
-  /** From the request to the first generated token, in ms; null if none. */
-  firstTokenMs: number | null
-  /**
-   * From starting to read the prompt (the model loaded) to the first
-   * generated token, in ms; null if none.
-   */
-  promptMs: number | null
-  /** From the first generated token to the last, in ms. */
-  decodeMs: number
-  thinkingTokens?: number
-  thinkingBudgetTokens?: number
-  thinkingBudgetExhausted?: boolean
-}
+/** A generation's settings, with its cap. */
+export type GenerationOptions = GenerationSettings & { max_new_tokens: number }
 
-/**
- * Which weights to load: 4-bit weights with fp16 activations and cache
- * ("q4f16", the smallest), or with fp32 ones ("q4", for models whose
- * activations overflow fp16).
- */
-export type WeightsDtype = "q4f16" | "q4"
+export type GenerateRequest = {
+  messages: Array<TemplateMessage>
+  options: GenerationOptions
+  tools?: Array<TemplateTool>
+  /** The chat template's `enable_thinking`. */
+  enableThinking: boolean
+  /** The conversation's images, in order (data or http URLs): one for each image part. */
+  images?: Array<string>
+}
 
 export type WorkerRequest =
-  | {
-      type: "load"
-      /** This load, in the replies about it (a later load supersedes it). */
-      loadId: number
-      modelId: string
-      dtype: WeightsDtype
-      /**
-       * Tokens a chat may hold, prompt and reply together: the model's own
-       * context window when left out, and never more. The worker holds
-       * chats to it; the same model with another value isn't loaded again.
-       */
-      contextLength?: number
-    }
-  | {
-      type: "generate"
-      id: string
-      chat: Array<ChatTurn>
-      tools: Array<ToolSpec>
-      /** The chat template's `enable_thinking`; its default when left out. */
-      thinking?: boolean
-      thinkingBudgetTokens?: number
-      outputSchema?: object
-      /** False disables automatic reuse/retention between calls, not autoregressive KV within this run. */
-      cachePrompt?: boolean
-      sampling: WorkerSampling
-      /** Most tokens to generate; the worker's default when left out. */
-      maxTokens?: number
-      /**
-       * Tokens the chat may hold, prompt and reply together: at most what
-       * the model was loaded for, which is also the default.
-       */
-      contextLength?: number
-      /**
-       * Where the model's thinking starts: sent ahead of the reply when the
-       * chat template opens the thinking in the prompt itself.
-       */
-      thinkingOpen: string
-      thinkingClose: string
-    }
-  | { type: "stop"; id: string }
-  /** The page made room for the model (see "claim"): the worker loads it. */
-  | { type: "claimed" }
+  | { type: "load"; settings: LoadSettings }
+  | ({ type: "generate" } & GenerateRequest)
+  | { type: "interrupt" }
 
-export type WorkerResponse =
-  | {
-      type: "progress"
-      loadId: number
-      modelId: string
-      progress: number
-      cached: boolean
-      /** Bytes of the model's files downloaded so far, while downloading. */
-      loadedBytes?: number
-      /** Bytes of all the model's files, while downloading. */
-      totalBytes?: number
-    }
-  | { type: "ready"; loadId: number; modelId: string }
-  /**
-   * The model takes about `bytes` once loaded: the page makes room for it
-   * (unloading other runtimes' models past the memory budget, see
-   * model-memory.ts) and answers "claimed".
-   */
-  | { type: "claim"; loadId: number; modelId: string; bytes: number }
-  | { type: "load-error"; loadId: number; modelId: string; message: string }
-  | { type: "token"; id: string; text: string }
-  | { type: "done"; id: string; stats: RunTimings }
-  | { type: "error"; id: string; message: string }
-  /** A diagnostic line for the page's console (dev only). */
-  | { type: "log"; text: string }
+export type WorkerReply =
+  /** The download's progress across the model's files, 0 to 1. */
+  | { status: "progress"; progress: number }
+  | { status: "ready" }
+  /** Generated text. */
+  | { status: "update"; output: string }
+  /** The generation ended (finished, interrupted or out of tokens), with its token counts. */
+  | { status: "complete"; inputTokens: number; outputTokens: number }
+  | { status: "error"; message: string }

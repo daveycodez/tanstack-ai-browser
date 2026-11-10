@@ -20,6 +20,10 @@ import { ChatQueueItem } from "./queue-item"
 import { StructuredOutputPart } from "./structured-output"
 import { TextPart } from "./text-part"
 import { ThinkingPart } from "./thinking-part"
+import { WeatherTool } from "./weather-tool"
+import { LocationTool } from "./location-tool"
+import { LOCATION_TOOL } from "#/lib/location"
+import { WEATHER_TOOL } from "#/lib/weather"
 
 /**
  * The chat kit, bound to this app's widgets. `createChatUI` rather than
@@ -52,8 +56,12 @@ export const ChatUI = createChatUI(chatOptions, {
     uiResource: UIResourcePart,
     fallback: FallbackPart
   },
-  // MCP tools are only known at runtime: one widget for every tool name.
-  toolsComponents: everyTool(McpTool),
+  // MCP tools are only known at runtime: one widget for every tool name,
+  // and their own for the built-in weather and location tools.
+  toolsComponents: everyTool(McpTool, {
+    [WEATHER_TOOL]: WeatherTool,
+    [LOCATION_TOOL]: LocationTool
+  }),
   interruptsComponents: {
     // Approvals show in the layout's `Interrupts` list, as in TanStack's
     // example, one widget for every tool that asks first.

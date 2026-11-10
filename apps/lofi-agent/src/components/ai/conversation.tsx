@@ -1,5 +1,5 @@
 import ArrowDown from "@gravity-ui/icons/ArrowDown"
-import { ScrollShadow, Spinner } from "@heroui/react"
+import { Avatar, ScrollShadow, Spinner, Typography } from "@heroui/react"
 import type { ComponentProps, ReactNode } from "react"
 import { StickToBottom, useStickToBottomContext } from "use-stick-to-bottom"
 
@@ -50,20 +50,46 @@ export function ConversationContent({
   )
 }
 
-/** An empty conversation: a heading, with whatever starts one under it. */
+/**
+ * An empty conversation: a welcome in the middle of the space (the icon in
+ * HeroUI's Avatar, the title and a muted line in its Typography), with
+ * whatever starts the chat (the composer) at the bottom, where it stays
+ * once the chat starts, as in TanStack AI's chatbot example.
+ */
 export function ConversationEmptyState({
+  icon,
   title,
+  description,
   children
 }: {
+  icon: ReactNode
   title: string
+  description: string
   children?: ReactNode
 }) {
   return (
-    <div className="flex h-full flex-col items-center justify-center px-6 pb-16">
-      <div className="flex w-full max-w-[714px] flex-col items-center">
-        <h2 className="mb-8 text-center text-2xl font-semibold">{title}</h2>
-        {children}
+    <div className="flex h-full flex-col">
+      <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-2 px-6">
+        <Avatar size="lg" className="mb-2">
+          <Avatar.Fallback>{icon}</Avatar.Fallback>
+        </Avatar>
+        <Typography
+          type="h6"
+          align="center"
+          render={({ children, ...props }) => <h2 {...props}>{children}</h2>}
+        >
+          {title}
+        </Typography>
+        <Typography
+          type="body-sm"
+          color="muted"
+          align="center"
+          className="max-w-xs text-pretty"
+        >
+          {description}
+        </Typography>
       </div>
+      {children}
     </div>
   )
 }

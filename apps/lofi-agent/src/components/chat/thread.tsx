@@ -19,11 +19,18 @@ import {
   useMcpApprovalTools,
   useMcpSettled
 } from "#/lib/mcp"
+import { locationTool, locationToolSetting } from "#/lib/location"
 import { touchThread } from "#/lib/threads"
 import { ThreadSkeleton } from "./layout"
 import { ComposerProvider, ThreadContext } from "./thread-context"
-import type { ThreadActions } from "./thread-context"
+import type { MessageContent, ThreadActions } from "./thread-context"
 import { ChatUI } from "./ui-components"
+
+/** A message's text, for the session's title. */
+const contentText = (content: MessageContent) =>
+  typeof content === "string"
+    ? content
+    : content.map((part) => (part.type === "text" ? part.content : "")).join("")
 
 type ThreadProps = {
   threadId: string
@@ -77,8 +84,14 @@ function ThreadChat({ threadId, onSend }: ThreadProps) {
     [model, effort]
   )
   // MCP tools that ask first: the chat client needs their definitions to
-  // accept an approval (src/lib/mcp.ts).
-  const tools = useMcpApprovalTools()
+  // accept an approval (src/lib/mcp.ts). And the location tool's browser
+  // part, which the chat client runs when a run pauses on it.
+  const approvalTools = useMcpApprovalTools()
+  const location = locationToolSetting.use()
+  const tools = useMemo(
+    () => [...approvalTools, ...(location ? [locationTool] : [])],
+    [approvalTools, location]
+  )
   const chat = useChat({ ...chatOptions, threadId, forwardedProps, tools })
 
   // The sidebar shimmers the title of a session that is replying.
@@ -99,18 +112,18 @@ function ThreadChat({ threadId, onSend }: ThreadProps) {
   const actions: ThreadActions = useMemo(
     () => ({
       threadId,
-      send(text: string) {
+      send(content: MessageContent) {
         onSendRef.current()
-        touchThread(threadId, text)
-        void latest.current.sendMessage(text)
+        touchThread(threadId, contentText(content) || "Image")
+        void latest.current.sendMessage(typeof content === "string" ? content : { content })
       },
-      resend(index: number, text: string) {
+      resend(index: number, content: MessageContent) {
         const current = latest.current
         if (current.isLoading) current.stop()
         onSendRef.current()
-        touchThread(threadId, text)
+        touchThread(threadId, contentText(content) || "Image")
         current.setMessages(current.messages.slice(0, index))
-        void current.sendMessage(text, { whenBusy: "interrupt" })
+        void current.sendMessage(typeof content === "string" ? content : { content }, { whenBusy: "interrupt" })
       },
       remove(messageId: string) {
         const current = latest.current

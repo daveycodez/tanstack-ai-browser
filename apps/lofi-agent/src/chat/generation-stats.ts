@@ -1,15 +1,10 @@
 /**
  * Token counts and timings of each run of the model, by chat, for the stats
- * line under the composer. Each model call's usage is recorded when it ends
- * (`chat()`'s `onUsage`); a reply that calls tools runs the model more than
+ * line under the composer. Each model call's stats are recorded when it ends
+ * (call-stats.ts); a reply that calls tools runs the model more than
  * once. Each chat's latest reply's stats are kept in the replyStats
  * collection, by thread id, until the chat is deleted.
  */
-import type { TokenUsage } from "@tanstack/ai"
-import type { ApfelProviderUsageDetails } from "@tanstack-ai-browser/apfel"
-import type { TransformersJsProviderUsageDetails } from "@tanstack-ai-browser/transformers-js"
-import type { WllamaProviderUsageDetails } from "@tanstack-ai-browser/wllama"
-
 import { deleteIfPresent, replyStats, threads } from "#/lib/db"
 
 /** One run of the model. Counts the source doesn't report are left out. */
@@ -24,34 +19,8 @@ export type GenerationStats = {
   firstTokenMs?: number
   /** From starting to read the prompt to the first generated token, in ms. */
   promptMs?: number
-  /** Tokens generated after the first one. */
-  decodeTokens?: number
-  /** From the first generated token to the last, in ms. */
-  decodeMs?: number
-}
-
-/** Timings the adapters report, under the same names. */
-type UsageTimings = TransformersJsProviderUsageDetails &
-  ApfelProviderUsageDetails &
-  WllamaProviderUsageDetails
-
-/** A model call's stats from its usage: token counts, and the adapter's timings. */
-export function statsFromUsage(usage: TokenUsage): GenerationStats {
-  const timings = usage.providerUsageDetails as UsageTimings | undefined
-  const cachedTokens = usage.promptTokensDetails?.cachedTokens
-  return {
-    inputTokens: usage.promptTokens,
-    ...(cachedTokens && { cachedTokens }),
-    outputTokens: usage.completionTokens,
-    ...(timings?.firstTokenMs !== undefined && {
-      firstTokenMs: timings.firstTokenMs
-    }),
-    ...(timings?.promptMs !== undefined && { promptMs: timings.promptMs }),
-    ...(timings?.decodeMs !== undefined && {
-      decodeMs: timings.decodeMs,
-      decodeTokens: timings.decodeTokens ?? Math.max(usage.completionTokens - 1, 0)
-    })
-  }
+  /** From sending the prompt to the last generated token, in ms. */
+  streamMs?: number
 }
 
 /** The current reply's runs in each chat, by key, in the order they started. */
@@ -112,9 +81,6 @@ export type ReplyStats = {
   firstTokenSeconds?: number
 }
 
-/** Below this much generating time, a tokens-per-second figure is noise. */
-const MIN_DECODE_MS = 100
-
 const sum = (values: Array<number | undefined>) =>
   values.every((v) => v !== undefined)
     ? values.reduce<number>((a, b) => a + (b ?? 0), 0)
@@ -128,10 +94,10 @@ export function replyStatsOf(
   // The prompt of the last run is what the model last read.
   const last = generations.at(-1)
   const timed = generations.filter(
-    (g) => g.decodeTokens !== undefined && g.decodeMs !== undefined
+    (g) => g.outputTokens !== undefined && g.streamMs !== undefined
   )
-  const decodeTokens = sum(timed.map((g) => g.decodeTokens)) ?? 0
-  const decodeMs = sum(timed.map((g) => g.decodeMs)) ?? 0
+  const streamTokens = sum(timed.map((g) => g.outputTokens)) ?? 0
+  const streamMs = sum(timed.map((g) => g.streamMs)) ?? 0
   const lastTotal =
     last?.inputTokens !== undefined && last.outputTokens !== undefined
       ? last.inputTokens + last.outputTokens
@@ -155,11 +121,12 @@ export function replyStatsOf(
     outputTokens: sum(generations.map((g) => g.outputTokens)),
     totalTokens: lastTotal,
     promptTokensPerSecond:
-      readTokens !== undefined && readTokens > 0 && readMs >= MIN_DECODE_MS
+      readTokens !== undefined && readTokens > 0 && readMs > 0
         ? readTokens / (readMs / 1000)
         : undefined,
+    // Tokens over the whole stream, prompt reading included (as assistant-ui counts them).
     tokensPerSecond:
-      decodeMs >= MIN_DECODE_MS ? decodeTokens / (decodeMs / 1000) : undefined,
+      streamMs > 0 && streamTokens > 0 ? streamTokens / (streamMs / 1000) : undefined,
     firstTokenSeconds:
       firstTokenMs !== undefined ? firstTokenMs / 1000 : undefined
   }

@@ -40,6 +40,7 @@
       "mediapipe",
       "prompt-api",
       "transformers-js",
+      "web-llm",
       "webgllm",
       "wllama"
     ],
@@ -51,7 +52,7 @@
       "conventionalCommits": true,
       "adjustSemverBumpsForZeroMajorVersion": true,
       "fallbackCurrentVersionResolver": "disk",
-      "preVersionCommand": "pnpm nx run-many -t build -p apfel mediapipe prompt-api transformers-js webgllm wllama"
+      "preVersionCommand": "pnpm nx run-many -t build -p apfel mediapipe prompt-api transformers-js web-llm webgllm wllama"
     },
     "changelog": {
       "automaticFromRef": true,

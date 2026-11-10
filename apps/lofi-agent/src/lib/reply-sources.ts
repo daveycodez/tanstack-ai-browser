@@ -4,7 +4,7 @@
  */
 import type { UIMessage } from "@tanstack/ai"
 
-import { parseSources } from "#/lib/sources"
+import { sourcesOf } from "#/lib/sources"
 import type { Source } from "#/lib/sources"
 
 export type ReplySources = {
@@ -19,9 +19,9 @@ function sourceListsOf(message: UIMessage) {
   return message.parts
     .map((p) =>
       p.type === "tool-call" && typeof p.output === "string"
-        ? parseSources(p.output)
+        ? sourcesOf(p.output)
         : p.type === "tool-result" && typeof p.content === "string"
-          ? parseSources(p.content)
+          ? sourcesOf(p.content)
           : []
     )
     .filter((list) => list.length > 0)

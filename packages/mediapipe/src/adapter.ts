@@ -2,13 +2,12 @@
  * The embedding adapter, shaped like TanStack AI's own (`@tanstack/ai-openai`'s
  * and `@tanstack/ai-gemini`'s): `embed({ adapter: mediaPipeEmbedding(), input })`.
  */
+import { FilesetResolver, TextEmbedder } from "@mediapipe/tasks-text"
 import { requireTextOnlyEmbeddingInput } from "@tanstack/ai"
 import type { EmbeddingOptions, EmbeddingResult } from "@tanstack/ai"
 import { toRunErrorPayload } from "@tanstack/ai/adapter-internals"
 import { BaseEmbeddingAdapter } from "@tanstack/ai/adapters"
 
-import { availability, embedTexts, loadModel, unloadModel } from "./client.js"
-import type { Availability, DownloadProgressCallback } from "./client.js"
 import { MEDIAPIPE_MODEL_META } from "./model-meta.js"
 import type {
   MediaPipeEmbeddingModel,
@@ -19,12 +18,17 @@ import type {
   MediaPipeEmbeddingConfig,
   MediaPipeEmbeddingProviderOptions
 } from "./options.js"
+import { toVector } from "./vectors.js"
+import { MEDIAPIPE_WASM_URL } from "./version.js"
 
 export type { MediaPipeEmbeddingConfig, MediaPipeEmbeddingProviderOptions }
 
+/** Where the model stands, with the Prompt API's values (`LanguageModel.availability()`). */
+export type Availability = "unavailable" | "downloadable" | "downloading" | "available"
+
 /**
  * MediaPipe embedding adapter: text embeddings from Google's MediaPipe
- * TextEmbedder, in the browser, in a Web Worker.
+ * TextEmbedder, in the browser, on the page.
  *
  * - One vector per input item, text only.
  * - Fixed dimensions (100 for Universal Sentence Encoder): `dimensions`
@@ -41,6 +45,13 @@ export class MediaPipeEmbeddingAdapter<
 > {
   readonly name = "mediapipe" as const
   protected loadConfig: MediaPipeEmbeddingConfig
+  private embedder: Promise<TextEmbedder> | undefined
+  private ready = false
+  /**
+   * Calls and `destroy` run one at a time, so one call's `setOptions` never
+   * lands in another's batch, and no batch runs on a closed embedder.
+   */
+  private queue: Promise<unknown> = Promise.resolve()
 
   constructor(config: MediaPipeEmbeddingConfig, model: TModel) {
     super(model, {})
@@ -48,59 +59,63 @@ export class MediaPipeEmbeddingAdapter<
   }
 
   /**
-   * Where the model stands in this browser, with the Prompt API's values:
-   * "unavailable" where MediaPipe can't run (its TextEmbedder needs
-   * WebAssembly with SIMD in a module Web Worker; not on a server),
-   * "downloading" while this page downloads the model's file, "available"
-   * when it's loaded or its file (and, with `cacheWasm`, MediaPipe's
-   * WebAssembly) is in Cache Storage, else "downloadable". It reads Cache
-   * Storage only: no worker, no network.
+   * Where the model stands for this adapter: "unavailable" without
+   * WebAssembly, "available" once its embedder is loaded, "downloading"
+   * while it loads, else "downloadable" (MediaPipe's files may already be in
+   * the browser's HTTP cache, which a page can't see).
    */
-  availability(): Promise<Availability> {
-    return availability(this.model, this.loadConfig)
+  async availability(): Promise<Availability> {
+    if (typeof WebAssembly === "undefined") return "unavailable"
+    if (!this.embedder) return "downloadable"
+    return this.ready ? "available" : "downloading"
   }
 
   /**
-   * Loads the embedder (downloading the model the first time), with the
-   * download's progress, 0 to 1, then 1 once it's ready. Resolves to this
-   * adapter when it's ready; rejects if it can't load (fine to leave
-   * unawaited). `embed()` doesn't need it (its first call loads the model),
-   * but it lets a page load ahead of time. Adapters with the same model and
-   * load options share one embedder; the page holds one at a time.
-   * Aborting `signal` rejects this call at once with an AbortError and
-   * stops its progress reports; if no other caller (another call, or an
-   * `embed()` waiting for the model) still waits on the load, the worker
-   * ends, its download with it, and the model is left unloaded.
+   * Creates the embedder ahead of the first `embed()` (which creates it
+   * otherwise). Resolves to this adapter; rejects if MediaPipe can't load
+   * (fine to leave unawaited).
    */
-  create(
-    options: { onDownloadProgress?: DownloadProgressCallback; signal?: AbortSignal } = {}
-  ): Promise<this> {
-    const { onDownloadProgress } = options
-    const own = this.loadConfig.onDownloadProgress
-    const ready = loadModel(
-      this.model,
-      this.loadConfig,
-      own && onDownloadProgress
-        ? (progress) => {
-            own(progress)
-            onDownloadProgress(progress)
-          }
-        : (own ?? onDownloadProgress),
-      options.signal
-    ).then(() => this)
-    // Callers may leave it: an unawaited failure isn't an unhandled rejection.
+  create(): Promise<this> {
+    const ready = this.load().then(() => this)
     ready.catch(() => undefined)
     return ready
   }
 
   /**
-   * Unloads the embedder (ending its worker, and its download if it's
-   * downloading), if it's this model's; requests waiting on it fail. The
-   * embedder is shared, so this unloads it for every adapter of the model.
-   * Its files stay in Cache Storage.
+   * Closes the embedder, freeing it, once the calls before it are done; the
+   * next call creates it again.
    */
-  async destroy(): Promise<void> {
-    await unloadModel(this.model)
+  destroy(): Promise<void> {
+    const run = this.queue.then(async () => {
+      const embedder = this.embedder
+      this.embedder = undefined
+      this.ready = false
+      ;(await embedder?.catch(() => undefined))?.close()
+    })
+    this.queue = run.catch(() => undefined)
+    return run
+  }
+
+  /** MediaPipe's TextEmbedder, created once per adapter (again after a failed load). */
+  private load(): Promise<TextEmbedder> {
+    if (this.embedder) return this.embedder
+    const { delegate, modelAssetPath, wasmPath } = this.loadConfig
+    const embedder = FilesetResolver.forTextTasks(wasmPath ?? MEDIAPIPE_WASM_URL).then((fileset) =>
+      TextEmbedder.createFromOptions(fileset, {
+        baseOptions: {
+          modelAssetPath: modelAssetPath ?? MEDIAPIPE_MODEL_META[this.model].file,
+          ...(delegate && { delegate })
+        }
+      })
+    )
+    this.embedder = embedder
+    embedder.then(
+      () => (this.ready = this.embedder === embedder),
+      () => {
+        if (this.embedder === embedder) this.embedder = undefined
+      }
+    )
+    return embedder
   }
 
   async createEmbeddings(
@@ -110,34 +125,27 @@ export class MediaPipeEmbeddingAdapter<
     const model = options.model as TModel
     try {
       const texts = requireTextOnlyEmbeddingInput(options.input, this.name, model)
-      const expected = MEDIAPIPE_MODEL_META[model]?.dimensions
-      const custom = this.loadConfig.modelAssetPath !== undefined
-      // A custom model file's size is checked against what it returns.
-      if (options.dimensions !== undefined && !custom && options.dimensions !== expected) {
-        throw dimensionsError(model, options.dimensions, expected)
+      const fixed = MEDIAPIPE_MODEL_META[model].dimensions
+      // A custom model file's size isn't known.
+      if (options.dimensions !== undefined && !this.loadConfig.modelAssetPath && options.dimensions !== fixed) {
+        throw new Error(
+          `MediaPipe model "${model}" returns ${fixed} dimensions and can't return ${options.dimensions}: leave \`dimensions\` out, or set it to ${fixed}.`
+        )
       }
       logger.request(
         `activity=embed provider=${this.name} model=${model} inputs=${texts.length}`,
         { provider: this.name, model }
       )
-      const vectors =
-        texts.length === 0
-          ? []
-          : await embedTexts(model, this.loadConfig, texts, {
-              // Quantizing assumes unit-length vectors, so it normalizes
-              // them unless told not to.
-              l2Normalize: modelOptions?.l2Normalize ?? modelOptions?.quantize ?? false,
-              quantize: modelOptions?.quantize ?? false
-            }, this.loadConfig.onDownloadProgress)
-      if (vectors.length !== texts.length) {
-        throw new Error(
-          `MediaPipe returned ${vectors.length} embeddings for ${texts.length} inputs (model: ${model}).`
-        )
-      }
-      const returned = vectors[0]?.length
-      if (options.dimensions !== undefined && returned !== undefined && returned !== options.dimensions) {
-        throw dimensionsError(model, options.dimensions, returned)
-      }
+      const run = this.queue.then(async () => {
+        const embedder = await this.load()
+        await embedder.setOptions({
+          l2Normalize: modelOptions?.l2Normalize ?? false,
+          quantize: modelOptions?.quantize ?? false
+        })
+        return texts.map((text) => toVector(embedder.embed(text).embeddings[0]))
+      })
+      this.queue = run.catch(() => undefined)
+      const vectors = await run
       return {
         id: this.generateId(this.name),
         model,
@@ -151,12 +159,6 @@ export class MediaPipeEmbeddingAdapter<
       throw error
     }
   }
-}
-
-function dimensionsError(model: string, requested: number, fixed: number | undefined) {
-  return new Error(
-    `MediaPipe model "${model}" returns ${fixed ?? "a fixed number of"} dimensions and can't return ${requested}: leave \`dimensions\` out, or set it to ${fixed}.`
-  )
 }
 
 /**

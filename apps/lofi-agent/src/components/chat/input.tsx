@@ -1,10 +1,11 @@
 /**
- * The `input` widget: the prompt input, with the model picker (and its
- * thinking effort) and voice input in its toolbar.
+ * The `input` widget: the prompt input, with attached images and audio above its
+ * text, and the plus button, the model picker (and its thinking effort) and
+ * voice input in its toolbar.
  */
 import Microphone from "@gravity-ui/icons/Microphone"
-import { Skeleton } from "@heroui/react"
-import type { ReasoningLevel } from "@tanstack/ai"
+import { Alert, CloseButton, Skeleton } from "@heroui/react"
+import type { ContentPart, ReasoningLevel } from "@tanstack/ai"
 import { useRef, useState } from "react"
 
 import {
@@ -13,18 +14,28 @@ import {
   useEffort,
   useSelectedModel
 } from "#/chat/model"
+import { toAttachments } from "#/chat/attachments"
+import { cantRead, unreadableKinds } from "#/chat/media"
 import {
   afmStatus,
   checkAfm,
   effortButtonLabel,
   effortFor,
   effortOptions,
+  loadWebLlmModels,
+  modelInfo,
   PROVIDERS,
+  useAttachableKinds,
   useBackends,
+  useInputModalities,
   useModels
 } from "#/chat/models"
 import type { ModelId } from "#/chat/models"
 import { Action } from "#/components/ai/actions"
+import {
+  PromptInputAddAttachment,
+  PromptInputAttachments
+} from "#/components/ai/attachments"
 import { ModelSelector } from "#/components/ai/model-selector"
 import {
   PromptInput,
@@ -39,11 +50,33 @@ import { useComposer, useThread } from "./thread-context"
 import { useChatContext } from "./ui-components"
 
 export function ChatPromptInput() {
-  const { value, setValue } = useComposer()
+  const { value, setValue, attachments, setAttachments } = useComposer()
   const { send } = useThread()
   const { isLoading, stop } = useChatContext()
+  const model = useSelectedModel()
+  // What the picked model reads here: for the browser's own model, what
+  // the browser says this device takes.
+  const kinds = useAttachableKinds(model)
+  const reads = useInputModalities(model)
+  // Attachments the picked model can't read, after a switch: the draft
+  // stays as it is, and won't send until they're removed or another model
+  // is picked.
+  const unreadable = unreadableKinds(
+    attachments.map((attachment) => ({ type: attachment.kind })),
+    reads
+  )
+  const hasDraft = !!value.trim() || attachments.length > 0
   // A message sent while a reply runs waits in the queue.
-  const canSend = !!value.trim()
+  const canSend = hasDraft && unreadable.length === 0
+  // Files that couldn't be attached (a corrupt image), named above the box
+  // until dismissed or the next attach; the others are attached.
+  const [unattached, setUnattached] = useState<Array<string>>([])
+  const attach = (files: Iterable<File>) => {
+    void toAttachments(files, kinds).then(({ attachments: added, failed }) => {
+      setAttachments((current) => [...current, ...added])
+      setUnattached(failed)
+    })
+  }
 
   // Dictation adds to whatever was already typed when it started.
   const dictation = useDictation()
@@ -58,51 +91,94 @@ export function ChatPromptInput() {
   const submit = () => {
     if (!canSend) return
     dictation.cancel()
-    send(value.trim())
+    const text = value.trim()
+    // Attachments first, then the text, as a model reads a picture or clip and its question.
+    const media: Array<ContentPart> = attachments.map((attachment) => ({
+      type: attachment.kind,
+      source: { type: "data", value: attachment.data, mimeType: attachment.mimeType }
+    }))
+    send(media.length ? [...media, ...(text ? [{ type: "text" as const, content: text }] : [])] : text)
     setValue("")
+    setAttachments(() => [])
   }
 
   return (
-    <PromptInput label="Message input" name="message">
-      <PromptInputTextarea
-        placeholder="Send a message..."
-        value={value}
-        enterKeyHint="send"
-        onChange={(e) => setValue(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+    <>
+      {unreadable.length > 0 && (
+        // Above the box, not in it.
+        <Alert status="danger" className="mb-2">
+          <Alert.Indicator />
+          <Alert.Content>
+            <Alert.Description>
+              {cantRead(modelInfo(model).name, unreadable)} Pick a model that can, or remove them to send.
+            </Alert.Description>
+          </Alert.Content>
+        </Alert>
+      )}
+      {unattached.length > 0 && (
+        // Above the box, not in it.
+        <Alert status="danger" className="mb-2">
+          <Alert.Indicator />
+          <Alert.Content>
+            <Alert.Description>
+              Couldn&apos;t read {unattached.join(", ")}, so {unattached.length === 1 ? "it isn't" : "they aren't"} attached.
+            </Alert.Description>
+          </Alert.Content>
+          <CloseButton aria-label="Dismiss" onPress={() => setUnattached([])} />
+        </Alert>
+      )}
+      <PromptInput label="Message input" name="message">
+        <PromptInputAttachments
+          attachments={attachments}
+          onRemove={(id) => setAttachments((current) => current.filter((a) => a.id !== id))}
+        />
+        <PromptInputTextarea
+          placeholder="Send a message..."
+          value={value}
+          enterKeyHint="send"
+          onChange={(e) => setValue(e.target.value)}
+          onPaste={(e) => {
+            const files = [...e.clipboardData.files].filter((file) => kinds.some((kind) => file.type.startsWith(`${kind}/`)))
+            if (files.length === 0) return
             e.preventDefault()
-            submit()
-          }
-        }}
-      />
-      <PromptInputToolbar>
-        <PromptInputTools>
-          <ChatModelSelector />
-        </PromptInputTools>
-        <PromptInputTools end>
-          {dictation.isSupported && (
-            <Action
-              label={
-                dictation.isListening ? "Stop voice input" : "Start voice input"
-              }
-              aria-pressed={dictation.isListening}
-              onPress={toggleDictation}
-              className={dictation.isListening ? "text-danger" : "text-muted"}
-            >
-              <Microphone />
-            </Action>
-          )}
-          <PromptInputSubmit
-            // Stop while a reply runs, until there's a message to queue.
-            status={isLoading && !canSend ? "streaming" : "ready"}
-            isDisabled={!canSend}
-            onSubmit={submit}
-            onStop={stop}
-          />
-        </PromptInputTools>
-      </PromptInputToolbar>
-    </PromptInput>
+            attach(files)
+          }}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+              e.preventDefault()
+              submit()
+            }
+          }}
+        />
+        <PromptInputToolbar>
+          <PromptInputTools>
+            {kinds.length > 0 && <PromptInputAddAttachment kinds={kinds} onAdd={attach} />}
+            <ChatModelSelector />
+          </PromptInputTools>
+          <PromptInputTools end>
+            {dictation.isSupported && (
+              <Action
+                label={
+                  dictation.isListening ? "Stop voice input" : "Start voice input"
+                }
+                aria-pressed={dictation.isListening}
+                onPress={toggleDictation}
+                className={dictation.isListening ? "text-danger" : "text-muted"}
+              >
+                <Microphone />
+              </Action>
+            )}
+            <PromptInputSubmit
+              // Stop while a reply runs, until there's a message to queue.
+              status={isLoading && !hasDraft ? "streaming" : "ready"}
+              isDisabled={!canSend}
+              onSubmit={submit}
+              onStop={stop}
+            />
+          </PromptInputTools>
+        </PromptInputToolbar>
+      </PromptInput>
+    </>
   )
 }
 
@@ -202,13 +278,10 @@ function ChatModelSelector() {
         effort={level}
         effortLabel={level && effortButtonLabel(model, level)}
         onEffortChange={(id) => setEffort(id as ReasoningLevel)}
-        status={
-          afm === "checking"
-            ? { text: "Loading model" }
-            : afm === "unavailable"
-              ? { text: "Apple model not available", isError: true }
-              : null
-        }
+        // WebLLM's models load when the picker first opens.
+        onOpenChange={(isOpen) => {
+          if (isOpen) void loadWebLlmModels()
+        }}
       />
     </>
   )

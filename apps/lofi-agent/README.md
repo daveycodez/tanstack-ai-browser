@@ -7,17 +7,16 @@ A chat app that runs small language models entirely in your browser. Models are 
 ## Why it's different
 
 - **Private.** In-browser models run on your device. The app has no backend and no accounts: the Cloudflare Worker only serves the pages, prerendered or rendered without any of your data. Sessions, settings and MCP server details stay in your browser's IndexedDB.
-- **Runs on iPhone.** The default model runs on the WebGL engine, which needs no WebGPU, and the runtimes are tuned to stay inside iPhone Safari's memory and GPU limits. In-browser models hold their whole context window per session, prompt and reply together; on iPhone and iPad, 8,192 tokens.
+- **Runs on iPhone.** The default model runs on the WebGL engine, which needs no WebGPU, and the runtimes are tuned to stay inside iPhone Safari's memory and GPU limits. The wllama and WebGL models hold their whole context window per session, prompt and reply together; on iPhone and iPad, 8,192 tokens.
 - **Download once.** Model weights (about 0.8 to 1.1 GB per model) are saved to the browser's Origin Private File System and loaded from disk on later visits.
 - **Reuses work between runs.** The model keeps what it has already read, so a follow-up message, the next step after a tool call, or a new session with the same system prompt only reads what's new. The system prompt and tools are also saved to disk, so they aren't read again after a reload.
 
-What does leave your device: calls to MCP servers (Exa's web search, if it's on, and those you add), and the downloads of model files (Hugging Face) and the runtime (jsDelivr). The browser's built-in model is downloaded by the browser itself.
+What does leave your device: calls to MCP servers (Exa's web search, if it's on, and those you add), your location to about a kilometer, when you share it, to name your town (OpenStreetMap, if the location tool is on), the city in a weather lookup (Open-Meteo, if the weather tool is on), and the downloads of model files (Hugging Face) and the runtime (jsDelivr). The browser's built-in model is downloaded by the browser itself.
 
 ## Models
 
 | Model                     | Notes                                                                                                                                                                                                         |
 | ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Gemma 4 E4B               | Google's Gemma 4 E4B (4.5B effective parameters), in onnx-community's Transformers.js build: about 5 GB, for desktops. Its vision and audio encoders are downloaded with it, for image and audio input later. |
 | LFM3 1.7B Web             | Liquid AI's LFM3, in a custom ONNX build for iPhone Safari: 4-bit weights (about 900 MB), a smaller vocabulary, and flash attention in its sliding-window layers to keep memory down on long prompts.         |
 | LFM3 1.7B                 | The `onnx-community` ONNX export of LFM3.                                                                                                                                                                     |
 | LFM2.5 1.2B               | Liquid AI's ONNX build of LFM2.5 Instruct.                                                                                                                                                                    |
@@ -36,12 +35,15 @@ The picker's WebGL section runs models on `@tanstack-ai-browser/webgllm`, built 
 
 The GGUF models are in the picker's wllama section. They run on the CPU, WebGPU or not: on half the cores (wllama's default) where the page is cross-origin isolated (see `src/start.ts`), in every browser, Safari and Firefox included, since the site's headers use `Cross-Origin-Embedder-Policy: require-corp`. LFM3's GGUFs aren't there: wllama 3.8.1's llama.cpp predates LFM3, so they run on the WebGL engine instead, and a saved pick of one moves there (Liquid's) or to LFM3 Web on Transformers.js.
 
-The "Web" builds are published under [`daveycodez` on Hugging Face](https://huggingface.co/daveycodez). Models download their repository's latest version (main). Models whose thinking can be switched on and off (LFM3, its GGUF build included, and Gemma 4) get a Thinking row in the model picker, Off or On, on by default; the picker's button says "Thinking" while it's on. A model that declared more reasoning levels would offer each of them by name.
+The "Web" builds are published under [`daveycodez` on Hugging Face](https://huggingface.co/daveycodez). Models download their repository's latest version (main). Models whose thinking can be switched on and off (LFM3, its GGUF build included, and Qwen3.5) get a Reasoning row at the bottom of the model picker, Off or High, High by default, as in webgllm's demo; the picker's button shows the level after the model's name while reasoning is on. A model that declared more reasoning levels would offer each of them by name.
 
 ## Features
 
+- A new session starts with five starter prompts above the composer, at the bottom of the page as in TanStack AI's chatbot example
 - Streaming replies with collapsible thinking, Markdown, math (KaTeX) and syntax-highlighted code
 - Web search through Exa's MCP server, built in and on by default: works without a key at a free rate limit, or with your Exa API key. Results show as numbered source chips the reply can cite.
+- Weather, built in: models can look up a city's current weather and 5-day forecast from Open-Meteo (free, no key), shown as a weather card. It never asks first, and Settings turns it off. The city asked about is sent to Open-Meteo.
+- Location, built in: models can ask for your current location (the browser asks you first), to about a kilometer, so "the weather where I am" works and the card names your city. The place is named offline from GeoNames' list of cities over 15,000 people, and the town for the weather lookup comes from OpenStreetMap's reverse geocoding (Nominatim), which gets the rounded coordinates; where it names none, the nearest listed city stands in. The weather lookup sends that city's name to Open-Meteo. Settings turns it off.
 - MCP servers: add any Streamable HTTP server by URL, with optional HTTP headers for its key (for example `Authorization: Bearer …` or `x-api-key`). The browser connects directly, so the server must allow this site (CORS).
 - Tool approval: every MCP tool asks before it runs, with Approve and Reject, except the built-in server's read-only ones (Exa's search). A session left waiting for an answer still asks after a reload.
 - Sessions, settings and MCP servers saved in IndexedDB as TanStack DB collections, kept in step across open tabs. Each session has its own URL, `/sessions/<id>`.
@@ -54,11 +56,11 @@ The "Web" builds are published under [`daveycodez` on Hugging Face](https://hugg
 - A stats line under the composer for the latest reply: tokens in, cached, out and total, prompt reading and generation speed, and time to first token
 - Voice input through the browser's speech recognition, where available
 - The browser's built-in model (the Prompt API section: Gemini Nano in Chrome, Phi-4-mini in Edge), through the Prompt API, where the browser has it and the device can run it. The browser downloads it once for every site, with its progress shown in the reply; follow-ups and tool steps reuse its session, and web search works through guided generation
-- Settings: a system prompt sent with every session (before the current date), and deleting every session
+- Settings: a system prompt sent with every session (before the current date), the weather tool on or off, and deleting every session
 - Light, dark and system themes
 - Add to Home Screen: installs as an app with its own icon, and keeps the downloaded model more reliably than a Safari tab
 - GGUF models (the wllama section) run with llama.cpp's WebAssembly build: download once to the Origin Private File System, reuse what they've read across follow-ups and tool calls, and need no WebGPU
-- Without WebGPU (Firefox on Android, for one), the WebGL models still run on the GPU, the default among them. The Transformers.js models run on the CPU through WebAssembly, on their CPU (`q4`) weights, with nothing to set: every model but Gemma 4 can. Where WebGL 2 isn't available either, the picker starts on LFM2 1.2B Tool. Much slower than the GPU, especially while generating.
+- Without WebGPU (Firefox on Android, for one), the WebGL models still run on the GPU, the default among them. The Transformers.js models run on the CPU through WebAssembly, on their CPU (`q4`) weights, with nothing to set. Where WebGL 2 isn't available either, the picker starts on LFM2 1.2B Tool. Much slower than the GPU, especially while generating.
 - Pages render on the server (the home page is prerendered), with skeletons for what comes from IndexedDB until it opens
 - TanStack Devtools in development, with the AI and Router panels (no button: open them with Ctrl + ~)
 
@@ -141,5 +143,6 @@ apps/lofi-agent/           the app (Nx project "lofi-agent")
 
 - The chat follows TanStack AI's [ts-react-ui-chatbot example](https://github.com/TanStack/ai/tree/main/examples/ts-react-ui-chatbot), styled after HeroUI Pro's chat with HeroUI's open-source components. The sidebar layout and the thinking effort picker follow [assistant-ui](https://github.com/assistant-ui/assistant-ui) (MIT).
 - Provider icons are from [LobeHub Icons](https://github.com/lobehub/lobe-icons) (MIT).
-- LFM3 and LFM2.5 are models by [Liquid AI](https://huggingface.co/LiquidAI); Gemma 4 is by [Google DeepMind](https://deepmind.google/models/gemma/).
+- City names are from [GeoNames](https://www.geonames.org) (CC BY 4.0): `public/data/cities.json`, built by `scripts/build-cities.mjs` (`pnpm --filter @tanstack-ai-browser/lofi-agent build-cities`).
+- LFM3 and LFM2.5 are models by [Liquid AI](https://huggingface.co/LiquidAI).
 - Apple's model is reached through [apfel](https://apfel.franzai.com).

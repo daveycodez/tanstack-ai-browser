@@ -85,9 +85,7 @@ function summarize(
 async function runWllamaPackage(text: string, gpu = true) {
   const url = "/bundle-wllama/src/client.js"
   const client = (await import(/* @vite-ignore */ url)) as {
-    configureRuntime: (options: Record<string, unknown>) => void
-    setContextLength: (model: string, contextLength: number | undefined) => void
-    loadModel: (model: string) => Promise<{
+    loadModel: (model: string, settings: Record<string, unknown>) => Promise<{
       getLoadedContextInfo: () => { n_ctx: number; n_ctx_train: number }
       createChatCompletion: (
         options: Record<string, unknown>
@@ -111,12 +109,10 @@ async function runWllamaPackage(text: string, gpu = true) {
       original(...args)
     }
   }
-  client.configureRuntime({ gpu, debug: true })
   // ?ctx= sets the context; left out, the model's whole window.
   const ctx = params.get("ctx")
-  client.setContextLength(model, ctx ? Number(ctx) : undefined)
   const t0 = performance.now()
-  const wllama = await client.loadModel(model)
+  const wllama = await client.loadModel(model, { gpu, debug: true, ...(ctx && { contextLength: Number(ctx) }) })
   const info = wllama.getLoadedContextInfo()
   log(`wllama context: n_ctx ${info.n_ctx}, n_ctx_train ${info.n_ctx_train}`)
   log(`wllama (package) loaded ${model} ${gpu ? "on WebGPU where it can" : "on the CPU"} in ${((performance.now() - t0) / 1000).toFixed(1)} s`)
@@ -193,112 +189,77 @@ async function runWllamaPackage(text: string, gpu = true) {
   await wllama.exit()
 }
 
-/** Transformers.js on WebGPU, through the transformers-js package's worker. */
+/**
+ * Transformers.js through the transformers-js package's adapter
+ * (`transformersJsText`), on WebGPU or the CPU (`device: "wasm"`), timed
+ * from its stream: time to the first token, then the tokens after it.
+ */
 async function runTjs(text: string, cpu = false) {
-  const worker = new Worker(
-    cpu ? "/bundle/bench/tjs-cpu-worker.js" : "/bundle-tjs/src/worker.js",
-    // "…:debug" turns on the worker's memory logs (?debug=1).
-    { type: "module", name: params.get("debug") ? "transformers-js:debug" : "transformers-js" }
-  )
-  let lastPct = -10
-  const pending = new Map<
-    string,
-    {
-      tokens: number
-      text: string
-      resolve: (stats: Record<string, number | null>) => void
-      reject: (e: Error) => void
-    }
-  >()
-  /** Each finished request's reply text. */
-  const replies = new Map<string, string>()
-  let ready: () => void = () => undefined
-  let failed: (e: Error) => void = () => undefined
-  worker.onmessage = ({ data }) => {
-    // The page holds no other runtime's model: room is always there.
-    if (data.type === "claim") return worker.postMessage({ type: "claimed" })
-    if (data.type === "progress") {
-      const pct = Math.floor(data.progress * 100)
-      if (pct >= lastPct + 10) {
-        lastPct = pct
-        log(`loading ${pct}% (${data.cached ? "from storage" : "downloading"})`)
-      }
-    } else if (data.type === "ready") ready()
-    else if (data.type === "load-error") failed(new Error(data.message))
-    else if (data.type === "log") log(`[worker] ${data.text}`)
-    else if (data.type === "token") {
-      const p = pending.get(data.id)
-      if (p) {
-        p.tokens++
-        p.text += data.text
-      }
-    } else if (data.type === "done") {
-      const p = pending.get(data.id)
-      if (p) replies.set(data.id, p.text)
-      p?.resolve(data.stats)
-    }
-    else if (data.type === "error")
-      pending.get(data.id)?.reject(new Error(data.message))
+  /** The adapter's runtime methods and chatStream, as the bench uses them. */
+  type Adapter = {
+    create(options: { onDownloadProgress: (progress: number) => void }): Promise<unknown>
+    destroy(): Promise<void>
+    chatStream(options: Record<string, unknown>): AsyncIterable<Record<string, unknown>>
+  }
+  const url = "/bundle-tjs/src/index.js"
+  const { transformersJsText } = (await import(/* @vite-ignore */ url)) as {
+    transformersJsText: (model: string, config: Record<string, unknown>) => Adapter
   }
   const model = params.get("model") ?? "onnx-community/LFM3-1.7B-ONNX"
+  const adapter = transformersJsText(model, cpu ? { device: "wasm", dtype: "q4" } : { device: "webgpu", dtype: "q4f16" })
   const t0 = performance.now()
-  await new Promise<void>((resolve, reject) => {
-    ready = resolve
-    failed = reject
-    // The context the chats use (?ctx=, 8,192 by default, as on an iPhone).
-    worker.postMessage({
-      type: "load",
-      modelId: model,
-      dtype: cpu ? "q4" : "q4f16",
-      contextLength: Number(params.get("ctx") ?? 8192)
-    })
+  let lastPct = -10
+  await adapter.create({
+    onDownloadProgress: (progress) => {
+      const pct = Math.floor(progress * 100)
+      if (pct >= lastPct + 10) {
+        lastPct = pct
+        log(`loading ${pct}%`)
+      }
+    }
   })
-  log(
-    `Transformers.js loaded ${model} in ${((performance.now() - t0) / 1000).toFixed(1)} s`
-  )
-  let n = 0
-  const generate = (content: string, maxTokens: number) =>
-    new Promise<Record<string, number | null>>((resolve, reject) => {
-      const id = `run${n++}`
-      pending.set(id, { tokens: 0, text: "", resolve, reject })
-      worker.postMessage({
-        type: "generate",
-        id,
-        chat: [{ role: "user", content }],
-        tools: [],
-        thinking: false,
-        sampling: { temperature: 0, top_k: 1, repetition_penalty: 1.1 },
-        maxTokens,
-        // (?ctx= for longer prompts.)
-        contextLength: Number(params.get("ctx") ?? 8192),
-        thinkingOpen: "<think>",
-        thinkingClose: "</think>"
-      })
+  log(`Transformers.js loaded ${model} in ${((performance.now() - t0) / 1000).toFixed(1)} s`)
+  const noop = () => undefined
+  const logger = { request: noop, errors: noop, provider: noop, warn: noop }
+  /** One greedy reply: its text, token counts and stream timings. */
+  const generate = async (content: string, maxTokens: number) => {
+    const start = performance.now()
+    let first: number | undefined
+    let last = start
+    let reply = ""
+    let usage: { promptTokens?: number; completionTokens?: number } = {}
+    const stream = adapter.chatStream({
+      logger,
+      model,
+      threadId: `bench-${Math.random()}`,
+      messages: [{ role: "user", content }],
+      modelOptions: { do_sample: false, max_new_tokens: maxTokens }
     })
+    for await (const event of stream) {
+      if (event.type === "TEXT_MESSAGE_CONTENT" || event.type === "REASONING_MESSAGE_CONTENT") {
+        first ??= performance.now()
+        last = performance.now()
+        reply += event.delta as string
+      } else if (event.type === "RUN_FINISHED") usage = (event.usage ?? {}) as typeof usage
+      else if (event.type === "RUN_ERROR") throw new Error(String(event.message))
+    }
+    return { reply, promptTokens: usage.promptTokens ?? 0, outputTokens: usage.completionTokens ?? 0, promptMs: (first ?? last) - start, decodeMs: last - (first ?? last) }
+  }
   await generate("Hi", 4)
   const runs = []
   for (let i = 0; i < 3; i++) {
     // A different first line each time, so no run reuses another's cache.
-    const wall0 = performance.now()
     const s = await generate(`Run ${i + 1} of the benchmark.\n\n${text}`, 64)
-    const lastText = replies.get(`run${n - 1}`) ?? ""
-    const wall = performance.now() - wall0
-    const input = (s.inputTokens ?? 0) - (s.cachedTokens ?? 0)
-    const promptTps = (input / (s.promptMs ?? 1)) * 1000
-    const decodeTps = (((s.outputTokens ?? 1) - 1) / (s.decodeMs ?? 1)) * 1000
+    const promptTps = (s.promptTokens / (s.promptMs || 1)) * 1000
+    const decodeTps = ((s.outputTokens - 1) / (s.decodeMs || 1)) * 1000
+    if (i === 0) log(`reply: ${JSON.stringify(s.reply.slice(0, 200))}`)
     log(
-      `  stopwatch: whole reply ${wall.toFixed(0)} ms for ${s.outputTokens} tokens; minus the prompt, ${(((s.outputTokens ?? 1) - 1) / ((wall - (s.promptMs ?? 0)) / 1000)).toFixed(1)} tokens/s`
+      `Transformers.js ${cpu ? "WASM" : "WebGPU"} run ${i + 1}: ${s.promptTokens} prompt tokens in ${s.promptMs.toFixed(0)} ms (${promptTps.toFixed(1)} tokens/s), ${s.outputTokens} tokens at ${decodeTps.toFixed(1)} tokens/s`
     )
-    if (i === 0) log(`reply: ${JSON.stringify(lastText.slice(0, 200))}`)
-    log(
-      `Transformers.js ${cpu ? "WASM" : "WebGPU"} run ${i + 1}: ${input} prompt tokens in ${(s.promptMs ?? 0).toFixed(0)} ms (${promptTps.toFixed(1)} tokens/s), ${s.outputTokens} tokens at ${decodeTps.toFixed(1)} tokens/s`
-    )
-    runs.push({ promptTps, decodeTps, ttftMs: s.promptMs ?? 0 })
+    runs.push({ promptTps, decodeTps, ttftMs: s.promptMs })
   }
-  summarize(
-    cpu ? "Transformers.js WASM (CPU), onnx-community ONNX q4" : "Transformers.js WebGPU, onnx-community ONNX q4f16",
-    runs
-  )
+  await adapter.destroy()
+  summarize(cpu ? "Transformers.js WASM (CPU), onnx-community ONNX q4" : "Transformers.js WebGPU, onnx-community ONNX q4f16", runs)
 }
 
 /**

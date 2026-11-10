@@ -1,252 +1,40 @@
-import type { ToolFormat } from "./tool-calls.js"
-
-/** Where a model's thinking starts and ends in its reply. */
-export type ThinkingMarkers = { open: string; close: string }
-
-/** `<think>…</think>`, as LFM models (and most others) write it. */
-export const THINK_TAGS: ThinkingMarkers = {
-  open: "<think>",
-  close: "</think>"
-}
-
-/** Each format's thinking markers. */
-export const THINKING_MARKERS: Record<ToolFormat, ThinkingMarkers> = {
-  lfm2: THINK_TAGS,
-  lfm3: THINK_TAGS,
-  "qwen3.5": THINK_TAGS,
-  // Gemma 4 thinks in a "thought" channel: `<|channel>thought\n…<channel|>`.
-  gemma4: { open: "<|channel>thought", close: "<channel|>" }
-}
-
 /**
- * Splits a model's reply into its thinking and its answer. Thinking is any
- * `<think>…</think>` block (or the format's own markers), or everything
- * before a lone close (models prompted with an empty `<think></think>`
- * sometimes still think a little and close it). An open with no close yet
- * means it's still thinking.
+ * Splits a streamed reply at `<think>` and `</think>` into thinking and
+ * answer text. (The worker writes an opening tag the chat template put in
+ * the prompt as `<think>`.)
  */
-export function splitThinking(
-  text: string,
-  { open: OPEN, close: CLOSE }: ThinkingMarkers = THINK_TAGS
-) {
-  const thoughts: Array<string> = []
-  let rest = text
-  let isThinking = false
-  for (;;) {
-    const open = rest.indexOf(OPEN)
-    const close = rest.indexOf(CLOSE)
-    if (close !== -1 && (open === -1 || close < open)) {
-      // A close with no open: everything before it was thinking.
-      thoughts.push(rest.slice(0, close))
-      rest = rest.slice(close + CLOSE.length)
-      continue
-    }
-    if (open === -1) break
-    const before = rest.slice(0, open)
-    const after = rest.slice(open + OPEN.length)
-    const end = after.indexOf(CLOSE)
-    if (end === -1) {
-      thoughts.push(after)
-      rest = before
-      isThinking = true
-      break
-    }
-    thoughts.push(after.slice(0, end))
-    rest = before + after.slice(end + CLOSE.length)
-  }
+
+/** A run of streamed text: thinking, or the answer. */
+export type Piece = { thinking: boolean; text: string }
+
+/** Reads a streamed reply: `push` each piece, then `end` for what's held back. */
+export function thinkingSplitter() {
+  let thinking = false
+  let buffer = ""
   return {
-    thinking: thoughts
-      .map((t) => t.trim())
-      .filter(Boolean)
-      .join("\n\n"),
-    answer: rest.trim(),
-    isThinking
-  }
-}
-
-/** Length of the longest end of `text` that could be the start of `tag`. */
-function partialTag(text: string, tag: string) {
-  for (let n = Math.min(tag.length - 1, text.length); n > 0; n--) {
-    if (tag.startsWith(text.slice(-n))) return n
-  }
-  return 0
-}
-
-export type ReplyPiece = { kind: "thinking" | "answer"; text: string }
-
-/**
- * Splits a reply into thinking and answer while it streams. A reply that
- * starts with the open marker (`<think>`) is thinking until the close
- * (`</think>`); the rest is the answer, with any stray close left out.
- * Markers split across tokens are held back until they are complete.
- */
-export function createThinkingSplitter({
-  open: OPEN,
-  close: CLOSE
-}: ThinkingMarkers = THINK_TAGS) {
-  let state: "start" | "thinking" | "answer" = "start"
-  let buffer = ""
-  /** Whether the thinking has had any text yet (to drop a leading newline). */
-  let thought = false
-  /** Whether the answer has had any text yet (to drop leading blank lines). */
-  let answered = false
-
-  const answer = (text: string): Array<ReplyPiece> => {
-    const out = answered ? text : text.trimStart()
-    if (!out) return []
-    answered = true
-    return [{ kind: "answer", text: out }]
-  }
-
-  function push(text: string): Array<ReplyPiece> {
-    buffer += text
-    const pieces: Array<ReplyPiece> = []
-    for (;;) {
-      if (state === "start") {
-        const lead = buffer.trimStart()
-        if (lead.startsWith(OPEN)) {
-          buffer = lead.slice(OPEN.length)
-          state = "thinking"
-        } else if (OPEN.startsWith(lead)) {
-          return pieces
-        } else {
-          state = "answer"
+    push(piece: string): Array<Piece> {
+      buffer += piece
+      const out: Array<Piece> = []
+      for (;;) {
+        const tag = thinking ? "</think>" : "<think>"
+        const at = buffer.indexOf(tag)
+        if (at === -1) {
+          // Hold back what could be the start of the tag.
+          let keep = Math.min(buffer.length, tag.length - 1)
+          while (keep > 0 && !tag.startsWith(buffer.slice(-keep))) keep--
+          if (buffer.length > keep) out.push({ thinking, text: buffer.slice(0, buffer.length - keep) })
+          buffer = buffer.slice(buffer.length - keep)
+          return out
         }
-      } else if (state === "thinking") {
-        const end = buffer.indexOf(CLOSE)
-        if (end === -1) {
-          const keep = partialTag(buffer, CLOSE)
-          const done = buffer.slice(0, buffer.length - keep)
-          buffer = buffer.slice(done.length)
-          const text = thought ? done : done.trimStart()
-          if (text) {
-            thought = true
-            pieces.push({ kind: "thinking", text })
-          }
-          return pieces
-        }
-        const text = thought
-          ? buffer.slice(0, end)
-          : buffer.slice(0, end).trimStart()
-        if (text) {
-          thought = true
-          pieces.push({ kind: "thinking", text })
-        }
-        buffer = buffer.slice(end + CLOSE.length)
-        state = "answer"
-      } else {
-        if (!answered) {
-          // A budgeted model may reopen thinking and immediately be closed again.
-          // Strip only complete empty blocks before the first visible answer.
-          const lead = buffer.trimStart()
-          if ((lead.length < OPEN.length && OPEN.startsWith(lead)) || (lead.length < CLOSE.length && CLOSE.startsWith(lead))) return pieces
-          if (lead.startsWith(CLOSE)) {
-            buffer = lead.slice(CLOSE.length)
-            continue
-          }
-          if (lead.startsWith(OPEN)) {
-            const afterOpen = lead.slice(OPEN.length).trimStart()
-            if (afterOpen.length < CLOSE.length && CLOSE.startsWith(afterOpen)) return pieces
-            if (afterOpen.startsWith(CLOSE)) {
-              buffer = afterOpen.slice(CLOSE.length)
-              continue
-            }
-          }
-        }
-        // Once answer text starts, marker-shaped content is literal data.
-        pieces.push(...answer(buffer))
-        buffer = ""
-        return pieces
+        if (at > 0) out.push({ thinking, text: buffer.slice(0, at) })
+        buffer = buffer.slice(at + tag.length)
+        thinking = !thinking
       }
+    },
+    end(): Array<Piece> {
+      const rest = buffer
+      buffer = ""
+      return rest ? [{ thinking, text: rest }] : []
     }
   }
-
-  /** Whatever is still held back, once the reply has ended. */
-  function flush(): Array<ReplyPiece> {
-    const rest = buffer
-    buffer = ""
-    if (!rest) return []
-    return state === "thinking"
-      ? [{ kind: "thinking", text: rest }]
-      : answer(rest)
-  }
-
-  return { push, flush }
-}
-
-/** Constrained generation has one reasoning phase; markers inside JSON strings are data. */
-export function structuredAnswer(text: string, markers: ThinkingMarkers = THINK_TAGS): string {
-  const raw = text.trimStart()
-  if (!raw.startsWith(markers.open)) return raw.trim()
-  const close = raw.indexOf(markers.close, markers.open.length)
-  return close < 0 ? "" : raw.slice(close + markers.close.length).trim()
-}
-
-/**
- * `structuredAnswer` while the reply streams: a reply that opens with the
- * thinking marker is thinking up to the first close, and everything after
- * it is the answer, marker-shaped text included (it is JSON data). The
- * answer pieces, joined and trimmed, equal `structuredAnswer` of the reply.
- */
-export function createStructuredSplitter({
-  open: OPEN,
-  close: CLOSE
-}: ThinkingMarkers = THINK_TAGS) {
-  let state: "start" | "thinking" | "answer" = "start"
-  let buffer = ""
-  let thought = false
-  let answered = false
-
-  const thinking = (text: string): Array<ReplyPiece> => {
-    const out = thought ? text : text.trimStart()
-    if (!out) return []
-    thought = true
-    return [{ kind: "thinking", text: out }]
-  }
-  const answer = (text: string): Array<ReplyPiece> => {
-    const out = answered ? text : text.trimStart()
-    if (!out) return []
-    answered = true
-    return [{ kind: "answer", text: out }]
-  }
-
-  function push(text: string): Array<ReplyPiece> {
-    buffer += text
-    const pieces: Array<ReplyPiece> = []
-    if (state === "start") {
-      const lead = buffer.trimStart()
-      if (lead.startsWith(OPEN)) {
-        buffer = lead.slice(OPEN.length)
-        state = "thinking"
-      } else if (OPEN.startsWith(lead)) {
-        return pieces
-      } else {
-        state = "answer"
-      }
-    }
-    if (state === "thinking") {
-      const end = buffer.indexOf(CLOSE)
-      if (end === -1) {
-        const keep = partialTag(buffer, CLOSE)
-        pieces.push(...thinking(buffer.slice(0, buffer.length - keep)))
-        buffer = buffer.slice(buffer.length - keep)
-        return pieces
-      }
-      pieces.push(...thinking(buffer.slice(0, end)))
-      buffer = buffer.slice(end + CLOSE.length)
-      state = "answer"
-    }
-    pieces.push(...answer(buffer))
-    buffer = ""
-    return pieces
-  }
-
-  /** Whatever is still held back, once the reply has ended. */
-  function flush(): Array<ReplyPiece> {
-    const rest = buffer
-    buffer = ""
-    return state === "thinking" ? thinking(rest) : answer(rest)
-  }
-
-  return { push, flush }
 }

@@ -14,7 +14,7 @@ import TrashBin from "@gravity-ui/icons/TrashBin"
 import Volume from "@gravity-ui/icons/Volume"
 import VolumeXmark from "@gravity-ui/icons/VolumeXmark"
 import { Alert, Button, Dropdown, Label } from "@heroui/react"
-import type { UIMessage } from "@tanstack/ai"
+import type { ContentPart, UIMessage } from "@tanstack/ai"
 import type { MessageProps } from "@tanstack/ai-react/ui"
 import { useContext, useEffect, useMemo, useState } from "react"
 
@@ -22,6 +22,7 @@ import { useSelectedModel } from "#/chat/model"
 import { modelInfo, useModelStatus } from "#/chat/models"
 import type { chatOptions } from "#/chat/options"
 import { Action, Actions } from "#/components/ai/actions"
+import { AttachmentThumbnail } from "#/components/ai/attachments"
 import { Message, MessageContent } from "#/components/ai/message"
 import { ToolGroup } from "#/components/ai/tool"
 import {
@@ -47,11 +48,23 @@ export function ChatMessage({ message }: MessageProps<typeof chatOptions>) {
   return null
 }
 
+/** A user message's images and audio, as content parts to send again. */
+const mediaParts = (message: UIMessage): Array<ContentPart> =>
+  message.parts.flatMap((part) => (part.type === "image" || part.type === "audio" ? [part as ContentPart] : []))
+
+/** A media part's source as a URL, or nothing for a provider file. */
+const mediaSrc = (source: { type: string; value: string; mimeType?: string }) =>
+  source.type === "file" ? undefined : source.type === "data" ? `data:${source.mimeType ?? "application/octet-stream"};base64,${source.value}` : source.value
+
 function UserMessage({ message }: { message: UIMessage }) {
   const { messages } = useChatContext()
   const { resend, remove } = useThread()
   const [isEditing, setIsEditing] = useState(false)
   const text = messageText(message)
+  const media = mediaParts(message)
+  // Its images and audio go again with the text, edited or not.
+  const content = (next: string) =>
+    media.length ? [...media, ...(next ? [{ type: "text" as const, content: next }] : [])] : next
 
   if (isEditing) {
     return (
@@ -62,7 +75,7 @@ function UserMessage({ message }: { message: UIMessage }) {
           setIsEditing(false)
           resend(
             messages.findIndex((m) => m.id === message.id),
-            next
+            content(next)
           )
         }}
         onDelete={() => {
@@ -75,7 +88,17 @@ function UserMessage({ message }: { message: UIMessage }) {
 
   return (
     <Message from="user">
-      <MessageContent>{text}</MessageContent>
+      {media.length > 0 && (
+        <div className="flex max-w-[80%] flex-wrap justify-end gap-2">
+          {media.map((part, index) => {
+            if (part.type !== "image" && part.type !== "audio") return null
+            const src = mediaSrc(part.source as { type: string; value: string; mimeType?: string })
+            const name = `${part.type === "image" ? "Image" : "Audio"} ${index + 1}`
+            return src ? <AttachmentThumbnail key={index} kind={part.type} src={src} name={name} /> : null
+          })}
+        </div>
+      )}
+      {text && <MessageContent>{text}</MessageContent>}
       <Actions>
         <CopyAction text={text} />
         <Action
@@ -83,7 +106,7 @@ function UserMessage({ message }: { message: UIMessage }) {
           onPress={() =>
             resend(
               messages.findIndex((m) => m.id === message.id),
-              text
+              content(text)
             )
           }
         >
@@ -114,7 +137,7 @@ function EditMessage({
     <PromptInput label="Edit message" className="ms-auto w-full max-w-[85%]">
       <PromptInputTextarea
         value={value}
-        maxHeight={320}
+        maxRows={13}
         autoFocus
         onChange={(e) => setValue(e.target.value)}
         onKeyDown={(e) => {
@@ -165,9 +188,11 @@ function AssistantMessage({ message }: { message: UIMessage }) {
     (last?.type === "tool-call" && last.output !== undefined)
   const shownError = isLast && !isLoading ? error : undefined
 
+  const liveThinking =
+    isRunning && last?.type === "thinking" ? last.content : undefined
   const reply = useMemo(
-    () => ({ sources, isRunning, hasAnswer }),
-    [sources, isRunning, hasAnswer]
+    () => ({ sources, isRunning, hasAnswer, liveThinking }),
+    [sources, isRunning, hasAnswer, liveThinking]
   )
 
   return (
