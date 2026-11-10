@@ -28,6 +28,7 @@ The engine is the [`webgllm`](https://www.npmjs.com/package/webgllm) package, be
 `webgllmText(model, config?)` takes:
 
 - `contextLength`: most tokens a chat may hold, prompt and reply together; the model's whole context by default (LFM3: 262,144), never more. Smaller takes less memory. Changing it loads the model again.
+- `worker`: a function that starts the Web Worker a model runs in, in place of webgllm's own (webgllm's `worker` option): `() => new Worker(url, { type: "module" })`, where `url` is webgllm's worker script (`node_modules/webgllm/dist/worker.js`), served or bundled your way. webgllm calls it for each model it loads, as it runs a worker a model and ends it when the model unloads. Adapters given the same function share one `WebGLLM`, apart from the page's; with workers of your own `availability()` doesn't check the page for WebGL 2, as webgllm doesn't.
 
 There are no callbacks of its own: thinking, text, tool calls and structured output all come back as TanStack's standard stream events, so an app can swap this adapter for TanStack's OpenAI or OpenRouter adapter without other changes.
 

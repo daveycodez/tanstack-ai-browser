@@ -3,7 +3,8 @@
  * WebGL 2 in a Web Worker, for browsers without WebGPU, reading images
  * where the model has a vision encoder. webgllm answers
  * OpenAI's Chat Completions API in the page, so this is TanStack's Chat
- * Completions adapter with the shared `WebGLLM` instance as its client:
+ * Completions adapter with the page's `WebGLLM` instance as its client (or
+ * one that starts its workers with the adapter's `worker`):
  * messages, tools, structured output and the stream (text, thinking, tool
  * calls) are TanStack's. This file adds what's webgllm's own: loading the
  * model before a call, and its reasoning levels and thinking budget.
@@ -28,21 +29,41 @@ export type Availability = "unavailable" | "downloadable" | "downloading" | "ava
 /** A download's progress, from 0 to 1. */
 export type DownloadProgressCallback = (progress: number) => void
 
-/** The page's one engine, shared by every adapter. Exported for tests. */
-export const webgllm = new WebGLLM()
+/** A `WebGLLM` (its workers started by `worker`, if given), and the models downloading in it, from its events. */
+function createEngine(worker?: () => Worker) {
+  const webgllm = new WebGLLM(worker && { worker })
+  const downloading = new Set<string>()
+  webgllm.addEventListener("progress", ({ model, phase, cached }) => {
+    if (phase === "download" && !cached) downloading.add(model)
+  })
+  for (const type of ["load", "error", "unload"] as const) {
+    webgllm.addEventListener(type, ({ model }) => downloading.delete(model))
+  }
+  return { webgllm, downloading, ownWorker: !!worker }
+}
+
+type Engine = ReturnType<typeof createEngine>
+
+/** The page's engine, shared by every adapter that doesn't start its own workers. */
+const pageEngine = createEngine()
+
+/** The page's `WebGLLM`. Exported for tests. */
+export const webgllm = pageEngine.webgllm
+
+/** The engines of adapters that start their own workers: one for each `worker` function. */
+const workerEngines = new WeakMap<() => Worker, Engine>()
+
+/** An adapter's engine: the one for its `worker` function (shared by every adapter given it), else the page's. */
+function engineFor(worker?: () => Worker): Engine {
+  if (!worker) return pageEngine
+  let engine = workerEngines.get(worker)
+  if (!engine) workerEngines.set(worker, (engine = createEngine(worker)))
+  return engine
+}
 
 let supported: boolean | undefined
 /** Whether the engine runs here, checked once: webgllm's check makes a WebGL context. */
 const engineRuns = () => (supported ??= WebGLLM.isSupported())
-
-/** Models downloading in this page, from webgllm's events. */
-const downloading = new Set<string>()
-webgllm.addEventListener("progress", ({ model, phase, cached }) => {
-  if (phase === "download" && !cached) downloading.add(model)
-})
-for (const type of ["load", "error", "unload"] as const) {
-  webgllm.addEventListener(type, ({ model }) => downloading.delete(model))
-}
 
 /** The download's share of webgllm's load progress (downloading is its first 90%). */
 const downloadShare = ({ progress, loadedBytes, totalBytes }: LoadProgress) =>
@@ -75,6 +96,14 @@ export type WebGllmConfig = {
    * memory and refuses longer chats sooner. Changing it loads the model again.
    */
   contextLength?: number
+  /**
+   * Starts the Web Worker a model runs in, in place of webgllm's own
+   * (webgllm's `worker` option): a module worker running webgllm's worker
+   * script, served or bundled your way. It's called for each model loaded,
+   * as webgllm runs a worker a model and ends it when the model unloads.
+   * Adapters given the same function share an engine.
+   */
+  worker?: () => Worker
   /**
    * The model's download progress, 0 to 1, when a call (`chat()`, say)
    * starts its download; then 1 once it's ready. To load it ahead of time
@@ -125,10 +154,14 @@ export class WebGllmTextAdapter<TModel extends WebGllmModel> extends OpenAIBaseC
 
   private readonly contextLength: number | undefined
   private readonly onDownloadProgress: DownloadProgressCallback | undefined
+  /** The `WebGLLM` the model loads in: the page's, or the one for the adapter's own workers. */
+  private readonly engine: Engine
 
   constructor(config: WebGllmConfig, model: TModel) {
+    const engine = engineFor(config.worker)
     // Chat Completions (`chat.completions.create`) is all the adapter calls.
-    super(model, "webgllm", webgllm as unknown as OpenAIClientLike, { strictFallbackWarning: false })
+    super(model, "webgllm", engine.webgllm as unknown as OpenAIClientLike, { strictFallbackWarning: false })
+    this.engine = engine
     this.contextLength = config.contextLength
     this.onDownloadProgress = config.onDownloadProgress
     this.inputModalities = listed(model) ? modelMeta(model).supports.input : undefined
@@ -139,10 +172,12 @@ export class WebGllmTextAdapter<TModel extends WebGllmModel> extends OpenAIBaseC
    * "unavailable" where the engine can't run (WebGL 2 with float render
    * targets, in a worker), "downloading" while this page downloads it,
    * "available" when it's loaded or its files are in webgllm's storage,
-   * else "downloadable". It reads storage only.
+   * else "downloadable". It reads storage only. With workers of your own
+   * the page isn't checked, as webgllm doesn't: they may run elsewhere.
    */
   async availability(): Promise<Availability> {
-    if (!engineRuns()) return "unavailable"
+    const { webgllm, downloading, ownWorker } = this.engine
+    if (!ownWorker && !engineRuns()) return "unavailable"
     if (downloading.has(this.model)) return "downloading"
     const stored = await webgllm.models.downloaded(this.model).catch(() => false)
     return stored ? "available" : "downloadable"
@@ -162,7 +197,7 @@ export class WebGllmTextAdapter<TModel extends WebGllmModel> extends OpenAIBaseC
 
   /** Unloads the model, freeing its GPU memory. Its files stay. Never rejects. */
   destroy(): Promise<void> {
-    return webgllm.unloadModel(this.model).catch(() => undefined)
+    return this.engine.webgllm.unloadModel(this.model).catch(() => undefined)
   }
 
   /**
@@ -174,7 +209,7 @@ export class WebGllmTextAdapter<TModel extends WebGllmModel> extends OpenAIBaseC
       this.onDownloadProgress?.(progress)
       onDownloadProgress?.(progress)
     }
-    await webgllm.loadModel(this.model, {
+    await this.engine.webgllm.loadModel(this.model, {
       ...(this.contextLength !== undefined && { contextLength: this.contextLength }),
       ...(signal && { signal }),
       onProgress: (progress) => {
