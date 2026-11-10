@@ -390,7 +390,7 @@ export class PromptApiTextAdapter extends BaseTextAdapter<
 /**
  * A TanStack AI text adapter for the browser's built-in model, through the
  * Prompt API: Gemini Nano in Chrome, Phi-4-mini in Edge. The model is
- * whichever the browser has ("built-in"), so naming it is optional.
+ * whichever the browser has ("text", as other Prompt API libraries name it), so naming it is optional.
  *
  * @example
  * ```ts
@@ -408,5 +408,5 @@ export function promptApiText(
 ): PromptApiTextAdapter {
   return typeof modelOrConfig === "string"
     ? new PromptApiTextAdapter(config, modelOrConfig)
-    : new PromptApiTextAdapter(modelOrConfig ?? {}, "built-in")
+    : new PromptApiTextAdapter(modelOrConfig ?? {}, "text")
 }

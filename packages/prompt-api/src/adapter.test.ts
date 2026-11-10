@@ -101,7 +101,7 @@ beforeEach(() => {
 
 const chatOptions = (extra: Record<string, unknown> = {}) =>
   ({
-    model: "built-in",
+    model: "text",
     logger,
     threadId: "thread",
     messages: [{ role: "user", content: "Weather in Paris?" }],
@@ -110,7 +110,7 @@ const chatOptions = (extra: Record<string, unknown> = {}) =>
 
 async function run(extra: Record<string, unknown> = {}, config: PromptApiConfig = {}) {
   const chunks: Array<Chunk> = []
-  for await (const chunk of promptApiText("built-in", config).chatStream(chatOptions(extra))) chunks.push(chunk as Chunk)
+  for await (const chunk of promptApiText("text", config).chatStream(chatOptions(extra))) chunks.push(chunk as Chunk)
   return chunks
 }
 const typesOf = (chunks: Array<Chunk>) => chunks.map((c) => c.type)
@@ -258,7 +258,7 @@ const schema = { type: "object", properties: { city: { type: "string" } }, requi
 const structured = (extra: Record<string, unknown> = {}) => ({ chatOptions: chatOptions(extra), outputSchema: schema })
 
 test("structured output: one prompt on the thread's session under responseConstraint, with the schema as given", async () => {
-  const result = await promptApiText("built-in").structuredOutput(structured())
+  const result = await promptApiText("text").structuredOutput(structured())
   assert.deepEqual(result.data, { city: "Tokyo" })
   assert.equal(result.rawText, '{"city":"Tokyo"}')
   assert.equal(control.prompts.length, 1)
@@ -266,7 +266,7 @@ test("structured output: one prompt on the thread's session under responseConstr
   assert.equal(control.destroyed, 0, "the thread keeps its session")
 
   const value = await chat({
-    adapter: promptApiText("built-in"),
+    adapter: promptApiText("text"),
     threadId: "structured",
     messages: [{ role: "user", content: "Largest city?" }],
     outputSchema: schema
@@ -276,12 +276,12 @@ test("structured output: one prompt on the thread's session under responseConstr
 
 test("structured output fails on an answer that isn't JSON, the browser's error, and an abort", async () => {
   control.answer = "Tokyo"
-  await assert.rejects(promptApiText("built-in").structuredOutput(structured()), SyntaxError)
+  await assert.rejects(promptApiText("text").structuredOutput(structured()), SyntaxError)
   control.promptFailure = new DOMException("unsupported schema", "NotSupportedError")
-  await assert.rejects(promptApiText("built-in").structuredOutput(structured()), /unsupported schema/)
+  await assert.rejects(promptApiText("text").structuredOutput(structured()), /unsupported schema/)
   const controller = new AbortController()
   controller.abort(new Error("stopped"))
-  await assert.rejects(promptApiText("built-in").structuredOutput(structured({ abortController: controller })), /stopped/)
+  await assert.rejects(promptApiText("text").structuredOutput(structured({ abortController: controller })), /stopped/)
   assert.equal(control.destroyed, 3, "each failed session is freed")
 })
 
@@ -294,7 +294,7 @@ test("availability is the browser's answer for the adapter's languages and input
     return "downloadable"
   }
   try {
-    assert.equal(await promptApiText("built-in", { languages: ["ja"], inputs: ["audio"] }).availability(), "downloadable")
+    assert.equal(await promptApiText("text", { languages: ["ja"], inputs: ["audio"] }).availability(), "downloadable")
     assert.deepEqual(asked, { expectedInputs: [{ type: "text", languages: ["ja"] }, { type: "audio" }], expectedOutputs: [{ type: "text", languages: ["ja"] }] })
   } finally {
     api.availability = original
@@ -305,7 +305,7 @@ test("create reports the download between 0 and 1, then 1, to both listeners, an
   control.progress = [0, 0.5, 1]
   const own: Array<number> = []
   const call: Array<number> = []
-  const adapter = promptApiText("built-in", { onDownloadProgress: (p) => own.push(p) })
+  const adapter = promptApiText("text", { onDownloadProgress: (p) => own.push(p) })
   assert.equal(await adapter.create({ onDownloadProgress: (p) => call.push(p) }), adapter)
   assert.deepEqual(own, [0.5, 1])
   assert.deepEqual(call, [0.5, 1])
@@ -323,7 +323,7 @@ async function step(adapter: ReturnType<typeof promptApiText>, messages: Array<u
 }
 
 test("a thread's next step prompts its kept session with only the new messages", async () => {
-  const adapter = promptApiText("built-in")
+  const adapter = promptApiText("text")
   const first = [{ role: "user", content: "Weather in Paris?" }]
   await step(adapter, first)
   await step(adapter, [...first, { role: "assistant", content: "Hello there" }, { role: "user", content: "And tomorrow?" }])
@@ -333,7 +333,7 @@ test("a thread's next step prompts its kept session with only the new messages",
 })
 
 test("an edited conversation or new settings start the thread's session over", async () => {
-  const adapter = promptApiText("built-in")
+  const adapter = promptApiText("text")
   await step(adapter, [{ role: "user", content: "Weather in Paris?" }])
   await step(adapter, [{ role: "user", content: "Weather in Rome?" }])
   assert.equal(control.creates.length, 2)
@@ -347,7 +347,7 @@ test("an edited conversation or new settings start the thread's session over", a
 })
 
 test("a step stopped at a tool call isn't in the session, so the next step sends it", async () => {
-  const adapter = promptApiText("built-in")
+  const adapter = promptApiText("text")
   control.pieces = ['```tool_call\n{"name": "get_weather", "arguments": {"city": "Paris"}}\n```', " and more"]
   const asked = [{ role: "user", content: "Weather in Paris?" }]
   const chunks = await step(adapter, asked, { tools: [weather] })
@@ -376,7 +376,7 @@ test("a thread's session reports an overflow to onContextOverflow", async () => 
 })
 
 test("past four threads the least recently used session closes, and destroy() closes the rest", async () => {
-  const adapter = promptApiText("built-in")
+  const adapter = promptApiText("text")
   for (const thread of ["a", "b", "c", "d", "e"]) await step(adapter, [{ role: "user", content: "Hi" }], { threadId: thread })
   assert.equal(control.destroyed, 1, "thread a's")
   await adapter.destroy()
@@ -400,7 +400,7 @@ test("a fence without a call is text, and the reply goes on", async () => {
 })
 
 test("the model is optional: promptApiText() and promptApiText(config) are the browser's built-in model", () => {
-  assert.equal(promptApiText().model, "built-in")
-  assert.equal(promptApiText({ languages: ["en"] }).model, "built-in")
-  assert.equal(promptApiText("built-in", {}).model, "built-in")
+  assert.equal(promptApiText().model, "text")
+  assert.equal(promptApiText({ languages: ["en"] }).model, "text")
+  assert.equal(promptApiText("text", {}).model, "text")
 })

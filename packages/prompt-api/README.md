@@ -16,7 +16,7 @@ if ((await adapter.availability()) !== "unavailable") {
 }
 ```
 
-The root has `promptApiText(config?)` (or `promptApiText("built-in", config?)`: the model is whichever the browser has, so naming it is optional), `PromptApiTextAdapter` and the types `PromptApiConfig`, `PromptApiTextModelOptions`, `Availability` and `DownloadProgressCallback`. `@tanstack-ai-browser/prompt-api/model-meta` has `PROMPT_API_CHAT_MODELS` (one model, `"built-in"`: whichever the browser provides) and `PROMPT_API_MODEL_META`, with the types `PromptApiChatModel` and `PromptApiModelMeta`.
+The root has `promptApiText(config?)` (or `promptApiText("text", config?)`: the model is whichever the browser has, so naming it is optional), `PromptApiTextAdapter` and the types `PromptApiConfig`, `PromptApiTextModelOptions`, `Availability` and `DownloadProgressCallback`. `@tanstack-ai-browser/prompt-api/model-meta` has `PROMPT_API_CHAT_MODELS` (one model, `"text"`: whichever the browser provides) and `PROMPT_API_MODEL_META`, with the types `PromptApiChatModel` and `PromptApiModelMeta`.
 
 The Prompt API is in desktop Chrome and Edge (tested in Chrome 156, where web pages have it without flags), on devices with enough memory, GPU and disk (Chrome asks for 22 GB free and either a GPU with more than 4 GB or 16 GB of RAM). It isn't in Web Workers, and a cross-origin iframe needs `allow="language-model"`.
 

@@ -1,11 +1,11 @@
 /**
- * The model the Prompt API gives: the browser's own ("built-in"), Gemini
+ * The model the Prompt API gives: the browser's own text model ("text", as other Prompt API libraries name it), Gemini
  * Nano in Chrome and Phi-4-mini in Edge, with what it supports.
  */
 
 /** What the browser's model supports. */
 export type PromptApiModelMeta = {
-  /** The model's name for `promptApiText`: "built-in". */
+  /** The model's name for `promptApiText`: "text". */
   name: string
   supports: {
     input: ReadonlyArray<"text" | "image" | "audio">
@@ -15,7 +15,7 @@ export type PromptApiModelMeta = {
 }
 
 const BUILT_IN = {
-  name: "built-in",
+  name: "text",
   supports: {
     input: ["text", "image", "audio"],
     output: ["text"],
