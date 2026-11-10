@@ -401,6 +401,21 @@ test("a thread's session reports an overflow to onContextOverflow", async () => 
   assert.deepEqual(overflows, ["contextoverflow"])
 })
 
+test("contextUsage and contextWindow are the thread's session's own; undefined without a session", async () => {
+  const adapter = promptApiText("text")
+  assert.equal(await adapter.contextUsage(), undefined)
+  assert.equal(await adapter.contextWindow("a"), undefined)
+  await step(adapter, [{ role: "user", content: "Hi" }], { threadId: "a" })
+  await step(adapter, [{ role: "user", content: "Hi" }], { threadId: "b" })
+  Object.assign(control.sessions[0], { contextUsage: 300 })
+  assert.equal(await adapter.contextUsage("a"), 300)
+  assert.equal(await adapter.contextUsage(), 120, "the thread used last")
+  assert.equal(await adapter.contextWindow("a"), 9216)
+  assert.equal(await adapter.contextUsage("c"), undefined)
+  await adapter.destroy()
+  assert.equal(await adapter.contextUsage("a"), undefined)
+})
+
 test("past four threads the least recently used session closes, and destroy() closes the rest", async () => {
   const adapter = promptApiText("text")
   for (const thread of ["a", "b", "c", "d", "e"]) await step(adapter, [{ role: "user", content: "Hi" }], { threadId: thread })

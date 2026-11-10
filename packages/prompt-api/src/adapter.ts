@@ -202,6 +202,31 @@ export class PromptApiTextAdapter extends BaseTextAdapter<
     return ready
   }
 
+  /**
+   * Tokens a thread's session holds (the session's `contextUsage`): the
+   * system prompt, the tools and the conversation so far. The thread is
+   * `chat()`'s `threadId` (or its `promptCache.key`); left out, the thread
+   * used last. Undefined where the thread keeps no session.
+   */
+  async contextUsage(threadId?: string): Promise<number | undefined> {
+    return (await this.keptSession(threadId))?.contextUsage
+  }
+
+  /**
+   * Tokens a thread's session can hold (the session's `contextWindow`), for
+   * the thread as `contextUsage` takes it. Undefined where the thread keeps
+   * no session.
+   */
+  async contextWindow(threadId?: string): Promise<number | undefined> {
+    return (await this.keptSession(threadId))?.contextWindow
+  }
+
+  /** A thread's kept session, or the last used thread's; undefined if there's none, or it failed to start. */
+  private keptSession(threadId?: string): Promise<LanguageModelSession | undefined> {
+    const kept = threadId === undefined ? [...this.kept.values()].at(-1) : this.kept.get(threadId)
+    return kept ? kept.session.catch(() => undefined) : Promise.resolve(undefined)
+  }
+
   /** Closes every thread's session. The browser keeps the model. */
   async destroy(): Promise<void> {
     for (const kept of this.kept.values()) close(kept.session)
