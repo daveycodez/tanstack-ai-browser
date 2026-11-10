@@ -3,14 +3,15 @@
  * (worker.ts), holding one model at a time; loading another, or the same
  * with other settings, replaces it (WebLLM's `reload`). Chat models share
  * one engine and embedding models another, so embedding doesn't unload the
- * chat model. WebLLM downloads models to the browser's cache once, and
+ * chat model. An adapter given a worker of its own (`worker`) has that
+ * worker's engine instead, shared by every adapter given it. WebLLM downloads models to the browser's cache once, and
  * loads them from there afterwards.
  *
  * WebLLM is the official `@mlc-ai/web-llm` package, unmodified, used
  * through its public API.
  */
 import { hasModelInCache, prebuiltAppConfig, WebWorkerMLCEngine } from "@mlc-ai/web-llm"
-import type { AppConfig, ChatOptions } from "@mlc-ai/web-llm"
+import type { AppConfig, ChatOptions, MLCEngineConfig } from "@mlc-ai/web-llm"
 
 /**
  * Where a model stands in this browser, with the Prompt API's values
@@ -27,6 +28,8 @@ export type LoadSettings = {
   chatOptions?: ChatOptions
   /** WebLLM's model list; its `prebuiltAppConfig` otherwise. */
   appConfig?: AppConfig
+  /** WebLLM's log level and its own progress reports, for this model's load. */
+  engineConfig?: Pick<MLCEngineConfig, "logLevel" | "initProgressCallback">
 }
 
 /** Waits for `promise` until `signal` aborts; the load goes on. */
@@ -53,8 +56,8 @@ const hasWebGpu = () =>
     return (await gpu.requestAdapter().catch(() => null)) !== null
   })())
 
-/** One engine, in its own worker, and the model it holds. */
-function engineSlot(name: string) {
+/** One engine, in a worker (the caller's, or one started here under `name`), and the model it holds. */
+function engineSlot(name: string, worker?: Worker) {
   let engine: WebWorkerMLCEngine | null = null
   /** Settles when the last caller to `acquire` the engine releases it. */
   let turns: Promise<void> = Promise.resolve()
@@ -68,13 +71,17 @@ function engineSlot(name: string) {
     downloading: boolean
     /** The waiting callers' progress callbacks. */
     listeners: Set<DownloadProgressCallback>
+    /** The load's own listener for WebLLM's reports, as WebLLM writes them. */
+    report: MLCEngineConfig["initProgressCallback"]
   } | null = null
 
   /** The engine, in its worker. Its load progress goes to the waiting callers while the model downloads. */
   const getEngine = () =>
-    (engine ??= new WebWorkerMLCEngine(new Worker(new URL("./worker.js", import.meta.url), { type: "module", name }), {
-      initProgressCallback: ({ progress }) => {
+    (engine ??= new WebWorkerMLCEngine(worker ?? new Worker(new URL("./worker.js", import.meta.url), { type: "module", name }), {
+      initProgressCallback: (report) => {
         const current = loaded
+        current?.report?.(report)
+        const { progress } = report
         if (!current?.downloading) return
         // WebLLM reports the download, then loading the stored files from 0
         // again: the download ends at its first 1.
@@ -128,13 +135,15 @@ function engineSlot(name: string) {
           promise: Promise.resolve(),
           ready: false,
           downloading: false,
-          listeners: new Set<DownloadProgressCallback>()
+          listeners: new Set<DownloadProgressCallback>(),
+          report: settings.engineConfig?.initProgressCallback
         }
         loaded = current
         current.promise = (async () => {
           current.downloading = !(await stored(model, settings.appConfig))
           // The worker keeps the last catalog it was given: give it this load's.
           engine.setAppConfig(settings.appConfig ?? prebuiltAppConfig)
+          if (settings.engineConfig?.logLevel) engine.setLogLevel(settings.engineConfig.logLevel)
           await engine.reload(model, settings.chatOptions)
         })().finally(() => {
           current.downloading = false
@@ -184,8 +193,25 @@ function engineSlot(name: string) {
   }
 }
 
+export type EngineSlot = ReturnType<typeof engineSlot>
+
 /** The engine chat models load in. */
-export const chatEngine = engineSlot("web-llm")
+const chatEngine = engineSlot("web-llm")
 
 /** The engine embedding models load in. */
-export const embeddingEngine = engineSlot("web-llm-embedding")
+const embeddingEngine = engineSlot("web-llm-embedding")
+
+/** The engines in the callers' own workers: one a worker, as each worker's handler holds one. */
+const workerEngines = new WeakMap<Worker, EngineSlot>()
+
+/**
+ * The engine an adapter's models load in: its own worker's (shared by every
+ * adapter given that worker, whichever kind), else the package's engine for
+ * chat or for embedding.
+ */
+export function engineFor(kind: "chat" | "embedding", worker?: Worker): EngineSlot {
+  if (!worker) return kind === "chat" ? chatEngine : embeddingEngine
+  let slot = workerEngines.get(worker)
+  if (!slot) workerEngines.set(worker, (slot = engineSlot("web-llm", worker)))
+  return slot
+}

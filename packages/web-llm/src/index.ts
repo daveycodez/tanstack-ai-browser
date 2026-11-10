@@ -7,3 +7,5 @@ export type { WebLlmConfig, WebLlmModel, WebLlmTextModelOptions } from "./adapte
 export { webLlmEmbedding, WebLlmEmbeddingAdapter } from "./embedding.js"
 export type { WebLlmEmbeddingConfig, WebLlmEmbeddingModelId, WebLlmEmbeddingModelOptions } from "./embedding.js"
 export type { Availability, DownloadProgressCallback } from "./client.js"
+// WebLLM's own worker handler, for a worker of your own (`worker` in the adapters' config).
+export { WebWorkerMLCEngineHandler } from "@mlc-ai/web-llm"

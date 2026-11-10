@@ -19,7 +19,7 @@ const stream = chat({
 
 It needs WebGPU; an adapter's `availability()` says `"unavailable"` where the browser gives no GPU adapter. Some models also need WebGPU's `shader-f16` feature (their catalog entry's `required_features`), which WebLLM checks when it loads them.
 
-The package is shaped like `@tanstack/ai-openai`'s text adapter. The root has `webLlmText(model, config?)`, `WebLlmTextAdapter` (with the runtime methods `availability`, `create` and `destroy`), `webLlmEmbedding(model?, config?)`, `WebLlmEmbeddingAdapter`, and the types `WebLlmConfig`, `WebLlmModel`, `WebLlmTextModelOptions`, `WebLlmEmbeddingConfig`, `WebLlmEmbeddingModelId`, `WebLlmEmbeddingModelOptions`, `Availability` and `DownloadProgressCallback`; `@tanstack-ai-browser/web-llm/model-meta` has the catalog (below).
+The package is shaped like `@tanstack/ai-openai`'s text adapter. The root has `webLlmText(model, config?)`, `WebLlmTextAdapter` (with the runtime methods `availability`, `create` and `destroy`), `webLlmEmbedding(model?, config?)`, `WebLlmEmbeddingAdapter`, WebLLM's `WebWorkerMLCEngineHandler`, and the types `WebLlmConfig`, `WebLlmModel`, `WebLlmTextModelOptions`, `WebLlmEmbeddingConfig`, `WebLlmEmbeddingModelId`, `WebLlmEmbeddingModelOptions`, `Availability` and `DownloadProgressCallback`; `@tanstack-ai-browser/web-llm/model-meta` has the catalog (below).
 
 The engine is the official [`@mlc-ai/web-llm`](https://www.npmjs.com/package/@mlc-ai/web-llm) package, which answers OpenAI's Chat Completions API in the page. The adapter is TanStack's Chat Completions adapter (`@tanstack/openai-base`) with WebLLM's engine as its client, so messages, structured output and the stream are TanStack's; the prompt (each model's conversation template), sampling and grammar-constrained answers are WebLLM's own. Tools go by prompt (below). See WebLLM's documentation for how the engine works.
 
@@ -29,6 +29,8 @@ The engine is the official [`@mlc-ai/web-llm`](https://www.npmjs.com/package/@ml
 
 - `contextLength`: most tokens a chat may hold, prompt and reply together: WebLLM's `context_window_size`. The model's own by default (its catalog entry's, 4,096 for most). Changing it loads the model again.
 - `appConfig`: WebLLM's model list, for a model its catalog doesn't have (a `ModelRecord` with the model's weights and compiled library). WebLLM's `prebuiltAppConfig` by default.
+- `engineConfig`: WebLLM's engine config (`MLCEngineConfig`), applied when the adapter's model loads: `logLevel`, `initProgressCallback` (WebLLM's own reports, with their text, through the download and the load) and `appConfig` (the adapter's `appConfig` wins). WebLLM takes a `logitProcessorRegistry` only inside the worker.
+- `worker`: a Web Worker of your own to run WebLLM in (see A worker of your own).
 - `onDownloadProgress`: the model's download progress, 0 to 1, when a call (`chat()`, say) starts its download; then 1 once it's ready.
 
 What maps to what:
@@ -76,6 +78,25 @@ The methods have the Prompt API's values and meanings. `availability()` is `"una
 
 The page has one WebLLM engine for chat, in one worker, with one model loaded at a time (WebLLM's own way): loading another model, or the same one with another `contextLength`, replaces it. `destroy()` unloads the model for every adapter of it.
 
+## A worker of your own
+
+The package starts its workers itself. To run WebLLM in one you start (to bundle it your way, or to set it up with WebLLM's own handler options), give the adapter the worker:
+
+```ts
+// worker.ts
+import { WebWorkerMLCEngineHandler } from "@tanstack-ai-browser/web-llm"
+
+const handler = new WebWorkerMLCEngineHandler()
+self.onmessage = (event) => handler.onmessage(event)
+```
+
+```ts
+const worker = new Worker(new URL("./worker.ts", import.meta.url), { type: "module" })
+const adapter = webLlmText("Qwen3-1.7B-q4f16_1-MLC", { worker })
+```
+
+`WebWorkerMLCEngineHandler` is WebLLM's own, exported here too. The worker holds one model, as WebLLM's handler does: adapters given the same worker take turns in it, and a chat adapter and an embedding adapter given the same worker unload each other's model, so give each its own. `destroy()` unloads the model and leaves the worker running.
+
 ## Images
 
 WebLLM's vision models (Phi-3.5 Vision) read images: send image parts in a user message, as data (base64) or http URLs. They go to WebLLM as OpenAI's `image_url`, without `detail`, which WebLLM refuses. The adapter's `inputModalities` says whether a model reads them.
@@ -89,7 +110,7 @@ import { webLlmEmbedding } from "@tanstack-ai-browser/web-llm"
 const { embeddings } = await embed({ adapter: webLlmEmbedding(), input: ["a red guitar", "a blue drum kit"] })
 ```
 
-`webLlmEmbedding(model?, config?)` sends OpenAI's embeddings request to WebLLM's `embeddings.create`. By default it runs WebLLM's smallest embedding model, `snowflake-arctic-embed-s-q0f32-MLC-b4` (about 240 MB, 384 numbers a vector); any of `WEB_LLM_EMBEDDING_MODELS`, or a model of `config.appConfig`, works too. Embedding models load in an engine of their own, so they don't unload the chat model. `modelOptions` are WebLLM's own embedding request fields, sent as given; `dimensions` isn't supported. The adapter has `availability()`, `create()` and `destroy()` like the text adapter's.
+`webLlmEmbedding(model?, config?)` sends OpenAI's embeddings request to WebLLM's `embeddings.create`. By default it runs WebLLM's smallest embedding model, `snowflake-arctic-embed-s-q0f32-MLC-b4` (about 240 MB, 384 numbers a vector); any of `WEB_LLM_EMBEDDING_MODELS`, or a model of `config.appConfig`, works too. Embedding models load in an engine of their own, so they don't unload the chat model. `modelOptions` are WebLLM's own embedding request fields, sent as given; `dimensions` isn't supported. `config` also takes `engineConfig` and `worker`, as the text adapter's. The adapter has `availability()`, `create()` and `destroy()` like the text adapter's.
 
 ## License
 

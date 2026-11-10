@@ -14,10 +14,10 @@ import { resolveReasoning } from "@tanstack/ai/adapter-internals"
 import { OpenAIBaseChatCompletionsTextAdapter } from "@tanstack/openai-base"
 import type { OpenAIClientLike } from "@tanstack/openai-base"
 import { ModelType } from "@mlc-ai/web-llm"
-import type { AppConfig, ChatCompletionRequest, ChatCompletionRequestBase, ResponseFormat } from "@mlc-ai/web-llm"
+import type { AppConfig, ChatCompletionRequest, ChatCompletionRequestBase, MLCEngineConfig, ResponseFormat } from "@mlc-ai/web-llm"
 
-import { chatEngine } from "./client.js"
-import type { Availability, DownloadProgressCallback, LoadSettings } from "./client.js"
+import { engineFor } from "./client.js"
+import type { Availability, DownloadProgressCallback, EngineSlot, LoadSettings } from "./client.js"
 import { THINKING_SWITCH, WEB_LLM_MODEL_INPUT, WEB_LLM_MODEL_REASONING } from "./catalog.js"
 import type { WebLlmChatModel } from "./catalog.js"
 import { toolCallFence, toolCallReader, toolResultFence, toolResultLine, toolSystemPrompt } from "./tools.js"
@@ -37,6 +37,22 @@ export type WebLlmConfig = {
    * WebLLM's `prebuiltAppConfig` by default.
    */
   appConfig?: AppConfig
+  /**
+   * WebLLM's engine config (`MLCEngineConfig`), applied when this adapter's
+   * model loads: `logLevel`, `initProgressCallback` (WebLLM's own reports,
+   * with their text, through the download and the load) and `appConfig`
+   * (the adapter's `appConfig` wins). WebLLM takes a
+   * `logitProcessorRegistry` only inside the worker.
+   */
+  engineConfig?: MLCEngineConfig
+  /**
+   * A Web Worker of your own to run WebLLM in, in place of the one the
+   * package starts: a module whose `onmessage` goes to WebLLM's
+   * `WebWorkerMLCEngineHandler` (exported here too). It holds one model, so
+   * adapters given the same worker take turns in it; `destroy()` unloads
+   * the model and leaves the worker running.
+   */
+  worker?: Worker
   /**
    * The model's download progress, 0 to 1, when a call (`chat()`, say)
    * starts its download; then 1 once it's ready. To load it ahead of time
@@ -209,7 +225,12 @@ async function* withThinking(stream: AsyncIterable<Chunk>): AsyncIterable<Chunk>
  * takes no AbortSignal: the caller's signal stops the generation with the
  * engine's `interruptGenerate`.
  */
-function clientFor(model: WebLlmModel, settings: LoadSettings, onDownloadProgress?: DownloadProgressCallback): OpenAIClientLike {
+function clientFor(
+  chatEngine: EngineSlot,
+  model: WebLlmModel,
+  settings: LoadSettings,
+  onDownloadProgress?: DownloadProgressCallback
+): OpenAIClientLike {
   const create = async (body: Record<string, unknown>, options?: { signal?: AbortSignal | null }) => {
     const signal = options?.signal ?? undefined
     // The engine is this request's from its load to its reply's end: a
@@ -260,9 +281,10 @@ function inputOf(model: string, appConfig: AppConfig | undefined): ReadonlyArray
 }
 
 /** The settings a model loads with, from the adapter's config. */
-const loadSettings = ({ contextLength, appConfig }: WebLlmConfig): LoadSettings => ({
+const loadSettings = ({ contextLength, engineConfig, appConfig = engineConfig?.appConfig }: WebLlmConfig): LoadSettings => ({
   ...(contextLength !== undefined && { chatOptions: { context_window_size: contextLength } }),
-  ...(appConfig && { appConfig })
+  ...(appConfig && { appConfig }),
+  ...(engineConfig && { engineConfig })
 })
 
 export class WebLlmTextAdapter<TModel extends WebLlmModel> extends OpenAIBaseChatCompletionsTextAdapter<
@@ -279,13 +301,17 @@ export class WebLlmTextAdapter<TModel extends WebLlmModel> extends OpenAIBaseCha
 
   private readonly settings: LoadSettings
   private readonly onDownloadProgress: DownloadProgressCallback | undefined
+  /** The engine the model loads in: the package's for chat, or the adapter's own worker's. */
+  private readonly engine: EngineSlot
 
   constructor(config: WebLlmConfig, model: TModel) {
     const settings = loadSettings(config)
-    super(model, "web-llm", clientFor(model, settings, config.onDownloadProgress), { strictFallbackWarning: false })
+    const engine = engineFor("chat", config.worker)
+    super(model, "web-llm", clientFor(engine, model, settings, config.onDownloadProgress), { strictFallbackWarning: false })
+    this.engine = engine
     this.settings = settings
     this.onDownloadProgress = config.onDownloadProgress
-    this.inputModalities = inputOf(model, config.appConfig)
+    this.inputModalities = inputOf(model, settings.appConfig)
   }
 
   /**
@@ -295,7 +321,7 @@ export class WebLlmTextAdapter<TModel extends WebLlmModel> extends OpenAIBaseCha
    * (`hasModelInCache`), else "downloadable".
    */
   availability(): Promise<Availability> {
-    return chatEngine.availability(this.model, this.settings.appConfig)
+    return this.engine.availability(this.model, this.settings.appConfig)
   }
 
   /**
@@ -310,9 +336,9 @@ export class WebLlmTextAdapter<TModel extends WebLlmModel> extends OpenAIBaseCha
     // It takes the engine's turn, like a request, so it never reloads the
     // engine under another request's reply.
     const ready = (async () => {
-      const release = await chatEngine.acquire(options.signal)
+      const release = await this.engine.acquire(options.signal)
       try {
-        await chatEngine.loadModel(this.model, this.settings, {
+        await this.engine.loadModel(this.model, this.settings, {
           onDownloadProgress: (progress) => {
             own?.(progress)
             theirs?.(progress)
@@ -330,9 +356,9 @@ export class WebLlmTextAdapter<TModel extends WebLlmModel> extends OpenAIBaseCha
 
   /** Unloads the model, freeing its GPU memory, once the running reply ends. It stays in WebLLM's cache. */
   async destroy(): Promise<void> {
-    const release = await chatEngine.acquire()
+    const release = await this.engine.acquire()
     try {
-      await chatEngine.unloadModel(this.model)
+      await this.engine.unloadModel(this.model)
     } finally {
       release()
     }

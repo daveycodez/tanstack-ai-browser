@@ -37,7 +37,10 @@ const control = {
   hold: null as Promise<void> | null,
   release: () => undefined as void,
   /** An embeddings.create waits for this. */
-  embedHold: null as Promise<void> | null
+  embedHold: null as Promise<void> | null,
+  /** The worker each engine was made with, and the log levels set. */
+  workers: [] as Array<unknown>,
+  logLevels: [] as Array<string>
 }
 ;(globalThis as { __webLlm?: typeof control }).__webLlm = control
 ;(globalThis as { Worker?: unknown }).Worker = class {}
@@ -61,6 +64,7 @@ await build({
             const control=globalThis.__webLlm;
             export const hasModelInCache=async(model)=>control.cached.has(model);
             export const ModelType={LLM:0,embedding:1,VLM:2};
+            export class WebWorkerMLCEngineHandler{}
             export const prebuiltAppConfig={model_list:[{model_id:"Qwen3-1.7B-q4f16_1-MLC"},{model_id:"Qwen2.5-0.5B-Instruct-q4f16_1-MLC"},{model_id:"Phi-3.5-vision-instruct-q4f16_1-MLC",model_type:2},{model_id:"snowflake-arctic-embed-s-q0f32-MLC-b4",model_type:1}]};
             // Like WebLLM: the worker keeps the last catalog it was given
             // (the prebuilt one at first), reload looks the model up in it,
@@ -68,6 +72,7 @@ await build({
             // the engine's, ending whichever generation runs.
             export class WebWorkerMLCEngine{
               constructor(worker,config){
+                control.workers.push(worker);
                 this.report=config.initProgressCallback;
                 this.appConfig=prebuiltAppConfig;
                 this.lock=Promise.resolve();
@@ -88,6 +93,7 @@ await build({
                 }};
               }
               setAppConfig(appConfig){this.appConfig=appConfig}
+              setLogLevel(level){control.logLevels.push(level)}
               async reload(model,chatOptions){
                 if(!this.appConfig.model_list.some((record)=>record.model_id===model)) throw new Error("Cannot find model record in appConfig for "+model);
                 control.reloads.push({model,chatOptions});
@@ -155,6 +161,8 @@ beforeEach(() => {
   control.chunks = [delta({ role: "assistant", content: "Hi" }), delta({}, "stop")]
   control.hold = null
   control.embedHold = null
+  control.workers = []
+  control.logLevels = []
 })
 
 test("modelOptions go to WebLLM as given", async () => {
@@ -427,4 +435,36 @@ test("an embedding batch keeps its engine: a preload with another catalog or an 
   assert.equal(result.embeddings.length, 1)
   assert.deepEqual(control.reloads.map((r) => r.model), [adapter.model, "Custom-Embed-MLC"])
   assert.equal(control.unloads, 1)
+})
+
+test("a worker of your own holds the engine, shared by the adapters given it; the package's engines stay apart", async () => {
+  const { webLlmText, webLlmEmbedding } = await fresh()
+  const mine = { mine: true }
+  await webLlmText(MODEL, { worker: mine }).create()
+  await webLlmText(MODEL, { worker: mine }).create()
+  assert.deepEqual(control.workers, [mine], "one engine for the worker")
+  assert.equal(control.reloads.length, 1, "already loaded in it")
+  await webLlmEmbedding(undefined, { worker: mine }).create()
+  assert.deepEqual(control.workers, [mine], "embedding in the same worker shares its engine")
+  await webLlmText(MODEL).create()
+  assert.equal(control.workers.length, 2)
+  assert.notEqual(control.workers[1], mine, "the package's own worker")
+  await webLlmText(MODEL, { worker: mine }).destroy()
+  assert.equal(control.unloads, 0, "the worker holds the embedding model now")
+  await webLlmEmbedding(undefined, { worker: mine }).destroy()
+  assert.equal(control.unloads, 1)
+})
+
+test("engineConfig: the log level is set at the load, WebLLM's reports are passed on, and its appConfig is the catalog", async () => {
+  const { webLlmText } = await fresh()
+  control.progress = [0.5, 1]
+  const reports: Array<number> = []
+  const custom = { model_list: [{ model_id: "Custom-MLC", model: "https://example.com/m", model_lib: "https://example.com/m.wasm" }] }
+  const adapter = webLlmText("Custom-MLC", {
+    engineConfig: { logLevel: "DEBUG", appConfig: custom, initProgressCallback: (report: { progress: number }) => reports.push(report.progress) }
+  })
+  await adapter.create()
+  assert.deepEqual(control.logLevels, ["DEBUG"])
+  assert.deepEqual(reports, [0.5, 1])
+  assert.deepEqual(control.reloads.map((r) => r.model), ["Custom-MLC"], "found in engineConfig's catalog")
 })
