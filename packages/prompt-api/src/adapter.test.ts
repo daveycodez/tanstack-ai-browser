@@ -8,7 +8,7 @@ import { promptApiText } from "./adapter.js"
 import type { PromptApiConfig } from "./adapter.js"
 
 type Chunk = { type: string; [key: string]: unknown }
-type Prompt = { kind: "prompt" | "stream"; input: unknown; options: Record<string, unknown> }
+type Prompt = { kind: "prompt" | "stream"; input: unknown; options: Record<string, unknown>; session: EventTarget }
 
 const noop = () => undefined
 const logger = { request: noop, provider: noop, errors: noop, warn: noop } as unknown as TextOptions["logger"]
@@ -49,13 +49,13 @@ class FakeSession extends EventTarget {
     return JSON.stringify(input).length
   }
   async prompt(input: unknown, options: Record<string, unknown> = {}) {
-    control.prompts.push({ kind: "prompt", input, options })
+    control.prompts.push({ kind: "prompt", input, options, session: this })
     ;(options.signal as AbortSignal | undefined)?.throwIfAborted()
     if (control.promptFailure) throw control.promptFailure
     return control.answer
   }
   promptStreaming(input: unknown, options: Record<string, unknown> = {}) {
-    control.prompts.push({ kind: "stream", input, options })
+    control.prompts.push({ kind: "stream", input, options, session: this })
     const signal = options.signal as AbortSignal | undefined
     let index = 0
     return new ReadableStream<string>({
@@ -383,13 +383,81 @@ test("past four threads the least recently used session closes, and destroy() cl
   assert.equal(control.destroyed, 5)
 })
 
-test("a call is emitted as it parses: chat() checks the tool and its arguments", async () => {
-  control.pieces = ['```tool_call\n{"name": "weather", "arguments": {"town": "Paris"}}\n```']
+test("a call is emitted as it parses: chat() checks its arguments", async () => {
+  control.pieces = ['```tool_call\n{"name": "get_weather", "arguments": {"town": "Paris"}}\n```']
   const chunks = await run({ tools: [weather] })
   const end = chunks.find((c) => c.type === "TOOL_CALL_END")
-  assert.equal(end?.toolCallName, "weather")
+  assert.equal(end?.toolCallName, "get_weather")
   assert.deepEqual(end?.input, { town: "Paris" })
   assert.equal(chunks.at(-1)?.finishReason, "tool_calls")
+})
+
+test("toolChoice none runs no tool, even when the model writes a call", async () => {
+  let runs = 0
+  const tool = { ...weather, execute: async () => ++runs }
+  control.pieces = ['```tool_call\n{"name": "get_weather", "arguments": {"city": "Paris"}}\n```']
+  const result = await chat({
+    adapter: promptApiText("text"),
+    threadId: "none",
+    messages: [{ role: "user", content: "Weather in Paris?" }],
+    tools: [tool],
+    toolChoice: "none",
+    stream: false
+  })
+  assert.equal(runs, 0)
+  assert.match(result.text, /tool_call/, "the call is text")
+})
+
+test("a call to a tool the step doesn't offer is text, not a call", async () => {
+  control.pieces = ['```tool_call\n{"name": "delete_files", "arguments": {}}\n```']
+  const chunks = await run({ tools: [weather] })
+  assert.ok(!chunks.some((c) => c.type.startsWith("TOOL_CALL")))
+  assert.equal(chunks.at(-1)?.finishReason, "stop")
+
+  control.pieces = ['```tool_call\n{"name": "get_weather", "arguments": {}}\n```']
+  const forced = await run({ tools: [weather, { ...weather, name: "clock" }], toolChoice: { type: "tool", name: "clock" } })
+  assert.ok(!forced.some((c) => c.type.startsWith("TOOL_CALL")), "only the chosen tool")
+})
+
+/** Every chunk of these steps, run at the same time. */
+const together = (...steps: Array<AsyncIterable<unknown>>) =>
+  Promise.all(
+    steps.map(async (s) => {
+      const chunks: Array<Chunk> = []
+      for await (const chunk of s) chunks.push(chunk as Chunk)
+      return chunks
+    })
+  )
+
+test("overlapping steps on a warm thread get sessions of their own", async () => {
+  const adapter = promptApiText("text")
+  const first = [{ role: "user", content: "Weather in Paris?" }]
+  await step(adapter, first)
+  const next = [...first, { role: "assistant", content: "Hello there" }, { role: "user", content: "And tomorrow?" }]
+  await together(adapter.chatStream(chatOptions({ messages: next })), adapter.chatStream(chatOptions({ messages: next })))
+  assert.notEqual(control.prompts[1].session, control.prompts[2].session, "never the same session at once")
+  await adapter.destroy()
+  assert.equal(control.destroyed, control.creates.length, "every session closed")
+})
+
+test("overlapping steps on a cold thread: destroy() closes every session", async () => {
+  const adapter = promptApiText("text")
+  await together(adapter.chatStream(chatOptions()), adapter.chatStream(chatOptions()))
+  await adapter.destroy()
+  assert.equal(control.creates.length, 2)
+  assert.equal(control.destroyed, 2)
+})
+
+test("promptCache retention none closes the session after the step; a key names the session to keep", async () => {
+  await run({ promptCache: { retention: "none" } })
+  assert.equal(control.destroyed, 1)
+
+  const adapter = promptApiText("text")
+  const first = [{ role: "user", content: "Weather in Paris?" }]
+  const promptCache = { retention: "short", key: "shared" }
+  await step(adapter, first, { threadId: "a", promptCache })
+  await step(adapter, [...first, { role: "assistant", content: "Hello there" }, { role: "user", content: "And tomorrow?" }], { threadId: "b", promptCache })
+  assert.equal(control.creates.length, 2, "thread b goes on from the keyed session")
 })
 
 test("a fence without a call is text, and the reply goes on", async () => {

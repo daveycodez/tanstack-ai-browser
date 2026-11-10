@@ -118,3 +118,12 @@ test("a fence without a call, an unclosed fence, bare JSON and other code fences
   assert.deepEqual(read(["```js\nx()\n```"]), { shown: "```js\nx()\n```", call: undefined })
   assert.deepEqual(read(["a ``", "`"]), { shown: "a ```", call: undefined })
 })
+
+test("a JSON call is read as JSON: call syntax in its string arguments is just text", () => {
+  for (const query of ["call:bogus{arg:value}", "[bogus(x=1)]", "bogus(x=1)"]) {
+    const body = JSON.stringify({ name: "search", arguments: { query } })
+    assert.deepEqual(parseToolCall(body), { name: "search", arguments: { query } })
+    assert.deepEqual(read(["```tool_call\n" + body + "\n```"]).call, { name: "search", arguments: { query } })
+  }
+  assert.equal(parseToolCall("see call:bogus{arg:value} here"), undefined, "the fallback syntax is the whole body")
+})

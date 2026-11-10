@@ -78,8 +78,14 @@ type MetadataByModality = {
  */
 const KEPT_SESSIONS = 4
 
-/** A thread's session, the settings it was made with, and the messages it holds. */
-type Kept = { session: LanguageModelSession; settings: string; seen: Array<string>; busy: boolean }
+/**
+ * A thread's session (kept from the moment a step reserves it, while the
+ * browser makes it), the settings it was made with, and the messages it holds.
+ */
+type Kept = { session: Promise<LanguageModelSession>; settings: string; seen: Array<string>; busy: boolean }
+
+/** Closes a session once it's made; one that failed to start has nothing to close. */
+const close = (session: Promise<LanguageModelSession>) => void session.then((s) => s.destroy(), () => undefined)
 
 /**
  * A message as compared with what a session holds. The model's own replies
@@ -89,6 +95,14 @@ const messageKey = (m: ModelMessage) =>
   m.role === "assistant"
     ? JSON.stringify(["assistant", contentText(m.content).trim()])
     : JSON.stringify([m.role, m.content, m.toolCallId ?? null, m.error ?? null])
+
+/** The tools a step offers: none for `toolChoice: "none"`, only the chosen one for a named choice. */
+function offeredTools(options: TextOptions<PromptApiTextModelOptions>): ReadonlyArray<Tool> {
+  const { toolChoice, tools = [] } = options
+  if (toolChoice === "none") return []
+  if (typeof toolChoice === "object") return tools.filter((tool) => tool.name === toolChoice.name)
+  return tools
+}
 
 /** A step's system prompt (the caller's, then the tools), and the settings its session is made with. */
 function sessionSettings(options: TextOptions<PromptApiTextModelOptions>, tools: ReadonlyArray<Tool>) {
@@ -173,7 +187,7 @@ export class PromptApiTextAdapter extends BaseTextAdapter<
 
   /** Closes every thread's session. The browser keeps the model. */
   async destroy(): Promise<void> {
-    for (const kept of this.kept.values()) kept.session.destroy()
+    for (const kept of this.kept.values()) close(kept.session)
     this.kept.clear()
   }
 
@@ -184,7 +198,7 @@ export class PromptApiTextAdapter extends BaseTextAdapter<
     for (const [id, old] of this.kept) {
       if (this.kept.size <= KEPT_SESSIONS) break
       if (old.busy) continue
-      old.session.destroy()
+      close(old.session)
       this.kept.delete(id)
     }
   }
@@ -193,7 +207,7 @@ export class PromptApiTextAdapter extends BaseTextAdapter<
   private drop(threadId: string) {
     const kept = this.kept.get(threadId)
     if (!kept || kept.busy) return
-    kept.session.destroy()
+    close(kept.session)
     this.kept.delete(threadId)
   }
 
@@ -222,39 +236,46 @@ export class PromptApiTextAdapter extends BaseTextAdapter<
   /**
    * The step's session and the messages to prompt it with: the thread's
    * kept session if the conversation goes on from what it holds (only the
-   * new messages), else a new one with the whole conversation. A second step
-   * on a busy thread gets a session of its own (`kept` undefined).
+   * new messages), else a new one with the whole conversation. The session
+   * is reserved before anything is awaited, so a second step on a busy
+   * thread gets a session of its own (`kept` undefined), closed after it.
+   * Threads go by `promptCache.key`; retention "none" keeps no session.
    */
   private async begin(options: TextOptions<PromptApiTextModelOptions>, signal: AbortSignal | undefined) {
-    const { threadId } = options
-    const tools = options.toolChoice === "none" ? [] : (options.tools ?? [])
+    const key = options.promptCache?.key ?? options.threadId
+    const retain = options.promptCache?.retention !== "none"
+    const tools = offeredTools(options)
     const { system, settings } = sessionSettings(options, tools)
     const keys = options.messages.map(messageKey)
-    const held = this.kept.get(threadId)
+    const held = retain ? this.kept.get(key) : undefined
     const goesOn = !!held && goesOnFrom(held, settings, keys)
-    const input = await toLanguageModelMessages(options.messages, goesOn ? held.seen.length : 0)
     let kept: Kept | undefined
-    let session: LanguageModelSession
-    if (goesOn) {
-      kept = held
-      session = held.session
-    } else {
-      this.drop(threadId)
-      session = await this.session(options, system, signal)
-      if (!held?.busy) kept = { session, settings, seen: [], busy: false }
+    if (goesOn) kept = held
+    else if (retain && !held?.busy) {
+      this.drop(key)
+      kept = { session: this.session(options, system, signal), settings, seen: [], busy: false }
     }
     if (kept) {
       kept.busy = true
-      this.keep(threadId, kept)
+      this.keep(key, kept)
     }
-    return { session, kept, keys, input }
+    const pending = kept?.session ?? this.session(options, system, signal)
+    try {
+      const session = await pending
+      const input = await toLanguageModelMessages(options.messages, goesOn ? held.seen.length : 0)
+      return { key, session, kept, keys, input, tools }
+    } catch (error) {
+      // A session that goes on still holds the thread; a new one is dropped.
+      this.end(key, pending, kept, !goesOn)
+      throw error
+    }
   }
 
   /** Frees a step's session: a kept one stays for the thread unless the step failed. */
-  private end(threadId: string, session: LanguageModelSession | undefined, kept: Kept | undefined, failed: boolean) {
-    if (!kept) return session?.destroy()
+  private end(key: string, session: Promise<LanguageModelSession>, kept: Kept | undefined, failed: boolean) {
+    if (!kept) return close(session)
     kept.busy = false
-    if (failed) this.drop(threadId)
+    if (failed && this.kept.get(key) === kept) this.drop(key)
   }
 
   async *chatStream(options: TextOptions<PromptApiTextModelOptions>): AsyncIterable<AdapterYieldChunk> {
@@ -279,8 +300,9 @@ export class PromptApiTextAdapter extends BaseTextAdapter<
     const stop = new AbortController()
     try {
       step = await this.begin(options, signal)
-      const { session, kept, keys, input } = step
-      const reader = toolCallReader()
+      const { session, kept, keys, input, tools } = step
+      // Without tools to offer, the reply is all text.
+      const reader = tools.length > 0 ? toolCallReader(tools.map((tool) => tool.name)) : undefined
       let text = ""
       const textEvents = function* (delta: string): Generator<AdapterYieldChunk> {
         if (!delta) return
@@ -291,8 +313,8 @@ export class PromptApiTextAdapter extends BaseTextAdapter<
       const generation = signal ? AbortSignal.any([signal, stop.signal]) : stop.signal
       try {
         for await (const piece of session.promptStreaming(input, { signal: generation })) {
-          yield* textEvents(reader.push(piece))
-          if (reader.call) {
+          yield* textEvents(reader ? reader.push(piece) : piece)
+          if (reader?.call) {
             stop.abort()
             break
           }
@@ -300,10 +322,12 @@ export class PromptApiTextAdapter extends BaseTextAdapter<
       } catch (error) {
         if (!stop.signal.aborted || signal?.aborted) throw error
       }
-      yield* textEvents(reader.end())
-      const call = reader.call
-      // Text after the call, in the piece that closed it, is shown too.
-      yield* textEvents(reader.trailing)
+      const call = reader?.call
+      if (reader) {
+        yield* textEvents(reader.end())
+        // Text after the call, in the piece that closed it, is shown too.
+        yield* textEvents(reader.trailing)
+      }
       if (text) yield { type: EventType.TEXT_MESSAGE_END, messageId, model, timestamp: timestamp() }
       // A finished reply is in the session now. One stopped at a tool call
       // isn't: Chrome drops a stopped turn whole, so the next step sends it.
@@ -354,7 +378,7 @@ export class PromptApiTextAdapter extends BaseTextAdapter<
         error: { message, ...(aborted && { code: "aborted" }) }
       }
     } finally {
-      this.end(threadId, step?.session, step?.kept, failed)
+      if (step) this.end(step.key, Promise.resolve(step.session), step.kept, failed)
     }
   }
 
@@ -382,7 +406,7 @@ export class PromptApiTextAdapter extends BaseTextAdapter<
       failed = true
       throw error
     } finally {
-      this.end(chatOptions.threadId, step?.session, step?.kept, failed)
+      if (step) this.end(step.key, Promise.resolve(step.session), step.kept, failed)
     }
   }
 }

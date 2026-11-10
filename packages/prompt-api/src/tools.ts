@@ -98,19 +98,11 @@ export const toolResultFence = (lines: ReadonlyArray<string>) => `\`\`\`tool_res
 /**
  * The first tool call in a fence's body: a JSON object (or an array of them,
  * or one per line) with `name` and `arguments` (or `parameters`), the
- * arguments possibly a JSON string; or a Python-style call,
- * `[name(key="v")]`; or `call:name{key:value}`.
+ * arguments possibly a JSON string; else, as the whole body, a Python-style
+ * call, `[name(key="v")]`, or `call:name{key:value}`.
  */
 export function parseToolCall(body: string): ParsedToolCall | undefined {
   const text = body.trim()
-  // `call:name{key:value,…}`
-  const colon = /call:(\w+)\{([^}]*)\}/.exec(text)
-  if (colon) return { name: colon[1], arguments: parseColonArguments(colon[2]) }
-  // Python style, `[name(key="value")]` or `name(key="value")`
-  if (/^\[?\s*\w+\(/.test(text)) {
-    const call = parsePythonCall(text)
-    if (call) return call
-  }
   const candidates: Array<unknown> = []
   try {
     const value = JSON.parse(text) as unknown
@@ -136,7 +128,11 @@ export function parseToolCall(body: string): ParsedToolCall | undefined {
     }
     return { name: call.name, arguments: args }
   }
-  return undefined
+  // `call:name{key:value,…}`
+  const colon = /^call:(\w+)\{([^}]*)\}$/.exec(text)
+  if (colon) return { name: colon[1], arguments: parseColonArguments(colon[2]) }
+  // Python style, `[name(key="value")]` or `name(key="value")`
+  return parsePythonCall(text)
 }
 
 /** `key:value,…` pairs, values read as numbers, booleans or null where they are. */
@@ -216,20 +212,20 @@ function pythonValue(raw: string): unknown {
   }
 }
 
-/** The first Python-style call in `text`: `name(key=value, …)`, maybe in brackets. */
+/** `text` as one Python-style call: `name(key=value, …)`, maybe in brackets. */
 function parsePythonCall(text: string): ParsedToolCall | undefined {
-  const match = /(\w+)\(/.exec(text)
+  const match = /^(\[?\s*)(\w+)\(/.exec(text)
   if (!match) return undefined
-  const open = match.index + match[1].length
+  const open = match[0].length - 1
   const close = closing(text, open)
-  if (close === -1) return undefined
+  if (close === -1 || text.slice(close + 1).trim() !== (match[1] ? "]" : "")) return undefined
   const args: Record<string, unknown> = {}
   for (const part of splitTopLevel(text.slice(open + 1, close))) {
     const at = part.indexOf("=")
     if (at <= 0) continue
     args[part.slice(0, at).trim()] = pythonValue(part.slice(at + 1))
   }
-  return { name: match[1], arguments: args }
+  return { name: match[2], arguments: args }
 }
 
 /** Characters at the end of `text` that could start a fence. */
@@ -247,10 +243,11 @@ function partialFenceStart(text: string) {
  * delimiters: `<tool_call>`, `<|tool_call>`, `<|tool_call_start|>`, or a
  * Python-style `[name(…)]`) is held back. The first fence that closes with
  * a call in it ends the reply (stop generating then): `call` is the call,
- * and `trailing` the text after it. A fence without a call, and other code
- * fences, are text. `end` gives the rest, an unclosed fence as text.
+ * and `trailing` the text after it. A fence without a call, a call to a tool
+ * not in `names` (when given), and other code fences, are text. `end` gives
+ * the rest, an unclosed fence as text.
  */
-export function toolCallReader() {
+export function toolCallReader(names?: ReadonlyArray<string>) {
   let buffer = ""
   // The delimiter of the call being read; a Python-style call is read whole.
   let start: (Delimiter & { python?: boolean }) | undefined
@@ -282,7 +279,8 @@ export function toolCallReader() {
       const close = buffer.indexOf(start.end, start.start.length)
       if (close === -1) return shown
       const fence = buffer.slice(0, close + start.end.length)
-      call = parseToolCall(start.python ? fence : fence.slice(start.start.length, close))
+      const parsed = parseToolCall(start.python ? fence : fence.slice(start.start.length, close))
+      call = parsed && (!names || names.includes(parsed.name)) ? parsed : undefined
       buffer = buffer.slice(fence.length)
       start = undefined
       if (call) trailing = buffer
