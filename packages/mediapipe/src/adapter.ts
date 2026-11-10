@@ -47,7 +47,10 @@ export class MediaPipeEmbeddingAdapter<
   protected loadConfig: MediaPipeEmbeddingConfig
   private embedder: Promise<TextEmbedder> | undefined
   private ready = false
-  /** Calls run one at a time, so one call's `setOptions` never lands in another's batch. */
+  /**
+   * Calls and `destroy` run one at a time, so one call's `setOptions` never
+   * lands in another's batch, and no batch runs on a closed embedder.
+   */
   private queue: Promise<unknown> = Promise.resolve()
 
   constructor(config: MediaPipeEmbeddingConfig, model: TModel) {
@@ -78,12 +81,19 @@ export class MediaPipeEmbeddingAdapter<
     return ready
   }
 
-  /** Closes the embedder, freeing it; the next call creates it again. */
-  async destroy(): Promise<void> {
-    const embedder = this.embedder
-    this.embedder = undefined
-    this.ready = false
-    ;(await embedder?.catch(() => undefined))?.close()
+  /**
+   * Closes the embedder, freeing it, once the calls before it are done; the
+   * next call creates it again.
+   */
+  destroy(): Promise<void> {
+    const run = this.queue.then(async () => {
+      const embedder = this.embedder
+      this.embedder = undefined
+      this.ready = false
+      ;(await embedder?.catch(() => undefined))?.close()
+    })
+    this.queue = run.catch(() => undefined)
+    return run
   }
 
   /** MediaPipe's TextEmbedder, created once per adapter (again after a failed load). */

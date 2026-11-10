@@ -77,6 +77,9 @@ const abortable = <T>(promise: Promise<T>, signal: AbortSignal | undefined) =>
       ])
     : promise
 
+/** Ends of unloaded wllamas, in turn: a new load starts once the previous one has ended. */
+let teardown: Promise<void> = Promise.resolve()
+
 /** Frees the loaded model, stopping its download. Given a model, only if it's the one loaded. */
 export async function unloadModel(model?: WllamaModel) {
   const current = loaded
@@ -84,7 +87,8 @@ export async function unloadModel(model?: WllamaModel) {
   loaded = null
   downloading.delete(current.model)
   current.abort.abort()
-  await current.wllama.exit().catch(() => undefined)
+  teardown = teardown.then(() => current.wllama.exit()).catch(() => undefined)
+  await teardown
 }
 
 /**
@@ -103,7 +107,8 @@ export async function loadModel(
   const url = modelUrl(model)
   const key = JSON.stringify(settings)
   if (loaded?.model !== model || loaded.key !== key) {
-    await unloadModel()
+    // Published at once, so a call meanwhile shares this load.
+    void unloadModel()
     const wllama = new Wllama(
       { default: settings.wasmUrl ?? WLLAMA_WASM_URL },
       { logger: settings.debug ? console : LoggerWithoutDebug, suppressNativeLog: !settings.debug }
@@ -112,24 +117,31 @@ export async function loadModel(
     const abort = new AbortController()
     // This caller's callback first: wllama may report progress at once.
     const listeners = new Set<DownloadProgressCallback>(onDownloadProgress ? [onDownloadProgress] : [])
-    const promise = wllama
-      .loadModelFromUrl(url, {
-        signal: abort.signal,
-        progressCallback: ({ loaded: bytes, total }) => {
-          // A model in storage reports its whole size once, without downloading.
-          if (!total || bytes >= total) return
-          downloading.add(model)
-          for (const listener of listeners) listener(bytes / total)
-        },
-        // 0: llama.cpp's "the model's training context" (wllama's default is 1,024).
-        n_ctx: settings.contextLength ?? 0,
-        // The whole context in sliding-window layers' cache (LFM3's), so a
-        // follow-up reuses what was read before.
-        swa_full: true,
-        ...(settings.gpu === false && { n_gpu_layers: 0 }),
-        ...(settings.threads && { n_threads: settings.threads })
+    const promise = teardown
+      .then(() => {
+        abort.signal.throwIfAborted()
+        return wllama.loadModelFromUrl(url, {
+          signal: abort.signal,
+          progressCallback: ({ loaded: bytes, total }) => {
+            // A model in storage reports its whole size once, without downloading.
+            if (!total || bytes >= total) return
+            downloading.add(model)
+            for (const listener of listeners) listener(bytes / total)
+          },
+          // 0: llama.cpp's "the model's training context" (wllama's default is 1,024).
+          n_ctx: settings.contextLength ?? 0,
+          // The whole context in sliding-window layers' cache (LFM3's), so a
+          // follow-up reuses what was read before.
+          swa_full: true,
+          ...(settings.gpu === false && { n_gpu_layers: 0 }),
+          ...(settings.threads && { n_threads: settings.threads })
+        })
       })
-      .then(() => wllama)
+      .then(() => {
+        // Unloaded meanwhile: a load that ends anyway (from storage) is stale.
+        abort.signal.throwIfAborted()
+        return wllama
+      })
       .finally(() => downloading.delete(model))
     const current = { model, key, wllama, promise, ready: false, abort, listeners }
     loaded = current

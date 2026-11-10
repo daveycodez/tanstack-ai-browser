@@ -35,6 +35,8 @@ type Control = {
   progressed: null | (() => void)
   /** Each load: its URL and options. */
   loads: Array<{ url: string; params: Record<string, unknown> }>
+  /** wllama instances made. */
+  instances: number
   /** wllama instances ended. */
   exits: number
   /** Rejects the next loads with it. */
@@ -52,6 +54,7 @@ async function withClient(name: string, body: (client: Built, control: Control, 
     gate: new Promise<void>((resolve) => (release = resolve)),
     progressed: null,
     loads: [],
+    instances: 0,
     exits: 0
   }
   ;(globalThis as { __wllamaRuntime?: Control }).__wllamaRuntime = control
@@ -78,6 +81,7 @@ async function withClient(name: string, body: (client: Built, control: Control, 
                 export const LoggerWithoutDebug={};
                 export class ModelManager { async getModels(){ return control.stored } }
                 export class Wllama {
+                  constructor(){control.instances++}
                   setCompat(){}
                   async loadModelFromUrl(url,params){
                     control.loads.push({url,params});
@@ -192,3 +196,25 @@ test("an unlisted model is named by its GGUF file: owner/repo/file.gguf on Huggi
   })
 })
 
+test("simultaneous cold starts with the same settings share one load, which unloading frees", { timeout: 5000 }, async () => {
+  await withClient("simultaneous", async (client, control) => {
+    control.stored.push({ url: modelUrl(MODEL), size: 1000 })
+    const [first, second] = await Promise.all([client.loadModel(MODEL, {}), client.loadModel(MODEL, {})])
+    assert.equal(control.loads.length, 1)
+    assert.equal(first, second)
+    await client.unloadModel()
+    assert.equal(control.instances, 1)
+    assert.equal(control.exits, control.instances, "no wllama is left running")
+  })
+})
+
+test("unloading during a load from storage stops it: the load rejects and no wllama is left running", { timeout: 5000 }, async () => {
+  await withClient("unload-stored", async (client, control) => {
+    control.stored.push({ url: modelUrl(MODEL), size: 1000 })
+    const loading = client.loadModel(MODEL, {})
+    await client.unloadModel()
+    await assert.rejects(loading)
+    assert.equal(control.exits, control.instances, "no wllama is left running")
+    assert.equal(await client.availability(MODEL), "available", "its file stays in storage")
+  })
+})

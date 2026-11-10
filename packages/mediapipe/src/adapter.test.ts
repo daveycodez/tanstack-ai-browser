@@ -19,7 +19,11 @@ const fake = {
   created: [] as Array<{ fileset: unknown; options: unknown }>,
   setOptions: [] as Array<unknown>,
   closed: 0,
-  embedding: { floatEmbedding: [0.5, -0.25] } as Embedding
+  embedding: { floatEmbedding: [0.5, -0.25] } as Embedding,
+  /** Holds each setOptions until it resolves. */
+  gate: undefined as Promise<void> | undefined,
+  /** Called when setOptions starts. */
+  onSetOptions: undefined as (() => void) | undefined
 }
 
 const stub = <T extends object>(target: T, values: Record<string, unknown>) => Object.assign(target, values)
@@ -32,10 +36,21 @@ stub(FilesetResolver, {
 stub(TextEmbedder, {
   createFromOptions: async (fileset: unknown, options: unknown) => {
     fake.created.push({ fileset, options })
+    let closed = false
     return {
-      setOptions: async (options: unknown) => void fake.setOptions.push(options),
-      embed: () => ({ embeddings: [fake.embedding] }),
-      close: () => void fake.closed++
+      setOptions: async (options: unknown) => {
+        fake.setOptions.push(options)
+        fake.onSetOptions?.()
+        await fake.gate
+      },
+      embed: () => {
+        if (closed) throw new Error("embed on a closed graph")
+        return { embeddings: [fake.embedding] }
+      },
+      close: () => {
+        closed = true
+        fake.closed++
+      }
     }
   }
 })
@@ -46,6 +61,8 @@ beforeEach(() => {
   fake.setOptions = []
   fake.closed = 0
   fake.embedding = { floatEmbedding: [0.5, -0.25] }
+  fake.gate = undefined
+  fake.onSetOptions = undefined
 })
 
 test("the factory defaults to Universal Sentence Encoder, as an embedding adapter named mediapipe", () => {
@@ -132,4 +149,24 @@ test("availability follows the embedder: downloadable, available once created, d
   await adapter.destroy()
   assert.equal(fake.closed, 1)
   assert.equal(await adapter.availability(), "downloadable")
+})
+
+test("destroy during a call waits for its batch, then closes the embedder; the next call creates it again", async () => {
+  let release!: () => void
+  fake.gate = new Promise<void>((resolve) => (release = resolve))
+  const started = new Promise<void>((resolve) => (fake.onSetOptions = resolve))
+  const adapter = mediaPipeEmbedding()
+  const embedding = embed({ adapter, input: "one", debug: false })
+  await started
+  const destroyed = adapter.destroy()
+  await new Promise((resolve) => setTimeout(resolve, 0))
+  assert.equal(fake.closed, 0, "not while its batch runs")
+  release()
+  assert.deepEqual((await embedding).embeddings[0]?.vector, [0.5, -0.25])
+  await destroyed
+  assert.equal(fake.closed, 1)
+  assert.equal(await adapter.availability(), "downloadable")
+  fake.gate = undefined
+  await embed({ adapter, input: "two", debug: false })
+  assert.equal(fake.created.length, 2)
 })
