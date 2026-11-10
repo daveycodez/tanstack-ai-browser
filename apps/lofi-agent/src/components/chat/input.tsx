@@ -4,7 +4,7 @@
  * voice input in its toolbar.
  */
 import Microphone from "@gravity-ui/icons/Microphone"
-import { Alert, Skeleton } from "@heroui/react"
+import { Alert, CloseButton, Skeleton } from "@heroui/react"
 import type { ContentPart, ReasoningLevel } from "@tanstack/ai"
 import { useRef, useState } from "react"
 
@@ -14,6 +14,7 @@ import {
   useEffort,
   useSelectedModel
 } from "#/chat/model"
+import { toAttachments } from "#/chat/attachments"
 import { cantRead, unreadableKinds } from "#/chat/media"
 import {
   afmStatus,
@@ -21,19 +22,19 @@ import {
   effortButtonLabel,
   effortFor,
   effortOptions,
-  PROVIDERS,
-  attachableKinds,
-  inputModalities,
+  loadWebLlmModels,
   modelInfo,
+  PROVIDERS,
+  useAttachableKinds,
   useBackends,
+  useInputModalities,
   useModels
 } from "#/chat/models"
 import type { ModelId } from "#/chat/models"
 import { Action } from "#/components/ai/actions"
 import {
   PromptInputAddAttachment,
-  PromptInputAttachments,
-  toAttachments
+  PromptInputAttachments
 } from "#/components/ai/attachments"
 import { ModelSelector } from "#/components/ai/model-selector"
 import {
@@ -53,19 +54,28 @@ export function ChatPromptInput() {
   const { send } = useThread()
   const { isLoading, stop } = useChatContext()
   const model = useSelectedModel()
-  const kinds = attachableKinds(model)
+  // What the picked model reads here: for the browser's own model, what
+  // the browser says this device takes.
+  const kinds = useAttachableKinds(model)
+  const reads = useInputModalities(model)
   // Attachments the picked model can't read, after a switch: the draft
   // stays as it is, and won't send until they're removed or another model
   // is picked.
   const unreadable = unreadableKinds(
     attachments.map((attachment) => ({ type: attachment.kind })),
-    inputModalities(model)
+    reads
   )
   const hasDraft = !!value.trim() || attachments.length > 0
   // A message sent while a reply runs waits in the queue.
   const canSend = hasDraft && unreadable.length === 0
+  // Files that couldn't be attached (a corrupt image), named above the box
+  // until dismissed or the next attach; the others are attached.
+  const [unattached, setUnattached] = useState<Array<string>>([])
   const attach = (files: Iterable<File>) => {
-    void toAttachments(files, kinds).then((added) => setAttachments((current) => [...current, ...added]))
+    void toAttachments(files, kinds).then(({ attachments: added, failed }) => {
+      setAttachments((current) => [...current, ...added])
+      setUnattached(failed)
+    })
   }
 
   // Dictation adds to whatever was already typed when it started.
@@ -103,6 +113,18 @@ export function ChatPromptInput() {
               {cantRead(modelInfo(model).name, unreadable)} Pick a model that can, or remove them to send.
             </Alert.Description>
           </Alert.Content>
+        </Alert>
+      )}
+      {unattached.length > 0 && (
+        // Above the box, not in it.
+        <Alert status="danger" className="mb-2">
+          <Alert.Indicator />
+          <Alert.Content>
+            <Alert.Description>
+              Couldn&apos;t read {unattached.join(", ")}, so {unattached.length === 1 ? "it isn't" : "they aren't"} attached.
+            </Alert.Description>
+          </Alert.Content>
+          <CloseButton aria-label="Dismiss" onPress={() => setUnattached([])} />
         </Alert>
       )}
       <PromptInput label="Message input" name="message">
@@ -256,6 +278,10 @@ function ChatModelSelector() {
         effort={level}
         effortLabel={level && effortButtonLabel(model, level)}
         onEffortChange={(id) => setEffort(id as ReasoningLevel)}
+        // WebLLM's models load when the picker first opens.
+        onOpenChange={(isOpen) => {
+          if (isOpen) void loadWebLlmModels()
+        }}
       />
     </>
   )

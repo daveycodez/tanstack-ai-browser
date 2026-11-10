@@ -12,11 +12,12 @@ import type { WllamaChatModel } from "@tanstack-ai-browser/wllama/model-meta"
 import { webgllmText } from "@tanstack-ai-browser/webgllm"
 import { WEBGLLM_MODEL_REASONING } from "@tanstack-ai-browser/webgllm/model-meta"
 import type { WebGllmChatModel } from "@tanstack-ai-browser/webgllm/model-meta"
-import { webLlmText } from "@tanstack-ai-browser/web-llm"
-import { WEB_LLM_CHAT_MODELS, WEB_LLM_MODEL_META, WEB_LLM_MODEL_REASONING } from "@tanstack-ai-browser/web-llm/model-meta"
+// Types only: WebLLM loads on demand (./web-llm-models.ts).
+import type { webLlmText } from "@tanstack-ai-browser/web-llm"
 import type { WebLlmChatModel } from "@tanstack-ai-browser/web-llm/model-meta"
+import type { webLlmModel as WebLlmModel } from "./web-llm-models.ts"
 import { apfelText } from "@tanstack-ai-browser/apfel"
-import { promptApiText } from "@tanstack-ai-browser/prompt-api"
+import { PromptApiTextAdapter, promptApiText } from "@tanstack-ai-browser/prompt-api"
 import type { Availability } from "@tanstack-ai-browser/prompt-api"
 import { browserModel } from "./browser-model.ts"
 import { useSyncExternalStore } from "react"
@@ -77,6 +78,23 @@ export type ModelStatus =
 
 /** A store of a model's loading status. */
 export type ModelStatusStore = ReturnType<typeof createStore<ModelStatus>>
+
+/** A model in the list. */
+type ModelEntry = {
+  id: ModelId
+  name: string
+  icon: string
+  adapter:
+    | ReturnType<typeof transformersJsText>
+    | ReturnType<typeof apfelText>
+    | ReturnType<typeof wllamaText>
+    | ReturnType<typeof promptApiText>
+    | ReturnType<typeof webgllmText>
+    | ReturnType<typeof webLlmText>
+  status: ModelStatusStore | null
+  needsWebGpu: boolean
+  reasoning: ModelReasoning | undefined
+}
 
 /**
  * A model's status store, and its adapter's `onDownloadProgress`, which
@@ -186,53 +204,22 @@ const webgl = (id: ModelId, model: WebGllmChatModel) => {
  * with its catalog's context window, 4,096 tokens for most, already under
  * the 8,192 the others are cut to.
  */
-/**
- * The GPU memory a WebLLM model may need (its catalog's `vram_required_MB`)
- * to load in iPhone Safari, whose tab is killed near 2 GB.
- */
-const WEB_LLM_MEMORY_MB = 1536
-
-/** A WebLLM build that loads on an iPhone; Gemma 2's Japanese build is left out. */
-const fitsIphone = (model: WebLlmChatModel) =>
-  (WEB_LLM_MODEL_META[model]?.vram_required_MB ?? Infinity) <= WEB_LLM_MEMORY_MB && !model.includes("-jpn-")
-
-/**
- * Each WebLLM model once, at its lowest quantization: the fewest weight bits
- * (`q3`, then `q4`, then unquantized `q0` at 16 bits, then 32), 16-bit
- * activations before 32-bit, and its whole context before a `-1k` build.
- */
-function lowestQuants(models: ReadonlyArray<WebLlmChatModel>): Array<WebLlmChatModel> {
-  const rank = (model: string) => {
-    const [, weights = "4", activations = "16"] = /-q(\d+)f(\d+)/.exec(model) ?? []
-    const bits = weights === "0" ? Number(activations) : Number(weights)
-    return [bits, Number(activations), model.endsWith("-1k") ? 1 : 0]
-  }
-  const better = (a: string, b: string) => {
-    const [x, y] = [rank(a), rank(b)]
-    const at = x.findIndex((value, i) => value !== y[i])
-    return at !== -1 && x[at]! < y[at]!
-  }
-  const best = new Map<string, WebLlmChatModel>()
-  for (const model of models) {
-    const base = model.replace(/-q\d+f\d+(_\d+)?/, "").replace(/-MLC(-1k)?$/, "")
-    const kept = best.get(base)
-    if (!kept || better(model, kept)) best.set(base, model)
-  }
-  return [...best.values()]
-}
-
-const webLlm = (model: WebLlmChatModel) => {
+const webLlm = (
+  model: WebLlmChatModel,
+  webLlmModel: typeof WebLlmModel
+): ModelEntry => {
   const { status, onDownloadProgress } = statusStore()
+  const { adapter, reasoning } = webLlmModel(model, onDownloadProgress)
   return {
     id: `web-llm:${model}` as const,
     // One quantization per model (lowestQuants): its name without it.
     name: model.replace(/-q\d+f\d+(_\d+)?/, "").replace(/-MLC(-1k)?$/, ""),
     icon: makerIcon(model),
-    adapter: webLlmText(model, { onDownloadProgress }),
-    status: status as ModelStatusStore | null,
+    adapter,
+    status,
     needsWebGpu: true,
     /** Thinking on and off where its chat template has the switch (Qwen3). */
-    reasoning: WEB_LLM_MODEL_REASONING[model] as ModelReasoning | undefined
+    reasoning
   }
 }
 
@@ -294,23 +281,35 @@ export const MODELS = [
   webgl("lfm2.5-350m-webgl", "LiquidAI/LFM2.5-350M-ONNX"),
   webgl("lfm2.5-350m-gguf-webgl", "LiquidAI/LFM2.5-350M-GGUF"),
   webgl("qwen3.5-2b-webgl", "onnx-community/Qwen3.5-2B-ONNX"),
-  webgl("qwen3.5-2b-gguf-webgl", "unsloth/Qwen3.5-2B-GGUF"),
-  ...lowestQuants(WEB_LLM_CHAT_MODELS.filter(fitsIphone)).map(webLlm)
-] satisfies Array<{
-  id: ModelId
-  name: string
-  icon: string
-  adapter:
-    | ReturnType<typeof transformersJsText>
-    | ReturnType<typeof apfelText>
-    | ReturnType<typeof wllamaText>
-    | ReturnType<typeof promptApiText>
-    | ReturnType<typeof webgllmText>
-    | ReturnType<typeof webLlmText>
-  status: ModelStatusStore | null
-  needsWebGpu: boolean
-  reasoning: ModelReasoning | undefined
-}>
+  webgl("qwen3.5-2b-gguf-webgl", "unsloth/Qwen3.5-2B-GGUF")
+] satisfies Array<ModelEntry>
+
+/**
+ * WebLLM's models, once its catalog has loaded: it comes from
+ * `@mlc-ai/web-llm` itself (6 MB), so it loads when it's needed, when the
+ * picker opens or a WebLLM model is the saved pick (`loadWebLlmModels`).
+ */
+const webLlmModels = createStore<ReadonlyArray<ModelEntry>>([])
+
+let webLlmLoad: Promise<void> | undefined
+/**
+ * Loads WebLLM's part of the list, once (again after a failed load). Its
+ * models' downloads aren't checked here: each model's is when it loads.
+ */
+export const loadWebLlmModels = () => {
+  if (typeof window === "undefined") return Promise.resolve()
+  return (webLlmLoad ??= import("./web-llm-models.ts").then(
+    ({ WEB_LLM_PICKER_MODELS, webLlmModel }) =>
+      webLlmModels.set(WEB_LLM_PICKER_MODELS.map((model) => webLlm(model, webLlmModel))),
+    (error: unknown) => {
+      webLlmLoad = undefined
+      console.error("Couldn't load WebLLM's models", error)
+    }
+  ))
+}
+
+/** Every model in the list: WebLLM's too, once loaded. */
+const allModels = (): ReadonlyArray<ModelEntry> => [...MODELS, ...webLlmModels.get()]
 
 /**
  * The picker's sections: each adapter's provider (its `name`), in
@@ -398,24 +397,63 @@ export const DEFAULT_GPU_MODEL: ModelId = "lfm3-web"
  */
 export const DEFAULT_CPU_MODEL: ModelId = "lfm2-tool"
 
-export const modelInfo = (id: ModelId) =>
-  MODELS.find((m) => m.id === id) ??
+export const modelInfo = (id: ModelId): ModelEntry =>
+  allModels().find((m) => m.id === id) ??
   MODELS.find((m) => m.id === DEFAULT_MODEL) ??
   MODELS[0]
 
-/** What a model reads: its adapter's input modalities, such as text and image. */
-export const inputModalities = (id: ModelId) =>
-  (modelInfo(id).adapter.inputModalities ?? []) as ReadonlyArray<string>
+/**
+ * What each model whose adapter can say which inputs this device takes
+ * said (the Prompt API's `availableInputModalities`); text only until then.
+ */
+const deviceInputs = createStore<Partial<Record<ModelId, ReadonlyArray<string>>>>({})
 
-/** What can be attached for a model: the images and audio its adapter's input lists. */
+/**
+ * The adapter, if it can say which of its inputs this device takes: the
+ * Prompt API's, whose model may take images but not audio (it needs a GPU).
+ */
+const askingInputs = (adapter: ModelEntry["adapter"]) =>
+  adapter instanceof PromptApiTextAdapter ? adapter : undefined
+
+/** Asks `id`'s adapter which inputs this device takes, if it can say, into the store. */
+async function checkInputs(id: ModelId) {
+  const adapter = askingInputs(modelInfo(id).adapter)
+  if (!adapter) return
+  const inputs = await adapter.availableInputModalities()
+  deviceInputs.set((all) => ({ ...all, [id]: inputs }))
+}
+
+/**
+ * What a model reads: its adapter's input modalities, such as text and
+ * image, as far as this device takes them where the adapter can say.
+ */
+export const inputModalities = (id: ModelId): ReadonlyArray<string> => {
+  const { adapter } = modelInfo(id)
+  if (askingInputs(adapter)) return deviceInputs.get()[id] ?? ["text"]
+  return (adapter.inputModalities ?? []) as ReadonlyArray<string>
+}
+
+/** What can be attached for a model: the images and audio it reads. */
 export const attachableKinds = (id: ModelId): ReadonlyArray<"image" | "audio"> => {
   const input = inputModalities(id)
   return (["image", "audio"] as const).filter((kind) => input.includes(kind))
 }
 
+/** `inputModalities`, for a component: it updates once the device has said. */
+export const useInputModalities = (id: ModelId) => {
+  deviceInputs.use()
+  return inputModalities(id)
+}
+
+/** `attachableKinds`, for a component: it updates once the device has said. */
+export const useAttachableKinds = (id: ModelId) => {
+  deviceInputs.use()
+  return attachableKinds(id)
+}
+
 /** Whether `value` is the id of a model in the list, as a run reads it. */
 export const isModelId = (value: unknown): value is ModelId =>
-  MODELS.some((m) => m.id === value)
+  allModels().some((m) => m.id === value)
 
 /**
  * Models the picker no longer offers, and the same model on another runtime
@@ -532,11 +570,18 @@ if (typeof window !== "undefined") {
     // forever, with no model: only Chrome's and Edge's are offered.
     if (m.id === "built-in" && browserModel().id === "unknown") continue
     void checkAvailability(m.id)
+    void checkInputs(m.id)
   }
 }
 
-/** Subscribes a component to the models' availability. */
-export const useAvailabilities = () => availabilities.use()
+/**
+ * Subscribes a component to what can be offered: the models' availability,
+ * and WebLLM's models once they've loaded.
+ */
+export const useAvailabilities = () => {
+  webLlmModels.use()
+  return availabilities.use()
+}
 
 /**
  * Whether `id` can run here, as its availability says: models are offered
@@ -564,7 +609,8 @@ const canRun = (id: ModelId, isMac: boolean, hasGpu: boolean) =>
 
 /**
  * The pick, if this device can run it, else the default: LFM3's GGUF on
- * WebGL, else LFM3 Web on WebGPU, else LFM2 1.2B Tool on the CPU.
+ * WebGL, else LFM3 Web on WebGPU, else LFM2 1.2B Tool on the CPU. A WebLLM
+ * pick is offered once WebLLM's models have loaded, which this starts.
  */
 export const offered = (
   saved: string,
@@ -572,6 +618,7 @@ export const offered = (
   hasGpu: boolean
 ): ModelId => {
   const id = currentModelId(saved)
+  if (typeof id === "string" && id.startsWith("web-llm:")) void loadWebLlmModels()
   return isModelId(id) && canRun(id, isMac, hasGpu)
     ? id
     : canRun(DEFAULT_MODEL, isMac, hasGpu)
@@ -586,7 +633,7 @@ export function useModels() {
   const isMac = useIsMacOS()
   const hasGpu = useHasWebGpu()
   const all = useAvailabilities()
-  return MODELS.filter((m) => canRun(m.id, isMac, hasGpu)).map((m) => ({
+  return allModels().filter((m) => canRun(m.id, isMac, hasGpu)).map((m) => ({
     ...m,
     availability: all[m.id]
   }))

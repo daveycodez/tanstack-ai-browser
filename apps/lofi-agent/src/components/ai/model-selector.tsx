@@ -53,7 +53,8 @@ export function ModelSelector({
   efforts = [],
   effort,
   effortLabel,
-  onEffortChange
+  onEffortChange,
+  onOpenChange
 }: {
   sections: Array<ModelSection>
   value: string
@@ -65,8 +66,14 @@ export function ModelSelector({
   /** Shown muted after the model's name, such as "High". */
   effortLabel?: string
   onEffortChange?: (id: string) => void
+  /** Called when the picker opens or closes. */
+  onOpenChange?: (isOpen: boolean) => void
 }) {
-  const [isOpen, setIsOpen] = useState(false)
+  const [isOpen, setOpen] = useState(false)
+  const setIsOpen = (open: boolean) => {
+    setOpen(open)
+    onOpenChange?.(open)
+  }
   const current = sections
     .flatMap((section) => section.models)
     .find((model) => model.id === value)
