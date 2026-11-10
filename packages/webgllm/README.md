@@ -72,6 +72,10 @@ for await (const event of stream) {
 
 A failure is a `RUN_ERROR`, as in a chat. Aborting stops the generation and ends the stream without one.
 
+## Images
+
+Models with a vision encoder read images (webgllm 0.2.3 and later): Qwen3.5 2B's ONNX build, `onnx-community/Qwen3.5-2B-ONNX`, in the catalog. The adapter's `inputModalities` is `["text", "image"]` for them, from the catalog's `supports.input`; `undefined` for a model the catalog doesn't list. Send image parts in a user message, as data (base64) or URLs: they go to webgllm as OpenAI's `image_url`, with `detail` (`auto` by default) setting how many pixels it reads. webgllm loads the vision encoder only for a request with an image and frees it after, so text chats cost nothing more. An image to a model without one throws webgllm's `unsupported-parameter` error.
+
 ## Models and loading
 
 `@tanstack-ai-browser/webgllm/model-meta` has the catalog: `WEBGLLM_CHAT_MODELS` lists the models webgllm runs and `WEBGLLM_MODEL_META` has each one's files, capabilities and sampling (webgllm's catalog). `WEBGLLM_MODEL_REASONING` has each model's reasoning levels in TanStack's shape, for `supportedReasoningLevels()`. Their types are `WebGllmChatModel`, `WebGllmModelMeta` and `WebGllmModelReasoningByName`. LFM3 thinks by default and Qwen3.5 doesn't; `chat({ reasoning })` switches it.

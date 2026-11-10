@@ -112,3 +112,21 @@ test("the caller's signal reaches webgllm, which stops the generation", async ()
   await collect(webgllmText(MODEL).chatStream(textOptions({ request: { signal: controller.signal } })))
   assert.equal(fake.requests[0]?.options.signal, controller.signal)
 })
+
+test("images: Qwen3.5's ONNX build reads them, sent as OpenAI image_url parts; the GGUF builds don't", async () => {
+  const qwen = "onnx-community/Qwen3.5-2B-ONNX"
+  assert.deepEqual(webgllmText(qwen).inputModalities, ["text", "image"])
+  assert.deepEqual(webgllmText("unsloth/Qwen3.5-2B-GGUF").inputModalities, ["text"])
+  assert.equal(webgllmText("someone/Unlisted-ONNX").inputModalities, undefined)
+  const image = { type: "image", source: { type: "data", value: "AAAA", mimeType: "image/png" } }
+  await collect(
+    webgllmText(qwen).chatStream(
+      textOptions({ model: qwen, messages: [{ role: "user", content: [image, { type: "text", content: "What's this?" }] }] } as never)
+    )
+  )
+  const body = lastBody() as unknown as { messages: Array<{ content: unknown }> }
+  assert.deepEqual(body.messages.at(-1)!.content, [
+    { type: "image_url", image_url: { url: "data:image/png;base64,AAAA", detail: "auto" } },
+    { type: "text", text: "What's this?" }
+  ])
+})

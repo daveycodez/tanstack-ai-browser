@@ -1,6 +1,7 @@
 /**
  * A TanStack AI text adapter for webgllm: LFM3, LFM2.5 and Qwen3.5 on
- * WebGL 2 in a Web Worker, for browsers without WebGPU. webgllm answers
+ * WebGL 2 in a Web Worker, for browsers without WebGPU, reading images
+ * where the model has a vision encoder. webgllm answers
  * OpenAI's Chat Completions API in the page, so this is TanStack's Chat
  * Completions adapter with the shared `WebGLLM` instance as its client:
  * messages, tools, structured output and the stream (text, thinking, tool
@@ -108,14 +109,19 @@ const signalOf = (options: TextOptions) =>
 export class WebGllmTextAdapter<TModel extends WebGllmModel> extends OpenAIBaseChatCompletionsTextAdapter<
   TModel,
   WebGllmTextModelOptions,
-  readonly ["text"],
+  ReadonlyArray<"text" | "image">,
   MetadataByModality,
   ReadonlyArray<string>,
   ResolveReasoning<TModel>
 > {
   override readonly name = "webgllm"
   override readonly api = "webgllm"
-  override readonly inputModalities = ["text"] as const
+  /**
+   * What the model reads, from webgllm's catalog: images too for a model
+   * with a vision encoder (Qwen3.5's ONNX build). Not known for a model the
+   * catalog doesn't list (webgllm's `models.retrieve()` says, once loaded).
+   */
+  override readonly inputModalities: ReadonlyArray<"text" | "image"> | undefined
 
   private readonly contextLength: number | undefined
   private readonly onDownloadProgress: DownloadProgressCallback | undefined
@@ -125,6 +131,7 @@ export class WebGllmTextAdapter<TModel extends WebGllmModel> extends OpenAIBaseC
     super(model, "webgllm", webgllm as unknown as OpenAIClientLike, { strictFallbackWarning: false })
     this.contextLength = config.contextLength
     this.onDownloadProgress = config.onDownloadProgress
+    this.inputModalities = listed(model) ? modelMeta(model).supports.input : undefined
   }
 
   /**
