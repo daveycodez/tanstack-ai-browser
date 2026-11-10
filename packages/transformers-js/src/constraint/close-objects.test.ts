@@ -1,7 +1,37 @@
 import assert from "node:assert/strict"
 import { test } from "node:test"
 import { closeObjects } from "./close-objects.js"
-import { validateStructuredValue } from "./index.js"
+import { createConstraint, StructuredOutputError, tokenAllowed } from "./index.js"
+
+/** One token per byte, and an EOS. */
+const tokenizer = { tokens: Array.from({ length: 257 }, (_, id) => id === 256 ? [] : [id]), eos_token_id: 256, special_token_ids: [256] }
+
+/** JSON laid out as the constraint takes it: a space after each key's colon. */
+const layout = (value: unknown): string =>
+  Array.isArray(value) ? `[${value.map(layout).join(",")}]`
+  : value && typeof value === "object" ? `{${Object.entries(value).map(([k, v]) => `${JSON.stringify(k)}: ${layout(v)}`).join(",")}}`
+  : JSON.stringify(value)
+
+/** Whether the constraint built from `schema` lets a model write `value`. */
+async function validateStructuredValue(schema: unknown, value: unknown) {
+  const constraint = await createConstraint({ schema, tokenizer }).catch((error: unknown) => {
+    if (error instanceof StructuredOutputError && error.code === "constraint-dead-end") return null
+    throw error
+  })
+  if (!constraint) return false
+  try {
+    for (const byte of new TextEncoder().encode(layout(value))) {
+      if (!tokenAllowed(constraint.computeMask(), byte)) return false
+      constraint.accept(byte)
+    }
+    return constraint.complete
+  } catch (error) {
+    if (error instanceof StructuredOutputError) return false
+    throw error
+  } finally {
+    constraint.dispose()
+  }
+}
 
 // Closing must only narrow what a schema accepts, and never reject a value
 // that keeps to the properties the schema declares.

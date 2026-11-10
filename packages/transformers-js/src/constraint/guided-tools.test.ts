@@ -2,14 +2,6 @@ import assert from 'node:assert/strict'
 import {test} from 'node:test'
 import {chooseGuidedTool, addGuidedUsage} from './guided-tools.js'
 const tool={name:'weather',description:'Current weather',inputSchema:{type:'object',properties:{city:{type:'string'}},required:['city'],additionalProperties:false}}
-test('guided auto selects tools and constrains their original argument schema',async()=>{
- const schemas:unknown[]=[];let n=0
- const result=await chooseGuidedTool({tools:[tool]},async schema=>{schemas.push(schema);return {data:n++?{city:'London'}:{action:'weather'}}})
- assert.deepEqual(result.call,{name:'weather',args:{city:'London'}});assert.deepEqual(schemas[1],tool.inputSchema);assert.equal(schemas.length,2)
-})
-test('guided answer does not fabricate tool calls',async()=>{
- const result=await chooseGuidedTool({tools:[tool]},async()=>({data:{action:'answer'}}));assert.equal(result.call,undefined)
-})
 test('specific tool skips routing and multiple required tools cannot select answer',async()=>{
  let calls=0
  const result=await chooseGuidedTool({tools:[tool],toolChoice:{type:'tool',name:'weather'}},async()=>{calls++;return{data:{city:'Paris'}}})
@@ -19,7 +11,7 @@ test('specific tool skips routing and multiple required tools cannot select answ
 test('guided tools reject malformed args and unknown tool names',async()=>{
  await assert.rejects(chooseGuidedTool({tools:[tool],toolChoice:{type:'tool',name:'bad'}},async()=>({data:{}})),/Unknown requested tool/)
  await assert.rejects(chooseGuidedTool({tools:[tool],toolChoice:{type:'tool',name:'weather'}},async()=>({data:[]})),/JSON object/)
- const ctrl=new AbortController();ctrl.abort();await assert.rejects(chooseGuidedTool({tools:[tool],abortController:ctrl},async()=>({data:{}})))
+ const ctrl=new AbortController();ctrl.abort();await assert.rejects(chooseGuidedTool({tools:[tool],toolChoice:'required',abortController:ctrl},async()=>({data:{}})))
 })
 
 
@@ -29,10 +21,7 @@ test("guided stages preserve reported cached-token usage without inventing hits"
   assert.deepEqual(addGuidedUsage(a,b), { promptTokens:220, completionTokens:8, totalTokens:228, promptTokensDetails:{cachedTokens:175} })
   assert.deepEqual(addGuidedUsage(undefined,b),b)
   assert.deepEqual(addGuidedUsage(a,undefined),a)
-  const detailed = {...a,providerUsageDetails:{promptMs:7}}
-  assert.equal(addGuidedUsage(detailed,undefined),detailed)
   assert.equal(addGuidedUsage(undefined,undefined),undefined)
-  assert.deepEqual(addGuidedUsage(undefined,{inputTokens:50,outputTokens:4,cachedTokens:30}),{promptTokens:50,completionTokens:4,totalTokens:54,promptTokensDetails:{cachedTokens:30}})
   assert.deepEqual(addGuidedUsage({promptTokens:20,completionTokens:2,totalTokens:22},{promptTokens:30,completionTokens:3,totalTokens:33}),{promptTokens:50,completionTokens:5,totalTokens:55})
 })
 

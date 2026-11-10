@@ -3,12 +3,12 @@
  * runs the model off the main thread so the page stays smooth. One worker,
  * and one model in it at a time: loading another frees the previous one.
  */
-import { modelMeta, runsWithoutWebGpu } from "./catalog.js"
+import { runsWithoutWebGpu } from "./catalog.js"
 import { recordedFilesCached } from "./cache-record.js"
 import { callProgress, LoadWaiters } from "./shared-load.js"
 import type {
   ChatTurn,
-  RunTimings,
+  RunCounts,
   WorkerSampling,
   ToolSpec,
   WeightsDtype,
@@ -38,7 +38,7 @@ const downloading = new Set<string>()
 /** Listeners for each running generation, by request id. */
 type Generation = {
   onToken: (text: string) => void
-  onEnd: (error?: string, stats?: RunTimings) => void
+  onEnd: (end: GenerationEnd) => void
 }
 const generations = new Map<string, Generation>()
 
@@ -68,8 +68,8 @@ let worker: Worker | null = null
 let debug = false
 
 /**
- * Turns on the worker's diagnostics (memory and cache logs, error stacks in
- * the console). Takes effect if called before the worker starts.
+ * Turns on the worker's diagnostics (cache logs, error stacks in the
+ * console). Takes effect if called before the worker starts.
  */
 export function setDebug(on: boolean) {
   debug = on
@@ -84,7 +84,6 @@ function handleMessage({ data }: MessageEvent<WorkerResponse>) {
       : null
   if (data.type === "progress") {
     if (!current || data.cached) return
-    keepDownloads()
     downloading.add(data.modelId)
     current.load.waiters.report(data.progress)
   } else if (data.type === "ready") {
@@ -108,13 +107,13 @@ function handleMessage({ data }: MessageEvent<WorkerResponse>) {
   } else {
     const generation = generations.get(data.id)
     generations.delete(data.id)
-    if (data.type === "error") generation?.onEnd(data.message)
-    else generation?.onEnd(undefined, data.stats)
+    generation?.onEnd(
+      data.type === "error"
+        ? { failure: data.message }
+        : { stats: data.stats, length: data.length }
+    )
   }
 }
-
-const call = callProgress
-
 
 function post(message: WorkerRequest) {
   if (!worker) {
@@ -126,27 +125,6 @@ function post(message: WorkerRequest) {
     worker.onmessage = handleMessage
   }
   worker.postMessage(message)
-}
-
-/**
- * Asks the browser to keep this site's storage, so a downloaded model isn't
- * deleted to free space or, in Safari, after 7 days without a visit (which
- * means downloading it again). Browsers may say no; it's only a request.
- * Only pages can ask, not workers. Called when a download starts, not for
- * cached loads. Skipped in Firefox, which shows a permission prompt for it;
- * there a model is still kept across reloads, unless the disk runs low.
- */
-let askedToKeep = false
-function keepDownloads() {
-  if (askedToKeep || typeof navigator === "undefined") return
-  askedToKeep = true
-  if (/firefox/i.test(navigator.userAgent)) return
-  navigator.storage
-    ?.persist?.()
-    .then((kept) => {
-      if (debug) console.info(`[download] storage kept: ${kept}`)
-    })
-    .catch(() => undefined)
 }
 
 let webGpu: Promise<boolean> | undefined
@@ -205,7 +183,7 @@ export async function availability(
 ): Promise<Availability> {
   if (!(await canRun(model))) return "unavailable"
   if (downloading.has(model)) return "downloading"
-  const dtype = options.dtype ?? modelMeta(model)?.dtype ?? "q4f16"
+  const dtype = options.dtype ?? "q4f16"
   if (loaded?.modelId === model && loaded.dtype === dtype && loaded.load.ready) {
     return "available"
   }
@@ -250,7 +228,7 @@ export function loadModel(
   } = {}
 ): Promise<void> {
   const { contextLength, onDownloadProgress, signal, chatWait = false } = options
-  const dtype = options.dtype ?? modelMeta(model)?.dtype ?? "q4f16"
+  const dtype = options.dtype ?? "q4f16"
   const modelId = model
   const waitOptions = {
     onDownloadProgress,
@@ -265,7 +243,7 @@ export function loadModel(
     if (!loaded.load.ready) return loaded.load.waiters.wait(loaded.load.promise, waitOptions)
     // Every caller hears 1 at once if the model is ready already.
     if (signal?.aborted) return loaded.load.waiters.wait(loaded.load.promise, waitOptions)
-    if (onDownloadProgress && !chatWait) call(onDownloadProgress, 1)
+    if (onDownloadProgress && !chatWait) callProgress(onDownloadProgress, 1)
     return loaded.load.promise
   }
   // An aborted caller starts nothing.
@@ -331,12 +309,15 @@ export async function unloadModel(model?: string): Promise<void> {
   }
   for (const [id, generation] of generations) {
     generations.delete(id)
-    generation.onEnd("The model was unloaded.")
+    generation.onEnd({ failure: "The model was unloaded." })
   }
 }
 
-/** What a finished generation left: its error, if it failed, and its counts. */
-export type GenerationEnd = { failure?: string; stats?: RunTimings }
+/**
+ * What a finished generation left: its error, if it failed, or its counts
+ * and whether the output or context limit cut it off.
+ */
+export type GenerationEnd = { failure?: string; stats?: RunCounts; length?: boolean }
 
 /**
  * Runs one generation with the loaded model, yielding its text as it comes
@@ -368,8 +349,8 @@ export async function* generate(request: {
       queue.push(text)
       wake?.()
     },
-    onEnd: (failure, stats) => {
-      end = { failure, stats }
+    onEnd: (result) => {
+      end = result
       finished = true
       wake?.()
     }

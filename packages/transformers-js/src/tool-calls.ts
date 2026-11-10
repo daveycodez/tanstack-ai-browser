@@ -4,8 +4,6 @@
  * - LFM2.5: `<|tool_call_start|>[get_weather(city="Tokyo")]<|tool_call_end|>`
  * - LFM3 and Qwen3.5: `<tool_call>\n<function=get_weather>\n<parameter=city>\nTokyo\n</parameter>\n</function>\n</tool_call>`
  * - Gemma 4: `<|tool_call>call:get_weather{city:<|"|>Tokyo<|"|>}<tool_call|>`
- * - Apple's model, when apfel doesn't recognize its call and passes it on as
- *   text: `{"tool_calls": [{"function": "get_weather", "arguments": {…}}]}`
  */
 
 export type ParsedToolCall = { name: string; args: Record<string, unknown> }
@@ -13,10 +11,13 @@ export type ParsedToolCall = { name: string; args: Record<string, unknown> }
 /** How a model writes tool calls. */
 export type ToolFormat = "lfm2" | "lfm3" | "qwen3.5" | "gemma4"
 
-const MARKERS = ["<|tool_call_start|>", "<tool_call>", "<|tool_call>"]
-
-/** Where Apple's model starts a tool call it writes as text. */
-export const JSON_TOOL_CALLS_MARKER = '{"tool_calls"'
+/** Where each format's tool calls start. */
+const MARKERS: Record<ToolFormat, string> = {
+  lfm2: "<|tool_call_start|>",
+  lfm3: "<tool_call>",
+  "qwen3.5": "<tool_call>",
+  gemma4: "<|tool_call>"
+}
 
 /** A Python-style or JSON value: "x", 'x', 1.5, True, None, [1, 2]… */
 function parseValue(raw: string): unknown {
@@ -223,119 +224,28 @@ function parseGemma(text: string) {
   return calls
 }
 
-/** Every tool call in `text`, whichever format the model used. */
-export function parseToolCalls(text: string): Array<ParsedToolCall> {
-  const calls: Array<ParsedToolCall> = [...parseGemma(text)]
-  for (const m of text.matchAll(/<tool_call>([\s\S]*?)(?:<\/tool_call>|$)/g)) {
-    const body = m[1].trim()
-    if (body.includes("<function=")) {
-      calls.push(...parseXmlish(body))
-      continue
-    }
-    try {
-      const json = JSON.parse(body) as {
-        name: string
-        arguments?: unknown
-        parameters?: unknown
-      }
-      const args =
-        typeof json.arguments === "string"
-          ? JSON.parse(json.arguments)
-          : (json.arguments ?? json.parameters ?? {})
-      calls.push({ name: json.name, args: args as Record<string, unknown> })
-    } catch {
-      calls.push(...parsePythonic(body))
-    }
-  }
-  for (const m of text.matchAll(
-    /<\|tool_call_start\|>([\s\S]*?)(?:<\|tool_call_end\|>|$)/g
-  )) {
-    calls.push(...parsePythonic(m[1]))
-  }
-  return calls
-}
-
-/** The `{…}` that starts at `text[start]`, braces in strings ignored. */
-function balancedObject(text: string, start: number) {
-  let depth = 0
-  let inString = false
-  for (let i = start; i < text.length; i++) {
-    const c = text[i]
-    if (inString) {
-      if (c === "\\") i++
-      else if (c === '"') inString = false
-    } else if (c === '"') inString = true
-    else if (c === "{") depth++
-    else if (c === "}" && --depth === 0) return text.slice(start, i + 1)
-  }
-  return null
-}
-
-/** JSON arguments, read leniently: stray strings without a key are dropped. */
-function parseJsonArgs(raw: string): Record<string, unknown> | null {
-  for (const candidate of [raw, raw.replace(/,\s*"[^"]*"\s*(?=[,}])/g, "")]) {
-    try {
-      const value = JSON.parse(candidate) as unknown
-      const args = typeof value === "string" ? JSON.parse(value) : value
-      if (args && typeof args === "object") {
-        return args as Record<string, unknown>
-      }
-    } catch {
-      // Try the next reading.
-    }
-  }
-  return null
-}
-
-/**
- * Tool calls Apple's model wrote as JSON text. Its JSON varies and is often
- * broken (`"function": "name"`, `"name: "name"`, stray strings in the
- * arguments), so instead of parsing the whole thing, this finds each quoted
- * name of a tool that exists and reads the `"arguments"` object after it.
- */
-export function parseJsonToolCalls(
+/** Every tool call in `text`, written in the model's format. */
+export function parseToolCalls(
   text: string,
-  toolNames: Iterable<string>
+  format: ToolFormat
 ): Array<ParsedToolCall> {
-  const mentions: Array<{ name: string; at: number }> = []
-  for (const name of toolNames) {
-    const quoted = `"${name}"`
-    for (
-      let at = text.indexOf(quoted);
-      at >= 0;
-      at = text.indexOf(quoted, at + 1)
-    ) {
-      mentions.push({ name, at })
-    }
+  if (format === "gemma4") return parseGemma(text)
+  if (format === "lfm2") {
+    return [
+      ...text.matchAll(
+        /<\|tool_call_start\|>([\s\S]*?)(?:<\|tool_call_end\|>|$)/g
+      )
+    ].flatMap((m) => parsePythonic(m[1]))
   }
-  mentions.sort((a, b) => a.at - b.at)
-  const calls: Array<ParsedToolCall> = []
-  mentions.forEach(({ name, at }, i) => {
-    // The arguments belong to the last mention of a name before them. The
-    // model sometimes writes a broken "arguments" and then a good one: the
-    // first that reads is used.
-    const part = text.slice(at, mentions[i + 1]?.at ?? text.length)
-    for (const key of part.matchAll(/"arguments"?\s*:\s*/g)) {
-      const from = key.index + key[0].length
-      const raw =
-        part[from] === "{"
-          ? balancedObject(part, from)
-          : /^"(?:[^"\\]|\\.)*"/.exec(part.slice(from))?.[0]
-      const args = raw ? parseJsonArgs(raw) : null
-      if (args) {
-        calls.push({ name, args })
-        return
-      }
-    }
-  })
-  return calls
+  return [
+    ...text.matchAll(/<tool_call>([\s\S]*?)(?:<\/tool_call>|$)/g)
+  ].flatMap((m) => parseXmlish(m[1]))
 }
 
-/** Length of the longest end of `text` that could start one of `markers`. */
-function partialMarker(text: string, markers: Array<string>) {
-  for (let n = Math.min(text.length, 18); n > 0; n--) {
-    const end = text.slice(-n)
-    if (markers.some((m) => m.startsWith(end))) return n
+/** Length of the longest end of `text` that could start `marker`. */
+function partialMarker(text: string, marker: string) {
+  for (let n = Math.min(text.length, marker.length - 1); n > 0; n--) {
+    if (marker.startsWith(text.slice(-n))) return n
   }
   return 0
 }
@@ -345,7 +255,8 @@ function partialMarker(text: string, markers: Array<string>) {
  * through as it arrives) and the tool-call markup after it (held back and
  * parsed once the reply ends).
  */
-export function createToolCallSplitter(markers: Array<string> = MARKERS) {
+export function createToolCallSplitter(format: ToolFormat) {
+  const marker = MARKERS[format]
   let held = ""
   let markup: string | null = null
 
@@ -356,16 +267,14 @@ export function createToolCallSplitter(markers: Array<string> = MARKERS) {
       return ""
     }
     held += text
-    const at = Math.min(
-      ...markers.map((m) => held.indexOf(m)).filter((i) => i >= 0)
-    )
-    if (Number.isFinite(at)) {
+    const at = held.indexOf(marker)
+    if (at >= 0) {
       const before = held.slice(0, at)
       markup = held.slice(at)
       held = ""
       return before
     }
-    const keep = partialMarker(held, markers)
+    const keep = partialMarker(held, marker)
     const out = held.slice(0, held.length - keep)
     held = held.slice(out.length)
     return out

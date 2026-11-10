@@ -38,26 +38,14 @@ export type WorkerSampling = {
   seed?: number
 }
 
-/** Token counts and timings of one generation, measured in the worker. */
-export type RunTimings = {
+/** Token counts of one generation, measured in the worker. */
+export type RunCounts = {
   /** Tokens of the prompt, including any already in the model's cache. */
   inputTokens: number
   /** Tokens at the start of the prompt the model had read on an earlier run. */
   cachedTokens: number
   /** Tokens the model generated (the end-of-turn token included). */
   outputTokens: number
-  /** From the request to the first generated token, in ms; null if none. */
-  firstTokenMs: number | null
-  /**
-   * From starting to read the prompt (the model loaded) to the first
-   * generated token, in ms; null if none.
-   */
-  promptMs: number | null
-  /** From the first generated token to the last, in ms. */
-  decodeMs: number
-  thinkingTokens?: number
-  thinkingBudgetTokens?: number
-  thinkingBudgetExhausted?: boolean
 }
 
 /**
@@ -116,15 +104,17 @@ export type WorkerResponse =
       modelId: string
       progress: number
       cached: boolean
-      /** Bytes of the model's files downloaded so far, while downloading. */
-      loadedBytes?: number
-      /** Bytes of all the model's files, while downloading. */
-      totalBytes?: number
     }
   | { type: "ready"; loadId: number; modelId: string }
   | { type: "load-error"; loadId: number; modelId: string; message: string }
   | { type: "token"; id: string; text: string }
-  | { type: "done"; id: string; stats: RunTimings }
+  | {
+      type: "done"
+      id: string
+      stats: RunCounts
+      /** The output or context limit cut the reply off. */
+      length: boolean
+    }
   | { type: "error"; id: string; message: string }
   /** A diagnostic line for the page's console (dev only). */
   | { type: "log"; text: string }

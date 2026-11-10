@@ -10,15 +10,6 @@ export type ConstraintOptions = {
   /** Override when a runtime keeps EOS on its model config rather than tokenizer. */
   eosTokenId?: number
   maxTokens?: number
-  /**
-   * How the JSON may be laid out. "model" (the default) takes whitespace
-   * where models write it, as they write it: held to compact JSON, a model
-   * that writes `"key": "value"` (LFM3) gets no ` "` token after the colon
-   * or a comma, picks `":` instead and starts a value (or, in an open
-   * object, a key) with a stray colon. "compact" is JSON.stringify's
-   * layout, for checking parsed values.
-   */
-  layout?: "model" | "compact"
 }
 
 /**
@@ -170,9 +161,10 @@ function excludesNumericRoot(schema: unknown): boolean {
 }
 
 type Layout = { whitespace_flexible: boolean; key_separator: string; item_separator: string }
-/** JSON.stringify's layout. */
-const COMPACT: Layout = { whitespace_flexible: false, key_separator: ":", item_separator: "," }
 /**
+ * The JSON laid out the way models write it: held to compact JSON, a model
+ * that writes `"key": "value"` (LFM3) gets no ` "` token after the colon or
+ * a comma, picks `":` instead and starts a value with a stray colon.
  * Whitespace between any two tokens, and the key separator's space required
  * (flexible alone also takes `":` again after a key's colon). Items stay ","
  * apart: llguidance 0.2.1 takes a comma after a closed object's last key when
@@ -199,8 +191,8 @@ export async function createConstraint(options: ConstraintOptions): Promise<Cons
   const runtime = await loadRuntime()
   // Preserve identity so repeated generations reuse converted tokenizer bytes.
   const source = withEos(options.tokenizer, options.eosTokenId)
-  const tokens = options.layout === "compact" ? null : jsonTokens(source)
-  const layout = options.layout === "compact" ? COMPACT : tokens?.whitespace.length ? MODEL : MODEL_FIXED
+  const tokens = jsonTokens(source)
+  const layout = tokens?.whitespace.length ? MODEL : MODEL_FIXED
   let interpreter: Interpreter
   try {
     interpreter = runtime.createInterpreter({
@@ -235,60 +227,6 @@ export async function createConstraint(options: ConstraintOptions): Promise<Cons
   return new JsonConstraint(interpreter, vocabSize, eos, excludesNumericRoot(options.schema),
     canonicalAsciiObject(options.schema) ? canonicalTokenMask(source, vocabSize, eos) : undefined, whitespace, tokens ?? undefined)
 }
-export { chooseGuidedTool, addGuidedUsage } from './guided-tools.js'
+export { chooseGuidedTool } from './guided-tools.js'
 export { closeObjects } from './close-objects.js'
 export type { GuidedCompletion, GuidedToolResult } from './guided-tools.js'
-
-/** Remove only the initial reasoning envelope; tag literals in JSON are data. */
-export function structuredAnswer(raw: string, markers: { open: string; close: string } = { open: "<think>", close: "</think>" }): string {
-  const text = raw.trimStart()
-  if (!text.startsWith(markers.open)) return text.trim()
-  const end = text.indexOf(markers.close, markers.open.length)
-  return end < 0 ? "" : text.slice(end + markers.close.length).trim()
-}
-
-const VALIDATION_EOS = 256
-const validationTokenizer = {
-  tokens: Array.from({ length: 257 }, (_, id) => id === VALIDATION_EOS ? [] : [id]),
-  eos_token_id: VALIDATION_EOS,
-  special_token_ids: [VALIDATION_EOS]
-}
-function jsonValue(value: unknown, ancestors = new Set<object>()): boolean {
-  if (value === null || typeof value === "string" || typeof value === "boolean") return true
-  if (typeof value === "number") return Number.isFinite(value)
-  if (typeof value !== "object" || ancestors.has(value)) return false
-  const prototype = Object.getPrototypeOf(value)
-  if (!Array.isArray(value) && prototype !== Object.prototype && prototype !== null) return false
-  ancestors.add(value)
-  const valid = Array.isArray(value)
-    ? Array.from({ length: value.length }, (_, i) => i in value && jsonValue(value[i], ancestors)).every(Boolean)
-    : Object.values(value).every(item => jsonValue(item, ancestors))
-  ancestors.delete(value)
-  return valid
-}
-
-/** Validate parsed tool arguments locally; unsupported schemas remain explicit errors. */
-export async function validateStructuredValue(schema: unknown, value: unknown): Promise<boolean> {
-  let constraint: Constraint
-  try {
-    constraint = await createConstraint({ schema, tokenizer: validationTokenizer, layout: "compact" })
-  } catch (error) {
-    // A supported but unsatisfiable schema has no accepted value.
-    if (error instanceof StructuredOutputError && error.code === "constraint-dead-end") return false
-    throw error
-  }
-  try {
-    if (!jsonValue(value)) return false
-    const text = JSON.stringify(value)
-    for (const token of new TextEncoder().encode(text)) {
-      if (!tokenAllowed(constraint.computeMask(), token)) return false
-      constraint.accept(token)
-    }
-    return constraint.complete
-  } catch (error) {
-    if (error instanceof StructuredOutputError && (error.code === "constraint-violation" || error.code === "constraint-dead-end")) return false
-    throw error
-  } finally {
-    constraint.dispose()
-  }
-}

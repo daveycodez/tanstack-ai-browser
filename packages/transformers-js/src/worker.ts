@@ -16,7 +16,7 @@ import { GenerationControl, thinkingControlTokens } from "./generation-control.j
 import { createSampler } from "./sampling.js"
 import type {
   ChatTurn,
-  RunTimings,
+  RunCounts,
   WorkerSampling,
   ToolSpec,
   WeightsDtype,
@@ -32,7 +32,7 @@ import { checkpointsToDrop } from "./checkpoints.js"
 import { reusablePrefixLength, systemPrefixTokens } from "./prompt-prefix.js"
 
 /**
- * Diagnostics (memory and cache logs, error stacks) when the page started
+ * Diagnostics (cache logs, error stacks) when the page started
  * the worker with debug on: it's named "…:debug" then, which the worker can
  * read before any message arrives.
  */
@@ -40,6 +40,7 @@ const DEBUG =
   (globalThis as { name?: string }).name?.endsWith(":debug") ?? false
 
 type TransformersModule = typeof import("@huggingface/transformers")
+type ProgressInfo = import("@huggingface/transformers").ProgressInfo
 
 /**
  * Transformers.js, imported when the first model loads (so a page that
@@ -47,7 +48,7 @@ type TransformersModule = typeof import("@huggingface/transformers")
  */
 let transformers: Promise<TransformersModule> | null = null
 
-function importTransformers(device: Device) {
+function importTransformers() {
   transformers ??= import("@huggingface/transformers").then((tf) => {
     tf.env.fetch = fetchWithoutReferrer
     return tf
@@ -201,11 +202,7 @@ async function unlessGpuLost<T>(work: Promise<T>): Promise<T> {
   let notify = () => undefined as void
   const lost = new Promise<never>((_, reject) => {
     notify = () =>
-      reject(
-        new Error(
-          "The GPU stopped while the model was running (Safari reset it). Send your message again to reload the model."
-        )
-      )
+      reject(new Error("The GPU device was lost while the model was running."))
   })
   lostWaiters.add(notify)
   try {
@@ -252,18 +249,13 @@ function parseModelId(modelId: string) {
   return { repo, revision }
 }
 
-/**
- * A text model's ONNX files: not a multimodal build's vision or audio
- * encoder, which aren't loaded (see modelClass).
- */
-const isTextModelFile = (path: string) =>
-  path.startsWith("onnx/") && !/\/(?:vision|audio)_encoder/.test(path)
+/** A multimodal build's vision or audio encoder, which isn't loaded (see modelClass). */
+const isEncoderFile = (path: string) => /\/(?:vision|audio)_encoder/.test(path)
 
 /**
- * The model's ONNX files for this dtype and device, with their sizes where
- * the Hub reports them, from Transformers.js's ModelRegistry. A size probe
- * that fails leaves that file's size unknown rather than failing the load:
- * from_pretrained reports a real problem itself.
+ * The model's ONNX files for this dtype and device, from Transformers.js's
+ * ModelRegistry, and whether the Hub said any of them isn't there. A probe
+ * that fails counts as there: from_pretrained reports a real problem itself.
  */
 async function modelFiles(
   tf: TransformersModule,
@@ -279,7 +271,7 @@ async function modelFiles(
       dtype,
       device
     })
-  ).filter(isTextModelFile)
+  ).filter((path) => path.startsWith("onnx/") && !isEncoderFile(path))
   const metadata = await Promise.all(
     paths.map((path) =>
       tf.ModelRegistry.get_file_metadata(repo, path, { revision }).catch(
@@ -287,12 +279,7 @@ async function modelFiles(
       )
     )
   )
-  return paths.map((path, i) => ({
-    path,
-    /** False only when the Hub said the file isn't there. */
-    missing: metadata[i]?.exists === false,
-    size: metadata[i]?.size
-  }))
+  return { paths, missing: metadata.some((m) => m?.exists === false) }
 }
 
 /**
@@ -360,18 +347,21 @@ function repoFileUrl(tf: TransformersModule, repo: string, revision: string, fil
 const escapeRegExp = (text: string) =>
   text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
 
+/** The model's end-of-sequence token ids, from its configs and tokenizer. */
+const eosIds = (tokenizer: Tokenizer, model: Model) =>
+  [
+    model.generation_config?.eos_token_id,
+    model.config?.eos_token_id,
+    tokenizer.eos_token_id
+  ].flatMap((id) => (id === undefined ? [] : Array.isArray(id) ? id : [id]))
+
 /**
  * The model's end-of-turn tokens as text, to take out of what it streams:
- * its end-of-sequence tokens (`<|im_end|>` for LFM, `<turn|>` for Gemma 4),
- * and ChatML's.
+ * its end-of-sequence tokens (`<|im_end|>` for LFM, `<turn|>` for Gemma 4).
  */
 function endTokens(tokenizer: Tokenizer, model: Model) {
-  const ids = [
-    model.generation_config?.eos_token_id,
-    model.config?.eos_token_id
-  ].flatMap((id) => (id === undefined ? [] : Array.isArray(id) ? id : [id]))
-  const texts = new Set(["<|im_end|>", "<|endoftext|>", "<|im_start|>"])
-  for (const id of ids) {
+  const texts = new Set<string>()
+  for (const id of eosIds(tokenizer, model)) {
     const text = tokenizer.decode([BigInt(id)], { skip_special_tokens: false })
     if (text.trim()) texts.add(text)
   }
@@ -437,45 +427,33 @@ async function loadRuntime(
   const device = await pickDevice()
   // The CPU kernels want float32 activations: q4 weights.
   const dtype: WeightsDtype = device === "wasm" ? "q4" : requested
-  const tf = await importTransformers(device)
+  const tf = await importTransformers()
   if (device === "wasm" && tf.env.backends.onnx.wasm) {
     tf.env.backends.onnx.wasm.numThreads = cpuThreads()
   }
   const { repo, revision } = parseModelId(modelId)
   const { Model, config } = await modelClass(tf, repo, revision)
   const files = await modelFiles(tf, repo, revision, config, dtype, device)
-  if (files.length === 0 || files.some((f) => f.missing)) {
+  if (files.paths.length === 0 || files.missing) {
     if (device === "webgpu") throw new Error(`${repo} has no ${dtype} ONNX weights.`)
     throw new Error(
       "This model needs WebGPU, which this browser doesn't have, and it has no weights for running on the CPU. Pick another model."
     )
   }
   const cached = await isCached(tf, repo, revision, config, dtype, device)
-  const sizes = files.map((f) => f.size)
-  const known = sizes.every((size) => typeof size === "number" && size > 0)
-  // Bytes to download, for progress: unknown when a size probe failed.
-  const total = known ? sizes.reduce<number>((sum, size) => sum + (size ?? 0), 0) : 0
   ctx.postMessage({ type: "progress", loadId, modelId, progress: 0, cached })
-  // Bytes downloaded per file, from Transformers.js's progress reports;
-  // whole percents only.
-  const loaded = new Map<string, number>()
+  // Transformers.js's progress across the model's files, in whole percents.
+  // A multimodal build lists its encoders too, which aren't loaded.
   let lastPercent = -1
-  const onProgress = (info: { status: string; file?: string; loaded?: number }) => {
-    if (cached || info.status !== "progress" || !info.file || !total) return
-    loaded.set(info.file, info.loaded ?? 0)
-    const bytes = [...loaded.values()].reduce((sum, b) => sum + b, 0)
-    const percent = Math.min(100, Math.floor((bytes / total) * 100))
+  const onProgress = (info: ProgressInfo) => {
+    if (cached || info.status !== "progress_total") return
+    const files = Object.entries(info.files).filter(([path]) => !isEncoderFile(path))
+    const loaded = files.reduce((sum, [, f]) => sum + f.loaded, 0)
+    const total = files.reduce((sum, [, f]) => sum + f.total, 0)
+    const percent = total ? Math.min(100, Math.floor((loaded / total) * 100)) : 0
     if (percent === lastPercent) return
     lastPercent = percent
-    ctx.postMessage({
-      type: "progress",
-      loadId,
-      modelId,
-      progress: percent / 100,
-      cached: false,
-      loadedBytes: Math.min(bytes, total),
-      totalBytes: total
-    })
+    ctx.postMessage({ type: "progress", loadId, modelId, progress: percent / 100, cached: false })
   }
   const tokenizer = (await tf.AutoTokenizer.from_pretrained(repo, {
     revision
@@ -514,7 +492,7 @@ async function loadRuntime(
       url("config.json"),
       url("tokenizer.json"),
       url("tokenizer_config.json"),
-      ...files.map((f) => url(f.path))
+      ...files.paths.map(url)
     ],
     tf.env.cacheKey,
     [url("generation_config.json"), url("chat_template.jinja")]
@@ -580,7 +558,7 @@ function load(
 const running = new Map<string, StoppingCriteria>()
 const requests = new Map<string, AbortController>()
 
-/** A chat past the context limit: shown as is, without GPU diagnostics. */
+/** A prompt past the context length: shown as is, without GPU diagnostics. */
 class ContextLimitError extends Error {}
 
 /** Tokens per ms of the last prompt step, carried over to the next prompt. */
@@ -1282,8 +1260,7 @@ async function readPrompt(
   start: Cache | null,
   stopping: StoppingCriteria,
   stops: Array<number>,
-  onStop: (cache: Cache, at: number) => void,
-  device: Device
+  onStop: (cache: Cache, at: number) => void
 ) {
   const length = inputIds.dims[1]
   // At least one token is left for generate(), which skips what the cache
@@ -1318,20 +1295,6 @@ async function readPrompt(
   }
   return cache
 }
-
-/*
- * Sampling, in one pass over the logits each token. Transformers.js's own
- * sampling does the same steps but runs a separate ONNX Runtime session per
- * token for top-k and rebuilds a set of every token so far for the
- * repetition penalty.
- */
-
-/**
- * A logits processor that applies the model card's repetition penalty (to
- * every token in the prompt and reply, as Transformers.js does), keeps the
- * top_k likeliest tokens, draws one at the given temperature, and leaves
- * only it possible.
- */
 
 /**
  * Streams a reply's text as it's generated, decoding only the last few
@@ -1390,7 +1353,10 @@ function createStreamer(
   }
 }
 
-async function generate(...args: Parameters<typeof generateRun>): Promise<RunTimings> {
+/** A run's token counts, and whether the output or context limit cut it off. */
+type RunEnd = { stats: RunCounts; length: boolean }
+
+async function generate(...args: Parameters<typeof generateRun>): Promise<RunEnd> {
   const request = new AbortController()
   requests.set(args[0], request)
   try { return await generateRun(...args) }
@@ -1410,9 +1376,7 @@ async function generateRun(
   thinkingBudgetTokens?: number,
   outputSchema?: object,
   cachePrompt?: boolean
-): Promise<RunTimings> {
-  // Time to first token counts from here: it includes reading the prompt.
-  const requested = performance.now()
+): Promise<RunEnd> {
   const signal = requests.get(id)?.signal
   signal?.throwIfAborted()
   if (!current) throw new Error("No model loaded.")
@@ -1451,7 +1415,7 @@ async function generateRun(
   const room = contextLength - gpu.promptTokens
   if (room <= 0) {
     throw new ContextLimitError(
-      `This session is too long for the model: ${gpu.promptTokens.toLocaleString("en-US")} tokens, and it can read ${contextLength.toLocaleString("en-US")} at most, reply included. Start a new session to keep going.`
+      `The prompt is ${gpu.promptTokens} tokens, past the context length of ${contextLength}.`
     )
   }
   // Thinking takes many more tokens before the answer starts.
@@ -1460,10 +1424,9 @@ async function generateRun(
   const maxNewTokens = Math.min(wanted, room)
   if (maxNewTokens === 0) {
     if (outputSchema !== undefined) throw new Error("Structured output was truncated before a complete schema-valid answer.")
-    return { inputTokens: ids.length, cachedTokens: 0, outputTokens: 0, firstTokenMs: null, promptMs: null, decodeMs: 0 }
+    return { stats: { inputTokens: ids.length, cachedTokens: 0, outputTokens: 0 }, length: true }
   }
-  const eos = [model.generation_config?.eos_token_id, model.config?.eos_token_id, tokenizer.eos_token_id]
-    .flatMap(value => value === undefined ? [] : Array.isArray(value) ? value : [value])
+  const eos = eosIds(tokenizer, model)
   const open = Array.from(tokenizer(thinkingOpen, { add_special_tokens: false }).input_ids.data, Number)
   const close = Array.from(tokenizer(thinkingClose, { add_special_tokens: false }).input_ids.data, Number)
   const stopping = new tf.InterruptableStoppingCriteria()
@@ -1477,9 +1440,6 @@ async function generateRun(
     // Every generated token, counted as the streamer gets it (text arrives
     // word by word, later than its tokens).
     let outputTokens = 0
-    let firstToken: number | null = null
-    let lastToken = 0
-    let readStarted = performance.now()
     // What the last run left in the cache that this prompt starts with.
     const retain = cachePrompt !== false
     const systemEnd = retain ? systemLength(tokenizer, chat, tools, thinking, ids) : 0
@@ -1491,14 +1451,10 @@ async function generateRun(
       checkpoints: [] as Array<Checkpoint>,
       common: 0
     }
-    const timings = (): RunTimings => ({
+    const stats = (): RunCounts => ({
       inputTokens: ids.length,
       cachedTokens: reused.cached,
-      outputTokens,
-      firstTokenMs: firstToken === null ? null : firstToken - requested,
-      promptMs: firstToken === null ? null : firstToken - readStarted,
-      decodeMs: firstToken === null ? 0 : lastToken - firstToken,
-      ...control.stats
+      outputTokens
     })
     const streamer = createStreamer(tokenizer, {
       // Special tokens stay in the text, all but the end of turn: models mark
@@ -1506,8 +1462,6 @@ async function generateRun(
       // thinking and strings.
       skipSpecial: false,
       onTokens: (tokens: Array<bigint>) => {
-        lastToken = performance.now()
-        firstToken ??= lastToken
         outputTokens += tokens.length
       },
       onText: (raw: string) => {
@@ -1515,8 +1469,6 @@ async function generateRun(
         if (text) ctx.postMessage({ type: "token", id, text })
       }
     })
-    // Prompt reading starts here, for its speed (the model is loaded).
-    readStarted = performance.now()
     // Nothing in memory covers the system prompt and tools: try the disk.
     const wantsSystem = retain && reused.cached < systemEnd && systemEnd >= MIN_DISK_TOKENS
     const fromDisk = wantsSystem
@@ -1534,10 +1486,7 @@ async function generateRun(
         common: Math.max(reused.common, systemEnd)
       }
       if (DEBUG) {
-        ctx.postMessage({
-          type: "log",
-          text: `[cache] loaded ${systemEnd} tokens from disk in ${Math.round(performance.now() - readStarted)} ms`
-        })
+        ctx.postMessage({ type: "log", text: `[cache] loaded ${systemEnd} tokens from disk` })
       }
     }
     // This run reads the system prompt and tools from scratch: save them.
@@ -1579,11 +1528,10 @@ async function generateRun(
           cache,
           stopping,
           stops,
-          addCheckpoint,
-          device
+          addCheckpoint
         )
       )
-      if (stopping.interrupted) return timings()
+      if (stopping.interrupted) return { stats: stats(), length: false }
       if (cache) addCheckpoint(cache, ids.length - 1)
       // generate() reads the rest of the prompt and updates the cache in place.
       const output = (await unlessGpuLost(
@@ -1634,17 +1582,12 @@ async function generateRun(
         await cache.dispose().catch(() => undefined)
       }
     }
-    // Cut off by the context limit, not by the reply's own length limit.
-    if (
-      maxNewTokens < wanted &&
+    // Cut off by the output or context limit rather than ended by the model.
+    const length =
+      !stopping.interrupted &&
       outputTokens >= maxNewTokens &&
-      !stopping.interrupted
-    ) {
-      throw new ContextLimitError(
-        `The reply stopped at the model's limit of ${contextLength.toLocaleString("en-US")} tokens for a session. Start a new session to keep going.`
-      )
-    }
-    return timings()
+      !eos.includes(sequence.at(-1) ?? -1)
+    return { stats: stats(), length }
   } finally {
     running.delete(id)
     constraint?.dispose()
@@ -1672,7 +1615,9 @@ ctx.onmessage = ({ data }) => {
       data.outputSchema,
       data.cachePrompt
     )
-      .then((stats) => ctx.postMessage({ type: "done", id: data.id, stats }))
+      .then(({ stats, length }) =>
+        ctx.postMessage({ type: "done", id: data.id, stats, length })
+      )
       .catch((error: unknown) => {
         if (DEBUG && error instanceof Error) {
           ctx.postMessage({ type: "log", text: `[error] ${error.stack}` })

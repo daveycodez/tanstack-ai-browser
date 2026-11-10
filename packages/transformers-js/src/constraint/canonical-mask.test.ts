@@ -11,13 +11,17 @@ const tokenizer = {
 }
 const schema = { type: "object", properties: { city: { type: "string", enum: ["Paris", "Tokyo", "London", "Berlin"] } }, required: ["city"], additionalProperties: false }
 const accept = (constraint: Constraint, text: string) => { for (const byte of new TextEncoder().encode(text)) constraint.accept(byte) }
+/** Compact JSON with the key separator's space, as the constraint lays JSON out. */
+const spaced = (doc: string) => doc.replace(/":/g, '": ')
+/** JSON whitespace: the layout allows it between tokens, so the oracle below leaves it out. */
+const WHITESPACE = new Set([9, 10, 13, 32])
 
 test("finite printable string objects reject impossible escape and UTF-8 prefixes before accepting them", async () => {
-  const c = await createConstraint({ schema, tokenizer, layout: "compact" })
+  const c = await createConstraint({ schema, tokenizer })
   accept(c, "{")
   assert.equal(tokenAllowed(c.computeMask(), 257), false, "quote plus backslash cannot start an escaped key")
   assert.throws(() => c.accept(257), /violates/)
-  accept(c, '"city":"P')
+  accept(c, '"city": "P')
   assert.equal(tokenAllowed(c.computeMask(), 225), false, "the E1 lead byte cannot extend an ASCII enum")
   assert.equal(tokenAllowed(c.computeMask(), 92), false, "escaped wrong characters cannot bypass prefix checks")
   assert.throws(() => c.accept(225), /violates/)
@@ -28,8 +32,8 @@ test("finite printable string objects reject impossible escape and UTF-8 prefixe
 })
 
 test("forks retain immutable canonical masks, independent prefixes, and EOS", async () => {
-  const c = await createConstraint({ schema, tokenizer, layout: "compact" })
-  accept(c, '{"city":"')
+  const c = await createConstraint({ schema, tokenizer })
+  accept(c, '{"city": "')
   const originalMask = c.computeMask().slice(), clone = c.clone()
   assert.deepEqual(clone.computeMask(), originalMask)
   accept(clone, 'London"}')
@@ -47,12 +51,12 @@ test("recognition leaves Unicode, escaped literals, unknown assertions and other
   for (const [key, value] of [["city", "café ☃"], ["city", 'a"b'], ["city", "a\\b"], ["city", "a\nb"], ["café", "Paris"]]) {
     const source = { type: "object", properties: { [key]: { const: value } }, required: [key], additionalProperties: false }
     assert.equal(canonicalAsciiObject(source), false)
-    const c = await createConstraint({ schema: source, tokenizer, layout: "compact" })
-    accept(c, JSON.stringify({ [key]: value }))
+    const c = await createConstraint({ schema: source, tokenizer })
+    accept(c, spaced(JSON.stringify({ [key]: value })))
     assert.equal(c.complete, true)
     c.dispose()
   }
-  const c = await createConstraint({ schema: { type: "string" }, tokenizer, layout: "compact" })
+  const c = await createConstraint({ schema: { type: "string" }, tokenizer })
   accept(c, '"')
   assert.equal(tokenAllowed(c.computeMask(), 225), true, "unbounded strings retain the unchanged backend")
   c.dispose()
@@ -66,8 +70,8 @@ test("mask conversion caches exact bytes and bypasses vocabularies lacking canon
   assert.equal(tokenAllowed(mask, EOS), true)
   assert.equal(canonicalTokenMask({}, 2, 1), undefined)
   assert.equal(canonicalTokenMask({ tokens: [[34, 92, 117, 48, 48, 54, 49], []], eos_token_id: 1 }, 2, 1), undefined, "an escape-only vocabulary must keep its valid values")
-  const escapeOnly = { tokens: [[...new TextEncoder().encode('{"city":"\\u0050aris"}')], []], eos_token_id: 1, special_token_ids: [1] }
-  const c = await createConstraint({ schema, tokenizer: escapeOnly, layout: "compact" })
+  const escapeOnly = { tokens: [[...new TextEncoder().encode('{"city": "\\u0050aris"}')], []], eos_token_id: 1, special_token_ids: [1] }
+  const c = await createConstraint({ schema, tokenizer: escapeOnly })
   c.accept(0)
   assert.equal(c.complete, true, "a legitimate escaped-only value remains available through the unchanged backend")
   c.accept(1); c.dispose()
@@ -108,12 +112,14 @@ test("every canonical prefix mask matches an independent finite-language oracle"
   ]
   for (const fixture of fixtures) {
     assert.equal(canonicalAsciiObject(fixture.schema), true)
+    fixture.docs = fixture.docs.map(spaced)
     const prefixes = new Set(fixture.docs.flatMap(doc => Array.from({ length: doc.length + 1 }, (_, length) => doc.slice(0, length))))
     for (const prefix of prefixes) {
-      const c = await createConstraint({ schema: fixture.schema, tokenizer, layout: "compact" })
+      const c = await createConstraint({ schema: fixture.schema, tokenizer })
       accept(c, prefix)
       const mask = c.computeMask()
       for (let token = 0; token < tokenizer.tokens.length; token++) {
+        if (WHITESPACE.has(token)) continue
         const expected = token === EOS ? fixture.docs.includes(prefix) :
           tokenizer.tokens[token].length > 0 && tokenizer.tokens[token].every(byte => byte >= 32 && byte <= 126 && byte !== 92) &&
           fixture.docs.some(doc => doc.startsWith(prefix + String.fromCharCode(...tokenizer.tokens[token])))

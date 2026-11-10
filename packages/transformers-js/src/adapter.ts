@@ -1,4 +1,3 @@
-import { chooseGuidedTool, addGuidedUsage, closeObjects } from "./constraint/index.js"
 /**
  * A TanStack AI text adapter for Transformers.js models that run in the
  * browser, on WebGPU in a Web Worker. Hand it to `chat()` like any hosted
@@ -38,16 +37,18 @@ import type {
 } from "./catalog.js"
 import type {
   ChatTurn,
-  RunTimings,
+  RunCounts,
   ToolSpec,
   WeightsDtype,
   WorkerSampling
 } from "./protocol.js"
+import { chooseGuidedTool, closeObjects } from "./constraint/index.js"
 import {
   createStructuredSplitter,
   createThinkingSplitter,
   THINKING_MARKERS
 } from "./thinking.js"
+import type { ReplyPiece } from "./thinking.js"
 import {
   createToolCallSplitter,
   formatLfm2ToolCalls,
@@ -72,7 +73,7 @@ export type TransformersJsConfig = {
    * "q4" (fp32 activations) is for models that overflow fp16.
    */
   dtype?: WeightsDtype
-  /** Memory and cache logs from the worker, in the console. */
+  /** Cache logs and error stacks from the worker, in the console. */
   debug?: boolean
   /**
    * The model's download progress, 0 to 1, when a call (`chat()`, say)
@@ -317,7 +318,7 @@ function toToolSpecs(tools: Array<Tool> | undefined): Array<ToolSpec> {
 }
 
 /** A model call's counts as TanStack AI usage. */
-function usageOf(stats: RunTimings): TokenUsage {
+function usageOf(stats: RunCounts): TokenUsage {
   const usage = buildBaseUsage({
     promptTokens: stats.inputTokens,
     completionTokens: stats.outputTokens,
@@ -357,6 +358,75 @@ let calls = 0
 const nextId = (prefix: string) =>
   `${prefix}_${Date.now().toString(36)}_${(calls++).toString(36)}`
 
+/**
+ * A reply's AG-UI events as it streams: its thinking as `REASONING_*`
+ * events, its answer as `TEXT_MESSAGE_*` ones.
+ */
+function replyEvents(model: string) {
+  const messageId = nextId("msg")
+  const reasoningId = nextId("reasoning")
+  let reasoning: "none" | "open" | "closed" = "none"
+  let textStarted = false
+  let text = ""
+  let thinking = ""
+  const timestamp = () => Date.now()
+  const endReasoning = (): Array<AdapterYieldChunk> => {
+    if (reasoning !== "open") return []
+    reasoning = "closed"
+    return [
+      { type: EventType.REASONING_MESSAGE_END, messageId: reasoningId, model, timestamp: timestamp() },
+      { type: EventType.REASONING_END, messageId: reasoningId, model, timestamp: timestamp() }
+    ]
+  }
+  return {
+    messageId,
+    text: () => text,
+    thinking: () => thinking,
+    thought(delta: string): Array<AdapterYieldChunk> {
+      const out: Array<AdapterYieldChunk> = []
+      if (reasoning === "none") {
+        reasoning = "open"
+        out.push(
+          { type: EventType.REASONING_START, messageId: reasoningId, model, timestamp: timestamp() },
+          { type: EventType.REASONING_MESSAGE_START, messageId: reasoningId, role: "reasoning", model, timestamp: timestamp() }
+        )
+      }
+      thinking += delta
+      out.push({ type: EventType.REASONING_MESSAGE_CONTENT, messageId: reasoningId, delta, model, timestamp: timestamp() })
+      return out
+    },
+    /** Answer text (none yet, possibly), which ends the thinking. */
+    answer(delta: string): Array<AdapterYieldChunk> {
+      const out = endReasoning()
+      if (!delta) return out
+      if (!textStarted) {
+        textStarted = true
+        out.push({ type: EventType.TEXT_MESSAGE_START, messageId, role: "assistant", model, timestamp: timestamp() })
+      }
+      text += delta
+      out.push({ type: EventType.TEXT_MESSAGE_CONTENT, messageId, delta, content: text, model, timestamp: timestamp() })
+      return out
+    },
+    endReasoning,
+    endText: (): Array<AdapterYieldChunk> =>
+      textStarted ? [{ type: EventType.TEXT_MESSAGE_END, messageId, model, timestamp: timestamp() }] : []
+  }
+}
+
+/** A reply's tool calls as `TOOL_CALL_*` events. */
+function toolCallEvents(calls: Array<ParsedToolCall>, parentMessageId: string, model: string) {
+  return calls.flatMap((call, index): Array<AdapterYieldChunk> => {
+    const toolCallId = nextId("tool")
+    const args = JSON.stringify(call.args)
+    const timestamp = Date.now()
+    return [
+      { type: EventType.TOOL_CALL_START, toolCallId, toolCallName: call.name, parentMessageId, index, model, timestamp },
+      { type: EventType.TOOL_CALL_ARGS, toolCallId, delta: args, args, model, timestamp },
+      { type: EventType.TOOL_CALL_END, toolCallId, toolCallName: call.name, args, input: call.args, model, timestamp }
+    ]
+  })
+}
+
 export class TransformersJsTextAdapter<
   TModel extends string
 > extends BaseTextAdapter<
@@ -390,7 +460,7 @@ export class TransformersJsTextAdapter<
     this.toolFormat = toolFormat
     // Left out, the worker uses the model's own context window.
     this.contextLength = config.contextLength
-    this.dtype = config.dtype ?? modelMeta(model)?.dtype ?? "q4f16"
+    this.dtype = config.dtype ?? "q4f16"
     this.onDownloadProgress = config.onDownloadProgress
     this.debug = config.debug ?? false
   }
@@ -453,279 +523,163 @@ export class TransformersJsTextAdapter<
     await unloadModel(this.model)
   }
 
-  /** Sampling and output cap for a call: `modelOptions` over the model card's or the defaults. */
-  private settings(
-    modelOptions: TransformersJsTextModelOptions | undefined
+  /**
+   * One generation in the worker, once the model is loaded: the chat as the
+   * model's template takes it, with the call's sampling and thinking.
+   */
+  private async generate(
+    options: TextOptions<TransformersJsTextModelOptions>,
+    extra: { tools: Array<ToolSpec>; outputSchema?: object }
   ) {
-    return generationSettings(
-      modelOptions,
-      modelMeta(this.model)?.sampling ?? DEFAULT_SAMPLING
-    )
-  }
-
-  async *chatStream(
-    options: TextOptions<TransformersJsTextModelOptions>
-  ): AsyncIterable<AdapterYieldChunk> {
-    const runId = options.runId ?? nextId("run")
-    const threadId = options.threadId
-    const callId = nextId("call")
-    const messageId = nextId("msg")
-    const reasoningId = nextId("reasoning")
     const signal = signalOf(options)
-    const model = this.model
-    const { sampling, maxTokens } = this.settings(options.modelOptions)
-    const thinking = thinkingOptions(options.reasoning, model)
-    const timestamp = () => Date.now()
-
-    yield {
-      type: EventType.RUN_STARTED,
-      runId,
-      threadId,
-      model,
-      timestamp: timestamp(),
-      ...(options.parentRunId && { parentRunId: options.parentRunId })
-    }
-    if (options.tools?.length && (options.toolChoice === "required" || typeof options.toolChoice === "object")) {
-      try {
-        const { call, usage } = await chooseGuidedTool(options, (outputSchema, instruction) =>
-          this.structuredOutput({
-            chatOptions: { ...options, systemPrompts: [...normalizeSystemPrompts(options.systemPrompts), { content: instruction }] },
-            outputSchema
-          })
-        )
-        if (signal?.aborted) return
-        if (call) {
-          const toolCallId = nextId("tool")
-          const args = JSON.stringify(call.args)
-          yield { type: EventType.TOOL_CALL_START, toolCallId, toolCallName: call.name, parentMessageId: messageId, index: 0, model, timestamp: timestamp() }
-          yield { type: EventType.TOOL_CALL_ARGS, toolCallId, delta: args, args, model, timestamp: timestamp() }
-          yield { type: EventType.TOOL_CALL_END, toolCallId, toolCallName: call.name, args, input: call.args, model, timestamp: timestamp() }
-          yield { type: EventType.RUN_FINISHED, runId, threadId, model, timestamp: timestamp(), finishReason: "tool_calls", ...(usage && { usage }) }
-        } else {
-          for await (const chunk of this.chatStream({ ...options, runId, tools: [], toolChoice: "none" })) {
-            if (chunk.type === EventType.RUN_STARTED) continue
-            if (chunk.type === EventType.RUN_FINISHED) {
-              const reported = Array.isArray(chunk.usage) ? chunk.usage[0] : chunk.usage
-              yield { ...chunk, usage: addGuidedUsage(usage, reported) }
-            } else yield chunk
-          }
-        }
-      } catch (error) {
-        if (signal?.aborted) return
-        const message = errorText(error)
-        yield { type: EventType.RUN_ERROR, model, timestamp: timestamp(), message, error: { message } }
-      }
-      return
-    }
-    try {
-      this.useModel()
-      await waitForModel(model, this.dtype, this.contextLength, signal, this.onDownloadProgress)
-    } catch (error) {
-      if (signal?.aborted) return
-      yield {
-        type: EventType.RUN_ERROR,
-        model,
-        timestamp: timestamp(),
-        message: `Couldn't load ${model}: ${errorText(error)}`,
-        error: { message: `Couldn't load ${model}: ${errorText(error)}` }
-      }
-      return
-    }
-
+    this.useModel()
+    await waitForModel(this.model, this.dtype, this.contextLength, signal, this.onDownloadProgress)
+    signal?.throwIfAborted()
     const system = normalizeSystemPrompts(options.systemPrompts)
       .map((p) => p.content)
       .join("\n\n")
-    const chat: Array<ChatTurn> = [
-      ...(system ? [{ role: "system" as const, content: system }] : []),
-      ...toChatTurns(options.messages, this.toolFormat)
-    ]
-    const tools = options.toolChoice === "none" ? [] : toToolSpecs(options.tools)
-
-    // Thinking streams as reasoning events, then the answer as text up to
-    // any tool-call markup, which is held back and parsed at the end.
-    let reasoning: "none" | "open" | "closed" = "none"
-    let textStarted = false
-    let text = ""
-    const thinkingSplitter = createThinkingSplitter(
-      THINKING_MARKERS[this.toolFormat]
+    const markers = THINKING_MARKERS[this.toolFormat]
+    const { sampling, maxTokens } = generationSettings(
+      options.modelOptions,
+      modelMeta(this.model)?.sampling ?? DEFAULT_SAMPLING
     )
-    const toolSplitter = createToolCallSplitter()
-    const events: Array<AdapterYieldChunk> = []
-    const endReasoning = () => {
-      if (reasoning !== "open") return
-      reasoning = "closed"
-      events.push(
-        {
-          type: EventType.REASONING_MESSAGE_END,
-          messageId: reasoningId,
-          model,
-          timestamp: timestamp()
-        },
-        {
-          type: EventType.REASONING_END,
-          messageId: reasoningId,
-          model,
-          timestamp: timestamp()
-        }
-      )
-    }
-    const addText = (delta: string) => {
-      if (!delta) return
-      if (!textStarted) {
-        textStarted = true
-        events.push({
-          type: EventType.TEXT_MESSAGE_START,
-          messageId,
-          role: "assistant",
-          model,
-          timestamp: timestamp()
-        })
-      }
-      text += delta
-      events.push({
-        type: EventType.TEXT_MESSAGE_CONTENT,
-        messageId,
-        delta,
-        content: text,
-        model,
-        timestamp: timestamp()
-      })
-    }
-    const addPieces = (pieces: ReturnType<typeof thinkingSplitter.push>) => {
-      for (const piece of pieces) {
-        if (piece.kind === "thinking") {
-          if (reasoning === "none") {
-            events.push(
-              {
-                type: EventType.REASONING_START,
-                messageId: reasoningId,
-                model,
-                timestamp: timestamp()
-              },
-              {
-                type: EventType.REASONING_MESSAGE_START,
-                messageId: reasoningId,
-                role: "reasoning",
-                model,
-                timestamp: timestamp()
-              }
-            )
-          }
-          reasoning = "open"
-          events.push({
-            type: EventType.REASONING_MESSAGE_CONTENT,
-            messageId: reasoningId,
-            delta: piece.text,
-            model,
-            timestamp: timestamp()
-          })
-        } else {
-          endReasoning()
-          addText(toolSplitter.push(piece.text))
-        }
-      }
-    }
-
-    const stream = generate({
-      id: callId,
-      chat,
-      tools,
+    return generate({
+      id: nextId("call"),
+      chat: [
+        ...(system ? [{ role: "system" as const, content: system }] : []),
+        ...toChatTurns(options.messages, this.toolFormat)
+      ],
+      ...extra,
       ...(options.promptCache?.retention === "none" && { cachePrompt: false }),
-      ...thinking,
+      ...thinkingOptions(options.reasoning, this.model),
       sampling,
       maxTokens,
       contextLength: this.contextLength,
-      thinkingOpen: THINKING_MARKERS[this.toolFormat].open,
-      thinkingClose: THINKING_MARKERS[this.toolFormat].close,
+      thinkingOpen: markers.open,
+      thinkingClose: markers.close,
       signal
     })
+  }
+
+  /**
+   * A run's events, its failures (cancellation included) ending it with
+   * `RUN_ERROR` (`code: "aborted"` when canceled).
+   */
+  private async *run(
+    options: TextOptions<TransformersJsTextModelOptions>,
+    runId: string,
+    events: AsyncIterable<AdapterYieldChunk>
+  ): AsyncIterable<AdapterYieldChunk> {
+    let started = false
+    try {
+      for await (const chunk of events) {
+        if (chunk.type === EventType.RUN_STARTED) started = true
+        yield chunk
+      }
+    } catch (error) {
+      const model = this.model
+      if (!started) yield this.runStarted(options, runId)
+      const message = errorText(error)
+      const code = signalOf(options)?.aborted
+        ? "aborted"
+        : error instanceof SyntaxError
+          ? "structured-output-parse-failed"
+          : undefined
+      yield {
+        type: EventType.RUN_ERROR,
+        runId,
+        model,
+        timestamp: Date.now(),
+        message,
+        ...(code && { code }),
+        error: { message, ...(code && { code }) }
+      }
+    }
+  }
+
+  private runStarted(
+    options: TextOptions<TransformersJsTextModelOptions>,
+    runId: string
+  ): AdapterYieldChunk {
+    return {
+      type: EventType.RUN_STARTED,
+      runId,
+      threadId: options.threadId,
+      model: this.model,
+      timestamp: Date.now(),
+      ...(options.parentRunId && { parentRunId: options.parentRunId })
+    }
+  }
+
+  chatStream(
+    options: TextOptions<TransformersJsTextModelOptions>
+  ): AsyncIterable<AdapterYieldChunk> {
+    const runId = options.runId ?? nextId("run")
+    return this.run(options, runId, this.chatEvents(options, runId))
+  }
+
+  private async *chatEvents(
+    options: TextOptions<TransformersJsTextModelOptions>,
+    runId: string
+  ): AsyncGenerator<AdapterYieldChunk> {
+    const model = this.model
+    const signal = signalOf(options)
+    yield this.runStarted(options, runId)
+    const { toolChoice } = options
+    if (options.tools?.length && (toolChoice === "required" || typeof toolChoice === "object")) {
+      const { call, usage } = await chooseGuidedTool({ ...options, toolChoice }, (outputSchema, instruction) =>
+        this.structuredOutput({
+          chatOptions: { ...options, systemPrompts: [...normalizeSystemPrompts(options.systemPrompts), { content: instruction }] },
+          outputSchema
+        })
+      )
+      yield* toolCallEvents([call], nextId("msg"), model)
+      yield { type: EventType.RUN_FINISHED, runId, threadId: options.threadId, model, timestamp: Date.now(), finishReason: "tool_calls", ...(usage && { usage }) }
+      return
+    }
+    const useTools = !!options.tools?.length && toolChoice !== "none"
+    const stream = await this.generate(options, { tools: useTools ? toToolSpecs(options.tools) : [] })
+
+    // Thinking streams as reasoning events, then the answer as text up to
+    // any tool-call markup, which is held back and parsed at the end.
+    const reply = replyEvents(model)
+    const toolSplitter = createToolCallSplitter(this.toolFormat)
+    const thinkingSplitter = createThinkingSplitter(THINKING_MARKERS[this.toolFormat])
+    const events = (pieces: Array<ReplyPiece>) =>
+      pieces.flatMap((piece) =>
+        piece.kind === "thinking" ? reply.thought(piece.text) : reply.answer(toolSplitter.push(piece.text))
+      )
     let next = await stream.next()
     try {
       while (!next.done) {
-        addPieces(thinkingSplitter.push(next.value))
-        yield* events.splice(0)
+        yield* events(thinkingSplitter.push(next.value))
         next = await stream.next()
       }
     } finally {
       if (!next.done) await stream.return({})
     }
-    const { failure, stats } = next.value
-    addPieces(thinkingSplitter.flush())
-    endReasoning()
+    signal?.throwIfAborted()
+    const { failure, stats, length } = next.value
+    if (failure) throw new Error(failure)
+    yield* events(thinkingSplitter.flush())
+    yield* reply.endReasoning()
     const { text: rest, markup } = toolSplitter.flush()
-    addText(rest)
-    const allParsed = markup && options.tools?.length && options.toolChoice !== "none" ? parseToolCalls(markup) : []
-    // parallelToolCalls: false keeps the first call only (before validating or repairing the rest).
-    const parsed = options.modelOptions?.parallelToolCalls === false ? allParsed.slice(0, 1) : allParsed
+    yield* reply.answer(rest)
+    const parsed = markup && useTools ? parseToolCalls(markup, this.toolFormat) : []
+    // parallelToolCalls: false keeps the first call only.
+    const kept = options.modelOptions?.parallelToolCalls === false ? parsed.slice(0, 1) : parsed
     // Markup no call was read from is shown as text.
-    if (markup && parsed.length === 0) addText(markup)
-    yield* events.splice(0)
+    if (markup && kept.length === 0) yield* reply.answer(markup)
+    yield* toolCallEvents(kept, reply.messageId, model)
+    yield* reply.endText()
     const usage = stats ? usageOf(stats) : undefined
-    try {
-      if (failure) throw new Error(failure)
-    } catch (error) {
-      if (textStarted) yield { type: EventType.TEXT_MESSAGE_END, messageId, model, timestamp: timestamp() }
-      if (signal?.aborted) return
-      const message = errorText(error)
-      yield { type: EventType.RUN_ERROR, model, timestamp: timestamp(), message, error: { message } }
-      return
-    }
-
-    for (const [index, call] of parsed.entries()) {
-      const toolCallId = nextId("tool")
-      const args = JSON.stringify(call.args)
-      yield {
-        type: EventType.TOOL_CALL_START,
-        toolCallId,
-        toolCallName: call.name,
-        parentMessageId: messageId,
-        index,
-        model,
-        timestamp: timestamp()
-      }
-      yield {
-        type: EventType.TOOL_CALL_ARGS,
-        toolCallId,
-        delta: args,
-        args,
-        model,
-        timestamp: timestamp()
-      }
-      yield {
-        type: EventType.TOOL_CALL_END,
-        toolCallId,
-        toolCallName: call.name,
-        args,
-        input: call.args,
-        model,
-        timestamp: timestamp()
-      }
-    }
-    if (textStarted) {
-      yield {
-        type: EventType.TEXT_MESSAGE_END,
-        messageId,
-        model,
-        timestamp: timestamp()
-      }
-    }
-    if (failure) {
-      yield {
-        type: EventType.RUN_ERROR,
-        model,
-        timestamp: timestamp(),
-        message: failure,
-        error: { message: failure }
-      }
-      return
-    }
     yield {
       type: EventType.RUN_FINISHED,
       runId,
-      threadId,
+      threadId: options.threadId,
       model,
-      timestamp: timestamp(),
-      finishReason: parsed.length > 0 ? "tool_calls" : "stop",
+      timestamp: Date.now(),
+      finishReason: kept.length > 0 ? "tool_calls" : length ? "length" : "stop",
       ...(usage && { usage })
     }
   }
@@ -761,42 +715,11 @@ export class TransformersJsTextAdapter<
    * `{ object, raw, reasoning? }` and `RUN_FINISHED` with usage. A failure
    * ends the run with `RUN_ERROR` instead.
    */
-  async *structuredOutputStream(
+  structuredOutputStream(
     options: StructuredOutputOptions<TransformersJsTextModelOptions>
   ): AsyncIterable<AdapterYieldChunk> {
-    const { chatOptions } = options
-    const runId = chatOptions.runId ?? nextId("run")
-    let started = false
-    try {
-      for await (const chunk of this.structuredEvents(options, runId)) {
-        if (chunk.type === EventType.RUN_STARTED) started = true
-        yield chunk
-      }
-    } catch (error) {
-      const model = this.model
-      if (!started) {
-        yield {
-          type: EventType.RUN_STARTED,
-          runId,
-          threadId: chatOptions.threadId,
-          model,
-          timestamp: Date.now(),
-          ...(chatOptions.parentRunId && { parentRunId: chatOptions.parentRunId })
-        }
-      }
-      const aborted = signalOf(chatOptions)?.aborted === true
-      const message = aborted ? "The structured output was canceled." : errorText(error)
-      const code = aborted ? "aborted" : error instanceof SyntaxError ? "structured-output-parse-failed" : undefined
-      yield {
-        type: EventType.RUN_ERROR,
-        runId,
-        model,
-        timestamp: Date.now(),
-        message,
-        ...(code && { code }),
-        error: { message, ...(code && { code }) }
-      }
-    }
+    const runId = options.chatOptions.runId ?? nextId("run")
+    return this.run(options.chatOptions, runId, this.structuredEvents(options, runId))
   }
 
   /**
@@ -809,91 +732,23 @@ export class TransformersJsTextAdapter<
     runId = options.chatOptions.runId ?? nextId("run")
   ): AsyncGenerator<AdapterYieldChunk> {
     const { chatOptions } = options
-    // Closed unless they say otherwise, as in OpenAI's strict mode, for the
-    // answer and for tool arguments alike: a free-form key costs the
-    // constraint about a second a token on a real vocabulary
-    // (https://github.com/nico-martin/llguidance-js/issues/5).
-    const outputSchema = closeObjects(options.outputSchema) as Record<string, unknown>
     const model = this.model
-    const threadId = chatOptions.threadId
-    const messageId = nextId("msg")
-    const reasoningId = nextId("reasoning")
     const signal = signalOf(chatOptions)
-    const timestamp = () => Date.now()
-    yield {
-      type: EventType.RUN_STARTED,
-      runId,
-      threadId,
-      model,
-      timestamp: timestamp(),
-      ...(chatOptions.parentRunId && { parentRunId: chatOptions.parentRunId })
-    }
-    const thinking = thinkingOptions(chatOptions.reasoning, model)
-    const { sampling, maxTokens } = this.settings(chatOptions.modelOptions)
-    this.useModel()
-    await waitForModel(model, this.dtype, this.contextLength, signal, this.onDownloadProgress)
-    signal?.throwIfAborted()
-    const system = normalizeSystemPrompts(chatOptions.systemPrompts)
-      .map((p) => p.content)
-      .join("\n\n")
-    const markers = THINKING_MARKERS[this.toolFormat]
-    const stream = generate({
-      id: nextId("call"),
-      chat: [
-        ...(system ? [{ role: "system" as const, content: system }] : []),
-        ...toChatTurns(chatOptions.messages, this.toolFormat)
-      ],
+    yield this.runStarted(chatOptions, runId)
+    const stream = await this.generate(chatOptions, {
       tools: [],
-      ...(chatOptions.promptCache?.retention === "none" && { cachePrompt: false }),
-      ...thinking,
-      outputSchema,
-      sampling,
-      maxTokens,
-      contextLength: this.contextLength,
-      thinkingOpen: markers.open,
-      thinkingClose: markers.close,
-      signal
+      // Closed unless they say otherwise, as in OpenAI's strict mode, for the
+      // answer and for tool arguments alike: a free-form key costs the
+      // constraint about a second a token on a real vocabulary
+      // (https://github.com/nico-martin/llguidance-js/issues/5).
+      outputSchema: closeObjects(options.outputSchema) as Record<string, unknown>
     })
     // Thinking, if the reply opens with it, then the JSON answer, where
     // marker-shaped text is data.
-    const splitter = createStructuredSplitter(markers)
-    let reasoning: "none" | "open" | "closed" = "none"
-    let reasoningText = ""
-    let textStarted = false
-    let text = ""
-    const events = (pieces: ReturnType<typeof splitter.push>) => {
-      const out: Array<AdapterYieldChunk> = []
-      for (const piece of pieces) {
-        if (piece.kind === "thinking") {
-          if (reasoning === "none") {
-            reasoning = "open"
-            out.push(
-              { type: EventType.REASONING_START, messageId: reasoningId, model, timestamp: timestamp() },
-              { type: EventType.REASONING_MESSAGE_START, messageId: reasoningId, role: "reasoning", model, timestamp: timestamp() }
-            )
-          }
-          reasoningText += piece.text
-          out.push({ type: EventType.REASONING_MESSAGE_CONTENT, messageId: reasoningId, delta: piece.text, model, timestamp: timestamp() })
-          continue
-        }
-        out.push(...endReasoning())
-        if (!textStarted) {
-          textStarted = true
-          out.push({ type: EventType.TEXT_MESSAGE_START, messageId, role: "assistant", model, timestamp: timestamp() })
-        }
-        text += piece.text
-        out.push({ type: EventType.TEXT_MESSAGE_CONTENT, messageId, delta: piece.text, content: text, model, timestamp: timestamp() })
-      }
-      return out
-    }
-    const endReasoning = (): Array<AdapterYieldChunk> => {
-      if (reasoning !== "open") return []
-      reasoning = "closed"
-      return [
-        { type: EventType.REASONING_MESSAGE_END, messageId: reasoningId, model, timestamp: timestamp() },
-        { type: EventType.REASONING_END, messageId: reasoningId, model, timestamp: timestamp() }
-      ]
-    }
+    const reply = replyEvents(model)
+    const splitter = createStructuredSplitter(THINKING_MARKERS[this.toolFormat])
+    const events = (pieces: Array<ReplyPiece>) =>
+      pieces.flatMap((piece) => (piece.kind === "thinking" ? reply.thought(piece.text) : reply.answer(piece.text)))
     let next = await stream.next()
     try {
       while (!next.done) {
@@ -906,32 +761,29 @@ export class TransformersJsTextAdapter<
     }
     signal?.throwIfAborted()
     yield* events(splitter.flush())
-    yield* endReasoning()
-    if (textStarted) yield { type: EventType.TEXT_MESSAGE_END, messageId, model, timestamp: timestamp() }
+    yield* reply.endReasoning()
+    yield* reply.endText()
     if (next.value.failure) throw new Error(next.value.failure)
-    const raw = text.trim()
+    const raw = reply.text().trim()
     let object: unknown
     try {
-      object = JSON.parse(raw.replace(/^```(?:json)?\s*|\s*```$/g, "")) as unknown
+      object = JSON.parse(raw) as unknown
     } catch (error) {
       throw new SyntaxError(
         `The model's answer isn't JSON: ${raw.slice(0, 200)}${raw.length > 200 ? "…" : ""}`,
         { cause: error }
       )
     }
-    const value: StructuredOutputComplete = {
-      object,
-      raw,
-      ...(reasoningText && { reasoning: reasoningText })
-    }
-    yield { type: EventType.CUSTOM, name: STRUCTURED_OUTPUT_COMPLETE, value, model, timestamp: timestamp() }
+    const reasoning = reply.thinking()
+    const value: StructuredOutputComplete = { object, raw, ...(reasoning && { reasoning }) }
+    yield { type: EventType.CUSTOM, name: STRUCTURED_OUTPUT_COMPLETE, value, model, timestamp: Date.now() }
     const usage = next.value.stats ? usageOf(next.value.stats) : undefined
     yield {
       type: EventType.RUN_FINISHED,
       runId,
-      threadId,
+      threadId: chatOptions.threadId,
       model,
-      timestamp: timestamp(),
+      timestamp: Date.now(),
       finishReason: "stop",
       ...(usage && { usage })
     }

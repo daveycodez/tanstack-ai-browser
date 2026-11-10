@@ -77,7 +77,7 @@ worker.setFixture({modelId:"cache-fixture",runtime:Promise.resolve({tf,tokenizer
 async function run(id:string,cachePrompt?:boolean,long=false){
   control.id=id;control.forward=[];control.generation=[]
   const chat=[{role:"system",content:long?"Instruction ".repeat(30):"Short stable"},{role:"user",content:"Hello"}]
-  return worker.runFixture(id,chat,[],false,{temperature:0.1,top_k:50,repetition_penalty:1},16,undefined,"<think>","</think>",undefined,undefined,cachePrompt)
+  return (await worker.runFixture(id,chat,[],false,{temperature:0.1,top_k:50,repetition_penalty:1},16,undefined,"<think>","</think>",undefined,undefined,cachePrompt)).stats
 }
 
 test("none uses run-owned KV, bypasses prior/disk caches, disposes on all exits and preserves other contexts",async()=>{

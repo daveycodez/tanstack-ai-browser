@@ -41,7 +41,6 @@ test("a zero thinking budget closes immediately before schema generation", () =>
   control.prepare([[0n, 4n]], answer)
   assert.equal(answer[1], 1)
   assert.equal(answer[0], -Infinity)
-  assert.deepEqual(control.stats, { thinkingTokens: 0, thinkingBudgetTokens: 0, thinkingBudgetExhausted: true })
 })
 
 test("thinking content hits the exact cap and forced markers are excluded", () => {
@@ -54,7 +53,6 @@ test("thinking content hits the exact cap and forced markers are excluded", () =
   control.prepare([[0n, 2n, 2n]], close)
   assert.equal(close[4], 0)
   control.finish([0, 2, 2, 4, 1, 3], false)
-  assert.deepEqual(control.stats, { thinkingTokens: 2, thinkingBudgetTokens: 2, thinkingBudgetExhausted: true })
 })
 
 test("multi-token thinking delimiters transition without being sent to the JSON grammar", () => {
@@ -68,15 +66,12 @@ test("multi-token thinking delimiters transition without being sent to the JSON 
   assert.equal(suffix[2], 0)
   control.finish([0, 0, 4, 2, 1, 3], false)
   assert.deepEqual(grammar.accepted, [1, 3])
-  assert.equal(control.stats.thinkingTokens, 1)
 })
 
 test("natural thinking completion is allowed before the budget", () => {
   const grammar = constraint()
   const control = new GenerationControl({ promptTokens: 1, startsInThinking: true, close: [4], eos: [3], budget: 512, constraint: grammar })
   control.finish([0, 2, 4, 1, 3], false)
-  assert.equal(control.stats.thinkingTokens, 1)
-  assert.equal(control.stats.thinkingBudgetExhausted, false)
 })
 
 test("incomplete constrained output reports truncation, but cancellation stays cancellation", () => {
@@ -84,7 +79,6 @@ test("incomplete constrained output reports truncation, but cancellation stays c
   assert.throws(() => control.finish([0], false), /truncated/)
   assert.doesNotThrow(() => control.finish([0], true))
 })
-
 
 test("a model that opens thinking itself gets its actual opening marker before the JSON grammar", () => {
   const grammar = constraint()
@@ -99,31 +93,18 @@ test("a model that opens thinking itself gets its actual opening marker before t
   control.prepare([[0n, 2n, 0n]], close)
   assert.equal(close[4], 0)
   control.finish([0, 2, 0, 4, 1, 3], false)
-  assert.equal(control.stats.thinkingTokens, 1)
   assert.deepEqual(grammar.accepted, [1, 3])
 })
-
-
-test("structured answer extraction preserves thinking-marker text inside JSON strings", async () => {
-  const { structuredAnswer } = await import("./thinking.js")
-  const json = '{"text":"literal </think> and <think>"}'
-  assert.equal(structuredAnswer(json), json)
-  assert.equal(structuredAnswer('<think>reason</think>\n'+json), json)
-})
-
 
 test("native reopened thinking shares the original remaining budget", () => {
   const control = new GenerationControl({ promptTokens: 1, startsInThinking: true, open: [2], close: [4], eos: [3], budget: 3, allowReopen: true })
   const stillThinking = data()
   control.prepare([[0n, 0n, 4n, 1n, 2n, 0n]], stillThinking)
   assert.deepEqual([...stillThinking], [...data()])
-  assert.equal(control.stats.thinkingTokens, 2)
   const close = data()
   control.prepare([[0n, 0n, 4n, 1n, 2n, 0n, 0n]], close)
   assert.equal(close[4], 0)
   control.finish([0, 0, 4, 1, 2, 0, 0, 4, 1, 3], false)
-  assert.equal(control.stats.thinkingTokens, 3)
-  assert.equal(control.stats.thinkingBudgetExhausted, true)
 })
 
 test("native reopening after budget exhaustion forces an empty span without spending more tokens", () => {
@@ -135,7 +116,6 @@ test("native reopening after budget exhaustion forces an empty span without spen
   control.prepare([[0n, 0n, 4n, 1n, 2n]], reopened)
   assert.equal(reopened[4], 0)
   control.finish([0, 0, 4, 1, 2, 4], false)
-  assert.equal(control.stats.thinkingTokens, 1)
 })
 
 test("multi-token native opening markers rearm only when complete and do not reset the counter", () => {
@@ -149,7 +129,6 @@ test("multi-token native opening markers rearm only when complete and do not res
   const completed = data()
   control.prepare([[0n, 0n, 4n, 2n, 1n]], completed)
   assert.equal(completed[4], 0)
-  assert.equal(control.stats.thinkingTokens, 1)
 })
 
 test("thinking-off literal markers do not reopen or force tokens", () => {
@@ -157,8 +136,6 @@ test("thinking-off literal markers do not reopen or force tokens", () => {
   const logits = data()
   control.prepare([[0n, 2n, 0n, 4n]], logits)
   assert.deepEqual([...logits], [...data()])
-  assert.equal(control.stats.thinkingTokens, 0)
-  assert.equal(control.stats.thinkingBudgetExhausted, false)
 })
 
 test("structured answer marker-shaped tokens are handled by the grammar rather than rearming thinking", () => {
@@ -169,9 +146,7 @@ test("structured answer marker-shaped tokens are handled by the grammar rather t
   control.prepare([[0n, 2n, 0n, 4n]], logits)
   assert.deepEqual(accepted, [2, 0, 4])
   assert.deepEqual([...logits], [...data()])
-  assert.equal(control.stats.thinkingTokens, 0)
 })
-
 
 test("post-budget native output bans actual control IDs after allowing the forced close once", () => {
   const control = new GenerationControl({ promptTokens: 1, startsInThinking: true, open: [2], close: [4], eos: [3], budget: 1, allowReopen: true, controlTokens: [2, 4] })
@@ -204,7 +179,6 @@ test("budget zero allows its empty forced block then bans native control tags", 
   control.prepare([[0n, 4n]], answer)
   assert.equal(answer[2], -Infinity)
   assert.equal(answer[4], -Infinity)
-  assert.equal(control.stats.thinkingTokens, 0)
 })
 
 test("Gemma-style marker words and newlines are not banned as control IDs", async () => {

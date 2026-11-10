@@ -1,8 +1,10 @@
 import assert from "node:assert/strict"
 import { test } from "node:test"
-import { createStructuredSplitter, createThinkingSplitter, structuredAnswer, type ThinkingMarkers } from "./thinking.js"
+import { createStructuredSplitter, createThinkingSplitter, type ThinkingMarkers } from "./thinking.js"
 
-function streamed(chunks: string[], markers?: ThinkingMarkers) {
+const THINK = { open: "<think>", close: "</think>" }
+
+function streamed(chunks: string[], markers: ThinkingMarkers = THINK) {
   const splitter = createThinkingSplitter(markers)
   return [...chunks.flatMap(chunk => splitter.push(chunk)), ...splitter.flush()]
 }
@@ -34,15 +36,15 @@ test("flush keeps incomplete marker prefixes and discards only complete empty bl
   assert.equal(streamed(['<think>plan</think><think> </think>']).filter(piece => piece.kind === "answer").length, 0)
 })
 
-test("the streamed structured split matches structuredAnswer, token by token or whole", () => {
-  for (const reply of ['<think>plan</think>\n{"a":1}', '{"a":"</think>x"}', ' \n<think>plan</think>{"a":"<think>"}', '<think>never closed', 'Paris</think>Paris', '<thi', '']) {
+test("the structured split takes thinking only at the start, token by token or whole", () => {
+  for (const [reply, answer] of [['<think>plan</think>\n{"a":1}', '{"a":1}'], ['{"a":"</think>x"}', '{"a":"</think>x"}'], [' \n<think>plan</think>{"a":"<think>"}', '{"a":"<think>"}'], ['<think>never closed', ''], ['Paris</think>Paris', 'Paris</think>Paris'], ['<thi', '<thi'], ['', '']]) {
     for (const chunks of [[...reply], [reply]]) {
-      const splitter = createStructuredSplitter()
+      const splitter = createStructuredSplitter(THINK)
       const pieces = [...chunks.flatMap(chunk => splitter.push(chunk)), ...splitter.flush()]
-      assert.equal(pieces.filter(piece => piece.kind === "answer").map(piece => piece.text).join("").trim(), structuredAnswer(reply), reply)
+      assert.equal(pieces.filter(piece => piece.kind === "answer").map(piece => piece.text).join("").trim(), answer, reply)
     }
   }
-  const splitter = createStructuredSplitter()
+  const splitter = createStructuredSplitter(THINK)
   const pieces = [...splitter.push("<think>\nplan</th"), ...splitter.push('ink>{"a":1}'), ...splitter.flush()]
   assert.deepEqual(pieces, [{ kind: "thinking", text: "plan" }, { kind: "answer", text: '{"a":1}' }])
 })

@@ -81,7 +81,6 @@ test("invalid tokenizers and dead ends fail explicitly", async () => {
   await assert.rejects(createConstraint({ schema, tokenizer: { tokens: [[120]] } }), /EOS|tokenizer/)
 })
 
-
 test("numeric roots preserve valid extensions after an accepting prefix", async () => {
   const c = await createConstraint({ schema: { type: "integer", minimum: 1, maximum: 123 }, tokenizer })
   accept(c, "1")
@@ -98,16 +97,6 @@ test("numeric roots preserve valid extensions after an accepting prefix", async 
   assert.equal(bounded.complete, true)
   bounded.dispose()
 })
-
-test("structured answer preserves tag literals in JSON and strips only leading reasoning", async () => {
-  const { structuredAnswer } = await import("./index.js")
-  const answer = '{"literal":"</think>","other":"<think>"}'
-  assert.equal(structuredAnswer(answer), answer)
-  assert.equal(structuredAnswer('<think>Reason.</think>\n'+answer), answer)
-  assert.equal(structuredAnswer('<think>unfinished'), "")
-  assert.equal(structuredAnswer('thought:reason:final:'+answer, {open:"thought:",close:":final:"}), answer)
-})
-
 
 test("JSON takes whitespace where models write it, in runs of at most MAX_WHITESPACE_RUN tokens", async () => {
   // The caller's own layout hints don't change it.
@@ -199,46 +188,6 @@ test("finite tool-routing and argument enums reject wrong prefixes before closin
   assert.equal(args.complete, true)
   args.dispose()
 })
-
-test("parsed structured values validate schemas without a model tokenizer", async () => {
-  const { validateStructuredValue } = await import("./index.js")
-  assert.equal(await validateStructuredValue(schema, { moveId: "b6-a5" }), true)
-  assert.equal(await validateStructuredValue(schema, { moveId: "illegal" }), false)
-  assert.equal(await validateStructuredValue(schema, { moveId: "b6-a5", extra: 1 }), false)
-  assert.equal(await validateStructuredValue(schema, {}), false)
-  const args = { type: "object", properties: { city: { type: "string", minLength: 3, pattern: "^[A-Z]" }, count: { type: "integer", minimum: 1, maximum: 5 }, tags: { type: "array", items: { enum: ["café", "☃"] }, uniqueItems: true } }, required: ["city", "count"], additionalProperties: false }
-  assert.equal(await validateStructuredValue(args, { city: "London", count: 2, tags: ["café", "☃"] }), true)
-  assert.equal(await validateStructuredValue(args, { city: "london", count: 2 }), false)
-  assert.equal(await validateStructuredValue(args, { city: "London", count: 7 }), false)
-  assert.equal(await validateStructuredValue(args, { city: "London", count: 2, tags: ["café", "café"] }), false)
-  assert.equal(await validateStructuredValue({ type: "integer", minimum: 12, maximum: 15 }, 12), true)
-  assert.equal(await validateStructuredValue({ type: "integer", minimum: 12, maximum: 15 }, 1), false)
-  await assert.rejects(validateStructuredValue({ type: "object", unevaluatedProperties: false }, {}), /unsupported|Unsupported/)
-})
-
-test("parsed value validation rejects non-JSON coercions and cycles", async () => {
-  const { validateStructuredValue } = await import("./index.js")
-  const cycle: Record<string, unknown> = {}; cycle.self = cycle
-  for (const value of [undefined, NaN, Infinity, 1n, Symbol("value"), () => 1, new Date(), { x: undefined }, [undefined], Array(1), cycle]) {
-    assert.equal(await validateStructuredValue(true, value), false)
-  }
-  assert.equal(await validateStructuredValue(true, { note: "a b </think> café" }), true)
-  assert.equal(await validateStructuredValue(false, null), false)
-})
-
-test("parsed native arguments validate independent of property insertion order and string whitespace", async () => {
-  const { validateStructuredValue } = await import("./index.js")
-  const properties = { a: { type: "string" }, b: { type: "string" } }
-  const schema = { type: "object", properties, required: ["a", "b"], additionalProperties: false }
-  const original = { b: "second\nline\t☃", a: "  leading and trailing  " }
-  assert.equal(await validateStructuredValue(schema, original), true)
-  assert.equal(await validateStructuredValue(schema, { a: original.a, b: original.b }), true)
-  assert.deepEqual(original, { b: "second\nline\t☃", a: "  leading and trailing  " })
-  const constant = { const: { a: "a b", b: "c d" } }
-  assert.equal(await validateStructuredValue(constant, { b: "c d", a: "a b" }), true)
-  assert.equal(await validateStructuredValue({ enum: [{ a: "a b", b: "c d" }] }, { b: "c d", a: "a b" }), true)
-})
-
 
 test("explicit EOS replaces existing camel-case and snake-case metadata consistently", async () => {
   const source = { tokens: [...tokenizer.tokens, []], eosTokenId: 256, eos_token_id: 256, special_token_ids: [256, 257] }

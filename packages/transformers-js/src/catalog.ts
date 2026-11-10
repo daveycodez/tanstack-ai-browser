@@ -7,7 +7,6 @@
 import type { ModelReasoning } from "@tanstack/ai"
 import type { ModelReasoningCapability } from "@tanstack/ai/adapter-internals"
 
-import type { WeightsDtype } from "./protocol.js"
 
 /**
  * Sampling from a model's card, in `modelOptions`' names (OpenRouter's
@@ -36,8 +35,6 @@ export type TransformersJsModelMeta = {
   reasoning?: ModelReasoning
   /** How the model writes tool calls. */
   toolFormat: ToolFormat
-  /** The weights to load: "q4f16" unless the model needs fp32 activations. */
-  dtype?: WeightsDtype
   /**
    * The repo also has q4 weights (float32 activations) that run on the CPU
    * through WebAssembly where there's no WebGPU. Not for q4 graphs whose

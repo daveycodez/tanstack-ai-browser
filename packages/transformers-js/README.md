@@ -60,35 +60,15 @@ Any other Hugging Face ONNX model works too, given how it writes tool calls and 
 - `adapter.create({ onDownloadProgress?, signal }?)` downloads and loads the model ahead of time, with the download's progress, 0 to 1, then 1 once it's ready (at once if it already is). Aborting `signal` rejects that call at once with an `AbortError` and stops its progress reports; when no other caller (another call, or a `chat()` waiting for the model) still waits on the load, the load is cancelled: the worker ends and the model is left unloaded (`availability()` is back to `"downloadable"`). It resolves to the adapter, and rejects on failure; it's fine to leave unawaited. The config's `onDownloadProgress` hears a download the first `chat()` starts too.
 - `adapter.destroy()` unloads the model, freeing its memory, if it's the one loaded; its files stay cached.
 
-The page holds one Transformers.js model at a time: adapters for the same model (and `dtype` and `contextLength`) share it, so `destroy()` on one unloads it for all of them. The adapter's `debug: true` logs the worker's memory and cache use in the console.
+The page holds one Transformers.js model at a time: adapters for the same model (and `dtype` and `contextLength`) share it, so `destroy()` on one unloads it for all of them. The adapter's `debug: true` logs the worker's prompt-cache use and error stacks in the console.
 
 ## How it runs
 
-`chat()` runs tools and the agent loop; each model call runs in the worker. Transformers.js downloads the model's files once and keeps them in its browser cache, prompts are read in time-sized steps (under Safari's GPU watchdog), and the model's cache is reused across calls by token prefix, with the system prompt and tools saved to disk.
+`chat()` runs tools and the agent loop; each model call runs in the worker. Transformers.js downloads the model's files once and keeps them in its browser cache. Prompts are read in steps sized to take about 1.5 s each (under Safari's GPU watchdog), the same way for every model and device. The model's cache is reused across calls by matching prompt tokens, with checkpoints where the system prompt and tools end and where a prompt stopped matching an earlier one; the system prompt and tools are also saved to disk. `promptTokensDetails.cachedTokens` reports what was actually reused.
 
-Prompt reuse compares actual rendered token IDs, with checkpoints at the matching
-system/tool prefix and the existing native conversation boundaries. System-only
-templates can have different closing suffixes without invalidating exactly matching
-instruction tokens. Templates requiring a user query use tokenizer-only A/B probes;
-their shared prefix is intersected with the actual full prompt. Probe text never
-reaches model inference. One latest prefix per tokenizer is memoized by exact
-system/tools/thinking, within the existing cache budgets.
-Structured output sends the caller's system prompt as given; the schema constrains
-decoding. The whole conversation, earlier turns' tool calls and results included, is
-written with the model's chat template. Native common/end checkpoint scheduling is unchanged.
-`promptTokensDetails.cachedTokens` reports actual reuse; stable formatting alone is not a
-guaranteed cache hit.
+`promptCache: { retention: "none" }` turns that reuse off for a call: no earlier cache is read, and nothing is kept or written afterwards. Other retention values keep the default budgets; `promptCache.key` isn't used, since reuse follows the tokens.
 
-The standard SDK `promptCache: "none"` disables automatic prompt-state reuse and
-retention for that call: no prior in-memory or disk prompt cache is read, no prompt
-state is kept or written afterward, and run-owned state is disposed on completion,
-error or cancellation. The model still uses autoregressive KV within the call, and
-other retained conversations are preserved. Downloaded model files are unaffected.
-Omitted/`"short"`/`"long"` retention keeps the existing cache budgets and lifetimes;
-these hints do not create new TTLs. `promptCache.key` does not select KV ownership or route a worker cache: exact token
-matching controls reuse.
-
-**Memory** is what Transformers.js and ONNX Runtime take for the model: the weights, ONNX Runtime's working buffers and the model's cache. Steps are sized by time, the same way for every model and device, to take 1.5 s each.
+A reply cut off by `maxCompletionTokens` or by the context length finishes with `finishReason: "length"`; a canceled call ends with `RUN_ERROR` (`code: "aborted"`), as with TanStack's other adapters.
 
 The model runs in a module Web Worker that the package starts with `new Worker(new URL("./worker.js", import.meta.url))`. Bundlers that understand that pattern (Vite, webpack 5, Rollup with a worker plugin) emit the worker file for you. With Vite, leave the package out of dependency pre-bundling, so the worker's URL still points at a real file:
 
@@ -113,4 +93,4 @@ With `stream: true`, the structured answer streams as OpenRouter's does (`struct
 
 `modelOptions.maxCompletionTokens` limits total output, including thinking. Omitting it uses a declared model generation limit when present, otherwise remaining model context. The adapter does not shorten the model's context unless the caller sets `contextLength`.
 
-Auto tools retain the model's native routing and answer protocol: the calls the model writes are emitted as normal TanStack AI tool-call events, and `chat()` checks them against their tools; tool-call markup no call was read from is shown as text. Required and named choices use guided selection/arguments. Unsupported schemas, constraint dead ends, and truncated structured responses fail explicitly.
+Auto tools retain the model's native routing and answer protocol: the calls the model writes are emitted as normal TanStack AI tool-call events, and `chat()` checks them against their tools; tool-call markup no call was read from is shown as text. `toolChoice: "required"` or a named tool uses schema-constrained calls instead: the tool's name (when there are several), then its arguments. Unsupported schemas, constraint dead ends, and truncated structured responses fail explicitly.

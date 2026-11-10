@@ -4,7 +4,7 @@ import type { ToolFormat } from "./tool-calls.js"
 export type ThinkingMarkers = { open: string; close: string }
 
 /** `<think>…</think>`, as LFM models (and most others) write it. */
-export const THINK_TAGS: ThinkingMarkers = {
+const THINK_TAGS: ThinkingMarkers = {
   open: "<think>",
   close: "</think>"
 }
@@ -16,52 +16,6 @@ export const THINKING_MARKERS: Record<ToolFormat, ThinkingMarkers> = {
   "qwen3.5": THINK_TAGS,
   // Gemma 4 thinks in a "thought" channel: `<|channel>thought\n…<channel|>`.
   gemma4: { open: "<|channel>thought", close: "<channel|>" }
-}
-
-/**
- * Splits a model's reply into its thinking and its answer. Thinking is any
- * `<think>…</think>` block (or the format's own markers), or everything
- * before a lone close (models prompted with an empty `<think></think>`
- * sometimes still think a little and close it). An open with no close yet
- * means it's still thinking.
- */
-export function splitThinking(
-  text: string,
-  { open: OPEN, close: CLOSE }: ThinkingMarkers = THINK_TAGS
-) {
-  const thoughts: Array<string> = []
-  let rest = text
-  let isThinking = false
-  for (;;) {
-    const open = rest.indexOf(OPEN)
-    const close = rest.indexOf(CLOSE)
-    if (close !== -1 && (open === -1 || close < open)) {
-      // A close with no open: everything before it was thinking.
-      thoughts.push(rest.slice(0, close))
-      rest = rest.slice(close + CLOSE.length)
-      continue
-    }
-    if (open === -1) break
-    const before = rest.slice(0, open)
-    const after = rest.slice(open + OPEN.length)
-    const end = after.indexOf(CLOSE)
-    if (end === -1) {
-      thoughts.push(after)
-      rest = before
-      isThinking = true
-      break
-    }
-    thoughts.push(after.slice(0, end))
-    rest = before + after.slice(end + CLOSE.length)
-  }
-  return {
-    thinking: thoughts
-      .map((t) => t.trim())
-      .filter(Boolean)
-      .join("\n\n"),
-    answer: rest.trim(),
-    isThinking
-  }
 }
 
 /** Length of the longest end of `text` that could be the start of `tag`. */
@@ -83,7 +37,7 @@ export type ReplyPiece = { kind: "thinking" | "answer"; text: string }
 export function createThinkingSplitter({
   open: OPEN,
   close: CLOSE
-}: ThinkingMarkers = THINK_TAGS) {
+}: ThinkingMarkers) {
   let state: "start" | "thinking" | "answer" = "start"
   let buffer = ""
   /** Whether the thinking has had any text yet (to drop a leading newline). */
@@ -174,24 +128,15 @@ export function createThinkingSplitter({
   return { push, flush }
 }
 
-/** Constrained generation has one reasoning phase; markers inside JSON strings are data. */
-export function structuredAnswer(text: string, markers: ThinkingMarkers = THINK_TAGS): string {
-  const raw = text.trimStart()
-  if (!raw.startsWith(markers.open)) return raw.trim()
-  const close = raw.indexOf(markers.close, markers.open.length)
-  return close < 0 ? "" : raw.slice(close + markers.close.length).trim()
-}
-
 /**
- * `structuredAnswer` while the reply streams: a reply that opens with the
+ * Splits a structured reply while it streams: a reply that opens with the
  * thinking marker is thinking up to the first close, and everything after
- * it is the answer, marker-shaped text included (it is JSON data). The
- * answer pieces, joined and trimmed, equal `structuredAnswer` of the reply.
+ * it is the answer, marker-shaped text included (it is JSON data).
  */
 export function createStructuredSplitter({
   open: OPEN,
   close: CLOSE
-}: ThinkingMarkers = THINK_TAGS) {
+}: ThinkingMarkers) {
   let state: "start" | "thinking" | "answer" = "start"
   let buffer = ""
   let thought = false

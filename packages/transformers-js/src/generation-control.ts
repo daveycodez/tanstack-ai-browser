@@ -122,12 +122,4 @@ export class GenerationControl {
       throw new Error("Structured output was truncated before a complete schema-valid answer.")
     }
   }
-
-  get stats() {
-    return this.options.budget === undefined ? {} : {
-      thinkingTokens: this.thoughtTokens,
-      thinkingBudgetTokens: this.options.budget,
-      thinkingBudgetExhausted: this.exhausted
-    }
-  }
 }

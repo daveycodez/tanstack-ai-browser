@@ -3,7 +3,7 @@ import { test } from "node:test"
 import { resolveDebugOption } from "@tanstack/ai/adapter-internals"
 import type { TextOptions } from "@tanstack/ai"
 import type { TransformersJsTextModelOptions } from "./adapter.js"
-import type { RunTimings, WorkerRequest, WorkerResponse } from "./protocol.js"
+import type { RunCounts, WorkerRequest, WorkerResponse } from "./protocol.js"
 
 class FakeWorker {
   static last: FakeWorker
@@ -24,7 +24,7 @@ class FakeWorker {
 }
 Object.defineProperty(globalThis, "Worker", { configurable: true, writable: true, value: FakeWorker })
 const MODEL = "LiquidAI/LFM2.5-1.2B-Thinking-ONNX"
-const stats: RunTimings = { inputTokens: 10, cachedTokens: 0, outputTokens: 20, firstTokenMs: 1, promptMs: 1, decodeMs: 1, thinkingTokens: 4, thinkingBudgetTokens: 512, thinkingBudgetExhausted: false }
+const stats: RunCounts = { inputTokens: 10, cachedTokens: 0, outputTokens: 20 }
 function options(): TextOptions<TransformersJsTextModelOptions> {
   return { logger: resolveDebugOption(false), model: MODEL, threadId: "tjs-adapter-test", messages: [{ role: "user", content: "choose a move" }], reasoning: { level: "high", summary: true, budgetTokens: 512 }, modelOptions: { maxCompletionTokens: 8192 } }
 }
@@ -42,7 +42,7 @@ test("structured output forwards the schema, canonical token cap, thinking cap, 
     assert.equal(request.thinkingBudgetTokens, 512)
     assert.equal(request.thinkingClose, "</think>")
     worker.send({ type: "token", id: request.id, text: '<think>plan</think>{"moveId":"b6-a5"}' })
-    worker.send({ type: "done", id: request.id, stats })
+    worker.send({ type: "done", id: request.id, stats, length: false })
   }
   try {
     const result = await transformersJsText(MODEL).structuredOutput({ chatOptions: { ...options(), modelOptions: { maxCompletionTokens: 8192 } }, outputSchema: schema })
@@ -57,7 +57,7 @@ test("output schemas' objects are closed unless they set additionalProperties, a
   FakeWorker.generate = (worker, request) => {
     sent.push(request.outputSchema)
     worker.send({ type: "token", id: request.id, text: '{"city":"Oslo"}' })
-    worker.send({ type: "done", id: request.id, stats })
+    worker.send({ type: "done", id: request.id, stats, length: false })
   }
   const run = (outputSchema: Record<string, unknown>) => transformersJsText(MODEL).structuredOutput({ chatOptions: options(), outputSchema })
   try {
@@ -92,7 +92,7 @@ test("forced tool arguments are generated against closed objects", async () => {
   FakeWorker.generate = (worker, request) => {
     sent = request.outputSchema
     worker.send({ type: "token", id: request.id, text: '{"city":"Paris"}' })
-    worker.send({ type: "done", id: request.id, stats })
+    worker.send({ type: "done", id: request.id, stats, length: false })
   }
   try {
     const chunks = []
@@ -114,7 +114,7 @@ test("required and specific tools use constrained decisions and arguments, emitt
       const requested = request.outputSchema as { properties: Record<string, unknown> }
       const json = requested.properties.action ? { action: "lookup" } : { query: "checkers" }
       worker.send({ type: "token", id: request.id, text: JSON.stringify(json) })
-      worker.send({ type: "done", id: request.id, stats })
+      worker.send({ type: "done", id: request.id, stats, length: false })
     }
     const chunks = []
     for await (const chunk of transformersJsText(MODEL).chatStream({ ...options(), tools, toolChoice })) chunks.push(chunk)
@@ -140,7 +140,7 @@ test("native auto can answer without a JSON routing decision", async () => {
   FakeWorker.generate = (worker, request) => {
     requests++
     worker.send({ type: "token", id: request.id, text: request.outputSchema ? '{"action":"answer"}' : "Hello" })
-    worker.send({ type: "done", id: request.id, stats })
+    worker.send({ type: "done", id: request.id, stats, length: false })
   }
   try {
     const chunks = []
@@ -211,11 +211,11 @@ test("toolChoice none never emits tool events for spontaneous native markup", as
   unloadModel()
   const { formatLfm2ToolCalls, parseToolCalls } = await import("./tool-calls.js")
   const markup = formatLfm2ToolCalls([{ name: "lookup", args: { query: "checkers" } }])
-  assert.equal(parseToolCalls(markup).length, 1, "the fixture is a recognized native tool call")
+  assert.equal(parseToolCalls(markup, "lfm2").length, 1, "the fixture is a recognized native tool call")
   FakeWorker.generate = (worker, request) => {
     assert.deepEqual(request.tools, [])
     worker.send({ type: "token", id: request.id, text: markup })
-    worker.send({ type: "done", id: request.id, stats })
+    worker.send({ type: "done", id: request.id, stats, length: false })
   }
   try {
     const chunks = []
@@ -232,13 +232,13 @@ test("no declared tools means model tool markup remains ordinary text", async ()
   const { unloadModel } = await import("./client.js")
   const { formatLfm2ToolCalls, parseToolCalls } = await import("./tool-calls.js")
   const markup = formatLfm2ToolCalls([{ name: "unavailable", args: {} }])
-  assert.equal(parseToolCalls(markup).length, 1)
+  assert.equal(parseToolCalls(markup, "lfm2").length, 1)
   for (const tools of [undefined, []]) {
     unloadModel()
     FakeWorker.generate = (worker, request) => {
       assert.deepEqual(request.tools, [])
       worker.send({ type: "token", id: request.id, text: markup })
-      worker.send({ type: "done", id: request.id, stats })
+      worker.send({ type: "done", id: request.id, stats, length: false })
     }
     try {
       const chunks = []
@@ -262,7 +262,7 @@ test("valid native auto arguments emit directly without an extra model call", as
     requests++
     assert.equal(request.outputSchema, undefined)
     worker.send({ type: "token", id: request.id, text: formatLfm2ToolCalls([{ name: "lookup", args: { query: "checkers" } }]) })
-    worker.send({ type: "done", id: request.id, stats })
+    worker.send({ type: "done", id: request.id, stats, length: false })
   }
   try {
     const chunks = []
@@ -282,7 +282,7 @@ test("parallelToolCalls false emits only the first native tool call; true and un
     requests++
     // The second call's arguments are invalid: dropping it must not repair it.
     worker.send({ type: "token", id: request.id, text: formatLfm2ToolCalls([{ name: "lookup", args: { query: "first" } }, { name: "lookup", args: { query: 2 } }, { name: "lookup", args: { query: "third" } }]) })
-    worker.send({ type: "done", id: request.id, stats })
+    worker.send({ type: "done", id: request.id, stats, length: false })
   }
   try {
     const adapter = transformersJsText(MODEL)
@@ -301,7 +301,7 @@ test("parallelToolCalls false emits only the first native tool call; true and un
     FakeWorker.generate = (worker, request) => {
       requests++
       worker.send({ type: "token", id: request.id, text: formatLfm2ToolCalls([{ name: "lookup", args: { query: "first" } }, { name: "lookup", args: { query: "second" } }]) })
-      worker.send({ type: "done", id: request.id, stats })
+      worker.send({ type: "done", id: request.id, stats, length: false })
     }
     for (const modelOptions of [{ parallelToolCalls: true }, {}]) {
       const chunks = await run(modelOptions)
@@ -324,7 +324,7 @@ test("SDK promptCache controls both adapter paths without changing default reten
     FakeWorker.generate=(worker,request)=>{
       sent.push(request)
       worker.send({type:"token",id:request.id,text:request.outputSchema?'{"moveId":"b6-a5"}':"answer"})
-      worker.send({type:"done",id:request.id,stats})
+      worker.send({type:"done",id:request.id,stats,length:false})
     }
     const callOptions={...options(),...(promptCache===undefined?{}:{promptCache})}
     await adapter.structuredOutput({chatOptions:callOptions,outputSchema:schema})
@@ -358,13 +358,13 @@ test("required multiple tools still route under a schema before exact argument g
       assert.deepEqual(route.properties.action.enum,["lookup","calendar"])
     }else assert.deepEqual(request.outputSchema,inputSchema)
     worker.send({type:"token",id:request.id,text:sent.length===1?'{"action":"lookup"}':'{"query":"status"}'})
-    worker.send({type:"done",id:request.id,stats})
+    worker.send({type:"done",id:request.id,stats,length:false})
   }
   try{
     const chunks=[]
     for await(const chunk of transformersJsText(MODEL).chatStream({...options(),tools,toolChoice:"required"}))chunks.push(chunk)
     assert.equal(sent.length,2)
-    assert.match(sent[0].chat[0]?.content??"",/Choose action/)
+    assert.match(sent[0].chat[0]?.content??"",/Choose the tool/)
     assert.match(sent[1].chat[0]?.content??"",/Return the arguments for lookup/)
     const call=chunks.find(chunk=>chunk.type==="TOOL_CALL_END")
     assert.ok(call&&call.type==="TOOL_CALL_END")
@@ -402,7 +402,7 @@ test("structured serialization keeps the caller's system prompt as given and the
     for(const field of ["cacheAnchorMessages","cacheAnchorContentLength","cacheScope"])assert.equal(field in request,false)
     assert.equal(request.thinking,false)
     worker.send({type:"token",id:request.id,text:'{"moveId":"b6-a5"}'})
-    worker.send({type:"done",id:request.id,stats})
+    worker.send({type:"done",id:request.id,stats,length:false})
   }
   try{
     await transformersJsText("daveycodez/LFM3-1.7B-Web-ONNX").structuredOutput({chatOptions:{...options(),systemPrompts:callerSystem,messages,reasoning:{level:"off",summary:true}},outputSchema:schema})
@@ -421,7 +421,7 @@ test("guided tool arguments retain original instruction/schema serialization in 
     assert.deepEqual(request.chat.slice(1),[{role:"user",content:"Look up status"}])
     assert.deepEqual(request.outputSchema,inputSchema)
     worker.send({type:"token",id:request.id,text:'{"query":"status"}'})
-    worker.send({type:"done",id:request.id,stats})
+    worker.send({type:"done",id:request.id,stats,length:false})
   }
   try{
     for await(const chunk of transformersJsText(MODEL).chatStream({...options(),systemPrompts:["Stable caller instructions"],messages:[{role:"user",content:"Look up status"}],tools:[{name:"lookup",description:"Look up a query",inputSchema}],toolChoice:"required"}))assert.ok(chunk)
@@ -439,7 +439,7 @@ test("the same public SDK promptCache policy matrix works without provider-speci
     FakeWorker.generate=(worker,request)=>{
       sent.push(request)
       worker.send({type:"token",id:request.id,text:request.outputSchema?'{"moveId":"b6-a5"}':"answer"})
-      worker.send({type:"done",id:request.id,stats})
+      worker.send({type:"done",id:request.id,stats,length:false})
     }
     try{
       const adapter=transformersJsText("daveycodez/LFM3-1.7B-Web-ONNX")
@@ -468,9 +468,9 @@ test("structured matcher failures and incomplete JSON are never repaired, retrie
   try{
     FakeWorker.generate=(worker,request)=>{calls++;worker.send({type:"token",id:request.id,text:'{"value":"partial'});worker.send({type:"error",id:request.id,message:"No token can complete the requested output schema."})}
     await assert.rejects(invoke(),/No token can complete/);assert.equal(calls,1)
-    calls=0;FakeWorker.generate=(worker,request)=>{calls++;worker.send({type:"token",id:request.id,text:'Paris</think>Paris'});worker.send({type:"done",id:request.id,stats})}
+    calls=0;FakeWorker.generate=(worker,request)=>{calls++;worker.send({type:"token",id:request.id,text:'Paris</think>Paris'});worker.send({type:"done",id:request.id,stats,length:false})}
     await assert.rejects(invoke(),/isn't JSON/);assert.equal(calls,1)
-    FakeWorker.generate=(worker,request)=>{worker.send({type:"token",id:request.id,text:JSON.stringify({value:literal})});worker.send({type:"done",id:request.id,stats})}
+    FakeWorker.generate=(worker,request)=>{worker.send({type:"token",id:request.id,text:JSON.stringify({value:literal})});worker.send({type:"done",id:request.id,stats,length:false})}
     const result=await invoke();assert.deepEqual(result.data,{value:literal});assert.equal(result.rawText,JSON.stringify({value:literal}))
   }finally{unloadModel()}
 })
@@ -483,7 +483,7 @@ test("OpenRouter-named modelOptions map to the worker's sampling over the model 
   FakeWorker.generate = (worker, request) => {
     sent.push(request)
     worker.send({ type: "token", id: request.id, text: "answer" })
-    worker.send({ type: "done", id: request.id, stats })
+    worker.send({ type: "done", id: request.id, stats, length: false })
   }
   try {
     const adapter = transformersJsText(MODEL)
@@ -497,7 +497,10 @@ test("OpenRouter-named modelOptions map to the worker's sampling over the model 
       [{ frequencyPenalty: 0.5 }, /frequencyPenalty/], [{ presencePenalty: 1 }, /presencePenalty/], [{ stop: "\n" }, /stop sequences/], [{ stop: ["END"] }, /stop sequences/]
     ] satisfies Array<[TransformersJsTextModelOptions, RegExp]>) {
       await assert.rejects(adapter.structuredOutput({ chatOptions: { ...options(), modelOptions }, outputSchema: schema }), error)
-      await assert.rejects(async () => { for await (const chunk of adapter.chatStream({ ...options(), modelOptions })) assert.ok(chunk) }, error)
+      const chunks = []
+      for await (const chunk of adapter.chatStream({ ...options(), modelOptions })) chunks.push(chunk)
+      const last = chunks.at(-1)
+      assert.ok(last?.type === "RUN_ERROR" && error.test(last.message))
     }
     assert.equal(sent.length, 2, "rejected options never reach the worker")
   } finally { unloadModel() }
@@ -510,7 +513,7 @@ test("structuredOutputStream streams reasoning, raw JSON deltas, the completion 
   FakeWorker.generate = (worker, request) => {
     assert.deepEqual(request.outputSchema, schema)
     for (const text of ["<think>", "pl", "an</th", 'ink>{"move', 'Id":"b6-a5"}']) worker.send({ type: "token", id: request.id, text })
-    worker.send({ type: "done", id: request.id, stats })
+    worker.send({ type: "done", id: request.id, stats, length: false })
   }
   try {
     const chunks = []
@@ -550,7 +553,7 @@ test("structuredOutputStream ends with RUN_ERROR on answers that aren't JSON, wo
   }
   try {
     unloadModel()
-    FakeWorker.generate = (worker, request) => { worker.send({ type: "token", id: request.id, text: "Paris" }); worker.send({ type: "done", id: request.id, stats }) }
+    FakeWorker.generate = (worker, request) => { worker.send({ type: "token", id: request.id, text: "Paris" }); worker.send({ type: "done", id: request.id, stats, length: false }) }
     const parse = await run(options())
     assert.match(parse.message, /isn't JSON/); assert.equal(parse.code, "structured-output-parse-failed")
     FakeWorker.generate = (worker, request) => { worker.send({ type: "error", id: request.id, message: "No token can complete the requested output schema." }) }
@@ -826,4 +829,26 @@ test("availability() reads Cache Storage only: no fetch, worker, IndexedDB or OP
     else delete (navigator as { storage?: unknown }).storage
     cache.restore()
   }
+})
+
+test("a reply the output or context limit cut off finishes with finishReason length; a canceled one ends with RUN_ERROR aborted", async () => {
+  const { transformersJsText } = await import("./adapter.js")
+  const { unloadModel } = await import("./client.js")
+  unloadModel()
+  FakeWorker.generate = (worker, request) => {
+    worker.send({ type: "token", id: request.id, text: "<think>plan</think>Par" })
+    worker.send({ type: "done", id: request.id, stats, length: true })
+  }
+  try {
+    const chunks = []
+    for await (const chunk of transformersJsText(MODEL).chatStream(options())) chunks.push(chunk)
+    const last = chunks.at(-1)
+    assert.ok(last?.type === "RUN_FINISHED" && last.finishReason === "length")
+    const controller = new AbortController(); controller.abort(new Error("stop"))
+    const canceled = []
+    for await (const chunk of transformersJsText(MODEL).chatStream({ ...options(), abortController: controller })) canceled.push(chunk)
+    assert.deepEqual(canceled.map(chunk => chunk.type), ["RUN_STARTED", "RUN_ERROR"])
+    const error = canceled.at(-1)
+    assert.ok(error?.type === "RUN_ERROR" && error.code === "aborted")
+  } finally { unloadModel() }
 })
