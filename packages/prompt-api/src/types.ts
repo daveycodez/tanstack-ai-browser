@@ -53,7 +53,7 @@ export type LanguageModelCoreOptions = {
   expectedOutputs?: Array<LanguageModelExpected>
   /** Web pages get it only with Chrome's Sampling Parameters origin trial. */
   samplingMode?: SamplingMode
-  /** Extensions only; web pages ignore them, and `samplingMode` wins. */
+  /** Extensions only; web pages ignore them. Chrome refuses them together with `samplingMode`. */
   temperature?: number
   topK?: number
 }

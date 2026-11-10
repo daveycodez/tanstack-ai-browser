@@ -58,7 +58,7 @@ export type PromptApiTextModelOptions = {
    * origin trial.
    */
   samplingMode?: SamplingMode
-  /** Raw sampling, for extensions (web pages ignore it); `samplingMode` wins. */
+  /** Raw sampling, for extensions (web pages ignore it). Chrome refuses it together with `samplingMode`. */
   temperature?: number
   topK?: number
 }
