@@ -12,8 +12,8 @@
  * structured output prompts the thread's session under the Prompt API's own
  * `responseConstraint`.
  */
-import { buildBaseUsage, EventType, normalizeSystemPrompts } from "@tanstack/ai"
-import type { AdapterYieldChunk, ModelMessage, TextOptions, TokenUsage, Tool } from "@tanstack/ai"
+import { EventType, normalizeSystemPrompts } from "@tanstack/ai"
+import type { AdapterYieldChunk, ModelMessage, TextOptions, Tool } from "@tanstack/ai"
 import { BaseTextAdapter } from "@tanstack/ai/adapters"
 import type { StructuredOutputOptions, StructuredOutputResult } from "@tanstack/ai/adapters"
 
@@ -22,7 +22,7 @@ import { baseOptions, createSession, DEFAULT_LANGUAGES, promptApiAvailability } 
 import type { Availability, MediaInput } from "./model.js"
 import type { PromptApiChatModel } from "./model-meta.js"
 import { toolCallReader, toolSystemPrompt } from "./tools.js"
-import type { DownloadProgressCallback, LanguageModelInput, LanguageModelSession, SamplingMode } from "./types.js"
+import type { DownloadProgressCallback, LanguageModelSession, SamplingMode } from "./types.js"
 
 export type PromptApiConfig = {
   /**
@@ -61,14 +61,6 @@ export type PromptApiTextModelOptions = {
   /** Raw sampling, for extensions (web pages ignore it); `samplingMode` wins. */
   temperature?: number
   topK?: number
-}
-
-/** The session's size after a call, in `RUN_FINISHED`'s `usage.providerUsageDetails`. */
-export type PromptApiProviderUsageDetails = {
-  /** Tokens the session held after the call. */
-  contextUsage: number
-  /** Tokens it can hold. */
-  contextWindow: number
 }
 
 type MetadataByModality = {
@@ -121,22 +113,6 @@ const nextId = (prefix: string) => `${prefix}_${Date.now().toString(36)}_${(ids+
 const signalOf = (options: TextOptions<PromptApiTextModelOptions>) =>
   options.abortController?.signal ?? (options.request as RequestInit | undefined)?.signal ?? undefined
 
-/**
- * A call's token counts, measured once the model is done (so counting never
- * holds up the reply): close, not exact, as the Prompt API counts whole
- * messages.
- */
-async function usageOf(session: LanguageModelSession, input: LanguageModelInput, reply: string): Promise<TokenUsage> {
-  const promptTokens = await session.measureContextUsage(input)
-  const completionTokens = reply ? await session.measureContextUsage(reply) : 0
-  const usage = buildBaseUsage<PromptApiProviderUsageDetails>({
-    promptTokens,
-    completionTokens,
-    totalTokens: promptTokens + completionTokens
-  })
-  usage.providerUsageDetails = { contextUsage: session.contextUsage, contextWindow: session.contextWindow }
-  return usage
-}
 
 export class PromptApiTextAdapter extends BaseTextAdapter<
   PromptApiChatModel,
@@ -361,17 +337,22 @@ export class PromptApiTextAdapter extends BaseTextAdapter<
         threadId,
         model,
         timestamp: timestamp(),
-        finishReason: call ? "tool_calls" : "stop",
-        usage: await usageOf(session, input, text)
+        finishReason: call ? "tool_calls" : "stop"
       }
     } catch (error) {
-      // An abort ends the stream quietly, as with TanStack's other adapters.
-      // (Chrome drops the stopped turn, so the thread's session stays good.)
-      if (signal?.aborted) return
-      failed = true
+      // An abort keeps the thread's session: Chrome drops the stopped turn.
+      const aborted = !!signal?.aborted
+      failed = !aborted
       options.logger.errors("prompt-api chatStream failed", { error, source: "prompt-api.chatStream" })
       const message = error instanceof Error ? error.message : String(error)
-      yield { type: EventType.RUN_ERROR, runId, model, timestamp: timestamp(), message, error: { message } }
+      yield {
+        type: EventType.RUN_ERROR,
+        runId,
+        model,
+        timestamp: timestamp(),
+        message,
+        error: { message, ...(aborted && { code: "aborted" }) }
+      }
     } finally {
       this.end(threadId, step?.session, step?.kept, failed)
     }
@@ -396,7 +377,7 @@ export class PromptApiTextAdapter extends BaseTextAdapter<
       const rawText = await session.prompt(input, { responseConstraint: outputSchema, signal })
       if (kept) kept.seen = [...keys, messageKey({ role: "assistant", content: rawText })]
       const data = JSON.parse(rawText) as unknown
-      return { data, rawText, model: this.model, usage: await usageOf(session, input, rawText) }
+      return { data, rawText, model: this.model }
     } catch (error) {
       failed = true
       throw error

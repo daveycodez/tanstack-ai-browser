@@ -16,7 +16,7 @@ if ((await adapter.availability()) !== "unavailable") {
 }
 ```
 
-The root has `promptApiText(model, config?)`, `PromptApiTextAdapter` and the types `PromptApiConfig`, `PromptApiTextModelOptions`, `PromptApiProviderUsageDetails`, `Availability` and `DownloadProgressCallback`. `@tanstack-ai-browser/prompt-api/model-meta` has `PROMPT_API_CHAT_MODELS` (one model, `"built-in"`: whichever the browser provides) and `PROMPT_API_MODEL_META`, with the types `PromptApiChatModel` and `PromptApiModelMeta`.
+The root has `promptApiText(model, config?)`, `PromptApiTextAdapter` and the types `PromptApiConfig`, `PromptApiTextModelOptions`, `Availability` and `DownloadProgressCallback`. `@tanstack-ai-browser/prompt-api/model-meta` has `PROMPT_API_CHAT_MODELS` (one model, `"built-in"`: whichever the browser provides) and `PROMPT_API_MODEL_META`, with the types `PromptApiChatModel` and `PromptApiModelMeta`.
 
 The Prompt API is in desktop Chrome and Edge (tested in Chrome 156, where web pages have it without flags), on devices with enough memory, GPU and disk (Chrome asks for 22 GB free and either a GPU with more than 4 GB or 16 GB of RAM). It isn't in Web Workers, and a cross-origin iframe needs `allow="language-model"`.
 
@@ -87,8 +87,8 @@ In later steps the model sees its earlier calls as the same fences and the resul
 
 User messages can carry images and audio (TanStack AI's `image` and `audio` parts, as base64 data or a URL); they're loaded into Blobs, and the session is created expecting them. A URL from another site needs CORS. The model can't write images or audio, and it can't read video or documents.
 
-## Errors, aborts and usage
+## Errors and aborts
 
-A failure ends the stream with `RUN_ERROR` carrying the error's own message (the Prompt API's `DOMException`s: `NotAllowedError` when Chrome wants a click before the download, `QuotaExceededError` for a conversation too long for the model…). Aborting the request (`abortController` or `request.signal`) stops the generation and ends the stream without an error. `RUN_FINISHED`'s `usage` has `promptTokens` and `completionTokens` measured with the session's tokenizer once the reply is done (close, not exact: the Prompt API counts whole messages), and `providerUsageDetails` has the session's `contextUsage` and `contextWindow`.
+A failure ends the stream with `RUN_ERROR` carrying the error's own message (the Prompt API's `DOMException`s: `NotAllowedError` when Chrome wants a click before the download, `QuotaExceededError` for a conversation too long for the model…). Aborting the request (`abortController` or `request.signal`) stops the generation and ends the stream with `RUN_ERROR` (`code: "aborted"`); the thread keeps its session. No token usage is reported.
 
 **Status:** early (0.0.x); the API may change, and so does the Prompt API. See the [repository README](https://github.com/daveycodez/tanstack-ai-browser#readme).

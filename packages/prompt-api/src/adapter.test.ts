@@ -131,9 +131,6 @@ test("a reply streams as text, on a session the thread keeps", async () => {
   assert.equal(textIn(chunks), "Hello there")
   const finished = chunks.at(-1)
   assert.equal(finished?.finishReason, "stop")
-  const usage = finished?.usage as { promptTokens: number; completionTokens: number; providerUsageDetails: unknown }
-  assert.ok(usage.promptTokens > 0 && usage.completionTokens > 0)
-  assert.deepEqual(usage.providerUsageDetails, { contextUsage: 120, contextWindow: 9216 })
   const [create] = control.creates
   assert.deepEqual(create.initialPrompts, [{ role: "system", content: "Be brief." }])
   assert.equal(create.topK, 3)
@@ -239,7 +236,7 @@ test("a failure ends with RUN_ERROR, with the error's own message, and frees the
   assert.equal((await run()).at(-1)?.message, "click first")
 })
 
-test("an abort mid-reply ends the stream quietly and keeps the thread's session", async () => {
+test("an abort mid-reply ends with RUN_ERROR (code aborted) and keeps the thread's session", async () => {
   for (const key of ["abortController", "request"] as const) {
     control.written = 0
     control.destroyed = 0
@@ -250,7 +247,8 @@ test("an abort mid-reply ends the stream quietly and keeps the thread's session"
     }
     const chunks = await run(key === "abortController" ? { abortController: controller } : { request: { signal: controller.signal } })
     assert.equal(textIn(chunks), "a")
-    assert.ok(!chunks.some((c) => c.type === "RUN_FINISHED" || c.type === "RUN_ERROR"))
+    assert.ok(!chunks.some((c) => c.type === "RUN_FINISHED"))
+    assert.equal((chunks.at(-1)?.error as { code?: string } | undefined)?.code, "aborted")
     // Chrome drops a stopped turn whole, so the session is still good.
     assert.equal(control.destroyed, 0)
   }
@@ -263,7 +261,6 @@ test("structured output: one prompt on the thread's session under responseConstr
   const result = await promptApiText("built-in").structuredOutput(structured())
   assert.deepEqual(result.data, { city: "Tokyo" })
   assert.equal(result.rawText, '{"city":"Tokyo"}')
-  assert.ok(result.usage)
   assert.equal(control.prompts.length, 1)
   assert.equal(control.prompts[0].options.responseConstraint, schema)
   assert.equal(control.destroyed, 0, "the thread keeps its session")
