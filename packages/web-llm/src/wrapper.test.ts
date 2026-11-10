@@ -56,6 +56,8 @@ await build({
           contents: `
             const control=globalThis.__webLlm;
             export const hasModelInCache=async(model)=>control.cached.has(model);
+            export const ModelType={LLM:0,embedding:1,VLM:2};
+            export const prebuiltAppConfig={model_list:[{model_id:"Qwen3-1.7B-q4f16_1-MLC"},{model_id:"Qwen2.5-0.5B-Instruct-q4f16_1-MLC"}]};
             export class WebWorkerMLCEngine{
               constructor(worker,config){
                 this.report=config.initProgressCallback;
@@ -258,4 +260,17 @@ test("thinking between <think> tags comes back as REASONING events, the rest as 
   const text = events.filter((e) => e.type === "TEXT_MESSAGE_CONTENT").map((e) => e.delta).join("")
   assert.equal(reasoning, "Let me check.")
   assert.equal(text, "\n\nHi!")
+})
+
+test("reasoning turns thinking on or off with WebLLM's enable_thinking, for models with the switch", async () => {
+  const off = (await run(webLlmText(MODEL), { reasoning: { level: "off" } })).request
+  assert.deepEqual(off.extra_body, { enable_thinking: false })
+  assert.equal(off.reasoning_effort, undefined)
+  const on = (await run(webLlmText(MODEL), { reasoning: { level: "high" } })).request
+  assert.deepEqual(on.extra_body, { enable_thinking: true })
+  // Not asked: the model thinks as it would.
+  assert.equal((await run(webLlmText(MODEL))).request.extra_body, undefined)
+  // A model without the switch gets none.
+  const plain = "Qwen2.5-0.5B-Instruct-q4f16_1-MLC"
+  assert.equal((await run(webLlmText(plain), { model: plain, reasoning: { level: "off" } })).request.extra_body, undefined)
 })

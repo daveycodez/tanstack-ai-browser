@@ -13,7 +13,7 @@ import { webgllmText } from "@tanstack-ai-browser/webgllm"
 import { WEBGLLM_MODEL_REASONING } from "@tanstack-ai-browser/webgllm/model-meta"
 import type { WebGllmChatModel } from "@tanstack-ai-browser/webgllm/model-meta"
 import { webLlmText } from "@tanstack-ai-browser/web-llm"
-import { WEB_LLM_CHAT_MODELS, WEB_LLM_MODEL_META } from "@tanstack-ai-browser/web-llm/model-meta"
+import { WEB_LLM_CHAT_MODELS, WEB_LLM_MODEL_META, WEB_LLM_MODEL_REASONING } from "@tanstack-ai-browser/web-llm/model-meta"
 import type { WebLlmChatModel } from "@tanstack-ai-browser/web-llm/model-meta"
 import { apfelText } from "@tanstack-ai-browser/apfel"
 import { promptApiText } from "@tanstack-ai-browser/prompt-api"
@@ -230,8 +230,8 @@ const webLlm = (model: WebLlmChatModel) => {
     adapter: webLlmText(model, { onDownloadProgress }),
     status: status as ModelStatusStore | null,
     needsWebGpu: true,
-    /** WebLLM gives no reasoning levels (its thinking comes in the text). */
-    reasoning: undefined
+    /** Thinking on and off where its chat template has the switch (Qwen3). */
+    reasoning: WEB_LLM_MODEL_REASONING[model] as ModelReasoning | undefined
   }
 }
 

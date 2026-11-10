@@ -9,13 +9,15 @@
  * Schema answers, and stopping a generation with its interrupt (its
  * requests take no AbortSignal).
  */
-import type { TextOptions, Tool } from "@tanstack/ai"
+import type { ModelReasoning, TextOptions, Tool } from "@tanstack/ai"
+import { resolveReasoning } from "@tanstack/ai/adapter-internals"
 import { OpenAIBaseChatCompletionsTextAdapter } from "@tanstack/openai-base"
 import type { OpenAIClientLike } from "@tanstack/openai-base"
 import type { AppConfig, ChatCompletionRequest, ResponseFormat } from "@mlc-ai/web-llm"
 
 import { availability, loadModel, unloadModel } from "./client.js"
 import type { Availability, DownloadProgressCallback, LoadSettings } from "./client.js"
+import { THINKING_SWITCH, WEB_LLM_MODEL_REASONING } from "./catalog.js"
 import type { WebLlmChatModel } from "./catalog.js"
 import { toolCallFence, toolCallReader, toolResultFence, toolResultLine, toolSystemPrompt } from "./tools.js"
 import type { ParsedToolCall } from "./tools.js"
@@ -340,15 +342,34 @@ export class WebLlmTextAdapter<TModel extends WebLlmModel> extends OpenAIBaseCha
     await unloadModel(this.model)
   }
 
-  /** The request, with WebLLM's option names. */
-  /** The request, with WebLLM's option names, and tools by prompt (see tools.ts). */
+  /**
+   * The request, with WebLLM's option names, thinking on or off (WebLLM's
+   * `extra_body.enable_thinking`; left out when not asked, so the model
+   * thinks as it would), and tools by prompt (see tools.ts).
+   */
   protected override mapOptionsToRequest(options: TextOptions): CreateParams & { stream: true } {
     const modelOptions = options.modelOptions as WebLlmTextModelOptions | undefined
     const tools = options.toolChoice === "none" ? [] : (options.tools ?? [])
-    const request = super.mapOptionsToRequest({ ...options, tools: [], modelOptions: toRequestOptions(modelOptions) })
+    const thinking = resolveReasoning(options.reasoning, this.modelReasoning(this.model))?.value
+    const request = super.mapOptionsToRequest({
+      ...options,
+      tools: [],
+      reasoning: undefined,
+      modelOptions: toRequestOptions(modelOptions)
+    })
+    if (thinking !== undefined) Object.assign(request, { extra_body: { enable_thinking: thinking === "true" } })
     if (tools.length === 0) return request
     const messages = withPromptTools(request.messages as unknown as Array<RequestMessage>, tools)
     return Object.assign(request, { messages, [PROMPT_TOOLS]: true }) as typeof request
+  }
+
+  /**
+   * A model's reasoning levels: the catalog's (thinking on and off where its
+   * chat template has the switch, else none), and the switch for a model
+   * the catalog doesn't list (an `appConfig` model).
+   */
+  protected override modelReasoning(model: string) {
+    return (model in WEB_LLM_MODEL_REASONING ? WEB_LLM_MODEL_REASONING[model] : THINKING_SWITCH) as ModelReasoning | undefined
   }
 
   /** Thinking, as `withThinking` split it out of the text. */

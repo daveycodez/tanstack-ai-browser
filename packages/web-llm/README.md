@@ -39,6 +39,7 @@ What maps to what:
 | `tools` (their `inputSchema`)                     | the system prompt, as JSON (see Tools)                                     |
 | `toolChoice: "none"`                              | no tools in the prompt                                                     |
 | `outputSchema`                                    | `response_format: { type: "json_object", schema }`, the schema as JSON text |
+| `reasoning` (`"off"` or `"high"`)                 | `extra_body: { enable_thinking }`, for models with the switch (Thinking)   |
 | abort (the request's signal)                      | the engine's `interruptGenerate()`                                         |
 | `modelOptions`                                    | see below                                                                  |
 
@@ -61,14 +62,14 @@ Unset sampling fields take the model's own config from WebLLM's catalog.
 What WebLLM doesn't do, and the adapter leaves as WebLLM has it:
 
 - **Tools:** by prompt, for every model. WebLLM takes OpenAI's `tools` for its five Hermes models only (`functionCallingModelIds`), and not with a system prompt, so the adapter sends none: the system prompt lists the tools as JSON and asks for a call as JSON in a ```` ```tool_call ```` fence, earlier calls go back in that fence and results in a ```` ```tool_result ```` user message. The adapter reads the first call out of the streamed reply (the fence, `<tool_call>` tags, and the other common ways small models write one), stops the generation there and emits it as `TOOL_CALL_*` events; `chat()` checks it against the tools and runs it. Small models may not call tools reliably; that's the model.
-- **Thinking:** WebLLM streams a model's thinking (Qwen3's, DeepSeek R1's) inside the text, in `<think>` tags. The adapter splits it out, so it comes back as `REASONING_*` events, apart from the answer. WebLLM's catalog doesn't say which models think, so the adapter offers no reasoning levels, and `chat({ reasoning })` does nothing.
+- **Thinking:** WebLLM streams a model's thinking (Qwen3's, DeepSeek R1's) inside the text, in `<think>` tags. The adapter splits it out, so it comes back as `REASONING_*` events, apart from the answer. WebLLM's catalog doesn't say which models think, so the package reads it from each model's own chat template: a model whose template has the thinking switch (`enable_thinking`: Qwen3 and Qwen3.5) has the levels `off` and `high` (`WEB_LLM_MODEL_REASONING`, and `supportedReasoningLevels()`), and `chat({ reasoning })` sends WebLLM's `enable_thinking` (off starts the reply with an empty `<think></think>`; there's no thinking budget). Left out, the model thinks as it would. Other models have no levels; thinking they do anyway (DeepSeek R1's) still shows. A model the catalog doesn't list has the switch. `scripts/thinking-models.mjs` writes the list (`src/thinking-models.ts`) from the catalog; run it again when the WebLLM version changes.
 - **Images:** the adapter takes text only.
 
 Events come back as TanStack's Chat Completions adapter writes them: text and tool call events, and `RUN_FINISHED` with the finish reason and token usage. Aborting the request stops the generation (WebLLM's `interruptGenerate`) and ends the stream.
 
 ## Models and loading
 
-`@tanstack-ai-browser/web-llm/model-meta` has the catalog, WebLLM's own (`prebuiltAppConfig.model_list`) without its embedding models: `WEB_LLM_CHAT_MODELS` lists each model's `model_id`, and `WEB_LLM_MODEL_META` has each one's catalog entry (`ModelRecord`: weights, compiled library, `vram_required_MB`, `low_resource_required`, `required_features`, its config overrides) by `model_id`. Their types are `WebLlmChatModel` and `WebLlmModelMeta`. WebLLM types its catalog as a list, so model names are strings.
+`@tanstack-ai-browser/web-llm/model-meta` has the catalog, WebLLM's own (`prebuiltAppConfig.model_list`) without its embedding models: `WEB_LLM_CHAT_MODELS` lists each model's `model_id`, `WEB_LLM_MODEL_REASONING` has each one's reasoning levels (see Thinking; `false` for none), and `WEB_LLM_MODEL_META` has each one's catalog entry (`ModelRecord`: weights, compiled library, `vram_required_MB`, `low_resource_required`, `required_features`, its config overrides) by `model_id`. Their types are `WebLlmChatModel` and `WebLlmModelMeta`. WebLLM types its catalog as a list, so model names are strings.
 
 ```ts
 import { webLlmText } from "@tanstack-ai-browser/web-llm"
