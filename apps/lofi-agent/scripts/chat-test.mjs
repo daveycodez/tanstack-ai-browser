@@ -14,17 +14,21 @@
  *     builds can't switch thinking: Instruct never thinks, Thinking always.
  *     With --runs N, the page runs the chat N times, reloading between runs,
  *     and the logs are written as log-1.md, log-2.md, …
+ *     With --check, it only builds the page and checks that the server
+ *     serves everything the page imports.
  *
  * Writes a markdown log of every turn: notes, tool calls, answer and checks.
  */
 import { appendFileSync, existsSync, readFileSync, realpathSync, writeFileSync } from "node:fs"
 import { createServer } from "node:http"
 import { createRequire } from "node:module"
-import { dirname, join, resolve } from "node:path"
+import { dirname, join, relative, resolve } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 import { parseArgs } from "node:util"
 
 import { build } from "esbuild"
+
+import { unservedImports } from "./chat-test/served-imports.mjs"
 
 const app = resolve(dirname(fileURLToPath(import.meta.url)), "..")
 const { values } = parseArgs({
@@ -34,6 +38,9 @@ const { values } = parseArgs({
     out: { type: "string", default: "chat-test.md" },
     port: { type: "string", default: "8791" },
     runs: { type: "string", default: "1" },
+    // Browser models: build the page's bundles, check that the server serves
+    // everything they import, and exit without serving.
+    check: { type: "boolean", default: false },
     // A message to send instead of the 7-turn chat; repeat for several turns.
     ask: { type: "string", multiple: true }
   }
@@ -67,8 +74,20 @@ const appPlugin = {
       contents: settingsStub,
       loader: "js"
     }))
-    // A workspace package's own dependencies, from that package's folder
-    // (the bundle runs from the app's, which doesn't have them).
+    // Workspace packages from their source, not their last build.
+    b.onResolve({ filter: /^@tanstack-ai-browser\/[^/]+(\/.+)?$/ }, ({ path }) => {
+      const [, name, sub] = path.match(/^@tanstack-ai-browser\/([^/]+)\/?(.*)$/)
+      return { path: join(app, "../../packages", name, "src", `${sub || "index"}.ts`) }
+    })
+  }
+}
+
+// Node only: a workspace package's own dependencies stay external, imported
+// by their file in that package's folder (the bundle runs from the app's,
+// which doesn't have them). The browser's bundle has them inside.
+const packageDependencies = {
+  name: "package-dependencies",
+  setup(b) {
     b.onResolve({ filter: /^[^.#/]/ }, ({ path, importer }) => {
       const at = importer.indexOf("/packages/")
       if (at === -1 || path.startsWith("@tanstack-ai-browser/")) return undefined
@@ -80,11 +99,6 @@ const appPlugin = {
       const entry = exports?.[`.${path.slice(name.length)}`] ?? (path === name ? (exports?.["."] ?? module ?? main) : undefined)
       const file = typeof entry === "string" ? entry : (entry?.import ?? entry?.default)
       return typeof file === "string" ? { path: realpathSync(join(root, file)), external: true } : undefined
-    })
-    // Workspace packages from their source, not their last build.
-    b.onResolve({ filter: /^@tanstack-ai-browser\/[^/]+(\/.+)?$/ }, ({ path }) => {
-      const [, name, sub] = path.match(/^@tanstack-ai-browser\/([^/]+)\/?(.*)$/)
-      return { path: join(app, "../../packages", name, "src", `${sub || "index"}.ts`) }
     })
   }
 }
@@ -103,7 +117,7 @@ if (values.model === "apple") {
     format: "esm",
     conditions: ["@tanstack-ai-browser/source"],
     packages: "external",
-    plugins: [appPlugin],
+    plugins: [appPlugin, packageDependencies],
     logLevel: "warning"
   })
   // The offline place names load public/data/cities.json from the page's
@@ -126,7 +140,7 @@ if (values.model === "apple") {
 // Gemini: the page runs the test in Chrome and posts back each turn's line
 // and the log.
 const bundle = join(cache, "browser.js")
-await build({
+const page = await build({
   entryPoints: [join(app, "scripts/chat-test/browser.ts")],
   outfile: bundle,
   bundle: true,
@@ -134,12 +148,13 @@ await build({
   format: "esm",
   conditions: ["@tanstack-ai-browser/source"],
   plugins: [appPlugin],
+  metafile: true,
   logLevel: "warning"
 })
 // webgllm runs its model in a module worker, which its client starts from
 // "./worker.js" next to the bundle.
 const worker = join(cache, "worker.js")
-await build({
+const workerPage = await build({
   entryPoints: [
     join(dirname(createRequire(join(app, "../../packages/webgllm/package.json")).resolve("webgllm")), "worker.js")
   ],
@@ -147,11 +162,34 @@ await build({
   bundle: true,
   platform: "browser",
   format: "esm",
+  metafile: true,
   logLevel: "warning"
 })
-const page = `<!doctype html><meta charset="utf-8"><title>Chat test</title>
+const html = `<!doctype html><meta charset="utf-8"><title>Chat test</title>
 <body style="font: 14px system-ui; padding: 16px"><div>Running the 7-turn chat…</div>
 <script type="module" src="/browser.js"></script>`
+
+/** What the server serves, by path. */
+const files = {
+  "/": () => [html, "text/html"],
+  "/browser.js": () => [readFileSync(bundle, "utf8"), "text/javascript"],
+  "/worker.js": () => [readFileSync(worker, "utf8"), "text/javascript"],
+  "/data/cities.json": () => [cities, "application/json"]
+}
+// Every import the bundles kept must be one the server serves, or the page
+// can't load.
+const unserved = [page, workerPage].flatMap(({ metafile }) =>
+  Object.entries(metafile.outputs).flatMap(([output, { imports }]) =>
+    unservedImports(`/${relative(cache, resolve(output))}`, imports, Object.keys(files))
+  )
+)
+if (unserved.length > 0) {
+  throw new Error(`The browser bundles import what the server doesn't serve:\n${unserved.join("\n")}`)
+}
+if (values.check) {
+  console.log("The browser bundles' imports are all served.")
+  process.exit(0)
+}
 
 const runs = Number(values.runs)
 let done = 0
@@ -185,17 +223,12 @@ const server = createServer(async (req, res) => {
     }
     return
   }
-  const files = {
-    "/": [page, "text/html"],
-    "/browser.js": [readFileSync(bundle, "utf8"), "text/javascript"],
-    "/worker.js": [readFileSync(worker, "utf8"), "text/javascript"],
-    "/data/cities.json": [cities, "application/json"]
-  }
-  const file = files[path]
+  const file = Object.hasOwn(files, path) ? files[path]() : undefined
   if (!file) return res.writeHead(404).end()
   res.writeHead(200, { "content-type": file[1] }).end(file[0])
 })
-server.listen(Number(values.port), () =>
+// Loopback only: the result and error routes take anyone's post.
+server.listen(Number(values.port), "127.0.0.1", () =>
   console.log(
     `Open http://localhost:${values.port}/?model=${values.model}&reasoning=${values.reasoning} in Chrome.`
   )
