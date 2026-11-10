@@ -10,7 +10,7 @@
     "generate-routes": "tsr generate",
     "build": "vite build",
     "preview": "vite preview",
-    "test": "node --experimental-strip-types --test src/chat/*.test.ts",
+    "test": "node --experimental-strip-types --test src/chat/*.test.ts src/lib/*.test.ts",
     "deploy": "wrangler deploy",
     "build-cities": "node scripts/build-cities.mjs"
   },

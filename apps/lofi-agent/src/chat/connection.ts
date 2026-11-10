@@ -21,7 +21,15 @@ import {
 import type { CallClock } from "./generation-stats"
 import { ABORTED, untilAborted } from "./abortable"
 import { isReasoningLevel, selectedModel } from "./model"
-import { currentModelId, effortFor, isModelId, modelInfo, prepareModel } from "./models"
+import { messagesFor } from "./media"
+import {
+  currentModelId,
+  effortFor,
+  inputModalities,
+  isModelId,
+  modelInfo,
+  prepareModel
+} from "./models"
 
 /** What the model generated: its first one is the call's first token, its last the end of decoding. */
 const GENERATED = new Set<string>([
@@ -90,6 +98,14 @@ async function* reply(
   if (params.messages.at(-1)?.role === "user") startReply(params.threadId)
   const model = readModel(params.forwardedProps)
   const reasoning = effortFor(model, readEffort(params.forwardedProps))
+  // Media the model can't read: refused in the message being answered (a
+  // queued or regenerated one), left out of earlier ones for this model
+  // only. The saved chat keeps it.
+  const messages = messagesFor(
+    params.messages,
+    inputModalities(model),
+    modelInfo(model).name
+  )
   // stop() aborts the run, here in the page.
   const abortController = new AbortController()
   signal?.addEventListener("abort", () => abortController.abort(), {
@@ -105,7 +121,7 @@ async function* reply(
   if (failed) throw failed
   yield* chat({
     adapter: modelInfo(model).adapter,
-    messages: params.messages,
+    messages,
     threadId: params.threadId,
     runId: params.runId,
     ...(params.parentRunId && { parentRunId: params.parentRunId }),

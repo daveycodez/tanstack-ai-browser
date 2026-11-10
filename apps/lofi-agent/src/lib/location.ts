@@ -93,14 +93,19 @@ export function describeLocation(where: CurrentLocation) {
  * The browser part, which useChat runs when the model calls the tool: the
  * position, the place's name, so the model can name it right, and the
  * nearest city, for the weather tool. A name that can't be found is left
- * out.
+ * out. Stopping the reply while the browser asks ends it there: the
+ * position isn't sent anywhere, and no result comes back.
  */
 export const locationTool = locationToolDefinition.client(
-  async (): Promise<string> => describeLocation(await currentLocation())
+  async (_input, context): Promise<string> =>
+    describeLocation(await currentLocation(context?.abortSignal))
 )
 
-async function currentLocation(): Promise<CurrentLocation> {
+async function currentLocation(signal?: AbortSignal): Promise<CurrentLocation> {
   const where = await position()
+  // The browser's prompt can't be cancelled, so a reply stopped while it was
+  // open is noticed only once it answers.
+  signal?.throwIfAborted()
   // The city from OpenStreetMap, or the nearest listed one where it has
   // none or can't be reached.
   const [place, city] = await Promise.all([

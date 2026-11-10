@@ -77,28 +77,35 @@ function jsonItems(text: string): Array<Item> {
   } catch {
     return []
   }
-  // A result that's JSON but not an object (`null`, a number) lists no sources.
-  if (!data || typeof data !== "object") return []
-  const root = data as {
-    results?: Array<Record<string, unknown>>
-    data?: { web?: Array<Record<string, unknown>> }
-  }
-  const list = root.results ?? root.data?.web ?? []
+  // Anything but an array of objects there (`null`, `{}`, a number) lists
+  // no sources, and items that aren't objects are skipped.
+  const root = isRecord(data) ? data : {}
+  const list = Array.isArray(root.results)
+    ? root.results
+    : isRecord(root.data) && Array.isArray(root.data.web)
+      ? root.data.web
+      : []
   return list
+    .filter(isRecord)
     .map((r) => ({
-      title: String(r.title ?? ""),
-      url: String(r.url ?? ""),
+      title: typeof r.title === "string" ? r.title : "",
+      url: typeof r.url === "string" ? r.url : "",
       text: [
         r.description,
         r.snippet,
         r.text,
-        Array.isArray(r.excerpts) ? r.excerpts.join(" ") : undefined
+        Array.isArray(r.excerpts)
+          ? r.excerpts.filter((t) => typeof t === "string").join(" ")
+          : undefined
       ]
         .filter((t) => typeof t === "string")
         .join(" ")
     }))
     .filter((item) => /^https?:\/\//.test(item.url))
 }
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  !!value && typeof value === "object" && !Array.isArray(value)
 
 /**
  * DeepWiki answers: `<cite repo path start end/>` tags point at source
@@ -142,8 +149,29 @@ function deepWikiItems(text: string): Array<Item> {
   return items
 }
 
+/**
+ * A `[n] Title — URL` line, and the excerpt line under it, if any: how tool
+ * results were saved before the model got them as the tools wrote them.
+ */
+const LINE =
+  /^\[(\d+)\] (.+?) — (https?:\/\/\S+)[ \t]*$(?:\n(?!\[\d+\] )(\S[^\n]*))?/gm
+
+/** The numbered sources in a saved result of that form, with their numbers. */
+function legacySources(text: string): Array<Source> {
+  return [...text.matchAll(LINE)].map((m) => ({
+    n: Number(m[1]),
+    title: m[2],
+    url: m[3],
+    site: siteOf(m[3]),
+    ...(m[4] && { snippet: m[4] })
+  }))
+}
+
 /** The sources in a tool result, in the tool's order; none if it holds none. */
 export function sourcesOf(text: string): Array<Source> {
+  // Saved chats' results in the old form, whose numbers the answers cite.
+  const legacy = legacySources(text)
+  if (legacy.length > 0) return legacy
   for (const read of [jsonItems, exaItems, deepWikiItems]) {
     const items = read(text)
     if (items.length > 0) return toSources(items)

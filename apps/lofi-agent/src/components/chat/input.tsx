@@ -4,7 +4,7 @@
  * voice input in its toolbar.
  */
 import Microphone from "@gravity-ui/icons/Microphone"
-import { Skeleton } from "@heroui/react"
+import { Alert, Skeleton } from "@heroui/react"
 import type { ContentPart, ReasoningLevel } from "@tanstack/ai"
 import { useRef, useState } from "react"
 
@@ -14,6 +14,7 @@ import {
   useEffort,
   useSelectedModel
 } from "#/chat/model"
+import { cantRead, unreadableKinds } from "#/chat/media"
 import {
   afmStatus,
   checkAfm,
@@ -22,6 +23,8 @@ import {
   effortOptions,
   PROVIDERS,
   attachableKinds,
+  inputModalities,
+  modelInfo,
   useBackends,
   useModels
 } from "#/chat/models"
@@ -51,8 +54,16 @@ export function ChatPromptInput() {
   const { isLoading, stop } = useChatContext()
   const model = useSelectedModel()
   const kinds = attachableKinds(model)
+  // Attachments the picked model can't read, after a switch: the draft
+  // stays as it is, and won't send until they're removed or another model
+  // is picked.
+  const unreadable = unreadableKinds(
+    attachments.map((attachment) => ({ type: attachment.kind })),
+    inputModalities(model)
+  )
+  const hasDraft = !!value.trim() || attachments.length > 0
   // A message sent while a reply runs waits in the queue.
-  const canSend = !!value.trim() || attachments.length > 0
+  const canSend = hasDraft && unreadable.length === 0
   const attach = (files: Iterable<File>) => {
     void toAttachments(files, kinds).then((added) => setAttachments((current) => [...current, ...added]))
   }
@@ -82,57 +93,70 @@ export function ChatPromptInput() {
   }
 
   return (
-    <PromptInput label="Message input" name="message">
-      <PromptInputAttachments
-        attachments={attachments}
-        onRemove={(id) => setAttachments((current) => current.filter((a) => a.id !== id))}
-      />
-      <PromptInputTextarea
-        placeholder="Send a message..."
-        value={value}
-        enterKeyHint="send"
-        onChange={(e) => setValue(e.target.value)}
-        onPaste={(e) => {
-          const files = [...e.clipboardData.files].filter((file) => kinds.some((kind) => file.type.startsWith(`${kind}/`)))
-          if (files.length === 0) return
-          e.preventDefault()
-          attach(files)
-        }}
-        onKeyDown={(e) => {
-          if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+    <>
+      {unreadable.length > 0 && (
+        // Above the box, not in it.
+        <Alert status="danger" className="mb-2">
+          <Alert.Indicator />
+          <Alert.Content>
+            <Alert.Description>
+              {cantRead(modelInfo(model).name, unreadable)} Pick a model that can, or remove them to send.
+            </Alert.Description>
+          </Alert.Content>
+        </Alert>
+      )}
+      <PromptInput label="Message input" name="message">
+        <PromptInputAttachments
+          attachments={attachments}
+          onRemove={(id) => setAttachments((current) => current.filter((a) => a.id !== id))}
+        />
+        <PromptInputTextarea
+          placeholder="Send a message..."
+          value={value}
+          enterKeyHint="send"
+          onChange={(e) => setValue(e.target.value)}
+          onPaste={(e) => {
+            const files = [...e.clipboardData.files].filter((file) => kinds.some((kind) => file.type.startsWith(`${kind}/`)))
+            if (files.length === 0) return
             e.preventDefault()
-            submit()
-          }
-        }}
-      />
-      <PromptInputToolbar>
-        <PromptInputTools>
-          {kinds.length > 0 && <PromptInputAddAttachment kinds={kinds} onAdd={attach} />}
-          <ChatModelSelector />
-        </PromptInputTools>
-        <PromptInputTools end>
-          {dictation.isSupported && (
-            <Action
-              label={
-                dictation.isListening ? "Stop voice input" : "Start voice input"
-              }
-              aria-pressed={dictation.isListening}
-              onPress={toggleDictation}
-              className={dictation.isListening ? "text-danger" : "text-muted"}
-            >
-              <Microphone />
-            </Action>
-          )}
-          <PromptInputSubmit
-            // Stop while a reply runs, until there's a message to queue.
-            status={isLoading && !canSend ? "streaming" : "ready"}
-            isDisabled={!canSend}
-            onSubmit={submit}
-            onStop={stop}
-          />
-        </PromptInputTools>
-      </PromptInputToolbar>
-    </PromptInput>
+            attach(files)
+          }}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+              e.preventDefault()
+              submit()
+            }
+          }}
+        />
+        <PromptInputToolbar>
+          <PromptInputTools>
+            {kinds.length > 0 && <PromptInputAddAttachment kinds={kinds} onAdd={attach} />}
+            <ChatModelSelector />
+          </PromptInputTools>
+          <PromptInputTools end>
+            {dictation.isSupported && (
+              <Action
+                label={
+                  dictation.isListening ? "Stop voice input" : "Start voice input"
+                }
+                aria-pressed={dictation.isListening}
+                onPress={toggleDictation}
+                className={dictation.isListening ? "text-danger" : "text-muted"}
+              >
+                <Microphone />
+              </Action>
+            )}
+            <PromptInputSubmit
+              // Stop while a reply runs, until there's a message to queue.
+              status={isLoading && !hasDraft ? "streaming" : "ready"}
+              isDisabled={!canSend}
+              onSubmit={submit}
+              onStop={stop}
+            />
+          </PromptInputTools>
+        </PromptInputToolbar>
+      </PromptInput>
+    </>
   )
 }
 

@@ -403,9 +403,13 @@ export const modelInfo = (id: ModelId) =>
   MODELS.find((m) => m.id === DEFAULT_MODEL) ??
   MODELS[0]
 
+/** What a model reads: its adapter's input modalities, such as text and image. */
+export const inputModalities = (id: ModelId) =>
+  (modelInfo(id).adapter.inputModalities ?? []) as ReadonlyArray<string>
+
 /** What can be attached for a model: the images and audio its adapter's input lists. */
 export const attachableKinds = (id: ModelId): ReadonlyArray<"image" | "audio"> => {
-  const input = (modelInfo(id).adapter.inputModalities ?? []) as ReadonlyArray<string>
+  const input = inputModalities(id)
   return (["image", "audio"] as const).filter((kind) => input.includes(kind))
 }
 
