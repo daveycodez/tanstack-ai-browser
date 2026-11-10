@@ -35,12 +35,6 @@
       "import": "./dist/index.js",
       "default": "./dist/index.js"
     },
-    "./handlers": {
-      "@tanstack-ai-browser/source": "./src/handlers.ts",
-      "types": "./dist/handlers.d.ts",
-      "import": "./dist/handlers.js",
-      "default": "./dist/handlers.js"
-    },
     "./model-meta": {
       "@tanstack-ai-browser/source": "./src/model-meta.ts",
       "types": "./dist/model-meta.d.ts",

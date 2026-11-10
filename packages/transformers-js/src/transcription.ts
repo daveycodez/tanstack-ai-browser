@@ -26,7 +26,7 @@ export type TransformersJsTranscriptionConfig = {
    * A Web Worker of your own to run Whisper in, off the page's main thread:
    * a module whose `onmessage` goes to a
    * `TransformersJsTranscriptionWorkerHandler`
-   * (`@tanstack-ai-browser/transformers-js/handlers`). It holds one model,
+   * (exported from this package). It holds one model,
    * so adapters given the same worker share it; `destroy()` frees the model
    * and leaves the worker running. Left out, Whisper runs on the page.
    */

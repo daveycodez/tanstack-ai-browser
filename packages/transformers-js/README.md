@@ -20,8 +20,7 @@ const stream = chat({
 
 ## Exports
 
-- `@tanstack-ai-browser/transformers-js`: `transformersJsText(model, config?)`, `TransformersJsTextAdapter` (with `availability`, `create` and `destroy`), `transformersJsEmbedding(model?, config?)`, `TransformersJsEmbeddingAdapter`, `transformersJsTranscription(model?, config?)`, `TransformersJsTranscriptionAdapter`, and the types `TransformersJsConfig`, `TransformersJsTextModelOptions`, `TransformersJsEmbeddingConfig`, `TransformersJsEmbeddingModelOptions`, `TransformersJsTranscriptionConfig`, `TransformersJsTranscriptionModelOptions`, `Availability` and `DownloadProgressCallback`.
-- `@tanstack-ai-browser/transformers-js/handlers`: `TransformersJsWorkerHandler` and `TransformersJsTranscriptionWorkerHandler`, for a worker of your own (below).
+- `@tanstack-ai-browser/transformers-js`: `transformersJsText(model, config?)`, `TransformersJsTextAdapter` (with `availability`, `create` and `destroy`), `transformersJsEmbedding(model?, config?)`, `TransformersJsEmbeddingAdapter`, `transformersJsTranscription(model?, config?)`, `TransformersJsTranscriptionAdapter`, `TransformersJsWorkerHandler` and `TransformersJsTranscriptionWorkerHandler` (for a worker of your own, below), and the types `TransformersJsConfig`, `TransformersJsTextModelOptions`, `TransformersJsEmbeddingConfig`, `TransformersJsEmbeddingModelOptions`, `TransformersJsTranscriptionConfig`, `TransformersJsTranscriptionModelOptions`, `Availability` and `DownloadProgressCallback`.
 - `@tanstack-ai-browser/transformers-js/model-meta`: `TRANSFORMERS_JS_CHAT_MODELS`, `TRANSFORMERS_JS_MODEL_META` and `TRANSFORMERS_JS_MODEL_REASONING`, with the types `TransformersJsChatModel`, `TransformersJsModelMeta` and `TransformersJsModelReasoningByName`.
 
 ## Models
@@ -106,7 +105,7 @@ To run the model in a worker you start (bundled your way, or shared with your ow
 
 ```ts
 // worker.ts
-import { TransformersJsWorkerHandler } from "@tanstack-ai-browser/transformers-js/handlers"
+import { TransformersJsWorkerHandler } from "@tanstack-ai-browser/transformers-js"
 
 const handler = new TransformersJsWorkerHandler()
 self.onmessage = (event) => handler.onmessage(event)
@@ -120,8 +119,6 @@ const adapter = transformersJsText("onnx-community/LFM3-1.7B-ONNX", { worker })
 The worker holds one model: adapters given the same worker share it, and loading another model replaces the one there. `destroy()` stops the generation, frees the model and leaves the worker running.
 
 Whisper has a handler of its own, `TransformersJsTranscriptionWorkerHandler`, written the same way and given to `transformersJsTranscription(model, { worker })`; give it a worker apart from the chat model's.
-
-The handlers are in `/handlers`, apart from the package's root, so importing the adapters doesn't import Transformers.js into the page.
 
 ## On a server
 

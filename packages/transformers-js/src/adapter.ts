@@ -46,7 +46,7 @@ export type TransformersJsConfig = {
   /**
    * A Web Worker of your own to run the model in, in place of the one the
    * package starts: a module whose `onmessage` goes to a
-   * `TransformersJsWorkerHandler` (`@tanstack-ai-browser/transformers-js/handlers`).
+   * `TransformersJsWorkerHandler` (exported from this package).
    * It holds one model, so adapters given the same worker share it;
    * `destroy()` frees the model and leaves the worker running.
    */

@@ -9,3 +9,6 @@ export { transformersJsEmbedding, TransformersJsEmbeddingAdapter } from "./embed
 export type { TransformersJsEmbeddingConfig, TransformersJsEmbeddingModelOptions } from "./embedding.js"
 export { transformersJsTranscription, TransformersJsTranscriptionAdapter } from "./transcription.js"
 export type { TransformersJsTranscriptionConfig, TransformersJsTranscriptionModelOptions } from "./transcription.js"
+// The handlers of the chat model and of Whisper, for a Web Worker of your own (`worker` in the adapters' config).
+export { TransformersJsWorkerHandler } from "./handler.js"
+export { TransformersJsTranscriptionWorkerHandler } from "./transcription-handler.js"
