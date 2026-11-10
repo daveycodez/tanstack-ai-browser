@@ -6,27 +6,17 @@
  * tools, structured output and the stream (text, thinking, tool calls) are
  * TanStack's, and llama.cpp writes the prompt with the model's chat template
  * and reads its thinking and tool calls back. This file adds what's wllama's
- * own: loading the model, the chat template's thinking switch, llama.cpp's
- * sampling settings.
+ * own: loading the model with the adapter's settings, the chat template's
+ * thinking switch, llama.cpp's sampling settings.
  */
-import type { AdapterYieldChunk, ReasoningRequest, TextOptions } from "@tanstack/ai"
+import type { ReasoningRequest, TextOptions } from "@tanstack/ai"
 import { resolveReasoning } from "@tanstack/ai/adapter-internals"
-import type { StructuredOutputOptions, StructuredOutputResult } from "@tanstack/ai/adapters"
 import { OpenAIBaseChatCompletionsTextAdapter } from "@tanstack/openai-base"
 import type { OpenAIClientLike } from "@tanstack/openai-base"
 import type { WllamaCompat } from "@wllama/wllama/esm/index.js"
 
-import {
-  availability,
-  completeChat,
-  configureRuntime,
-  loadModel,
-  setContextLength,
-  streamChat,
-  unloadModel,
-  waitForModel
-} from "./client.js"
-import type { Availability, ChatRequest, DownloadProgressCallback } from "./client.js"
+import { availability, loadModel, unloadModel } from "./client.js"
+import type { Availability, DownloadProgressCallback, LoadSettings } from "./client.js"
 import { modelMeta } from "./catalog.js"
 import type { Sampling, WllamaChatModel, WllamaModelReasoningByName } from "./catalog.js"
 
@@ -44,7 +34,7 @@ export type WllamaConfig = {
    * Where wllama's WebAssembly file is served. By default, the installed
    * `@wllama/wllama`'s own file on jsDelivr, at its version; serve
    * `@wllama/wllama/esm/wasm/wllama.wasm` with the site and pass its URL to
-   * host it yourself. Applies to every model.
+   * host it yourself.
    */
   wasmUrl?: string
   /**
@@ -120,7 +110,7 @@ type CreateParams = Parameters<OpenAIClientLike["chat"]["completions"]["create"]
  * `chat_template_kwargs`, and a thinking budget: left out when the model has
  * no levels or the request doesn't ask, so the template's default applies.
  */
-function thinkingKwargs(request: ReasoningRequest | undefined, model: WllamaChatModel): Partial<ChatRequest> {
+function thinkingKwargs(request: ReasoningRequest | undefined, model: WllamaChatModel): Record<string, unknown> {
   const value = resolveReasoning(request, modelMeta(model).reasoning)?.value
   if (value === undefined) return {}
   const thinking = value === "true"
@@ -149,18 +139,29 @@ function llamaSettings(options: WllamaTextModelOptions | undefined, base: Sampli
   return Object.fromEntries(Object.entries(fields).filter(([, value]) => value !== undefined))
 }
 
-/** The loaded model as an OpenAI client: Chat Completions is all the adapter calls. */
-function clientFor(model: WllamaChatModel): OpenAIClientLike {
-  const create = (body: Record<string, unknown>, options?: { signal?: AbortSignal | null }) => {
+/**
+ * The model as an OpenAI client: each request loads it with the adapter's
+ * settings (at once when it's loaded with them) and goes to wllama's
+ * `createChatCompletion`.
+ */
+function clientFor(model: WllamaChatModel, settings: LoadSettings, onDownloadProgress?: DownloadProgressCallback): OpenAIClientLike {
+  const create = async (body: Record<string, unknown>, options?: { signal?: AbortSignal | null }) => {
     const signal = options?.signal ?? undefined
-    const { stream, ...request } = body
-    return stream ? streamChat(model, request as ChatRequest, signal) : completeChat(model, request as ChatRequest, signal)
+    const wllama = await loadModel(model, settings, { ...(onDownloadProgress && { onDownloadProgress }), ...(signal && { signal }) })
+    return wllama.createChatCompletion({ ...body, ...(signal && { abortSignal: signal }) } as never)
   }
   return { baseURL: "wllama:", chat: { completions: { create } } } as unknown as OpenAIClientLike
 }
 
-const signalOf = (options: TextOptions) =>
-  options.abortController?.signal ?? (options.request as RequestInit | undefined)?.signal ?? undefined
+/** The settings a model loads with, from the adapter's config. */
+const loadSettings = ({ contextLength, wasmUrl, compat, threads, gpu, debug }: WllamaConfig): LoadSettings => ({
+  ...(contextLength !== undefined && { contextLength }),
+  ...(wasmUrl && { wasmUrl }),
+  ...(compat && { compat }),
+  ...(threads && { threads }),
+  ...(gpu !== undefined && { gpu }),
+  ...(debug && { debug })
+})
 
 export class WllamaTextAdapter<TModel extends WllamaChatModel> extends OpenAIBaseChatCompletionsTextAdapter<
   TModel,
@@ -174,90 +175,49 @@ export class WllamaTextAdapter<TModel extends WllamaChatModel> extends OpenAIBas
   override readonly api = "wllama"
   override readonly inputModalities = ["text"] as const
 
+  private readonly settings: LoadSettings
   private readonly onDownloadProgress: DownloadProgressCallback | undefined
-  private readonly loadConfig: WllamaConfig
 
   constructor(config: WllamaConfig, model: TModel) {
-    super(model, "wllama", clientFor(model), { strictFallbackWarning: false })
+    const settings = loadSettings(config)
+    super(model, "wllama", clientFor(model, settings, config.onDownloadProgress), { strictFallbackWarning: false })
+    this.settings = settings
     this.onDownloadProgress = config.onDownloadProgress
-    this.loadConfig = config
-  }
-
-  /**
-   * Applies this adapter's settings when it uses the model, not when it's
-   * constructed: constructing an adapter changes nothing shared.
-   */
-  private useModel() {
-    const config = this.loadConfig
-    setContextLength(this.model, config.contextLength)
-    configureRuntime({
-      ...(config.wasmUrl && { wasmUrl: config.wasmUrl }),
-      ...(config.compat && { compat: config.compat }),
-      ...(config.threads && { threads: config.threads }),
-      ...(config.gpu !== undefined && { gpu: config.gpu }),
-      ...(config.debug && { debug: true })
-    })
   }
 
   /**
    * Where the model stands in this browser, with the Prompt API's values:
-   * "available" once it's in the browser's cache (or loaded),
-   * "downloading" while this page downloads it, else "downloadable";
-   * "unavailable" where wllama can't run.
+   * "available" once it's in wllama's storage (or loaded), "downloading"
+   * while this page downloads it, else "downloadable"; "unavailable" where
+   * wllama can't run.
    */
   availability(): Promise<Availability> {
     return availability(this.model)
   }
 
   /**
-   * Downloads the model if it isn't cached and loads it, with the download's
-   * progress, 0 to 1, then 1 once it's ready. Resolves to this adapter;
-   * rejects if it can't load (fine to leave unawaited). `chat()` doesn't
-   * need it: its first call loads the model.
+   * Downloads the model if it isn't stored and loads it with this adapter's
+   * settings, with the download's progress, 0 to 1, then 1 once it's ready.
+   * Resolves to this adapter; rejects if it can't load (fine to leave
+   * unawaited). `chat()` doesn't need it: its first call loads the model.
    */
   create(options: { onDownloadProgress?: DownloadProgressCallback; signal?: AbortSignal } = {}): Promise<this> {
     const own = this.onDownloadProgress
     const theirs = options.onDownloadProgress
-    this.useModel()
-    const ready = loadModel(
-      this.model,
-      own && theirs
-        ? (progress) => {
-            own(progress)
-            theirs(progress)
-          }
-        : (own ?? theirs),
-      options.signal ? { signal: options.signal } : {}
-    ).then(() => this)
-    // Callers may leave it: an unawaited failure isn't an unhandled rejection.
+    const ready = loadModel(this.model, this.settings, {
+      onDownloadProgress: (progress) => {
+        own?.(progress)
+        theirs?.(progress)
+      },
+      ...(options.signal && { signal: options.signal })
+    }).then(() => this)
     ready.catch(() => undefined)
     return ready
   }
 
-  /** Unloads the model, freeing its memory. It stays in the browser's cache. */
+  /** Unloads the model, freeing its memory. It stays in wllama's storage. */
   async destroy(): Promise<void> {
     await unloadModel(this.model)
-  }
-
-  /** Loads the model if it isn't, with this adapter's settings. */
-  private async ready(options: TextOptions) {
-    this.useModel()
-    await waitForModel(this.model, signalOf(options), this.onDownloadProgress)
-  }
-
-  override async *chatStream(options: TextOptions<WllamaTextModelOptions>): AsyncIterable<AdapterYieldChunk> {
-    await this.ready(options)
-    yield* super.chatStream(options)
-  }
-
-  override async *structuredOutputStream(options: StructuredOutputOptions<WllamaTextModelOptions>): AsyncIterable<AdapterYieldChunk> {
-    await this.ready(options.chatOptions)
-    yield* super.structuredOutputStream(options)
-  }
-
-  override async structuredOutput(options: StructuredOutputOptions<WllamaTextModelOptions>): Promise<StructuredOutputResult<unknown>> {
-    await this.ready(options.chatOptions)
-    return super.structuredOutput(options)
   }
 
   /** The request, with llama.cpp's settings over the model card's, and the chat template's thinking switch. */

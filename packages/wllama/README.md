@@ -102,16 +102,16 @@ a reload of the page or the model reads the prompt again.
 **Downloads:** each adapter has the runtime methods of this project's adapters, with the Prompt API's values:
 
 - `adapter.availability()` resolves to `"unavailable"` where wllama can't run (it needs WebAssembly, Web Workers and the Origin Private File System; not on a server), `"downloading"` while this page downloads the model, `"available"` when the model is loaded or its whole GGUF file is in wllama's storage, else `"downloadable"`. It lists wllama's storage only (its `ModelManager`, which reads the Origin Private File System): no worker, no WebAssembly, no network.
-- `adapter.create({ onDownloadProgress?, signal }?)` downloads and loads the model ahead of time, with the download's progress, 0 to 1, then 1 once it's ready (at once if it already is). Aborting `signal` rejects that call at once with an `AbortError` and stops its progress reports; when no other caller (another call, or a `chat()` waiting for the model) still waits on the load, the download is cancelled and the model left unloaded (`availability()` is back to `"downloadable"`). It resolves to the adapter, and rejects on failure; it's fine to leave unawaited. The config's `onDownloadProgress` hears a download the first `chat()` starts too.
+- `adapter.create({ onDownloadProgress?, signal }?)` downloads and loads the model ahead of time, with the download's progress, 0 to 1, then 1 once it's ready (at once if it already is). Aborting `signal` stops that call's wait (it rejects at once); the load goes on, and `destroy()` stops it. It resolves to the adapter, and rejects on failure; it's fine to leave unawaited. The config's `onDownloadProgress` hears a download the first `chat()` starts too.
 - `adapter.destroy()` unloads the model (stopping its download), if it's the one loaded; its file stays in storage.
 
-The page holds one wllama model at a time: adapters for the same model share it, so `destroy()` on one unloads it for all of them.
+The page holds one wllama model at a time, loaded with the settings of the adapter that asked for it (`contextLength`, `gpu`, `threads`, the WebAssembly URLs): adapters with the same settings share it, another adapter's settings load it again, and `destroy()` on one unloads it for all of them.
 
 ## How it runs
 
 `chat()` runs tools and the agent loop; each model call is one chat completion from llama.cpp's OpenAI-compatible API (`createChatCompletion`), in wllama's worker. llama.cpp writes the prompt with the model's chat template, reads thinking and tool calls back, and reuses whatever start of the prompt it has already read. wllama's defaults apply, except:
 
-- **Context:** each model's own (8,192 tokens), not wllama's 1,024, which a system prompt with tools outgrows.
+- **Context:** the model's own training context (see above), not wllama's 1,024, which a system prompt with tools outgrows.
 - **WebGPU or CPU:** wllama's default: on WebGPU where the browser has it and wllama can drive it (Chrome and Edge with JSPI, Safari through wllama's compat build), on the CPU elsewhere (Firefox, which has no JSPI, and browsers without WebGPU). `wllamaText(model, { gpu: false })` runs on the CPU only. llama.cpp's WebGPU and CPU code are wllama 3.8.1's, unchanged.
 - **Full sliding-window cache:** `swa_full: true`, so a model with sliding-window layers reuses what it has read after a tool call instead of rereading the whole prompt. It costs a little memory, and nothing for models without such layers.
 - **Threads:** wllama's default, half the cores, where the page is cross-origin isolated (`Cross-Origin-Opener-Policy: same-origin` with `Cross-Origin-Embedder-Policy: require-corp`; Safari and Firefox on Android ignore `credentialless`); one elsewhere. `wllamaText(model, { threads })` sets a number.

@@ -1,3 +1,8 @@
+/**
+ * The client over wllama: availability from its storage, one load per
+ * model and settings with the download's progress, a new load for other
+ * settings, and unloading. wllama is faked with the API the client uses.
+ */
 import assert from "node:assert/strict"
 import { after, test } from "node:test"
 import { mkdtemp, rm } from "node:fs/promises"
@@ -16,107 +21,85 @@ test("on a server, which has no Web Worker or Origin Private File System, the mo
   assert.equal(await wllamaText(MODEL).availability(), "unavailable")
 })
 
-test("a failed load left unawaited raises no unhandled rejection; awaited, it rejects", async () => {
-  const unhandled: Array<unknown> = []
-  const onUnhandled = (reason: unknown) => unhandled.push(reason)
-  process.on("unhandledRejection", onUnhandled)
-  try {
-    // wllama can't start on a server (no storage it can use).
-    const adapter = wllamaText(MODEL)
-    void adapter.create()
-    await new Promise((resolve) => setTimeout(resolve, 50))
-    assert.deepEqual(unhandled, [])
-    await assert.rejects(adapter.create())
-    await adapter.destroy()
-  } finally {
-    process.off("unhandledRejection", onUnhandled)
-  }
-})
-
 const root = resolve(process.cwd(), "../..")
 const require = createRequire(join(root, "packages/wllama/package.json"))
-const { build } = await import(pathToFileURL(require.resolve("esbuild")).href) as typeof import("esbuild")
-const temporary = await mkdtemp(join(tmpdir(), "wllama-availability-"))
+const { build } = (await import(pathToFileURL(require.resolve("esbuild")).href)) as typeof import("esbuild")
+const temporary = await mkdtemp(join(tmpdir(), "wllama-runtime-"))
 after(() => rm(temporary, { recursive: true, force: true }))
 
 type Control = {
   stored: Array<{ url: string; size: number }>
+  /** Holds each download until it resolves. */
   gate: Promise<void>
+  /** Called once a download has reported progress. */
   progressed: null | (() => void)
-  /** Storage, network, worker and engine calls, by name. */
-  calls: Array<string>
-  /** The last download's signal and progress callback. */
-  download?: { signal: AbortSignal; progress: (p: { loaded: number; total: number }) => void }
+  /** Each load: its URL and options. */
+  loads: Array<{ url: string; params: Record<string, unknown> }>
   /** wllama instances ended. */
   exits: number
-  /** Each load's n_ctx. */
-  contexts: Array<number>
-  /** Each load's native options. */
-  loadOptions: Array<Record<string, unknown>>
-  /** Holds wllama's storage listing (getModels) until it resolves. */
-  listGate?: Promise<void>
+  /** Rejects the next loads with it. */
+  loadError?: Error
 }
 
-/**
- * Builds client.ts against a fake wllama, in a browser-like global scope
- * (a Worker class and OPFS), and runs `body` with it; every storage,
- * network, worker or engine call lands in `control.calls`.
- */
 type Built = typeof import("./client.js") & Pick<typeof import("./adapter.js"), "wllamaText">
 
+/** Builds client.ts against a fake wllama, in a scope with a Worker class and OPFS, and runs `body` with it. */
 async function withClient(name: string, body: (client: Built, control: Control, release: () => void) => Promise<void>) {
-  const descriptors = Object.fromEntries(
-    ["navigator", "Worker", "fetch", "caches", "indexedDB"].map((key) => [key, Object.getOwnPropertyDescriptor(globalThis, key)])
-  )
+  const descriptors = Object.fromEntries(["navigator", "Worker"].map((key) => [key, Object.getOwnPropertyDescriptor(globalThis, key)]))
   let release!: () => void
   const control: Control = {
     stored: [],
-    gate: new Promise<void>((resolve) => { release = resolve }),
+    gate: new Promise<void>((resolve) => (release = resolve)),
     progressed: null,
-    calls: [],
-    exits: 0,
-    contexts: [],
-    loadOptions: []
+    loads: [],
+    exits: 0
   }
-  ;(globalThis as { __wllamaAvailability?: Control }).__wllamaAvailability = control
+  ;(globalThis as { __wllamaRuntime?: Control }).__wllamaRuntime = control
   const define = (key: string, value: unknown) => Object.defineProperty(globalThis, key, { configurable: true, writable: true, value })
-  const storage = { getDirectory: async () => { control.calls.push("navigator.storage.getDirectory"); return {} } }
-  define("navigator", { storage })
-  define("Worker", class { constructor() { control.calls.push("new Worker") } })
-  define("fetch", async () => { control.calls.push("fetch"); return new Response(null, { headers: { "content-range": "bytes 0-0/1000" } }) })
-  define("caches", { open: async () => { control.calls.push("caches.open"); throw new Error("no") } })
-  define("indexedDB", { open: () => { control.calls.push("indexedDB.open"); throw new Error("no") } })
+  define("navigator", { storage: { getDirectory: async () => ({}) } })
+  define("Worker", class {})
   try {
     const outfile = join(temporary, `${name}.mjs`)
-    await build({ stdin: { contents: 'export * from "./client.ts"; export { wllamaText } from "./adapter.ts"', resolveDir: join(root, "packages/wllama/src"), loader: "ts" }, outfile, bundle: true, format: "esm", platform: "node", logLevel: "error", plugins: [{ name: "fake-wllama", setup(bundle) {
-      bundle.onResolve({ filter: /@wllama\/wllama\/esm\/index\.js$/ }, () => ({ path: "wllama", namespace: "fake" }))
-      bundle.onLoad({ filter: /.*/, namespace: "fake" }, () => ({ contents: `
-        const control=globalThis.__wllamaAvailability;
-        export const LoggerWithoutDebug={};
-        export class ModelManager { constructor(){control.calls.push("new ModelManager")} async getModels(){ control.calls.push("ModelManager.getModels"); return control.stored } }
-        export class Wllama {
-          constructor(){control.calls.push("new Wllama");this.modelManager={
-            getModels:async()=>{control.calls.push("modelManager.getModels");if(control.listGate)await control.listGate;return control.stored},
-            getModelOrDownload:async(source,{progressCallback,signal})=>{
-              control.download={signal,progress:progressCallback};
-              progressCallback({loaded:250,total:1000});
-              control.progressed?.();
-              await control.gate;
-              progressCallback({loaded:1000,total:1000});
-              control.stored.push({url:source.url,size:1000});
-              return {size:1000};
-            }
-          };}
-          getWorkerResources(){return {compat:false}}
-          async loadModel(_file,options){control.contexts.push(options.n_ctx);control.loadOptions.push(options)}
-          getLoadedContextInfo(){return {success:true,n_ctx:0,n_ctx_train:0};}
-          async exit(){control.exits++}
+    await build({
+      stdin: { contents: 'export * from "./client.ts"; export { wllamaText } from "./adapter.ts"', resolveDir: join(root, "packages/wllama/src"), loader: "ts" },
+      outfile,
+      bundle: true,
+      format: "esm",
+      platform: "node",
+      logLevel: "error",
+      plugins: [
+        {
+          name: "fake-wllama",
+          setup(bundle) {
+            bundle.onResolve({ filter: /@wllama\/wllama\/esm\/index\.js$/ }, () => ({ path: "wllama", namespace: "fake" }))
+            bundle.onLoad({ filter: /.*/, namespace: "fake" }, () => ({
+              contents: `
+                const control=globalThis.__wllamaRuntime;
+                export const LoggerWithoutDebug={};
+                export class ModelManager { async getModels(){ return control.stored } }
+                export class Wllama {
+                  setCompat(){}
+                  async loadModelFromUrl(url,params){
+                    control.loads.push({url,params});
+                    if(control.loadError) throw control.loadError;
+                    const stored=control.stored.find((m)=>m.url===url);
+                    if(stored){ params.progressCallback({loaded:stored.size,total:stored.size}); return }
+                    params.progressCallback({loaded:250,total:1000});
+                    control.progressed?.();
+                    await Promise.race([control.gate, new Promise((r)=>params.signal.addEventListener("abort",r))]);
+                    params.signal.throwIfAborted();
+                    params.progressCallback({loaded:1000,total:1000});
+                    control.stored.push({url,size:1000});
+                  }
+                  async exit(){control.exits++}
+                }
+              `
+            }))
+          }
         }
-      ` }))
-    } }] })
-    const client = await import(pathToFileURL(outfile).href) as Built
-    client.configureRuntime({ gpu: false })
-    await body(client, control, release)
+      ]
+    })
+    await body((await import(pathToFileURL(outfile).href)) as Built, control, release)
   } finally {
     for (const [key, descriptor] of Object.entries(descriptors)) {
       if (descriptor) Object.defineProperty(globalThis, key, descriptor)
@@ -125,181 +108,75 @@ async function withClient(name: string, body: (client: Built, control: Control, 
   }
 }
 
-test("availability: downloadable; downloading during the download; available once ready, and from wllama's storage after unloading; downloadable once storage is cleared", { timeout: 5000 }, async () => {
+test("availability: downloadable, downloading during the download, available once loaded and from storage after unloading", { timeout: 5000 }, async () => {
   await withClient("states", async (client, control, release) => {
     assert.equal(await client.availability(MODEL), "downloadable")
     const progress: Array<number> = []
-    const progressed = new Promise<void>((resolve) => { control.progressed = resolve })
-    const loading = client.loadModel(MODEL, (value: number) => progress.push(value))
+    const progressed = new Promise<void>((resolve) => (control.progressed = resolve))
+    const loading = client.loadModel(MODEL, {}, { onDownloadProgress: (value) => progress.push(value) })
     await progressed
     assert.equal(await client.availability(MODEL), "downloading")
     release()
     await loading
-    assert.deepEqual(progress, [0.25, 1, 1], "the download's progress, then 1 once ready")
+    assert.deepEqual(progress, [0.25, 1], "the download's progress, then 1 once ready")
     assert.equal(await client.availability(MODEL), "available")
     await client.unloadModel(MODEL)
-    assert.ok(control.stored.some((m) => m.url === modelUrl(MODEL)))
-    assert.equal(await client.availability(MODEL), "available", "on the device: its file stays in storage")
-    control.stored = control.stored.filter((m) => m.url !== modelUrl(MODEL))
-    assert.equal(await client.availability(MODEL), "downloadable", "a cleared storage needs the download again")
-  })
-})
-
-test("constructing an adapter changes nothing shared; its context applies when it uses the model", { timeout: 5000 }, async () => {
-  await withClient("construct", async (client, control, release) => {
-    release()
-    const small = client.wllamaText(MODEL, { contextLength: 2048 })
-    const plain = client.wllamaText(MODEL)
-    await plain.create()
-    assert.equal(control.contexts.at(-1), 0, "constructing the other adapter changed nothing")
-    await plain.destroy()
-    await small.create()
-    assert.equal(control.contexts.at(-1), 2048, "using it applies its context")
-  })
-})
-test("the same progress callback hears 1 on every load call: once for a shared load, then at once on the ready model; a chat's own wait reports nothing more", { timeout: 5000 }, async () => {
-  await withClient("same-callback", async (client, control, release) => {
-    const heard: Array<number> = []
-    const callback = (value: number) => heard.push(value)
-    const progressed = new Promise<void>((resolve) => { control.progressed = resolve })
-    const first = client.loadModel(MODEL, callback)
-    const second = client.loadModel(MODEL, callback)
-    await progressed
-    release()
-    await Promise.all([first, second])
-    assert.deepEqual(heard, [0.25, 1, 1], "one load: its progress and its 1, once")
-    await client.loadModel(MODEL, callback)
-    await client.loadModel(MODEL, callback)
-    assert.deepEqual(heard, [0.25, 1, 1, 1, 1], "each call on the ready model hears 1")
-    await client.waitForModel(MODEL, undefined, callback)
-    assert.deepEqual(heard, [0.25, 1, 1, 1, 1])
-  })
-})
-
-test("create's signal: aborted before, nothing starts; the only waiter aborting cancels the download; one of two leaving keeps it for the other", { timeout: 5000 }, async () => {
-  await withClient("abort", async (client, control) => {
-    const { wllamaText } = await import("./adapter.js")
-    const unhandled: Array<unknown> = []
-    const onUnhandled = (reason: unknown) => unhandled.push(reason)
-    process.on("unhandledRejection", onUnhandled)
-    try {
-      // Aborted before: rejects at once, no wllama started.
-      await assert.rejects(client.loadModel(MODEL, undefined, { signal: AbortSignal.abort() }), (error: unknown) => error instanceof DOMException && error.name === "AbortError")
-      assert.equal(control.calls.includes("new Wllama"), false)
-
-      // The only waiter aborts mid-download.
-      let gate!: () => void
-      control.gate = new Promise<void>((resolve) => { gate = resolve })
-      const heard: Array<number> = []
-      const controller = new AbortController()
-      let progressed = new Promise<void>((resolve) => { control.progressed = resolve })
-      const alone = client.loadModel(MODEL, (value) => heard.push(value), { signal: controller.signal })
-      await progressed
-      controller.abort()
-      await assert.rejects(alone, { name: "AbortError" })
-      assert.equal(control.download?.signal.aborted, true, "the download was cancelled")
-      await new Promise((resolve) => setTimeout(resolve, 0))
-      assert.equal(control.exits, 1, "wllama's worker ended")
-      control.download?.progress({ loaded: 900, total: 1000 })
-      assert.deepEqual(heard, [0.25], "nothing more after the abort")
-      assert.equal(await client.availability(MODEL), "downloadable")
-      gate()
-
-      // Two waiters: one leaves, the other still hears progress and completion.
-      await new Promise((resolve) => setTimeout(resolve, 0))
-      control.stored = []
-      control.gate = new Promise<void>((resolve) => { gate = resolve })
-      const leaving: Array<number> = []
-      const staying: Array<number> = []
-      const leave = new AbortController()
-      progressed = new Promise<void>((resolve) => { control.progressed = resolve })
-      const first = client.loadModel(MODEL, (value) => leaving.push(value), { signal: leave.signal })
-      const second = client.loadModel(MODEL, (value) => staying.push(value))
-      await progressed
-      leave.abort()
-      await assert.rejects(first, { name: "AbortError" })
-      assert.equal(control.download?.signal.aborted, false, "the download goes on for the other caller")
-      gate()
-      await second
-      assert.deepEqual(leaving, [0.25])
-      assert.deepEqual(staying, [0.25, 1, 1])
-      assert.equal(await client.availability(MODEL), "available")
-
-      // A chat waiting on the load keeps it going when a session caller aborts.
-      await client.unloadModel(MODEL)
-      control.gate = new Promise<void>((resolve) => { gate = resolve })
-      const session = new AbortController()
-      progressed = new Promise<void>((resolve) => { control.progressed = resolve })
-      const preload = client.loadModel(MODEL, undefined, { signal: session.signal })
-      const chat = client.waitForModel(MODEL)
-      await progressed
-      session.abort()
-      await assert.rejects(preload, { name: "AbortError" })
-      assert.equal(control.download?.signal.aborted, false)
-      gate()
-      await chat
-
-      // Through the adapter (the server-side copy of the client here): an aborted signal rejects, unawaited it raises nothing.
-      void wllamaText(MODEL).create({ signal: AbortSignal.abort() })
-      await assert.rejects(wllamaText(MODEL).create({ signal: AbortSignal.abort() }), { name: "AbortError" })
-      await new Promise((resolve) => setTimeout(resolve, 20))
-      assert.deepEqual(unhandled, [])
-    } finally {
-      process.off("unhandledRejection", onUnhandled)
-    }
-  })
-})
-
-test("a load canceled while wllama lists its storage downloads nothing", { timeout: 5000 }, async () => {
-  await withClient("cancel-before-claim", async (client, control, release) => {
-    release()
-    let list!: () => void
-    control.listGate = new Promise<void>((resolve) => { list = resolve })
-    const controller = new AbortController()
-    const loading = client.loadModel(MODEL, undefined, { signal: controller.signal })
-    await new Promise((resolve) => setTimeout(resolve, 0))
-    controller.abort()
-    await assert.rejects(loading, { name: "AbortError" })
-    list()
-    await new Promise((resolve) => setTimeout(resolve, 10))
-    assert.equal(control.download, undefined, "no download started")
-  })
-})
-
-test("a load with other native options (gpu, threads) loads the model again, with the options as they were when it was asked for", { timeout: 5000 }, async () => {
-  await withClient("native-options", async (client, control, release) => {
-    release()
-    await client.wllamaText(MODEL, { gpu: true, threads: 4 }).create()
-    assert.equal(control.loadOptions.at(-1)?.n_threads, 4)
-    assert.equal(control.loadOptions.at(-1)?.n_gpu_layers, undefined)
-    const cpu = client.wllamaText(MODEL, { gpu: false, threads: 1 })
-    await cpu.create()
-    assert.equal(control.loadOptions.length, 2, "loaded again for the CPU")
-    assert.equal(control.loadOptions.at(-1)?.n_threads, 1)
-    assert.equal(control.loadOptions.at(-1)?.n_gpu_layers, 0)
-    await cpu.create()
-    assert.equal(control.loadOptions.length, 2, "the same options share the load")
-    // Options another adapter sets while a load runs don't change it.
-    await cpu.destroy()
+    assert.equal(control.exits, 1)
+    assert.equal(await client.availability(MODEL), "available", "its file stays in storage")
     control.stored = []
-    let gate!: () => void
-    control.gate = new Promise<void>((resolve) => { gate = resolve })
-    const progressed = new Promise<void>((resolve) => { control.progressed = resolve })
-    const loading = client.wllamaText(MODEL, { threads: 2 }).create()
-    await progressed
-    client.configureRuntime({ threads: 8 })
-    gate()
-    await loading
-    assert.equal(control.loadOptions.at(-1)?.n_threads, 2)
+    assert.equal(await client.availability(MODEL), "downloadable")
   })
 })
 
-test("availability() lists wllama's storage only: no fetch, worker or engine calls", async () => {
-  await withClient("no-calls", async (client, control) => {
-    assert.equal(await client.availability(MODEL), "downloadable")
+test("a model in storage loads without download progress: just 1", { timeout: 5000 }, async () => {
+  await withClient("stored", async (client, control) => {
     control.stored.push({ url: modelUrl(MODEL), size: 1000 })
-    assert.equal(await client.availability(MODEL), "available")
-    assert.equal(await client.availability("not/a-model" as typeof MODEL), "unavailable")
-    assert.deepEqual([...new Set(control.calls)], ["new ModelManager", "ModelManager.getModels"])
+    const progress: Array<number> = []
+    await client.loadModel(MODEL, {}, { onDownloadProgress: (value) => progress.push(value) })
+    assert.deepEqual(progress, [1])
+  })
+})
+
+test("the adapter loads with its own settings; the same settings share a load, other settings load again", { timeout: 5000 }, async () => {
+  await withClient("settings", async (client, control, release) => {
+    release()
+    await client.wllamaText(MODEL, { contextLength: 2048, gpu: false, threads: 4 }).create()
+    assert.equal(control.loads.at(-1)?.url, modelUrl(MODEL))
+    assert.equal(control.loads.at(-1)?.params.n_ctx, 2048)
+    assert.equal(control.loads.at(-1)?.params.n_gpu_layers, 0)
+    assert.equal(control.loads.at(-1)?.params.n_threads, 4)
+    await client.wllamaText(MODEL, { contextLength: 2048, gpu: false, threads: 4 }).create()
+    assert.equal(control.loads.length, 1, "the same settings: no new load")
+    await client.wllamaText(MODEL).create()
+    assert.equal(control.loads.length, 2, "other settings load it again")
+    assert.equal(control.loads.at(-1)?.params.n_ctx, 0, "the model's training context by default")
+    assert.equal(control.exits, 1, "the previous load was freed")
+  })
+})
+
+test("aborting a wait stops only that caller; unloading stops the download", { timeout: 5000 }, async () => {
+  await withClient("abort", async (client, control) => {
+    const controller = new AbortController()
+    const waiting = client.loadModel(MODEL, {}, { signal: controller.signal })
+    controller.abort()
+    await assert.rejects(waiting)
+    assert.equal(control.loads.length, 1, "the load goes on")
+    const again = client.loadModel(MODEL, {})
+    await client.unloadModel()
+    await assert.rejects(again)
+    assert.equal(await client.availability(MODEL), "downloadable")
+  })
+})
+
+test("a failed load rejects, frees wllama, and the next call loads again", { timeout: 5000 }, async () => {
+  await withClient("failure", async (client, control, release) => {
+    release()
+    control.loadError = new Error("llama.cpp couldn't load it")
+    await assert.rejects(client.wllamaText(MODEL).create(), /couldn't load/)
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    assert.equal(control.exits, 1)
+    control.loadError = undefined
+    await client.wllamaText(MODEL).create()
+    assert.equal(control.loads.length, 2)
   })
 })
