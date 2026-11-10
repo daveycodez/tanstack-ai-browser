@@ -106,18 +106,8 @@ export function PromptInputAttachments({
 }
 
 /** The plus button: picks images to attach. */
-export function PromptInputAddAttachment({
-  isDisabled,
-  disabledReason,
-  onAdd
-}: {
-  isDisabled?: boolean
-  /** The tooltip while disabled. */
-  disabledReason?: string
-  onAdd: (files: FileList) => void
-}) {
+export function PromptInputAddAttachment({ onAdd }: { onAdd: (files: FileList) => void }) {
   const input = useRef<HTMLInputElement>(null)
-  const label = isDisabled && disabledReason ? disabledReason : "Add image"
   return (
     <>
       <input
@@ -132,21 +122,17 @@ export function PromptInputAddAttachment({
         }}
       />
       <Tooltip delay={300}>
-        {/* A disabled button gets no hover, so the tooltip hangs on a wrapper. */}
-        <span className="inline-flex">
-          <Button
-            isIconOnly
-            size="sm"
-            variant="ghost"
-            aria-label="Add image"
-            className="text-muted"
-            isDisabled={isDisabled}
-            onPress={() => input.current?.click()}
-          >
-            <Plus />
-          </Button>
-        </span>
-        <Tooltip.Content>{label}</Tooltip.Content>
+        <Button
+          isIconOnly
+          size="sm"
+          variant="ghost"
+          aria-label="Add image"
+          className="text-muted"
+          onPress={() => input.current?.click()}
+        >
+          <Plus />
+        </Button>
+        <Tooltip.Content>Add image</Tooltip.Content>
       </Tooltip>
     </>
   )

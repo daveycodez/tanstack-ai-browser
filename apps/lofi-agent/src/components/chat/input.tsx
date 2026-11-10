@@ -107,11 +107,7 @@ export function ChatPromptInput() {
       />
       <PromptInputToolbar>
         <PromptInputTools>
-          <PromptInputAddAttachment
-            isDisabled={!imagesAllowed}
-            disabledReason="This model can't read images"
-            onAdd={attach}
-          />
+          {imagesAllowed && <PromptInputAddAttachment onAdd={attach} />}
           <ChatModelSelector />
         </PromptInputTools>
         <PromptInputTools end>
@@ -152,8 +148,7 @@ export function PromptInputSkeleton() {
       <PromptInputTextarea placeholder="Send a message..." value="" readOnly />
       <PromptInputToolbar>
         <PromptInputTools>
-          {/* The plus button and the model picker's button. */}
-          <Skeleton className="size-9 rounded-full md:size-8" />
+          {/* The size of the model picker's button. */}
           <Skeleton className="h-9 w-40 rounded-full md:h-8" />
         </PromptInputTools>
         <PromptInputTools end>
