@@ -1,10 +1,11 @@
 /**
- * The `input` widget: the prompt input, with the model picker (and its
- * thinking effort) and voice input in its toolbar.
+ * The `input` widget: the prompt input, with attached images above its
+ * text, and the plus button, the model picker (and its thinking effort) and
+ * voice input in its toolbar.
  */
 import Microphone from "@gravity-ui/icons/Microphone"
 import { Skeleton } from "@heroui/react"
-import type { ReasoningLevel } from "@tanstack/ai"
+import type { ContentPart, ReasoningLevel } from "@tanstack/ai"
 import { useRef, useState } from "react"
 
 import {
@@ -20,11 +21,17 @@ import {
   effortFor,
   effortOptions,
   PROVIDERS,
+  readsImages,
   useBackends,
   useModels
 } from "#/chat/models"
 import type { ModelId } from "#/chat/models"
 import { Action } from "#/components/ai/actions"
+import {
+  imageAttachments,
+  PromptInputAddAttachment,
+  PromptInputAttachments
+} from "#/components/ai/attachments"
 import { ModelSelector } from "#/components/ai/model-selector"
 import {
   PromptInput,
@@ -39,11 +46,16 @@ import { useComposer, useThread } from "./thread-context"
 import { useChatContext } from "./ui-components"
 
 export function ChatPromptInput() {
-  const { value, setValue } = useComposer()
+  const { value, setValue, attachments, setAttachments } = useComposer()
   const { send } = useThread()
   const { isLoading, stop } = useChatContext()
+  const model = useSelectedModel()
+  const imagesAllowed = readsImages(model)
   // A message sent while a reply runs waits in the queue.
-  const canSend = !!value.trim()
+  const canSend = !!value.trim() || attachments.length > 0
+  const attach = (files: Iterable<File>) => {
+    void imageAttachments(files).then((added) => setAttachments((current) => [...current, ...added]))
+  }
 
   // Dictation adds to whatever was already typed when it started.
   const dictation = useDictation()
@@ -58,17 +70,34 @@ export function ChatPromptInput() {
   const submit = () => {
     if (!canSend) return
     dictation.cancel()
-    send(value.trim())
+    const text = value.trim()
+    // Images first, then the text, as a model reads a picture and its question.
+    const images: Array<ContentPart> = attachments.map((attachment) => ({
+      type: "image",
+      source: { type: "data", value: attachment.data, mimeType: attachment.mimeType }
+    }))
+    send(images.length ? [...images, ...(text ? [{ type: "text" as const, content: text }] : [])] : text)
     setValue("")
+    setAttachments(() => [])
   }
 
   return (
     <PromptInput label="Message input" name="message">
+      <PromptInputAttachments
+        attachments={attachments}
+        onRemove={(id) => setAttachments((current) => current.filter((a) => a.id !== id))}
+      />
       <PromptInputTextarea
         placeholder="Send a message..."
         value={value}
         enterKeyHint="send"
         onChange={(e) => setValue(e.target.value)}
+        onPaste={(e) => {
+          const files = [...e.clipboardData.files].filter((file) => file.type.startsWith("image/"))
+          if (files.length === 0 || !imagesAllowed) return
+          e.preventDefault()
+          attach(files)
+        }}
         onKeyDown={(e) => {
           if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
             e.preventDefault()
@@ -78,6 +107,11 @@ export function ChatPromptInput() {
       />
       <PromptInputToolbar>
         <PromptInputTools>
+          <PromptInputAddAttachment
+            isDisabled={!imagesAllowed}
+            disabledReason="This model can't read images"
+            onAdd={attach}
+          />
           <ChatModelSelector />
         </PromptInputTools>
         <PromptInputTools end>
@@ -118,7 +152,8 @@ export function PromptInputSkeleton() {
       <PromptInputTextarea placeholder="Send a message..." value="" readOnly />
       <PromptInputToolbar>
         <PromptInputTools>
-          {/* The size of the model picker's button. */}
+          {/* The plus button and the model picker's button. */}
+          <Skeleton className="size-9 rounded-full md:size-8" />
           <Skeleton className="h-9 w-40 rounded-full md:h-8" />
         </PromptInputTools>
         <PromptInputTools end>

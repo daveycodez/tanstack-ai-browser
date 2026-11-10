@@ -23,8 +23,14 @@ import { locationTool, locationToolSetting } from "#/lib/location"
 import { touchThread } from "#/lib/threads"
 import { ThreadSkeleton } from "./layout"
 import { ComposerProvider, ThreadContext } from "./thread-context"
-import type { ThreadActions } from "./thread-context"
+import type { MessageContent, ThreadActions } from "./thread-context"
 import { ChatUI } from "./ui-components"
+
+/** A message's text, for the session's title. */
+const contentText = (content: MessageContent) =>
+  typeof content === "string"
+    ? content
+    : content.map((part) => (part.type === "text" ? part.content : "")).join("")
 
 type ThreadProps = {
   threadId: string
@@ -106,18 +112,18 @@ function ThreadChat({ threadId, onSend }: ThreadProps) {
   const actions: ThreadActions = useMemo(
     () => ({
       threadId,
-      send(text: string) {
+      send(content: MessageContent) {
         onSendRef.current()
-        touchThread(threadId, text)
-        void latest.current.sendMessage(text)
+        touchThread(threadId, contentText(content) || "Image")
+        void latest.current.sendMessage(typeof content === "string" ? content : { content })
       },
-      resend(index: number, text: string) {
+      resend(index: number, content: MessageContent) {
         const current = latest.current
         if (current.isLoading) current.stop()
         onSendRef.current()
-        touchThread(threadId, text)
+        touchThread(threadId, contentText(content) || "Image")
         current.setMessages(current.messages.slice(0, index))
-        void current.sendMessage(text, { whenBusy: "interrupt" })
+        void current.sendMessage(typeof content === "string" ? content : { content }, { whenBusy: "interrupt" })
       },
       remove(messageId: string) {
         const current = latest.current

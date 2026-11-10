@@ -3,21 +3,26 @@
  * session, the prompt input's text, and what each reply's parts need to
  * know. The kit's own contexts are in src/chat/ui-context.ts.
  */
+import type { ContentPart } from "@tanstack/ai"
 import { createContext, useContext, useState } from "react"
 import type { ReactNode } from "react"
 
+import type { Attachment } from "#/components/ai/attachments"
 import type { ReplySources } from "#/lib/reply-sources"
+
+/** What a user message holds: its text, or its images and text as parts. */
+export type MessageContent = string | Array<ContentPart>
 
 /** The open session and what its widgets can do to it. */
 export type ThreadActions = {
   threadId: string
   /** Sends a message, putting the session in the URL and the sidebar. */
-  send: (text: string) => void
+  send: (content: MessageContent) => void
   /**
-   * Replaces the chat from message `index` on with `text`, sent again. Works
-   * mid-reply or mid-download: the current run stops first.
+   * Replaces the chat from message `index` on with `content`, sent again.
+   * Works mid-reply or mid-download: the current run stops first.
    */
-  resend: (index: number, text: string) => void
+  resend: (index: number, content: MessageContent) => void
   /** Removes one message, stopping the reply first if one is running. */
   remove: (messageId: string) => void
 }
@@ -31,17 +36,24 @@ export function useThread() {
 }
 
 /**
- * The composer's text, shared by the composer and the empty-state
- * suggestions. A context of its own, so typing doesn't re-render messages.
+ * The composer's text and attached images, shared by the composer and the
+ * empty-state suggestions. A context of its own, so typing doesn't
+ * re-render messages.
  */
-type ComposerState = { value: string; setValue: (value: string) => void }
+type ComposerState = {
+  value: string
+  setValue: (value: string) => void
+  attachments: ReadonlyArray<Attachment>
+  setAttachments: (update: (attachments: ReadonlyArray<Attachment>) => ReadonlyArray<Attachment>) => void
+}
 
 const ComposerContext = createContext<ComposerState | null>(null)
 
 export function ComposerProvider({ children }: { children: ReactNode }) {
   const [value, setValue] = useState("")
+  const [attachments, setAttachments] = useState<ReadonlyArray<Attachment>>([])
   return (
-    <ComposerContext.Provider value={{ value, setValue }}>
+    <ComposerContext.Provider value={{ value, setValue, attachments, setAttachments }}>
       {children}
     </ComposerContext.Provider>
   )

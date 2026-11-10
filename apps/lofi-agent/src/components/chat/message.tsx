@@ -14,7 +14,7 @@ import TrashBin from "@gravity-ui/icons/TrashBin"
 import Volume from "@gravity-ui/icons/Volume"
 import VolumeXmark from "@gravity-ui/icons/VolumeXmark"
 import { Alert, Button, Dropdown, Label } from "@heroui/react"
-import type { UIMessage } from "@tanstack/ai"
+import type { ContentPart, UIMessage } from "@tanstack/ai"
 import type { MessageProps } from "@tanstack/ai-react/ui"
 import { useContext, useEffect, useMemo, useState } from "react"
 
@@ -22,6 +22,7 @@ import { useSelectedModel } from "#/chat/model"
 import { modelInfo, useModelStatus } from "#/chat/models"
 import type { chatOptions } from "#/chat/options"
 import { Action, Actions } from "#/components/ai/actions"
+import { AttachmentThumbnail } from "#/components/ai/attachments"
 import { Message, MessageContent } from "#/components/ai/message"
 import { ToolGroup } from "#/components/ai/tool"
 import {
@@ -47,11 +48,23 @@ export function ChatMessage({ message }: MessageProps<typeof chatOptions>) {
   return null
 }
 
+/** A user message's images, as content parts to send again. */
+const imageParts = (message: UIMessage): Array<ContentPart> =>
+  message.parts.flatMap((part) => (part.type === "image" ? [part as ContentPart] : []))
+
+/** An image part's source as a URL, or nothing for a provider file. */
+const imageSrc = (source: { type: string; value: string; mimeType?: string }) =>
+  source.type === "file" ? undefined : source.type === "data" ? `data:${source.mimeType ?? "image/jpeg"};base64,${source.value}` : source.value
+
 function UserMessage({ message }: { message: UIMessage }) {
   const { messages } = useChatContext()
   const { resend, remove } = useThread()
   const [isEditing, setIsEditing] = useState(false)
   const text = messageText(message)
+  const images = imageParts(message)
+  // Its images go again with the text, edited or not.
+  const content = (next: string) =>
+    images.length ? [...images, ...(next ? [{ type: "text" as const, content: next }] : [])] : next
 
   if (isEditing) {
     return (
@@ -62,7 +75,7 @@ function UserMessage({ message }: { message: UIMessage }) {
           setIsEditing(false)
           resend(
             messages.findIndex((m) => m.id === message.id),
-            next
+            content(next)
           )
         }}
         onDelete={() => {
@@ -75,7 +88,15 @@ function UserMessage({ message }: { message: UIMessage }) {
 
   return (
     <Message from="user">
-      <MessageContent>{text}</MessageContent>
+      {images.length > 0 && (
+        <div className="flex max-w-[80%] flex-wrap justify-end gap-2">
+          {images.map((part, index) => {
+            const src = part.type === "image" ? imageSrc(part.source as { type: string; value: string; mimeType?: string }) : undefined
+            return src ? <AttachmentThumbnail key={index} src={src} name={`Image ${index + 1}`} /> : null
+          })}
+        </div>
+      )}
+      {text && <MessageContent>{text}</MessageContent>}
       <Actions>
         <CopyAction text={text} />
         <Action
@@ -83,7 +104,7 @@ function UserMessage({ message }: { message: UIMessage }) {
           onPress={() =>
             resend(
               messages.findIndex((m) => m.id === message.id),
-              text
+              content(text)
             )
           }
         >

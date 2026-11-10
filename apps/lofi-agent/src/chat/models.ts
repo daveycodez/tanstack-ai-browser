@@ -34,6 +34,7 @@ export type ModelId =
   | "lfm2-tool"
   | "lfm2.5-350m"
   | "qwen3.5-2b"
+  | "qwen3.5-0.8b"
   | "lfm2.5-gguf"
   | "lfm2.5-thinking-gguf"
   | "lfm2.5-350m-gguf"
@@ -277,6 +278,7 @@ export const MODELS = [
   local("lfm2-tool", "onnx-community/LFM2-1.2B-Tool-ONNX"),
   local("lfm2.5-350m", "LiquidAI/LFM2.5-350M-ONNX"),
   local("qwen3.5-2b", "onnx-community/Qwen3.5-2B-ONNX"),
+  local("qwen3.5-0.8b", "onnx-community/Qwen3.5-0.8B-ONNX"),
   gguf("lfm2.5-gguf", "LiquidAI/LFM2.5-1.2B-Instruct-GGUF"),
   gguf("lfm2.5-thinking-gguf", "LiquidAI/LFM2.5-1.2B-Thinking-GGUF"),
   gguf("lfm2.5-350m-gguf", "LiquidAI/LFM2.5-350M-GGUF"),
@@ -400,6 +402,10 @@ export const modelInfo = (id: ModelId) =>
   MODELS.find((m) => m.id === id) ??
   MODELS.find((m) => m.id === DEFAULT_MODEL) ??
   MODELS[0]
+
+/** Whether a model reads images: its adapter's input, from its catalog. */
+export const readsImages = (id: ModelId) =>
+  (modelInfo(id).adapter.inputModalities as ReadonlyArray<string> | undefined)?.includes("image") ?? false
 
 /** Whether `value` is the id of a model in the list, as a run reads it. */
 export const isModelId = (value: unknown): value is ModelId =>
