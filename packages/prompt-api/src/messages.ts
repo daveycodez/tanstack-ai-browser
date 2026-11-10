@@ -6,7 +6,6 @@
  */
 import type { ContentPart, ModelMessage } from "@tanstack/ai"
 
-import { PromptApiError } from "./model.js"
 import type { MediaInput } from "./model.js"
 import { toolCallFence, toolResultFence, toolResultLine } from "./tools.js"
 import type { LanguageModelContent, LanguageModelMessage } from "./types.js"
@@ -38,18 +37,11 @@ function base64Blob(value: string, mimeType: string | undefined) {
 async function loadMedia(type: MediaInput, source: { type: string; value: string; mimeType?: string }) {
   if (source.type === "data") return base64Blob(source.value, source.mimeType)
   if (source.type !== "url") {
-    throw new PromptApiError(`The built-in model can't read a provider's file handle; send the ${type} as data or a URL.`)
+    throw new Error(`The Prompt API takes ${type} as data or a URL, not a ${source.type} source.`)
   }
-  try {
-    const response = await fetch(source.value)
-    if (!response.ok) throw new Error(`HTTP ${response.status}`)
-    return await response.blob()
-  } catch (error) {
-    const where = source.value.startsWith("data:") ? "data URL" : source.value
-    throw new PromptApiError(
-      `Couldn't load the ${type} for the built-in model (${where.slice(0, 120)}): ${error instanceof Error ? error.message : String(error)}`
-    )
-  }
+  const response = await fetch(source.value)
+  if (!response.ok) throw new Error(`${source.value.slice(0, 120)}: HTTP ${response.status}`)
+  return response.blob()
 }
 
 async function userContent(content: ModelMessage["content"]): Promise<LanguageModelMessage["content"]> {
@@ -61,7 +53,7 @@ async function userContent(content: ModelMessage["content"]): Promise<LanguageMo
       if (part.type === "image" || part.type === "audio") {
         return { type: part.type, value: await loadMedia(part.type, part.source) }
       }
-      throw new PromptApiError(`The built-in model reads text, images and audio, not ${part.type}.`)
+      throw new Error(`The Prompt API takes text, images and audio, not ${part.type}.`)
     })
   )
 }

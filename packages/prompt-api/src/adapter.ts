@@ -8,8 +8,7 @@
  *
  * Each thread (`threadId`) keeps a session: a step prompts it with only the
  * messages it hasn't seen, and a conversation that changed (an edit, a new
- * system prompt) starts a new one. Tools go by prompt (`tools.ts`), and a
- * call that isn't valid is repaired once under `responseConstraint`;
+ * system prompt) starts a new one. Tools go by prompt (`tools.ts`);
  * structured output prompts the thread's session under the Prompt API's own
  * `responseConstraint`.
  */
@@ -19,19 +18,11 @@ import { BaseTextAdapter } from "@tanstack/ai/adapters"
 import type { StructuredOutputOptions, StructuredOutputResult } from "@tanstack/ai/adapters"
 
 import { contentText, mediaIn, toLanguageModelMessages } from "./messages.js"
-import { baseOptions, createSession, DEFAULT_LANGUAGES, NO_PROMPT_API, promptApiAvailability, PromptApiError } from "./model.js"
+import { baseOptions, createSession, DEFAULT_LANGUAGES, promptApiAvailability } from "./model.js"
 import type { Availability, MediaInput } from "./model.js"
 import type { PromptApiChatModel } from "./model-meta.js"
-import { repairPrompt, repairToolCall, toolCallError, toolCallReader, toolSystemPrompt } from "./tools.js"
-import { languageModel } from "./types.js"
-import type {
-  DownloadProgressCallback,
-  LanguageModelInput,
-  LanguageModelMessage,
-  LanguageModelSession,
-  QuotaExceededError,
-  SamplingMode
-} from "./types.js"
+import { toolCallReader, toolSystemPrompt } from "./tools.js"
+import type { DownloadProgressCallback, LanguageModelInput, LanguageModelSession, SamplingMode } from "./types.js"
 
 export type PromptApiConfig = {
   /**
@@ -54,8 +45,7 @@ export type PromptApiConfig = {
   /**
    * Called when a thread's session overflows its context window (the
    * session's `contextoverflow` event): Chrome then drops the oldest
-   * messages after the system prompt to make room. A warning is logged
-   * without one.
+   * messages after the system prompt to make room.
    */
   onContextOverflow?: (event: Event) => void
 }
@@ -87,29 +77,6 @@ type MetadataByModality = {
   audio: unknown
   video: unknown
   document: unknown
-}
-
-const errorText = (error: unknown) => (error instanceof Error ? error.message : String(error))
-
-/** What a failed call means for the user. */
-function promptErrorText(error: unknown) {
-  if (error instanceof PromptApiError) return error.message
-  if (error instanceof DOMException) {
-    if (error.name === "QuotaExceededError") {
-      const { requested, quota, contextWindow } = error as QuotaExceededError
-      const free = quota ?? contextWindow
-      const sizes = requested && free !== undefined ? ` (it needs ${requested} tokens; ${free} are free)` : ""
-      return `This is too long for the built-in model${sizes}. Start a new chat or send something shorter.`
-    }
-    if (error.name === "NotSupportedError") return `The built-in model can't do this: ${error.message}`
-    if (error.name === "SecurityError") {
-      return "The built-in model can't read that image: it's from another site that doesn't allow it (CORS)."
-    }
-    if (error.name === "EncodingError") {
-      return "The built-in model can't read that image or audio: its format isn't supported."
-    }
-  }
-  return `The built-in model failed: ${errorText(error)}`
 }
 
 /**
@@ -185,7 +152,7 @@ export class PromptApiTextAdapter extends BaseTextAdapter<
   private readonly languages: ReadonlyArray<string>
   private readonly inputs: ReadonlyArray<MediaInput>
   private readonly onDownloadProgress: DownloadProgressCallback | undefined
-  private readonly onContextOverflow: (event: Event) => void
+  private readonly onContextOverflow: ((event: Event) => void) | undefined
   /** Each thread's session, least recently used first. */
   private readonly kept = new Map<string, Kept>()
 
@@ -194,9 +161,7 @@ export class PromptApiTextAdapter extends BaseTextAdapter<
     this.languages = config.languages ?? DEFAULT_LANGUAGES
     this.inputs = config.inputs ?? []
     this.onDownloadProgress = config.onDownloadProgress
-    this.onContextOverflow =
-      config.onContextOverflow ??
-      (() => console.warn("The built-in model's context window overflowed: its oldest messages were dropped."))
+    this.onContextOverflow = config.onContextOverflow
   }
 
   /**
@@ -274,8 +239,46 @@ export class PromptApiTextAdapter extends BaseTextAdapter<
       signal,
       this.onDownloadProgress
     )
-    session.addEventListener("contextoverflow", this.onContextOverflow)
+    if (this.onContextOverflow) session.addEventListener("contextoverflow", this.onContextOverflow)
     return session
+  }
+
+  /**
+   * The step's session and the messages to prompt it with: the thread's
+   * kept session if the conversation goes on from what it holds (only the
+   * new messages), else a new one with the whole conversation. A second step
+   * on a busy thread gets a session of its own (`kept` undefined).
+   */
+  private async begin(options: TextOptions<PromptApiTextModelOptions>, signal: AbortSignal | undefined) {
+    const { threadId } = options
+    const tools = options.toolChoice === "none" ? [] : (options.tools ?? [])
+    const { system, settings } = sessionSettings(options, tools)
+    const keys = options.messages.map(messageKey)
+    const held = this.kept.get(threadId)
+    const goesOn = !!held && goesOnFrom(held, settings, keys)
+    const input = await toLanguageModelMessages(options.messages, goesOn ? held.seen.length : 0)
+    let kept: Kept | undefined
+    let session: LanguageModelSession
+    if (goesOn) {
+      kept = held
+      session = held.session
+    } else {
+      this.drop(threadId)
+      session = await this.session(options, system, signal)
+      if (!held?.busy) kept = { session, settings, seen: [], busy: false }
+    }
+    if (kept) {
+      kept.busy = true
+      this.keep(threadId, kept)
+    }
+    return { session, kept, keys, input }
+  }
+
+  /** Frees a step's session: a kept one stays for the thread unless the step failed. */
+  private end(threadId: string, session: LanguageModelSession | undefined, kept: Kept | undefined, failed: boolean) {
+    if (!kept) return session?.destroy()
+    kept.busy = false
+    if (failed) this.drop(threadId)
   }
 
   async *chatStream(options: TextOptions<PromptApiTextModelOptions>): AsyncIterable<AdapterYieldChunk> {
@@ -294,40 +297,13 @@ export class PromptApiTextAdapter extends BaseTextAdapter<
       ...(options.parentRunId && { parentRunId: options.parentRunId })
     }
 
-    let session: LanguageModelSession | undefined
-    // The thread's kept session, or none when this step has one of its own.
-    let kept: Kept | undefined
+    let step: Awaited<ReturnType<typeof this.begin>> | undefined
+    let failed = false
     // Stops the generation once a tool call is read.
     const stop = new AbortController()
-    // The thread's session no longer matches its conversation.
-    let discard = false
     try {
-      if (!languageModel()) throw new PromptApiError(NO_PROMPT_API)
-      const tools = options.toolChoice === "none" ? [] : (options.tools ?? [])
-      const { system, settings } = sessionSettings(options, tools)
-      const keys = options.messages.map(messageKey)
-      // The thread's session goes on if the conversation goes on from what it
-      // holds; anything else (an edit, new settings) starts a new one.
-      const held = this.kept.get(threadId)
-      const goesOn = !!held && goesOnFrom(held, settings, keys)
-      const start = goesOn ? held.seen.length : 0
-      const input = await toLanguageModelMessages(options.messages, start)
-      if (input.length === 0) throw new PromptApiError("There's no message for the built-in model to answer.")
-      if (goesOn) {
-        kept = held
-      } else {
-        this.drop(threadId)
-        session = await this.session(options, system, signal)
-        // A second step on a busy thread gets a session of its own.
-        if (!held?.busy) kept = { session, settings, seen: [], busy: false }
-      }
-      if (kept) {
-        session = kept.session
-        kept.busy = true
-        this.keep(threadId, kept)
-      }
-      if (!session) throw new PromptApiError("The built-in model's session didn't start.")
-
+      step = await this.begin(options, signal)
+      const { session, kept, keys, input } = step
       const reader = toolCallReader()
       let text = ""
       const textEvents = function* (delta: string): Generator<AdapterYieldChunk> {
@@ -340,7 +316,7 @@ export class PromptApiTextAdapter extends BaseTextAdapter<
       try {
         for await (const piece of session.promptStreaming(input, { signal: generation })) {
           yield* textEvents(reader.push(piece))
-          if (reader.fence !== undefined) {
+          if (reader.call) {
             stop.abort()
             break
           }
@@ -349,40 +325,13 @@ export class PromptApiTextAdapter extends BaseTextAdapter<
         if (!stop.signal.aborted || signal?.aborted) throw error
       }
       yield* textEvents(reader.end())
-      // A finished reply is in the session now. One stopped at a tool call
-      // isn't: Chrome drops a stopped turn whole, so the next step sends it.
-      const finished = !stop.signal.aborted
-
-      let call = reader.call
-      const fence = reader.fence
-      const reason = fence === undefined ? undefined : toolCallError(call, tools)
-      if (fence !== undefined && reason !== undefined) {
-        // One repair, held to the schema, on a copy of the session: the
-        // failed attempt and the repair prompt stay out of the thread's.
-        const attempt: Array<LanguageModelMessage> = [
-          ...(finished ? [] : [...input, { role: "assistant" as const, content: text + fence }]),
-          { role: "user", content: repairPrompt(reason) }
-        ]
-        const base = session
-        call = await repairToolCall(tools, call?.name, async (schema) => {
-          const copy = await base.clone({ signal })
-          try {
-            return JSON.parse(await copy.prompt(attempt, { responseConstraint: schema, signal })) as unknown
-          } finally {
-            copy.destroy()
-          }
-        })
-        signal?.throwIfAborted()
-        // If it fails too (a schema Chrome can't enforce included), the fence is text.
-        if (!call) yield* textEvents(fence)
-        // A finished reply holds the failed call, not the repaired one: the
-        // session starts over next step.
-        else if (finished) discard = true
-      }
+      const call = reader.call
       // Text after the call, in the piece that closed it, is shown too.
       yield* textEvents(reader.trailing)
       if (text) yield { type: EventType.TEXT_MESSAGE_END, messageId, model, timestamp: timestamp() }
-      if (kept && finished) kept.seen = [...keys, messageKey({ role: "assistant", content: text })]
+      // A finished reply is in the session now. One stopped at a tool call
+      // isn't: Chrome drops a stopped turn whole, so the next step sends it.
+      if (kept && !stop.signal.aborted) kept.seen = [...keys, messageKey({ role: "assistant", content: text })]
       if (call) {
         const toolCallId = nextId("call")
         const args = JSON.stringify(call.arguments)
@@ -419,21 +368,12 @@ export class PromptApiTextAdapter extends BaseTextAdapter<
       // An abort ends the stream quietly, as with TanStack's other adapters.
       // (Chrome drops the stopped turn, so the thread's session stays good.)
       if (signal?.aborted) return
-      // A session that failed isn't kept.
-      if (kept) {
-        kept.busy = false
-        this.drop(threadId)
-        kept = undefined
-        session = undefined
-      }
+      failed = true
       options.logger.errors("prompt-api chatStream failed", { error, source: "prompt-api.chatStream" })
-      const message = promptErrorText(error)
+      const message = error instanceof Error ? error.message : String(error)
       yield { type: EventType.RUN_ERROR, runId, model, timestamp: timestamp(), message, error: { message } }
     } finally {
-      if (kept) {
-        kept.busy = false
-        if (discard) this.drop(threadId)
-      } else session?.destroy()
+      this.end(threadId, step?.session, step?.kept, failed)
     }
   }
 
@@ -447,58 +387,21 @@ export class PromptApiTextAdapter extends BaseTextAdapter<
     options: StructuredOutputOptions<PromptApiTextModelOptions>
   ): Promise<StructuredOutputResult<unknown>> {
     const { chatOptions, outputSchema } = options
-    const { threadId } = chatOptions
     const signal = signalOf(chatOptions)
-    let session: LanguageModelSession | undefined
-    let kept: Kept | undefined
+    let step: Awaited<ReturnType<typeof this.begin>> | undefined
+    let failed = false
     try {
-      if (!languageModel()) throw new PromptApiError(NO_PROMPT_API)
-      const tools = chatOptions.toolChoice === "none" ? [] : (chatOptions.tools ?? [])
-      const { system, settings } = sessionSettings(chatOptions, tools)
-      const keys = chatOptions.messages.map(messageKey)
-      const held = this.kept.get(threadId)
-      const goesOn = !!held && goesOnFrom(held, settings, keys)
-      const input = await toLanguageModelMessages(chatOptions.messages, goesOn ? held.seen.length : 0)
-      if (goesOn) {
-        kept = held
-      } else {
-        this.drop(threadId)
-        session = await this.session(chatOptions, system, signal)
-        if (!held?.busy) kept = { session, settings, seen: [], busy: false }
-      }
-      if (kept) {
-        session = kept.session
-        kept.busy = true
-        this.keep(threadId, kept)
-      }
-      if (!session) throw new PromptApiError("The built-in model's session didn't start.")
-      const prompt = input.length > 0 ? input : "Answer."
-      const rawText = await session.prompt(prompt, { responseConstraint: outputSchema, signal })
+      step = await this.begin(chatOptions, signal)
+      const { session, kept, keys, input } = step
+      const rawText = await session.prompt(input, { responseConstraint: outputSchema, signal })
       if (kept) kept.seen = [...keys, messageKey({ role: "assistant", content: rawText })]
-      let data: unknown
-      try {
-        data = JSON.parse(rawText) as unknown
-      } catch (error) {
-        throw new Error(`The model's answer isn't JSON: ${rawText.slice(0, 200)}`, { cause: error })
-      }
-      return { data, rawText, model: this.model, usage: await usageOf(session, prompt, rawText) }
+      const data = JSON.parse(rawText) as unknown
+      return { data, rawText, model: this.model, usage: await usageOf(session, input, rawText) }
     } catch (error) {
-      // A session that failed isn't kept.
-      if (kept) {
-        kept.busy = false
-        this.drop(threadId)
-        kept = undefined
-        session = undefined
-      }
-      signal?.throwIfAborted()
-      if (error instanceof DOMException && error.name === "NotSupportedError") {
-        throw new Error("The browser cannot enforce the requested JSON Schema.", { cause: error })
-      }
-      if (error instanceof DOMException) throw new Error(promptErrorText(error), { cause: error })
+      failed = true
       throw error
     } finally {
-      if (kept) kept.busy = false
-      else session?.destroy()
+      this.end(chatOptions.threadId, step?.session, step?.kept, failed)
     }
   }
 }

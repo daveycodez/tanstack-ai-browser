@@ -4,14 +4,12 @@
  * start, and `tools` alone are never called), so the system prompt lists the
  * tools as JSON and asks for a call as JSON in a ```tool_call fence; results
  * go back in a ```tool_result fence. The adapter reads calls out of the
- * streamed text, and repairs a call that isn't valid once. The apfel
- * adapter (`@tanstack-ai-browser/apfel`'s `tools.ts`) has a copy: keep the
- * two identical below this comment.
+ * streamed text; `chat()` checks them against the tools.
  */
 import type { ModelMessage, Tool } from "@tanstack/ai"
 
 /** A tool call read from the model's text. */
-export type ParsedToolCall = { name: string; arguments: Record<string, unknown> }
+export type ParsedToolCall = { name: string; arguments: unknown }
 
 /** Where a call starts and ends: the fence the prompt asks for, then other ways small models write one. */
 type Delimiter = { start: string; end: string }
@@ -99,10 +97,9 @@ export const toolResultFence = (lines: ReadonlyArray<string>) => `\`\`\`tool_res
 
 /**
  * The first tool call in a fence's body: a JSON object (or an array of them,
- * or one per line) with `name` (or `tool`, `tool_name`) and `arguments` (or
- * `parameters`), the arguments possibly a JSON string, maybe wrapped in a
- * `tool_call` or `function` key; or a Python-style call, `[name(key="v")]`;
- * or `call:name{key:value}`.
+ * or one per line) with `name` and `arguments` (or `parameters`), the
+ * arguments possibly a JSON string; or a Python-style call,
+ * `[name(key="v")]`; or `call:name{key:value}`.
  */
 export function parseToolCall(body: string): ParsedToolCall | undefined {
   const text = body.trim()
@@ -127,23 +124,17 @@ export function parseToolCall(body: string): ParsedToolCall | undefined {
       }
     }
   }
-  for (const candidate of candidates) {
-    // A call wrapped in a "tool_call" or "function" key is read too.
-    const call = isObject(candidate) && isObject(candidate.tool_call ?? candidate.function)
-      ? (candidate.tool_call ?? candidate.function) as Record<string, unknown>
-      : candidate
-    if (!isObject(call)) continue
-    const name = call.name ?? call.tool ?? call.tool_name
-    if (typeof name !== "string" || !name) continue
+  for (const call of candidates) {
+    if (!isObject(call) || typeof call.name !== "string" || !call.name) continue
     let args: unknown = call.arguments ?? call.parameters ?? {}
     if (typeof args === "string") {
       try {
         args = JSON.parse(args) as unknown
       } catch {
-        // Left as is, and rejected below.
+        // Left as the model wrote it.
       }
     }
-    if (isObject(args)) return { name, arguments: args }
+    return { name: call.name, arguments: args }
   }
   return undefined
 }
@@ -241,23 +232,6 @@ function parsePythonCall(text: string): ParsedToolCall | undefined {
   return { name: match[1], arguments: args }
 }
 
-/** The JSON object `text` starts with, up to its closing brace (or all of `text`). */
-function leadingObject(text: string) {
-  const start = text.indexOf("{")
-  let depth = 0
-  let quoted = false
-  for (let i = start; i >= 0 && i < text.length; i++) {
-    const c = text[i]
-    if (quoted) {
-      if (c === "\\") i++
-      else if (c === '"') quoted = false
-    } else if (c === '"') quoted = true
-    else if (c === "{") depth++
-    else if (c === "}" && --depth === 0) return text.slice(start, i + 1)
-  }
-  return text
-}
-
 /** Characters at the end of `text` that could start a fence. */
 function partialFenceStart(text: string) {
   for (let size = Math.min(text.length, Math.max(...DELIMITERS.map((d) => d.start.length)) - 1); size > 0; size--) {
@@ -271,53 +245,49 @@ function partialFenceStart(text: string) {
  * Reads a streamed reply: `push` each piece and get back the text that can
  * be shown now; text inside a ```tool_call fence (or another call's
  * delimiters: `<tool_call>`, `<|tool_call>`, `<|tool_call_start|>`, or a
- * Python-style `[name(…)]`) is held back. The first
- * fence that closes ends the reply (stop generating then): `fence` is its
- * text, `call` the call in it, if it holds one (else the fence is a failed
- * call, for `repairToolCall`), and `trailing` the text after it. Other code
- * fences are text. `end` gives the rest, reading an unclosed fence as the
- * reply's last.
+ * Python-style `[name(…)]`) is held back. The first fence that closes with
+ * a call in it ends the reply (stop generating then): `call` is the call,
+ * and `trailing` the text after it. A fence without a call, and other code
+ * fences, are text. `end` gives the rest, an unclosed fence as text.
  */
 export function toolCallReader() {
   let buffer = ""
   // The delimiter of the call being read; a Python-style call is read whole.
   let start: (Delimiter & { python?: boolean }) | undefined
-  let fence: string | undefined
   let call: ParsedToolCall | undefined
-  // Text after the fence, in the piece that closed it.
+  // Text after the call, in the piece that closed it.
   let trailing = ""
 
-  // A reply that starts with "{" may be a call without its fence (Apple's
-  // model writes one sometimes): held back until the reply ends.
-  let bare: boolean | undefined
   const read = (): string => {
     let shown = ""
-    if (fence !== undefined) return shown
-    if (bare === undefined && buffer.trim()) bare = buffer.trimStart().startsWith("{")
-    if (bare) return shown
-    if (!start) {
-      const python = PYTHON_CALL.exec(buffer)
-      const found = [
-        ...DELIMITERS.map((d) => ({ d, at: buffer.indexOf(d.start) })),
-        ...(python ? [{ d: { start: python[0], end: ")]", python: true }, at: python.index }] : [])
-      ]
-        .filter((f) => f.at !== -1)
-        .sort((a, b) => a.at - b.at)[0]
-      if (!found) {
-        const keep = partialFenceStart(buffer)
-        shown += buffer.slice(0, buffer.length - keep)
-        buffer = buffer.slice(buffer.length - keep)
-        return shown
+    while (!call) {
+      if (!start) {
+        const python = PYTHON_CALL.exec(buffer)
+        const found = [
+          ...DELIMITERS.map((d) => ({ d, at: buffer.indexOf(d.start) })),
+          ...(python ? [{ d: { start: python[0], end: ")]", python: true }, at: python.index }] : [])
+        ]
+          .filter((f) => f.at !== -1)
+          .sort((a, b) => a.at - b.at)[0]
+        if (!found) {
+          const keep = partialFenceStart(buffer)
+          shown += buffer.slice(0, buffer.length - keep)
+          buffer = buffer.slice(buffer.length - keep)
+          return shown
+        }
+        shown += buffer.slice(0, found.at)
+        buffer = buffer.slice(found.at)
+        start = found.d
       }
-      shown += buffer.slice(0, found.at)
-      buffer = buffer.slice(found.at)
-      start = found.d
+      const close = buffer.indexOf(start.end, start.start.length)
+      if (close === -1) return shown
+      const fence = buffer.slice(0, close + start.end.length)
+      call = parseToolCall(start.python ? fence : fence.slice(start.start.length, close))
+      buffer = buffer.slice(fence.length)
+      start = undefined
+      if (call) trailing = buffer
+      else shown += fence
     }
-    const close = buffer.indexOf(start.end, start.start.length)
-    if (close === -1) return shown
-    fence = buffer.slice(0, close + start.end.length)
-    trailing = buffer.slice(fence.length)
-    call = parseToolCall(start.python ? fence : fence.slice(start.start.length, close))
     return shown
   }
 
@@ -325,10 +295,7 @@ export function toolCallReader() {
     get call() {
       return call
     },
-    get fence() {
-      return fence
-    },
-    /** Text that came after the fence: shown after the call. */
+    /** Text that came after the call: shown after it. */
     get trailing() {
       return trailing
     },
@@ -337,142 +304,10 @@ export function toolCallReader() {
       return read()
     },
     end(): string {
-      if (fence !== undefined) return ""
-      if (start) {
-        fence = buffer
-        call = parseToolCall(start.python ? buffer : buffer.slice(start.start.length))
-        return ""
-      }
+      if (call) return ""
       const rest = buffer
       buffer = ""
-      const bareCall = bare ? parseToolCall(leadingObject(rest)) : undefined
-      if (bareCall) {
-        fence = rest
-        call = bareCall
-        return ""
-      }
       return rest
     }
-  }
-}
-
-const matches = (type: unknown, value: unknown) =>
-  type === "string"
-    ? typeof value === "string"
-    : type === "number"
-      ? typeof value === "number"
-      : type === "integer"
-        ? Number.isInteger(value)
-        : type === "boolean"
-          ? typeof value === "boolean"
-          : type === "array"
-            ? Array.isArray(value)
-            : type === "object"
-              ? isObject(value)
-              : type === "null"
-                ? value === null
-                : true
-
-/** Why `value` doesn't fit `schema` (types, enums, required and unknown fields), if it doesn't. */
-function schemaError(
-  schema: unknown,
-  value: unknown,
-  path: string
-): string | undefined {
-  if (!isObject(schema)) return undefined
-  if (
-    Array.isArray(schema.enum) &&
-    !schema.enum.some((e) => JSON.stringify(e) === JSON.stringify(value))
-  ) {
-    return `${path} must be one of ${JSON.stringify(schema.enum)}`
-  }
-  const types = [schema.type].flat().filter((t) => t !== undefined)
-  if (types.length > 0 && !types.some((t) => matches(t, value)))
-    return `${path} must be ${types.join(" or ")}`
-  if (isObject(value)) {
-    const properties = isObject(schema.properties) ? schema.properties : {}
-    for (const key of Array.isArray(schema.required) ? schema.required : []) {
-      if (typeof key === "string" && !(key in value))
-        return `${path}.${key} is missing`
-    }
-    for (const [key, field] of Object.entries(value)) {
-      if (key in properties) {
-        const error = schemaError(properties[key], field, `${path}.${key}`)
-        if (error) return error
-      } else if (schema.additionalProperties === false) {
-        return `${path}.${key} isn't a parameter`
-      }
-    }
-  }
-  if (Array.isArray(value)) {
-    for (const [i, item] of value.entries()) {
-      const error = schemaError(schema.items, item, `${path}[${i}]`)
-      if (error) return error
-    }
-  }
-  return undefined
-}
-
-/** Why a call doesn't fit the tools (an unknown tool, or arguments that fail its schema), if it doesn't. */
-export function invalidToolCall(
-  call: ParsedToolCall,
-  tools: ReadonlyArray<Tool>
-): string | undefined {
-  const tool = tools.find((t) => t.name === call.name)
-  if (!tool)
-    return `there's no tool named "${call.name}" (the tools are ${tools.map((t) => t.name).join(", ")})`
-  return schemaError(tool.inputSchema, call.arguments, "arguments")
-}
-
-/** Why a reply's ```tool_call fence isn't a valid call, if it isn't. */
-export const toolCallError = (
-  call: ParsedToolCall | undefined,
-  tools: ReadonlyArray<Tool>
-) =>
-  call
-    ? invalidToolCall(call, tools)
-    : 'it isn\'t JSON with "name" and "arguments"'
-
-/** The message after a failed call, asking for it again. */
-export const repairPrompt = (reason: string) =>
-  `That tool call wasn't valid: ${reason}. Write it again.`
-
-/**
- * One repair of a failed tool call, with output held to a schema (as webgllm
- * repairs): the tool's arguments if `name` is a tool, else first the tool's
- * name, then its arguments. `generate(schema)` asks the model, with the
- * conversation, its failed attempt and `repairPrompt`, for JSON that fits
- * `schema`, and returns it parsed. Undefined if the repair fails too.
- */
-export async function repairToolCall(
-  tools: ReadonlyArray<Tool>,
-  name: string | undefined,
-  generate: (schema: Record<string, unknown>) => Promise<unknown>
-): Promise<ParsedToolCall | undefined> {
-  if (tools.length === 0) return undefined
-  try {
-    let tool = tools.find((t) => t.name === name)
-    if (!tool) {
-      const picked = await generate({
-        type: "object",
-        properties: {
-          name: { type: "string", enum: tools.map((t) => t.name) }
-        },
-        required: ["name"]
-      })
-      tool = tools.find((t) => isObject(picked) && t.name === picked.name)
-      if (!tool) return undefined
-    }
-    const args = await generate(
-      (tool.inputSchema as Record<string, unknown> | undefined) ?? {
-        type: "object",
-        properties: {}
-      }
-    )
-    if (!isObject(args)) return undefined
-    const call = { name: tool.name, arguments: args }
-    return invalidToolCall(call, tools) ? undefined : call
-  } catch {
-    return undefined
   }
 }

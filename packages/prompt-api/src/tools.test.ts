@@ -2,11 +2,7 @@ import assert from "node:assert/strict"
 import { test } from "node:test"
 
 import {
-  invalidToolCall,
   parseToolCall,
-  repairPrompt,
-  repairToolCall,
-  toolCallError,
   toolCallFence,
   toolCallReader,
   toolResultFence,
@@ -26,7 +22,7 @@ function read(pieces: Array<string>) {
   let shown = ""
   for (const piece of pieces) {
     shown += reader.push(piece)
-    if (reader.fence !== undefined) break
+    if (reader.call) break
   }
   shown += reader.end()
   return { shown, call: reader.call }
@@ -67,7 +63,7 @@ test("a call's JSON: arguments or parameters, a JSON-string argument, an array o
   assert.deepEqual(parseToolCall('{"name":"a"}\n{"name":"b"}'), { name: "a", arguments: {} })
   assert.equal(parseToolCall("not json"), undefined)
   assert.equal(parseToolCall('{"arguments":{}}'), undefined)
-  assert.equal(parseToolCall('{"name":"a","arguments":[1]}'), undefined)
+  assert.equal(parseToolCall('{"tool":"a","arguments":{}}'), undefined)
 })
 
 test("no call: all the text is shown", () => {
@@ -88,26 +84,8 @@ test("a call split across pieces is held back and read; text before it is shown"
   assert.deepEqual(call, { name: "get_weather", arguments: { city: "Paris" } })
 })
 
-test("the tool-call spelling and an unclosed fence at the end are read too", () => {
+test("the tool-call spelling is read too", () => {
   assert.deepEqual(read(['```tool-call\n{"name":"a","arguments":{}}\n```']).call, { name: "a", arguments: {} })
-  assert.deepEqual(read(['```tool_call\n{"name":"a","arguments":{"x":1}}']), { shown: "", call: { name: "a", arguments: { x: 1 } } })
-})
-
-test("a reply that is only a call's JSON, without its fence, is read as the call", () => {
-  // Apple's model writes this sometimes, with "tool" for the name.
-  assert.deepEqual(read([' { "tool": "get_weather", ', '"arguments": { "city": "Oslo" } }']), {
-    shown: "",
-    call: { name: "get_weather", arguments: { city: "Oslo" } }
-  })
-  // Other spellings, a wrapping key, and text after the object.
-  assert.deepEqual(read(['{"tool_name": "a", "arguments": {"x": 1}}']).call, { name: "a", arguments: { x: 1 } })
-  assert.deepEqual(
-    read(['{\n  "tool_call": {"name": "a", "arguments": {}, "result": {"made": "up"}}\n}\n\n```tool_call\n{"name": "b"}\n```']).call,
-    { name: "a", arguments: {} }
-  )
-  // Other JSON is shown once the reply ends; JSON after text is text.
-  assert.deepEqual(read(['{"answer": 4', "2}"]), { shown: '{"answer": 42}', call: undefined })
-  assert.deepEqual(read(["Here: ", '{"name":"a","arguments":{}}']), { shown: 'Here: {"name":"a","arguments":{}}', call: undefined })
 })
 
 test("text after a closed fence, in the piece that closed it, is kept as trailing", () => {
@@ -130,74 +108,13 @@ test("other ways small models write a call are read too: tags, delimiters, Pytho
   assert.deepEqual(read(["<|tool_call>call:get_weather{days:3,metric:true}<tool_call|>"]).call?.arguments, { days: 3, metric: true })
 })
 
-test("a fence without a valid call ends the reply as a failed call; other code fences are shown as text", () => {
+test("a fence without a call, an unclosed fence, bare JSON and other code fences are text", () => {
   const reader = toolCallReader()
-  assert.equal(reader.push("Hm. ```tool_call\nnope\n```"), "Hm. ")
-  assert.equal(reader.fence, "```tool_call\nnope\n```")
-  assert.equal(reader.call, undefined)
-  assert.equal(reader.push(" more"), "")
-  assert.equal(reader.end(), "")
-  const unclosed = toolCallReader()
-  unclosed.push("```tool_call\n{broken")
-  assert.equal(unclosed.end(), "")
-  assert.equal(unclosed.fence, "```tool_call\n{broken")
+  assert.equal(reader.push("Hm. ```tool_call\nnope\n``` then "), "Hm. ```tool_call\nnope\n``` then ")
+  assert.equal(reader.push('```tool_call\n{"name":"a"}\n```'), "")
+  assert.deepEqual(reader.call, { name: "a", arguments: {} })
+  assert.deepEqual(read(["```tool_call\n{broken"]), { shown: "```tool_call\n{broken", call: undefined })
+  assert.deepEqual(read(['{"name":"a","arguments":{}}']), { shown: '{"name":"a","arguments":{}}', call: undefined })
   assert.deepEqual(read(["```js\nx()\n```"]), { shown: "```js\nx()\n```", call: undefined })
   assert.deepEqual(read(["a ``", "`"]), { shown: "a ```", call: undefined })
-})
-
-const strict = {
-  name: "set_alarm",
-  description: "Sets an alarm",
-  inputSchema: {
-    type: "object",
-    properties: { time: { type: "string" }, days: { type: "array", items: { type: "string", enum: ["mon", "tue"] } }, loud: { type: "boolean" } },
-    required: ["time"],
-    additionalProperties: false
-  }
-}
-
-test("calls are checked against their tools: the name, required and unknown fields, types and enums", () => {
-  const tools = [weather, strict]
-  assert.equal(invalidToolCall({ name: "get_weather", arguments: { city: "Paris" } }, tools), undefined)
-  assert.equal(invalidToolCall({ name: "set_alarm", arguments: { time: "7:00", days: ["mon"], loud: true } }, tools), undefined)
-  assert.equal(invalidToolCall({ name: "weather", arguments: {} }, tools), 'there\'s no tool named "weather" (the tools are get_weather, set_alarm)')
-  assert.equal(invalidToolCall({ name: "get_weather", arguments: {} }, tools), "arguments.city is missing")
-  assert.equal(invalidToolCall({ name: "get_weather", arguments: { city: 3 } }, tools), "arguments.city must be string")
-  assert.equal(invalidToolCall({ name: "set_alarm", arguments: { time: "7", when: 1 } }, tools), "arguments.when isn't a parameter")
-  assert.equal(invalidToolCall({ name: "set_alarm", arguments: { time: "7", days: ["sun"] } }, tools), 'arguments.days[0] must be one of ["mon","tue"]')
-  assert.equal(toolCallError(undefined, tools), 'it isn\'t JSON with "name" and "arguments"')
-  assert.equal(repairPrompt("arguments.city is missing"), "That tool call wasn't valid: arguments.city is missing. Write it again.")
-})
-
-test("a repair asks for a known tool's arguments, held to its schema", async () => {
-  const schemas: Array<unknown> = []
-  const call = await repairToolCall([weather, strict], "get_weather", async (schema) => {
-    schemas.push(schema)
-    return { city: "Paris" }
-  })
-  assert.deepEqual(call, { name: "get_weather", arguments: { city: "Paris" } })
-  assert.deepEqual(schemas, [weather.inputSchema])
-})
-
-test("a repair of an unknown or unreadable tool asks for the name, then its arguments", async () => {
-  const schemas: Array<unknown> = []
-  const answers = [{ name: "set_alarm" }, { time: "7:00" }]
-  const call = await repairToolCall([weather, strict], undefined, async (schema) => {
-    schemas.push(schema)
-    return answers.shift()
-  })
-  assert.deepEqual(call, { name: "set_alarm", arguments: { time: "7:00" } })
-  assert.deepEqual(schemas, [
-    { type: "object", properties: { name: { type: "string", enum: ["get_weather", "set_alarm"] } }, required: ["name"] },
-    strict.inputSchema
-  ])
-})
-
-test("a repair that fails, throws, or still doesn't fit gives nothing; without tools nothing is asked", async () => {
-  assert.equal(await repairToolCall([weather], "get_weather", async () => { throw new Error("busy") }), undefined)
-  assert.equal(await repairToolCall([weather], "get_weather", async () => ({ town: "Paris" })), undefined)
-  assert.equal(await repairToolCall([weather], undefined, async () => ({ name: "nope" })), undefined)
-  let asked = 0
-  assert.equal(await repairToolCall([], "x", async () => { asked++; return {} }), undefined)
-  assert.equal(asked, 0)
 })

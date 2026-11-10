@@ -90,8 +90,6 @@ export interface LanguageModelSession extends EventTarget {
     input: LanguageModelInput,
     options?: LanguageModelPromptOptions
   ): ReadableStream<string> & AsyncIterable<string>
-  /** A copy of the session, with what it holds. */
-  clone(options?: { signal?: AbortSignal }): Promise<LanguageModelSession>
   measureContextUsage(
     input: LanguageModelInput,
     options?: LanguageModelPromptOptions
@@ -106,17 +104,6 @@ export type LanguageModelStatic = {
 
 /** The `downloadprogress` event: `loaded` goes from 0 to 1. */
 export type DownloadProgressEvent = Event & { loaded: number; total?: number }
-
-/**
- * The `QuotaExceededError` a too-long input throws: `requested` tokens, and
- * the tokens free (`quota` in WebIDL's version of the error; Chrome's docs
- * call it `contextWindow`).
- */
-export type QuotaExceededError = DOMException & {
-  requested?: number
-  quota?: number
-  contextWindow?: number
-}
 
 /** The page's `LanguageModel`, or undefined where the browser has none. */
 export const languageModel = () =>

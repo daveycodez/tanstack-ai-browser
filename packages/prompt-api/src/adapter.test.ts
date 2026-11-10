@@ -15,19 +15,12 @@ const logger = { request: noop, provider: noop, errors: noop, warn: noop } as un
 
 /** What the fake browser does, per test. */
 const control = {
-  availability: "available" as string,
   creates: [] as Array<Record<string, unknown>>,
   prompts: [] as Array<Prompt>,
   /** The streamed reply, in these pieces. */
   pieces: ["Hello ", "there"] as Array<string>,
   /** prompt()'s reply. */
   answer: '{"city":"Tokyo"}',
-  /** prompt()'s replies, in turn, before `answer`. */
-  answers: [] as Array<string>,
-  /** Sessions cloned. */
-  clones: 0,
-  /** Thrown by prompt() only. */
-  constrainedFailure: undefined as unknown,
   /** Thrown by create(), or by the prompt. */
   createFailure: undefined as unknown,
   promptFailure: undefined as unknown,
@@ -52,18 +45,14 @@ class FakeSession extends EventTarget {
   destroy() {
     control.destroyed++
   }
-  async clone() {
-    control.clones++
-    return new FakeSession()
-  }
   async measureContextUsage(input: unknown) {
     return JSON.stringify(input).length
   }
   async prompt(input: unknown, options: Record<string, unknown> = {}) {
     control.prompts.push({ kind: "prompt", input, options })
+    ;(options.signal as AbortSignal | undefined)?.throwIfAborted()
     if (control.promptFailure) throw control.promptFailure
-    if (control.constrainedFailure) throw control.constrainedFailure
-    return control.answers.shift() ?? control.answer
+    return control.answer
   }
   promptStreaming(input: unknown, options: Record<string, unknown> = {}) {
     control.prompts.push({ kind: "stream", input, options })
@@ -83,7 +72,7 @@ class FakeSession extends EventTarget {
 }
 
 ;(globalThis as { LanguageModel?: unknown }).LanguageModel = {
-  availability: async () => control.availability,
+  availability: async () => "available",
   async create(options: Record<string, unknown>) {
     control.creates.push(options)
     if (control.createFailure) throw control.createFailure
@@ -96,14 +85,10 @@ class FakeSession extends EventTarget {
 
 beforeEach(() => {
   Object.assign(control, {
-    availability: "available",
     creates: [],
     prompts: [],
     pieces: ["Hello ", "there"],
     answer: '{"city":"Tokyo"}',
-    answers: [],
-    clones: 0,
-    constrainedFailure: undefined,
     createFailure: undefined,
     promptFailure: undefined,
     beforePiece: noop,
@@ -132,14 +117,6 @@ const typesOf = (chunks: Array<Chunk>) => chunks.map((c) => c.type)
 const textIn = (chunks: Array<Chunk>) =>
   chunks.filter((c) => c.type === "TEXT_MESSAGE_CONTENT").map((c) => c.delta).join("")
 const weather = { name: "get_weather", description: "Weather for a city", inputSchema: { type: "object", properties: { city: { type: "string" } } } }
-
-test("the config has no reasoning, native-tools or session options", () => {
-  // @ts-expect-error nativeTools was removed: Chrome's tool use doesn't work on web pages.
-  const native: PromptApiConfig = { nativeTools: true }
-  // @ts-expect-error onThinking was removed.
-  const thinking: PromptApiConfig = { onThinking: noop }
-  assert.ok(native && thinking)
-})
 
 test("a reply streams as text, on a session the thread keeps", async () => {
   const chunks = await run({ systemPrompts: ["Be brief."], modelOptions: { topK: 3 } })
@@ -250,37 +227,16 @@ test("images are loaded as Blobs, and the session expects them", async () => {
   assert.ok(message.content[1].value instanceof Blob)
 })
 
-test("a reasoning request is ignored, as for any model that doesn't reason", async () => {
-  const chunks = await run({ reasoning: { level: "high", summary: true } })
-  assert.equal(chunks.some((c) => c.type.startsWith("REASONING")), false)
-  assert.equal(textIn(chunks), "Hello there")
-})
-
-test("failures end with RUN_ERROR in words for the user", async () => {
-  control.promptFailure = Object.assign(new DOMException("too long", "QuotaExceededError"), { requested: 10000, quota: 9000 })
-  let chunks = await run()
+test("a failure ends with RUN_ERROR, with the error's own message, and frees the session", async () => {
+  control.promptFailure = new DOMException("too long", "QuotaExceededError")
+  const chunks = await run()
   assert.deepEqual(typesOf(chunks), ["RUN_STARTED", "RUN_ERROR"])
-  assert.match(String(chunks[1].message), /too long for the built-in model \(it needs 10000 tokens; 9000 are free\)/)
+  assert.equal(chunks[1].message, "too long")
   assert.equal(control.destroyed, 1)
 
   control.promptFailure = undefined
-  control.availability = "unavailable"
-  chunks = await run()
-  assert.match(String(chunks.at(-1)?.message), /can't run on this device/)
-
-  control.availability = "available"
   control.createFailure = new DOMException("click first", "NotAllowedError")
-  chunks = await run()
-  assert.match(String(chunks.at(-1)?.message), /wants a click on the page/)
-
-  const api = (globalThis as { LanguageModel?: unknown }).LanguageModel
-  delete (globalThis as { LanguageModel?: unknown }).LanguageModel
-  try {
-    chunks = await run()
-    assert.match(String(chunks.at(-1)?.message), /no built-in language model/)
-  } finally {
-    ;(globalThis as { LanguageModel?: unknown }).LanguageModel = api
-  }
+  assert.equal((await run()).at(-1)?.message, "click first")
 })
 
 test("an abort mid-reply ends the stream quietly and keeps the thread's session", async () => {
@@ -321,15 +277,15 @@ test("structured output: one prompt on the thread's session under responseConstr
   assert.deepEqual(value, { city: "Tokyo" })
 })
 
-test("structured output fails on an answer that isn't JSON, a schema Chrome can't enforce, and an abort", async () => {
+test("structured output fails on an answer that isn't JSON, the browser's error, and an abort", async () => {
   control.answer = "Tokyo"
-  await assert.rejects(promptApiText("built-in").structuredOutput(structured()), /isn't JSON/)
-  control.promptFailure = new DOMException("no", "NotSupportedError")
-  await assert.rejects(promptApiText("built-in").structuredOutput(structured()), /cannot enforce the requested JSON Schema/)
+  await assert.rejects(promptApiText("built-in").structuredOutput(structured()), SyntaxError)
+  control.promptFailure = new DOMException("unsupported schema", "NotSupportedError")
+  await assert.rejects(promptApiText("built-in").structuredOutput(structured()), /unsupported schema/)
   const controller = new AbortController()
   controller.abort(new Error("stopped"))
   await assert.rejects(promptApiText("built-in").structuredOutput(structured({ abortController: controller })), /stopped/)
-  assert.equal(control.destroyed, 2)
+  assert.equal(control.destroyed, 3, "each failed session is freed")
 })
 
 test("availability is the browser's answer for the adapter's languages and inputs", async () => {
@@ -359,7 +315,7 @@ test("create reports the download between 0 and 1, then 1, to both listeners, an
   assert.equal(control.destroyed, 1)
 
   control.createFailure = new DOMException("no", "NotSupportedError")
-  await assert.rejects(adapter.create(), /can't run on this device/)
+  await assert.rejects(adapter.create(), /no/)
 })
 
 /** A step on `adapter`, with these messages. */
@@ -430,101 +386,18 @@ test("past four threads the least recently used session closes, and destroy() cl
   assert.equal(control.destroyed, 5)
 })
 
-const strictWeather = {
-  name: "get_weather",
-  description: "Weather for a city",
-  inputSchema: { type: "object", properties: { city: { type: "string" } }, required: ["city"] }
-}
-const clock = { name: "clock", description: "The time" }
-const fence = (body: string) => "```tool_call\n" + body + "\n```"
-
-test("a valid call needs no repair", async () => {
-  control.pieces = [fence('{"name": "get_weather", "arguments": {"city": "Paris"}}')]
-  const chunks = await run({ tools: [strictWeather] })
+test("a call is emitted as it parses: chat() checks the tool and its arguments", async () => {
+  control.pieces = ['```tool_call\n{"name": "weather", "arguments": {"town": "Paris"}}\n```']
+  const chunks = await run({ tools: [weather] })
+  const end = chunks.find((c) => c.type === "TOOL_CALL_END")
+  assert.equal(end?.toolCallName, "weather")
+  assert.deepEqual(end?.input, { town: "Paris" })
   assert.equal(chunks.at(-1)?.finishReason, "tool_calls")
-  assert.equal(control.clones, 0)
-  assert.deepEqual(control.prompts.map((p) => p.kind), ["stream"])
 })
 
-test("a call with arguments that fail its schema is repaired once, on a copy of the session, held to the tool's schema", async () => {
-  const broken = fence('{"name": "get_weather", "arguments": {"town": "Paris"}}')
-  control.pieces = ["Checking. ", broken, "never read"]
-  control.answers = ['{"city": "Paris"}']
-  const chunks = await run({ tools: [strictWeather, clock] })
-  assert.deepEqual(typesOf(chunks), [
-    "RUN_STARTED",
-    "TEXT_MESSAGE_START",
-    "TEXT_MESSAGE_CONTENT",
-    "TEXT_MESSAGE_END",
-    "TOOL_CALL_START",
-    "TOOL_CALL_ARGS",
-    "TOOL_CALL_END",
-    "RUN_FINISHED"
-  ])
-  assert.deepEqual(chunks.find((c) => c.type === "TOOL_CALL_END")?.input, { city: "Paris" })
-  assert.equal(chunks.at(-1)?.finishReason, "tool_calls")
-  assert.equal(control.clones, 1)
-  const repair = control.prompts[1]
-  assert.equal(repair.kind, "prompt")
-  assert.deepEqual(repair.options.responseConstraint, strictWeather.inputSchema)
-  // The stopped turn isn't in the session, so the copy is sent it, then the repair prompt.
-  assert.deepEqual(repair.input, [
-    { role: "user", content: "Weather in Paris?" },
-    { role: "assistant", content: `Checking. ${broken}` },
-    { role: "user", content: "That tool call wasn't valid: arguments.city is missing. Write it again." }
-  ])
-  assert.equal(control.destroyed, 1, "only the copy is freed; the thread keeps its session")
-})
-
-test("a fence that isn't JSON, or names an unknown tool, is repaired with the name first, then its arguments", async () => {
-  for (const broken of ['{"name": "get_weather", "arguments": {city: Paris}}', '{"name": "weather", "arguments": {}}']) {
-    control.prompts = []
-    control.pieces = [fence(broken)]
-    control.answers = ['{"name": "get_weather"}', '{"city": "Paris"}']
-    const chunks = await run({ tools: [strictWeather, clock] })
-    assert.deepEqual(chunks.find((c) => c.type === "TOOL_CALL_END")?.input, { city: "Paris" })
-    const constraints = control.prompts.filter((p) => p.kind === "prompt").map((p) => p.options.responseConstraint)
-    assert.deepEqual(constraints, [
-      { type: "object", properties: { name: { type: "string", enum: ["get_weather", "clock"] } }, required: ["name"] },
-      strictWeather.inputSchema
-    ])
-  }
-})
-
-test("a repair that fails too, or that Chrome can't constrain, shows the fence as text, without trying again", async () => {
-  const broken = fence('{"name": "get_weather", "arguments": {"town": "Paris"}}')
-  for (const failure of [undefined, new DOMException("unsupported schema", "NotSupportedError")]) {
-    control.prompts = []
-    control.pieces = ["Checking. ", broken]
-    control.answers = ['{"town": "Paris"}']
-    control.constrainedFailure = failure
-    const chunks = await run({ tools: [strictWeather] })
-    assert.equal(chunks.some((c) => c.type.startsWith("TOOL_CALL") || c.type === "RUN_ERROR"), false)
-    assert.equal(chunks.filter((c) => c.type === "TEXT_MESSAGE_CONTENT").at(-1)?.content, `Checking. ${broken}`)
-    assert.equal(chunks.at(-1)?.finishReason, "stop")
-    assert.equal(control.prompts.filter((p) => p.kind === "prompt").length, 1)
-  }
-})
-
-test("a repaired call from a finished reply starts the thread's session over next step", async () => {
-  const adapter = promptApiText("built-in")
-  // An unclosed fence at the end: the reply finished, so the session holds the failed call.
-  control.pieces = ["```tool_call\n", '{"name": "get_weather", "arguments": {}}']
-  control.answers = ['{"city": "Paris"}']
-  const asked = [{ role: "user", content: "Weather in Paris?" }]
-  const chunks = await step(adapter, asked, { tools: [strictWeather] })
-  assert.deepEqual(chunks.find((c) => c.type === "TOOL_CALL_END")?.input, { city: "Paris" })
-  assert.deepEqual((control.prompts[1].input as Array<unknown>).length, 1, "the copy already holds the attempt")
-  control.pieces = ["Sunny."]
-  await step(
-    adapter,
-    [
-      ...asked,
-      { role: "assistant", content: "", toolCalls: [{ id: "c1", type: "function", function: { name: "get_weather", arguments: '{"city":"Paris"}' } }] },
-      { role: "tool", toolCallId: "c1", content: '{"temperature":20}' }
-    ],
-    { tools: [strictWeather] }
-  )
-  assert.equal(control.creates.length, 2, "a new session with the repaired call")
-  assert.equal((control.prompts.at(-1)?.input as Array<unknown>).length, 3)
+test("a fence without a call is text, and the reply goes on", async () => {
+  control.pieces = ["Hm. ", "```tool_call\nnope\n```", " Sunny."]
+  const chunks = await run({ tools: [weather] })
+  assert.equal(textIn(chunks), "Hm. ```tool_call\nnope\n``` Sunny.")
+  assert.equal(chunks.at(-1)?.finishReason, "stop")
 })
