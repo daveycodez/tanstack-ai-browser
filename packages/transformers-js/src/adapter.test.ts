@@ -269,3 +269,21 @@ test("an aborted create rejects at once", async () => {
   controller.abort()
   await assert.rejects(transformersJsText("someone/Third-ONNX").create({ signal: controller.signal }), { name: "AbortError" })
 })
+
+test("images: the vision encoder loads with the first image, each image in its place, and stays loaded for text", async () => {
+  const qwen = "onnx-community/Qwen3.5-0.8B-ONNX"
+  assert.deepEqual(transformersJsText(qwen).inputModalities, ["text", "image"])
+  assert.deepEqual(transformersJsText(MODEL).inputModalities, ["text"])
+  assert.equal(transformersJsText("someone/Unlisted-ONNX").inputModalities, undefined)
+  const image = { type: "image", source: { type: "data", value: "AAAA", mimeType: "image/png" } } as const
+  await run({ model: qwen, messages: [{ role: "user", content: [image, { type: "text", content: "What's this?" }] }] }, qwen)
+  const loads = () => FakeWorker.all.flatMap((w) => w.posted).filter((r) => r.type === "load" && r.settings.model === qwen)
+  assert.deepEqual(loads().at(-1), { type: "load", settings: { model: qwen, vision: true } })
+  const request = generateRequests().at(-1) as Generate
+  assert.deepEqual(request.messages.at(-1), { role: "user", content: [{ type: "image" }, { type: "text", text: "What's this?" }] })
+  assert.deepEqual(request.images, ["data:image/png;base64,AAAA"])
+  // Text afterwards: no reload without the encoder.
+  await run({ model: qwen }, qwen)
+  assert.equal(loads().length, 1)
+  assert.equal((generateRequests().at(-1) as Generate).images, undefined)
+})

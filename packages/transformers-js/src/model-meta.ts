@@ -12,7 +12,8 @@ export type TransformersJsModelMeta = {
   /** The Hugging Face model id. */
   name: string
   supports: {
-    input: ReadonlyArray<"text">
+    /** Text, and images for a model whose repo has a vision encoder. */
+    input: ReadonlyArray<"text" | "image">
     output: ReadonlyArray<"text">
     capabilities: ReadonlyArray<"tools" | "thinking">
   }
@@ -69,6 +70,8 @@ const ALWAYS_THINKS = { levels: { high: "true" }, budget: false } as const
 
 const TOOLS_AND_THINKING = { input: ["text"], output: ["text"], capabilities: ["tools", "thinking"] } as const
 const TOOLS = { input: ["text"], output: ["text"], capabilities: ["tools"] } as const
+/** Qwen3.5: images too (its repos have a vision encoder), tools and thinking. */
+const IMAGES_TOOLS_AND_THINKING = { input: ["text", "image"], output: ["text"], capabilities: ["tools", "thinking"] } as const
 
 /** LFM3 built for the web: GPTQ 4-bit, a 48k vocabulary, flash attention in its sliding-window layers. */
 const LFM3_1_7B_WEB = {
@@ -138,12 +141,26 @@ const LFM2_5_350M = {
   sampling: LFM2_5_SAMPLING
 } as const satisfies TransformersJsModelMeta
 
-/** Qwen3.5 2B, its text model only (embedding and decoder, 1.38 GB in q4f16). */
+/**
+ * Qwen3.5 2B: embedding and decoder, 1.38 GB in q4f16, and a 197 MB vision
+ * encoder, loaded once a chat sends an image.
+ */
 const QWEN_3_5_2B = {
   name: "onnx-community/Qwen3.5-2B-ONNX",
-  supports: TOOLS_AND_THINKING,
+  supports: IMAGES_TOOLS_AND_THINKING,
   size: "2b",
   reasoning: THINKING_SWITCH,
+  sampling: QWEN_3_5_SAMPLING,
+  thinkingSampling: QWEN_3_5_THINKING_SAMPLING
+} as const satisfies TransformersJsModelMeta
+
+/** Qwen3.5 0.8B: 584 MB in q4f16, and a 62 MB vision encoder, loaded once a chat sends an image. */
+const QWEN_3_5_0_8B = {
+  name: "onnx-community/Qwen3.5-0.8B-ONNX",
+  supports: IMAGES_TOOLS_AND_THINKING,
+  size: "0.8b",
+  reasoning: THINKING_SWITCH,
+  cpu: true,
   sampling: QWEN_3_5_SAMPLING,
   thinkingSampling: QWEN_3_5_THINKING_SAMPLING
 } as const satisfies TransformersJsModelMeta
@@ -157,7 +174,8 @@ const MODELS = [
   LFM2_5_1_2B_THINKING,
   LFM2_1_2B_TOOL,
   LFM2_5_350M,
-  QWEN_3_5_2B
+  QWEN_3_5_2B,
+  QWEN_3_5_0_8B
 ] as const
 
 type Listed = (typeof MODELS)[number]
@@ -177,7 +195,8 @@ export const TRANSFORMERS_JS_MODEL_META: Readonly<Record<TransformersJsChatModel
   [LFM2_5_1_2B_THINKING.name]: LFM2_5_1_2B_THINKING,
   [LFM2_1_2B_TOOL.name]: LFM2_1_2B_TOOL,
   [LFM2_5_350M.name]: LFM2_5_350M,
-  [QWEN_3_5_2B.name]: QWEN_3_5_2B
+  [QWEN_3_5_2B.name]: QWEN_3_5_2B,
+  [QWEN_3_5_0_8B.name]: QWEN_3_5_0_8B
 }
 
 type Reasoner = Extract<Listed, { reasoning: unknown }>

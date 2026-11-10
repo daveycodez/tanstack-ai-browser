@@ -87,7 +87,7 @@ const signalOf = (options: TextOptions) =>
 export class TransformersJsTextAdapter<TModel extends string> extends BaseTextAdapter<
   TModel,
   TransformersJsTextModelOptions,
-  readonly ["text"],
+  ReadonlyArray<"text" | "image">,
   MetadataByModality,
   ReadonlyArray<string>,
   unknown,
@@ -97,7 +97,8 @@ export class TransformersJsTextAdapter<TModel extends string> extends BaseTextAd
   override readonly kind = "text" as const
   readonly name = "transformers-js" as const
   override readonly api = "transformers-js" as const
-  override readonly inputModalities = ["text"] as const
+  /** Text, and images for a listed model whose repo has a vision encoder; not known for another model. */
+  override readonly inputModalities: ReadonlyArray<"text" | "image"> | undefined
   private readonly settings: LoadSettings
   private readonly onDownloadProgress: DownloadProgressCallback | undefined
 
@@ -109,6 +110,7 @@ export class TransformersJsTextAdapter<TModel extends string> extends BaseTextAd
       ...(config.dtype && { dtype: config.dtype })
     }
     this.onDownloadProgress = config.onDownloadProgress
+    this.inputModalities = listed(model)?.supports.input
   }
 
   /**
@@ -162,15 +164,20 @@ export class TransformersJsTextAdapter<TModel extends string> extends BaseTextAd
       ...(options.parentRunId && { parentRunId: options.parentRunId })
     }
     try {
-      await loadModel(this.settings, this.onDownloadProgress, signal)
+      const prompt = toTemplateMessages(
+        normalizeSystemPrompts(options.systemPrompts)
+          .map((p) => p.content)
+          .join("\n\n"),
+        options.messages
+      )
+      // The vision encoder loads once the conversation has an image.
+      const vision = prompt.images.length > 0
+      await loadModel({ ...this.settings, ...(vision && { vision }) }, this.onDownloadProgress, signal)
       const tools = options.toolChoice === "none" ? [] : (options.tools ?? [])
       const enableThinking = resolveReasoning(options.reasoning, modelReasoning(model))?.value === "true"
       const meta = listed(model)
       const card = (enableThinking && meta?.thinkingSampling) || meta?.sampling
       const generation = generationOptions(options.modelOptions, card, enableThinking)
-      const system = normalizeSystemPrompts(options.systemPrompts)
-        .map((p) => p.content)
-        .join("\n\n")
       const reader = toolCallReader()
       const splitter = thinkingSplitter()
       const reasoningId = nextId("reasoning")
@@ -210,7 +217,8 @@ export class TransformersJsTextAdapter<TModel extends string> extends BaseTextAd
       let counts = { inputTokens: 0, outputTokens: 0 }
       const events = generate(
         {
-          messages: toTemplateMessages(system, options.messages),
+          messages: prompt.messages,
+          ...(vision && { images: prompt.images }),
           options: generation,
           ...(tools.length > 0 && { tools: toTemplateTools(tools) }),
           enableThinking

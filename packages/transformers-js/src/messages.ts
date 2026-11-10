@@ -1,11 +1,12 @@
 /**
  * The conversation and tools as Hugging Face chat templates take them: the
  * system prompt first, the model's tool calls in `tool_calls` (arguments as
- * a mapping), and each tool result as a `tool` message.
+ * a mapping), each tool result as a `tool` message, and a user message with
+ * images as parts, each image an `{ type: "image" }` in its place.
  */
 import type { ModelMessage, Tool } from "@tanstack/ai"
 
-import type { TemplateMessage, TemplateTool } from "./protocol.js"
+import type { TemplateMessage, TemplatePart, TemplateTool } from "./protocol.js"
 
 /** The text of a message's content. */
 const contentText = (content: ModelMessage["content"]) =>
@@ -24,8 +25,23 @@ function parseArguments(text: string): unknown {
   }
 }
 
-export function toTemplateMessages(system: string, messages: ReadonlyArray<ModelMessage>): Array<TemplateMessage> {
+/** An image part's source as a URL: its own, or a data URL. */
+function imageUrl(source: { type: string; value: string; mimeType?: string }): string {
+  if (source.type === "url" || source.value.startsWith("data:")) return source.value
+  if (source.type === "data") return `data:${source.mimeType ?? "image/png"};base64,${source.value}`
+  throw new Error("Transformers.js takes images as data or URLs, not as uploaded files.")
+}
+
+/**
+ * The conversation for the chat template, and its images in order: one for
+ * each `{ type: "image" }` part.
+ */
+export function toTemplateMessages(
+  system: string,
+  messages: ReadonlyArray<ModelMessage>
+): { messages: Array<TemplateMessage>; images: Array<string> } {
   const out: Array<TemplateMessage> = system ? [{ role: "system", content: system }] : []
+  const images: Array<string> = []
   const toolNames = new Map<string, string>()
   for (const m of messages) {
     const content = contentText(m.content)
@@ -51,11 +67,21 @@ export function toTemplateMessages(system: string, messages: ReadonlyArray<Model
         name: toolNames.get(id) ?? "tool",
         content: m.error === undefined ? content : JSON.stringify({ error: true, message: m.error })
       })
+    } else if (Array.isArray(m.content) && m.content.some((part) => part.type === "image")) {
+      const parts: Array<TemplatePart> = []
+      for (const part of m.content) {
+        if (part.type === "text") parts.push({ type: "text", text: part.content })
+        else if (part.type === "image") {
+          images.push(imageUrl(part.source as { type: string; value: string; mimeType?: string }))
+          parts.push({ type: "image" })
+        }
+      }
+      out.push({ role: "user", content: parts })
     } else {
       out.push({ role: "user", content })
     }
   }
-  return out
+  return { messages: out, images }
 }
 
 export const toTemplateTools = (tools: ReadonlyArray<Tool>): Array<TemplateTool> =>

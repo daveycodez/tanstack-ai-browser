@@ -1,6 +1,6 @@
 # @tanstack-ai-browser/transformers-js
 
-A [TanStack AI](https://tanstack.com/ai) text adapter for [Transformers.js](https://huggingface.co/docs/transformers.js) models that run in the browser, in a Web Worker: on WebGPU, or on the CPU through WebAssembly. It runs the official [`@huggingface/transformers`](https://www.npmjs.com/package/@huggingface/transformers) package (4.3.2) through its public API.
+[TanStack AI](https://tanstack.com/ai) text, embedding and transcription adapters for [Transformers.js](https://huggingface.co/docs/transformers.js) models that run in the browser, in a Web Worker: on WebGPU, or on the CPU through WebAssembly. It runs the official [`@huggingface/transformers`](https://www.npmjs.com/package/@huggingface/transformers) package (4.3.2) through its public API.
 
 ```sh
 npm install @tanstack-ai-browser/transformers-js @tanstack/ai
@@ -20,12 +20,12 @@ const stream = chat({
 
 ## Exports
 
-- `@tanstack-ai-browser/transformers-js`: `transformersJsText(model, config?)`, `TransformersJsTextAdapter` (with `availability`, `create` and `destroy`), and the types `TransformersJsConfig`, `TransformersJsTextModelOptions`, `Availability` and `DownloadProgressCallback`.
+- `@tanstack-ai-browser/transformers-js`: `transformersJsText(model, config?)`, `TransformersJsTextAdapter` (with `availability`, `create` and `destroy`), `transformersJsEmbedding(model?, config?)`, `TransformersJsEmbeddingAdapter`, `transformersJsTranscription(model?, config?)`, `TransformersJsTranscriptionAdapter`, and the types `TransformersJsConfig`, `TransformersJsTextModelOptions`, `TransformersJsEmbeddingConfig`, `TransformersJsEmbeddingModelOptions`, `TransformersJsTranscriptionConfig`, `TransformersJsTranscriptionModelOptions`, `Availability` and `DownloadProgressCallback`.
 - `@tanstack-ai-browser/transformers-js/model-meta`: `TRANSFORMERS_JS_CHAT_MODELS`, `TRANSFORMERS_JS_MODEL_META` and `TRANSFORMERS_JS_MODEL_REASONING`, with the types `TransformersJsChatModel`, `TransformersJsModelMeta` and `TransformersJsModelReasoningByName`.
 
 ## Models
 
-`TRANSFORMERS_JS_CHAT_MODELS` lists the models this package knows; `TRANSFORMERS_JS_MODEL_META` has each one's size, capabilities, reasoning levels and whether it has CPU weights (`cpu`). Any other Hugging Face ONNX model works too: `transformersJsText("owner/model")`. Models load with `AutoModelForCausalLM` (a multimodal build loads its text model) and their repo's latest version.
+`TRANSFORMERS_JS_CHAT_MODELS` lists the models this package knows; `TRANSFORMERS_JS_MODEL_META` has each one's size, capabilities, reasoning levels and whether it has CPU weights (`cpu`). Any other Hugging Face ONNX model works too: `transformersJsText("owner/model")`. Models load with `AutoModelForCausalLM` and their repo's latest version.
 
 | Model                                      | Reasoning         | Without WebGPU |
 | ------------------------------------------ | ----------------- | -------------- |
@@ -38,6 +38,33 @@ const stream = chat({
 | `onnx-community/LFM2-1.2B-Tool-ONNX`       | none              | yes            |
 | `LiquidAI/LFM2.5-350M-ONNX`                | none              | no             |
 | `onnx-community/Qwen3.5-2B-ONNX`           | on/off            | no             |
+| `onnx-community/Qwen3.5-0.8B-ONNX`         | on/off            | yes            |
+
+## Images
+
+The Qwen3.5 models read images too (`supports.input` in their catalog entry, and the adapter's `inputModalities`): send image parts in a user message, as data (base64) or URLs. A model loads without its vision encoder, and loads again with it (Transformers.js's `AutoProcessor` and `AutoModelForImageTextToText`) once a chat sends its first image; it then stays loaded with it. Each image goes to the chat template in its place in the conversation, and the processor reads the images as `processor(text, images)`, as Qwen's processors take them (LFM2-VL's take them the other way round, so it isn't supported). A conversation with images doesn't reuse the previous generation's cache. Another model's `inputModalities` is `undefined`: the package doesn't know whether it reads images.
+
+## Embeddings
+
+```ts
+import { embed } from "@tanstack/ai"
+import { transformersJsEmbedding } from "@tanstack-ai-browser/transformers-js"
+
+const { embeddings } = await embed({ adapter: transformersJsEmbedding(), input: ["a red guitar", "a blue drum kit"] })
+```
+
+`transformersJsEmbedding(model?, config?)` runs Transformers.js's own `feature-extraction` pipeline on the page, as browser-ai does; Transformers.js is imported the first time it's used. Any Hugging Face feature-extraction model with ONNX weights works; by default `onnx-community/all-MiniLM-L6-v2-ONNX` (30 MB in q4f16, 384 numbers a vector). `config` takes `device`, `dtype` and `onDownloadProgress`, Transformers.js's defaults otherwise. `modelOptions` are the pipeline's own options (`pooling`, `normalize`, `quantize`, `precision`), sent as given over mean pooling and normalized vectors. `dimensions` isn't supported. The adapter has `availability()`, `create()` and `destroy()` like the text adapter's.
+
+## Transcription
+
+```ts
+import { generateTranscription } from "@tanstack/ai"
+import { transformersJsTranscription } from "@tanstack-ai-browser/transformers-js"
+
+const { text } = await generateTranscription({ adapter: transformersJsTranscription(), audio: recording })
+```
+
+`transformersJsTranscription(model?, config?)` runs Whisper with Transformers.js's own `automatic-speech-recognition` pipeline on the page, as browser-ai does; Transformers.js is imported the first time it's used. Any Hugging Face Whisper model with ONNX weights works; by default `onnx-community/whisper-base`, as browser-ai uses (`onnx-community/whisper-tiny` is smaller and quicker, `onnx-community/whisper-small` more accurate). `audio` is a `Blob` or `File`, an `ArrayBuffer`, base64, or a URL; the browser decodes it (Web Audio) at Whisper's 16 kHz. `language` goes to Whisper; `responseFormat: "verbose_json"` adds timed `segments`. Audio is read in 30-second chunks, so long recordings work. `modelOptions` are the pipeline's own options (`task: "translate"`, `chunk_length_s`, …), sent as given. Whisper's pipeline takes no `prompt`. `config` takes `device`, `dtype` and `onDownloadProgress`, Transformers.js's defaults otherwise; the adapter has `availability()`, `create()` and `destroy()` like the others.
 
 ## Config
 

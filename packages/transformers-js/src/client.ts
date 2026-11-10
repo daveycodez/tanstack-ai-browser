@@ -62,6 +62,8 @@ export function loadModel(
   onDownloadProgress?: DownloadProgressCallback,
   signal?: AbortSignal
 ): Promise<void> {
+  // A model loaded with its vision encoder serves text too: it stays loaded.
+  if (!settings.vision && current?.key === JSON.stringify({ ...settings, vision: true })) settings = { ...settings, vision: true }
   const key = JSON.stringify(settings)
   if (current?.key !== key) {
     const listeners = new Set<DownloadProgressCallback>()

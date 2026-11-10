@@ -1,19 +1,22 @@
 /**
- * The Transformers.js worker: loads one model (its tokenizer and causal LM)
- * and generates with Transformers.js's own `generate()`, sampling and
+ * The Transformers.js worker: loads one model (its tokenizer and causal LM,
+ * or for images its processor and image-text-to-text model) and generates with Transformers.js's own `generate()`, sampling and
  * `TextStreamer`, streaming the text back to the page. A generation that
  * continues the previous one (its prompt starts with every token the last
  * one held) reuses that generation's cache.
  */
 import {
   AutoModelForCausalLM,
+  AutoModelForImageTextToText,
+  AutoProcessor,
   AutoTokenizer,
   env,
   InterruptableStoppingCriteria,
+  RawImage,
   StoppingCriteriaList,
   TextStreamer
 } from "@huggingface/transformers"
-import type { DynamicCache, PreTrainedModel, PreTrainedTokenizer, ProgressInfo, Tensor } from "@huggingface/transformers"
+import type { DynamicCache, PreTrainedModel, PreTrainedTokenizer, Processor, ProgressInfo, Tensor } from "@huggingface/transformers"
 
 import type { Device, GenerateRequest, LoadSettings, WorkerReply, WorkerRequest } from "./protocol.js"
 import { shownText } from "./tool-calls.js"
@@ -24,7 +27,7 @@ const scope = self as unknown as {
 }
 const post = (reply: WorkerReply) => scope.postMessage(reply)
 
-let loaded: { tokenizer: PreTrainedTokenizer; model: PreTrainedModel } | null = null
+let loaded: { tokenizer: PreTrainedTokenizer; processor: Processor | null; model: PreTrainedModel } | null = null
 const stopping = new InterruptableStoppingCriteria()
 /** The last generation's cache, and the tokens in it (prompt and reply). */
 let reuse: { cache: DynamicCache; tokens: Array<number> } | null = null
@@ -64,28 +67,30 @@ async function standaloneTemplate(model: string): Promise<string | null> {
   return response?.ok ? response.text() : null
 }
 
-async function load({ model: id, device, dtype }: LoadSettings) {
+async function load({ model: id, device, dtype, vision }: LoadSettings) {
   const previous = loaded
   loaded = null
   await dropCache()
   await previous?.model.dispose()
   const on = device ?? (await pickDevice())
-  const [tokenizer, model] = await Promise.all([
-    AutoTokenizer.from_pretrained(id),
-    AutoModelForCausalLM.from_pretrained(id, {
-      device: on,
-      // fp16 activations on the GPU; the CPU kernels want fp32 ones.
-      dtype: dtype ?? (on === "webgpu" ? "q4f16" : "q4"),
-      progress_callback: progressReporter(),
-      // ONNX Runtime's constant folding copies a tied embedding table read
-      // through a Reshape or Transpose (LFM's) into a second, full copy.
-      session_options: { extra: { "optimization.disable_specified_optimizers": "ConstantFolding" } }
-    })
-  ])
+  const options = {
+    device: on,
+    // fp16 activations on the GPU; the CPU kernels want fp32 ones.
+    dtype: dtype ?? (on === "webgpu" ? "q4f16" : "q4"),
+    progress_callback: progressReporter(),
+    // ONNX Runtime's constant folding copies a tied embedding table read
+    // through a Reshape or Transpose (LFM's) into a second, full copy.
+    session_options: { extra: { "optimization.disable_specified_optimizers": "ConstantFolding" } }
+  } as const
+  const [processor, tokenizer, model] = vision
+    ? await Promise.all([AutoProcessor.from_pretrained(id), null, AutoModelForImageTextToText.from_pretrained(id, options)]).then(
+        ([processor, , model]) => [processor, processor.tokenizer as PreTrainedTokenizer, model] as const
+      )
+    : await Promise.all([null, AutoTokenizer.from_pretrained(id), AutoModelForCausalLM.from_pretrained(id, options)])
   tokenizer.chat_template ??= await standaloneTemplate(id)
   // A first token compiles the GPU's shaders, so the first reply doesn't wait for it.
   await model.generate({ ...tokenizer("a"), max_new_tokens: 1 })
-  loaded = { tokenizer, model }
+  loaded = { tokenizer, processor, model }
   post({ status: "ready" })
 }
 
@@ -94,17 +99,32 @@ const tokenIds = (tensor: Tensor) => Array.from(tensor.data as ArrayLike<number 
 const startsWith = (tokens: Array<number>, prefix: Array<number>) =>
   prefix.length <= tokens.length && prefix.every((token, i) => token === tokens[i])
 
-async function generate({ messages, options, tools, enableThinking }: GenerateRequest) {
+/**
+ * The prompt's inputs: the chat template's tokens, or for a conversation
+ * with images, the processor's (tokens and the images' pixels). The
+ * processor is called as `processor(text, images)`, as Qwen's are.
+ */
+async function promptInputs(
+  { messages, tools, enableThinking, images }: GenerateRequest,
+  { tokenizer, processor }: NonNullable<typeof loaded>
+): Promise<{ input_ids: Tensor; [name: string]: unknown }> {
+  const template = { add_generation_prompt: true, ...(tools && { tools }), ...(enableThinking && { enable_thinking: true }) }
+  if (!images?.length) {
+    return tokenizer.apply_chat_template(messages as never, { ...template, return_dict: true }) as never
+  }
+  if (!processor) throw new Error("The model was loaded without its vision encoder.")
+  const text = tokenizer.apply_chat_template(messages as never, { ...template, tokenize: false }) as string
+  return (await processor(text, await Promise.all(images.map((url) => RawImage.read(url))))) as never
+}
+
+async function generate(request: GenerateRequest) {
   if (!loaded) throw new Error("No model is loaded.")
   const { tokenizer, model } = loaded
-  const inputs = tokenizer.apply_chat_template(messages, {
-    add_generation_prompt: true,
-    return_dict: true,
-    ...(tools && { tools }),
-    ...(enableThinking && { enable_thinking: true })
-  }) as unknown as { input_ids: Tensor; attention_mask: Tensor }
+  const withImages = !!request.images?.length
+  const inputs = await promptInputs(request, loaded)
   const prompt = tokenIds(inputs.input_ids)
-  if (reuse && !startsWith(prompt, reuse.tokens)) await dropCache()
+  // An image's tokens are the same placeholder whatever the image: a cache is reused for text only.
+  if (reuse && (withImages || !startsWith(prompt, reuse.tokens))) await dropCache()
   // A thought the chat template opened in the prompt (Qwen3.5's): the reply starts inside it.
   if (/<think>\s*$/.test(tokenizer.decode(prompt.slice(-8)))) post({ status: "update", output: "<think>" })
 
@@ -122,7 +142,7 @@ async function generate({ messages, options, tools, enableThinking }: GenerateRe
   stoppingCriteria.push(stopping)
   const settings = {
     ...inputs,
-    ...options,
+    ...request.options,
     streamer,
     stopping_criteria: stoppingCriteria,
     return_dict_in_generate: true
@@ -137,7 +157,8 @@ async function generate({ messages, options, tools, enableThinking }: GenerateRe
     output = await model.generate(settings)
   }
   const { sequences, past_key_values } = output as { sequences: Tensor; past_key_values?: DynamicCache }
-  reuse = past_key_values ? { cache: past_key_values, tokens: tokenIds(sequences) } : null
+  if (withImages) await past_key_values?.dispose().catch(() => undefined)
+  reuse = past_key_values && !withImages ? { cache: past_key_values, tokens: tokenIds(sequences) } : null
   post({ status: "complete", inputTokens: prompt.length, outputTokens })
 }
 

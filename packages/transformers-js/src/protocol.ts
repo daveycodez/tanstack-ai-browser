@@ -10,13 +10,21 @@ export type Device = "webgpu" | "wasm"
 /** The ONNX weights to load (Transformers.js's `dtype`). */
 export type Dtype = "q4f16" | "q4" | "fp16" | "fp32" | "q8" | "int8" | "uint8" | "bnb4"
 
-/** The model to load, and how. Left out, the worker picks the device and weights. */
-export type LoadSettings = { model: string; device?: Device; dtype?: Dtype }
+/**
+ * The model to load, and how. Left out, the worker picks the device and
+ * weights. `vision` loads it with its vision encoder and processor
+ * (Transformers.js's `AutoModelForImageTextToText`), for images.
+ */
+export type LoadSettings = { model: string; device?: Device; dtype?: Dtype; vision?: boolean }
+
+/** A part of a user message's content, as chat templates read it: an image stands in its place. */
+export type TemplatePart = { type: "text"; text: string } | { type: "image" }
 
 /** A chat message as Hugging Face chat templates read it. */
 export type TemplateMessage = {
   role: "system" | "user" | "assistant" | "tool"
-  content: string
+  /** Parts for a user message with images. */
+  content: string | Array<TemplatePart>
   /** A mapping, not a JSON string: templates serialize the arguments themselves. */
   tool_calls?: Array<{ id: string; type: "function"; function: { name: string; arguments: unknown } }>
   tool_call_id?: string
@@ -55,6 +63,8 @@ export type GenerateRequest = {
   tools?: Array<TemplateTool>
   /** The chat template's `enable_thinking`. */
   enableThinking: boolean
+  /** The conversation's images, in order (data or http URLs): one for each image part. */
+  images?: Array<string>
 }
 
 export type WorkerRequest =
