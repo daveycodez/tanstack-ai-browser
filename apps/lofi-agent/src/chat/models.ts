@@ -189,7 +189,7 @@ export const MODELS = [
       browserModel().id === "phi-4-mini"
         ? "/icons/microsoft.svg"
         : "/icons/gemini.svg",
-    adapter: promptApiText("built-in", {
+    adapter: promptApiText({
       onDownloadProgress: builtInStatus.onDownloadProgress
     }),
     /** The browser downloads it, once for every site, with progress. */

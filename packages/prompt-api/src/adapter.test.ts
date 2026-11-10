@@ -398,3 +398,9 @@ test("a fence without a call is text, and the reply goes on", async () => {
   assert.equal(textIn(chunks), "Hm. ```tool_call\nnope\n``` Sunny.")
   assert.equal(chunks.at(-1)?.finishReason, "stop")
 })
+
+test("the model is optional: promptApiText() and promptApiText(config) are the browser's built-in model", () => {
+  assert.equal(promptApiText().model, "built-in")
+  assert.equal(promptApiText({ languages: ["en"] }).model, "built-in")
+  assert.equal(promptApiText("built-in", {}).model, "built-in")
+})

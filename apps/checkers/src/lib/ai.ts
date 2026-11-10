@@ -201,7 +201,7 @@ export async function chooseAiMove(
       unloadWebGl()
       activeWebGlModel = undefined
     }
-    if (opponent.model === "prompt-api") await untilAborted(loadWithStatus("prompt-api", promptApiText("built-in")), signal)
+    if (opponent.model === "prompt-api") await untilAborted(loadWithStatus("prompt-api", promptApiText()), signal)
   } else {
     await waitForModel(opponent.model, signal)
   }
@@ -248,7 +248,7 @@ export async function chooseAiMove(
             modelOptions: { maxCompletionTokens: MAX_OUTPUT_TOKENS }
           })
         : opponent.model === "prompt-api"
-        ? chat({ ...options, adapter: promptApiText("built-in") })
+        ? chat({ ...options, adapter: promptApiText() })
         : chat({
             ...options,
             // Runtime catalog metadata determines the selected model's reasoning support.

@@ -123,7 +123,7 @@ function PlayView({
   async function change(settings: OpponentSettings) {
     if (busy) return
     if (settings.model === "prompt-api" && promptApiAvailable)
-      void loadWithStatus("prompt-api", promptApiText("built-in")).catch((reason: unknown) =>
+      void loadWithStatus("prompt-api", promptApiText()).catch((reason: unknown) =>
         setError(
           reason instanceof Error
             ? reason.message

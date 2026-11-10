@@ -33,7 +33,7 @@ export type ApfelTextModelOptions = {
 export type Availability = "unavailable" | "downloadable" | "downloading" | "available"
 
 /** TanStack's OpenAI-compatible adapter for apfel, with apfel's availability. */
-export type ApfelTextAdapter = OpenAICompatibleChatAdapter<ApfelChatModel, ApfelTextModelOptions> & {
+export type ApfelTextAdapter = OpenAICompatibleChatAdapter<ApfelModel, ApfelTextModelOptions> & {
   /** "available" if apfel answers and serves the model, else "unavailable". */
   availability(signal?: AbortSignal): Promise<Availability>
   /** Resolves to this adapter if apfel serves the model, else rejects. Nothing loads. */
@@ -41,6 +41,9 @@ export type ApfelTextAdapter = OpenAICompatibleChatAdapter<ApfelChatModel, Apfel
 }
 
 const DEFAULT_BASE_URL = "http://127.0.0.1:11434/v1"
+
+/** A model apfel serves: Apple's ("apple-foundationmodel", the default), or any other name. */
+export type ApfelModel = ApfelChatModel | (string & {})
 
 /** `modelOptions` with OpenAI's names, as the request takes them. */
 function toOpenAI(options: ApfelTextModelOptions | undefined) {
@@ -55,17 +58,21 @@ function toOpenAI(options: ApfelTextModelOptions | undefined) {
 }
 
 /**
- * An adapter for a model apfel serves.
+ * An adapter for a model apfel serves: Apple's on-device model by default.
  *
  * @example
  * ```ts
- * const adapter = apfelText("apple-foundationmodel")
+ * const adapter = apfelText()
  * if ((await adapter.availability()) === "available") {
  *   chat({ adapter, messages, tools })
  * }
  * ```
  */
-export function apfelText(model: ApfelChatModel, config: ApfelConfig = {}): ApfelTextAdapter {
+export function apfelText(config?: ApfelConfig): ApfelTextAdapter
+export function apfelText(model: ApfelModel, config?: ApfelConfig): ApfelTextAdapter
+export function apfelText(modelOrConfig?: ApfelModel | ApfelConfig, maybeConfig: ApfelConfig = {}): ApfelTextAdapter {
+  const model = typeof modelOrConfig === "string" ? modelOrConfig : "apple-foundationmodel"
+  const config = typeof modelOrConfig === "string" ? maybeConfig : (modelOrConfig ?? {})
   const baseURL = (config.baseURL ?? DEFAULT_BASE_URL).replace(/\/+$/, "")
   const headers = config.defaultHeaders
   const adapter = openaiCompatibleText(model, {
@@ -77,7 +84,7 @@ export function apfelText(model: ApfelChatModel, config: ApfelConfig = {}): Apfe
     ...(headers && { defaultHeaders: headers }),
     // apfel runs on the user's own machine: there's no secret key to expose.
     dangerouslyAllowBrowser: true
-  }) as OpenAICompatibleChatAdapter<ApfelChatModel, ApfelTextModelOptions>
+  }) as OpenAICompatibleChatAdapter<ApfelModel, ApfelTextModelOptions>
 
   // Each call's modelOptions, renamed for the request.
   const chatStream = adapter.chatStream.bind(adapter)

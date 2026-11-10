@@ -42,7 +42,7 @@ function GamePage() {
     const next = resolveOpponent(settings)
     if (next.model === "prompt-api" && promptApiAvailable) {
       // Start a built-in model download from the explicit model-selection gesture.
-      void loadWithStatus("prompt-api", promptApiText("built-in")).catch((error: unknown) => {
+      void loadWithStatus("prompt-api", promptApiText()).catch((error: unknown) => {
         setError(
           error instanceof Error
             ? error.message

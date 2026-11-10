@@ -20,7 +20,7 @@ type Model = {
 }
 
 const MODELS: Record<string, Model> = {
-  gemini: { name: "Gemini Nano", adapter: () => promptApiText("built-in"), switchable: false },
+  gemini: { name: "Gemini Nano", adapter: () => promptApiText(), switchable: false },
   lfm3: { name: "LFM3 1.7B", adapter: () => webgllmText("LiquidAI/LFM3-1.7B-GGUF"), switchable: true },
   "lfm2.5": {
     name: "LFM2.5 1.2B Instruct",

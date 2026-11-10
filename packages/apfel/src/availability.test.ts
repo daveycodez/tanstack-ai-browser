@@ -53,3 +53,9 @@ test("create's signal: aborted before, nothing is asked; aborting during the che
   await assert.rejects(checking, { name: "AbortError" })
   assert.equal(requestSignal?.aborted, true, "the request was stopped")
 })
+
+test("the model is optional: Apple's by default, with or without a config; any other name apfel serves", () => {
+  assert.equal(apfelText().model, "apple-foundationmodel")
+  assert.equal(apfelText({ baseURL: "http://localhost:1/v1" }).model, "apple-foundationmodel")
+  assert.equal(apfelText("some-other-model").model, "some-other-model")
+})

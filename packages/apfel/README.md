@@ -12,7 +12,7 @@ npm install @tanstack-ai-browser/apfel @tanstack/ai
 import { chat } from "@tanstack/ai"
 import { apfelText } from "@tanstack-ai-browser/apfel"
 
-const adapter = apfelText("apple-foundationmodel")
+const adapter = apfelText()
 
 if ((await adapter.availability()) === "available") {
   const stream = chat({ adapter, messages, threadId, tools })
@@ -43,8 +43,8 @@ Start apfel with `apfel --serve --cors`.
 ## Exports
 
 - `@tanstack-ai-browser/apfel`:
-  - `apfelText(model, config?)`
-  - the types `ApfelConfig`, `ApfelTextAdapter`, `ApfelTextModelOptions` and `Availability`
+  - `apfelText(config?)` for Apple's model, or `apfelText(model, config?)` for another model apfel serves
+  - the types `ApfelConfig`, `ApfelModel`, `ApfelTextAdapter`, `ApfelTextModelOptions` and `Availability`
 - `@tanstack-ai-browser/apfel/model-meta`:
   - `APFEL_CHAT_MODELS`
   - `APFEL_MODEL_META`

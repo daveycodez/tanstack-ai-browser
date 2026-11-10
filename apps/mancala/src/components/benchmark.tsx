@@ -382,7 +382,7 @@ export function BenchmarkView() {
             onChange={(value) => {
               setOpponent(resolveOpponent(value))
               if (value.model === "prompt-api" && promptApiAvailable)
-                void loadWithStatus("prompt-api", promptApiText("built-in")).catch((failure: unknown) =>
+                void loadWithStatus("prompt-api", promptApiText()).catch((failure: unknown) =>
                   setError(
                     failure instanceof Error ? failure.message : String(failure)
                   )

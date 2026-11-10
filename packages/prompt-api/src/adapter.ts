@@ -389,16 +389,24 @@ export class PromptApiTextAdapter extends BaseTextAdapter<
 
 /**
  * A TanStack AI text adapter for the browser's built-in model, through the
- * Prompt API: Gemini Nano in Chrome, Phi-4-mini in Edge.
+ * Prompt API: Gemini Nano in Chrome, Phi-4-mini in Edge. The model is
+ * whichever the browser has ("built-in"), so naming it is optional.
  *
  * @example
  * ```ts
- * const adapter = promptApiText("built-in")
+ * const adapter = promptApiText()
  * if ((await adapter.availability()) !== "unavailable") {
  *   chat({ adapter, messages, tools })
  * }
  * ```
  */
-export function promptApiText(model: PromptApiChatModel, config: PromptApiConfig = {}): PromptApiTextAdapter {
-  return new PromptApiTextAdapter(config, model)
+export function promptApiText(config?: PromptApiConfig): PromptApiTextAdapter
+export function promptApiText(model: PromptApiChatModel, config?: PromptApiConfig): PromptApiTextAdapter
+export function promptApiText(
+  modelOrConfig?: PromptApiChatModel | PromptApiConfig,
+  config: PromptApiConfig = {}
+): PromptApiTextAdapter {
+  return typeof modelOrConfig === "string"
+    ? new PromptApiTextAdapter(config, modelOrConfig)
+    : new PromptApiTextAdapter(modelOrConfig ?? {}, "built-in")
 }
