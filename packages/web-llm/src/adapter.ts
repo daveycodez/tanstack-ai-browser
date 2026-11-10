@@ -13,11 +13,12 @@ import type { ModelReasoning, TextOptions, Tool } from "@tanstack/ai"
 import { resolveReasoning } from "@tanstack/ai/adapter-internals"
 import { OpenAIBaseChatCompletionsTextAdapter } from "@tanstack/openai-base"
 import type { OpenAIClientLike } from "@tanstack/openai-base"
+import { ModelType } from "@mlc-ai/web-llm"
 import type { AppConfig, ChatCompletionRequest, ChatCompletionRequestBase, ResponseFormat } from "@mlc-ai/web-llm"
 
-import { availability, loadModel, unloadModel } from "./client.js"
+import { chatEngine } from "./client.js"
 import type { Availability, DownloadProgressCallback, LoadSettings } from "./client.js"
-import { THINKING_SWITCH, WEB_LLM_MODEL_REASONING } from "./catalog.js"
+import { THINKING_SWITCH, WEB_LLM_MODEL_INPUT, WEB_LLM_MODEL_REASONING } from "./catalog.js"
 import type { WebLlmChatModel } from "./catalog.js"
 import { toolCallFence, toolCallReader, toolResultFence, toolResultLine, toolSystemPrompt } from "./tools.js"
 import type { ParsedToolCall } from "./tools.js"
@@ -60,6 +61,9 @@ export type WebLlmTextModelOptions = Omit<
 export type WebLlmModel = WebLlmChatModel | (string & {})
 
 type MetadataByModality = { text: unknown; image: unknown; audio: unknown; video: unknown; document: unknown }
+
+/** The base adapter's conversion of a message part to a Chat Completions one. */
+type ConvertContentPart = OpenAIBaseChatCompletionsTextAdapter<string>["convertContentPart"]
 
 /** A Chat Completions request, as the base adapter writes it. */
 type CreateParams = Parameters<OpenAIClientLike["chat"]["completions"]["create"]>[0]
@@ -206,7 +210,7 @@ async function* withThinking(stream: AsyncIterable<Chunk>): AsyncIterable<Chunk>
 function clientFor(model: WebLlmModel, settings: LoadSettings, onDownloadProgress?: DownloadProgressCallback): OpenAIClientLike {
   const create = async (body: Record<string, unknown>, options?: { signal?: AbortSignal | null }) => {
     const signal = options?.signal ?? undefined
-    const engine = await loadModel(model, settings, { ...(onDownloadProgress && { onDownloadProgress }), ...(signal && { signal }) })
+    const engine = await chatEngine.loadModel(model, settings, { ...(onDownloadProgress && { onDownloadProgress }), ...(signal && { signal }) })
     const promptTools = PROMPT_TOOLS in body
     const fields: Record<string | symbol, unknown> = { ...body }
     delete fields[PROMPT_TOOLS]
@@ -249,6 +253,13 @@ function clientFor(model: WebLlmModel, settings: LoadSettings, onDownloadProgres
   return { baseURL: "web-llm:", chat: { completions: { create } } } as unknown as OpenAIClientLike
 }
 
+/** What a model reads: text, and images for a vision model. */
+function inputOf(model: string, appConfig: AppConfig | undefined): ReadonlyArray<"text" | "image"> {
+  const record = appConfig?.model_list.find((entry) => entry.model_id === model)
+  if (record) return record.model_type === ModelType.VLM ? ["text", "image"] : ["text"]
+  return WEB_LLM_MODEL_INPUT[model] ?? ["text"]
+}
+
 /** The settings a model loads with, from the adapter's config. */
 const loadSettings = ({ contextLength, appConfig }: WebLlmConfig): LoadSettings => ({
   ...(contextLength !== undefined && { chatOptions: { context_window_size: contextLength } }),
@@ -258,13 +269,14 @@ const loadSettings = ({ contextLength, appConfig }: WebLlmConfig): LoadSettings 
 export class WebLlmTextAdapter<TModel extends WebLlmModel> extends OpenAIBaseChatCompletionsTextAdapter<
   TModel,
   WebLlmTextModelOptions,
-  readonly ["text"],
+  ReadonlyArray<"text" | "image">,
   MetadataByModality,
   ReadonlyArray<string>
 > {
   override readonly name = "web-llm"
   override readonly api = "web-llm"
-  override readonly inputModalities = ["text"] as const
+  /** Text, and images for a vision model (its catalog entry's, or its `appConfig` entry's, `model_type`). */
+  override readonly inputModalities: ReadonlyArray<"text" | "image">
 
   private readonly settings: LoadSettings
   private readonly onDownloadProgress: DownloadProgressCallback | undefined
@@ -274,6 +286,7 @@ export class WebLlmTextAdapter<TModel extends WebLlmModel> extends OpenAIBaseCha
     super(model, "web-llm", clientFor(model, settings, config.onDownloadProgress), { strictFallbackWarning: false })
     this.settings = settings
     this.onDownloadProgress = config.onDownloadProgress
+    this.inputModalities = inputOf(model, config.appConfig)
   }
 
   /**
@@ -283,7 +296,7 @@ export class WebLlmTextAdapter<TModel extends WebLlmModel> extends OpenAIBaseCha
    * (`hasModelInCache`), else "downloadable".
    */
   availability(): Promise<Availability> {
-    return availability(this.model, this.settings.appConfig)
+    return chatEngine.availability(this.model, this.settings.appConfig)
   }
 
   /**
@@ -295,7 +308,7 @@ export class WebLlmTextAdapter<TModel extends WebLlmModel> extends OpenAIBaseCha
   create(options: { onDownloadProgress?: DownloadProgressCallback; signal?: AbortSignal } = {}): Promise<this> {
     const own = this.onDownloadProgress
     const theirs = options.onDownloadProgress
-    const ready = loadModel(this.model, this.settings, {
+    const ready = chatEngine.loadModel(this.model, this.settings, {
       onDownloadProgress: (progress) => {
         own?.(progress)
         theirs?.(progress)
@@ -308,7 +321,7 @@ export class WebLlmTextAdapter<TModel extends WebLlmModel> extends OpenAIBaseCha
 
   /** Unloads the model, freeing its GPU memory. It stays in WebLLM's cache. */
   async destroy(): Promise<void> {
-    await unloadModel(this.model)
+    await chatEngine.unloadModel(this.model)
   }
 
   /**
@@ -342,6 +355,13 @@ export class WebLlmTextAdapter<TModel extends WebLlmModel> extends OpenAIBaseCha
   protected override extractReasoning(chunk: unknown) {
     const text = (chunk as Chunk).choices?.[0]?.delta?.reasoning_content
     return typeof text === "string" && text ? { text } : undefined
+  }
+
+  /** An image as OpenAI's `image_url`, without its `detail`, which WebLLM refuses. */
+  protected override convertContentPart(part: Parameters<ConvertContentPart>[0]): ReturnType<ConvertContentPart> {
+    const converted = super.convertContentPart(part)
+    if (converted?.type !== "image_url") return converted
+    return { type: "image_url", image_url: { url: converted.image_url.url } }
   }
 
   /** Schemas as given: WebLLM's grammar takes any JSON Schema, without OpenAI's strict-mode rewrite. */

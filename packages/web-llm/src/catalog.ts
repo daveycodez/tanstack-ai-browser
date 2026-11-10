@@ -1,6 +1,6 @@
 /**
  * The models WebLLM runs, from its own catalog (`prebuiltAppConfig`): its
- * chat models, leaving out its embedding models.
+ * chat models (some of which read images) and its embedding models.
  */
 import { ModelType, prebuiltAppConfig } from "@mlc-ai/web-llm"
 import type { ModelRecord } from "@mlc-ai/web-llm"
@@ -21,6 +21,27 @@ export type WebLlmChatModel = ModelRecord["model_id"]
 
 /** The models WebLLM runs: its catalog's chat models, by `model_id`. */
 export const WEB_LLM_CHAT_MODELS: ReadonlyArray<WebLlmChatModel> = chatRecords.map((record) => record.model_id)
+
+/**
+ * The input each chat model reads: text, and images for WebLLM's vision
+ * models (its catalog's `model_type` VLM).
+ */
+export const WEB_LLM_MODEL_INPUT: Readonly<Record<WebLlmChatModel, ReadonlyArray<"text" | "image">>> = Object.fromEntries(
+  chatRecords.map((record) => [record.model_id, record.model_type === ModelType.VLM ? ["text", "image"] : ["text"]])
+)
+
+const embeddingRecords = prebuiltAppConfig.model_list.filter((record) => record.model_type === ModelType.embedding)
+
+/** An embedding model WebLLM's catalog lists (its `model_id`). */
+export type WebLlmEmbeddingModel = ModelRecord["model_id"]
+
+/** WebLLM's embedding models (Snowflake's Arctic Embed), by `model_id`. */
+export const WEB_LLM_EMBEDDING_MODELS: ReadonlyArray<WebLlmEmbeddingModel> = embeddingRecords.map((record) => record.model_id)
+
+/** Each embedding model's catalog entry, by `model_id`. */
+export const WEB_LLM_EMBEDDING_MODEL_META: Readonly<Record<WebLlmEmbeddingModel, WebLlmModelMeta>> = Object.fromEntries(
+  embeddingRecords.map((record) => [record.model_id, record])
+)
 
 /** Each chat model's catalog entry, by `model_id`. */
 export const WEB_LLM_MODEL_META: Readonly<Record<WebLlmChatModel, WebLlmModelMeta>> = Object.fromEntries(

@@ -40,7 +40,7 @@ const control = {
 
 const outfile = join(temporary, "web-llm-adapter.mjs")
 await build({
-  entryPoints: [join(root, "packages/web-llm/src/adapter.ts")],
+  entryPoints: [join(root, "packages/web-llm/src/index.ts")],
   outfile,
   bundle: true,
   format: "esm",
@@ -57,7 +57,7 @@ await build({
             const control=globalThis.__webLlm;
             export const hasModelInCache=async(model)=>control.cached.has(model);
             export const ModelType={LLM:0,embedding:1,VLM:2};
-            export const prebuiltAppConfig={model_list:[{model_id:"Qwen3-1.7B-q4f16_1-MLC"},{model_id:"Qwen2.5-0.5B-Instruct-q4f16_1-MLC"}]};
+            export const prebuiltAppConfig={model_list:[{model_id:"Qwen3-1.7B-q4f16_1-MLC"},{model_id:"Qwen2.5-0.5B-Instruct-q4f16_1-MLC"},{model_id:"Phi-3.5-vision-instruct-q4f16_1-MLC",model_type:2},{model_id:"snowflake-arctic-embed-s-q0f32-MLC-b4",model_type:1}]};
             export class WebWorkerMLCEngine{
               constructor(worker,config){
                 this.report=config.initProgressCallback;
@@ -66,6 +66,10 @@ await build({
                   if(request.stream) return (async function*(){yield* control.chunks;if(control.hold) await control.hold})();
                   return {choices:[{index:0,finish_reason:"stop",message:{role:"assistant",content:'{"city":"Oslo"}'}}]};
                 }}};
+                this.embeddings={create:async(request)=>{
+                  control.requests.push(request);
+                  return {data:request.input.map((_,index)=>({index,embedding:[index,1]})),usage:{prompt_tokens:3,total_tokens:3}};
+                }};
               }
               setAppConfig(){}
               async reload(model,chatOptions){
@@ -92,7 +96,11 @@ type Adapter = {
   create(options?: { onDownloadProgress?: (progress: number) => void }): Promise<unknown>
   destroy(): Promise<void>
 }
-type Module = { webLlmText: (model: string, config?: Record<string, unknown>) => Adapter }
+type EmbeddingAdapter = { model: string; createEmbeddings(options: Record<string, unknown>): Promise<{ embeddings: Array<{ vector: Array<number>; index: number }> }> }
+type Module = {
+  webLlmText: (model: string, config?: Record<string, unknown>) => Adapter & { inputModalities: ReadonlyArray<string> }
+  webLlmEmbedding: (model?: string) => EmbeddingAdapter
+}
 /** A fresh copy of the adapter's module: its own engine, loaded model and WebGPU check. */
 let copies = 0
 const fresh = async () => (await import(`${pathToFileURL(outfile).href}?${++copies}`)) as Module
@@ -100,7 +108,7 @@ const fresh = async () => (await import(`${pathToFileURL(outfile).href}?${++copi
 const setGpu = (gpu: unknown) => Object.defineProperty(globalThis.navigator, "gpu", { value: gpu, configurable: true })
 setGpu({ requestAdapter: async () => ({}) })
 
-const { webLlmText } = await fresh()
+const { webLlmText, webLlmEmbedding } = await fresh()
 const MODEL = "Qwen3-1.7B-q4f16_1-MLC"
 const logger = { request() { return undefined }, errors() { return undefined }, provider() { return undefined }, warn() { return undefined } }
 const options = (extra: Record<string, unknown> = {}) => ({
@@ -268,4 +276,24 @@ test("reasoning turns thinking on or off with WebLLM's enable_thinking, for mode
   // A model without the switch gets none.
   const plain = "Qwen2.5-0.5B-Instruct-q4f16_1-MLC"
   assert.equal((await run(webLlmText(plain), { model: plain, reasoning: { level: "off" } })).request.extra_body, undefined)
+})
+
+test("images go to WebLLM as image_url without detail; vision models read images", async () => {
+  const VISION = "Phi-3.5-vision-instruct-q4f16_1-MLC"
+  const adapter = webLlmText(VISION)
+  assert.deepEqual(adapter.inputModalities, ["text", "image"])
+  assert.deepEqual(webLlmText(MODEL).inputModalities, ["text"])
+  const image = { type: "image", source: { type: "data", value: "AAAA", mimeType: "image/png" } }
+  const { request } = await run(adapter, { model: VISION, messages: [{ role: "user", content: [{ type: "text", content: "What's this?" }, image] }] })
+  const content = (request.messages as Array<{ content: unknown }>).at(-1)!.content
+  assert.deepEqual(content, [{ type: "text", text: "What's this?" }, { type: "image_url", image_url: { url: "data:image/png;base64,AAAA" } }])
+})
+
+test("embeddings: WebLLM's embeddings.create, a vector per input, in their own engine", async () => {
+  const adapter = webLlmEmbedding()
+  assert.equal(adapter.model, "snowflake-arctic-embed-s-q0f32-MLC-b4")
+  const result = await adapter.createEmbeddings({ logger, model: adapter.model, input: ["a", "b"] })
+  assert.deepEqual(result.embeddings, [{ vector: [0, 1], index: 0 }, { vector: [1, 1], index: 1 }])
+  assert.deepEqual(control.requests.at(-1), { model: adapter.model, input: ["a", "b"] })
+  assert.equal(control.reloads.at(-1)!.model, adapter.model)
 })
