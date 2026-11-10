@@ -77,6 +77,8 @@ function jsonItems(text: string): Array<Item> {
   } catch {
     return []
   }
+  // A result that's JSON but not an object (`null`, a number) lists no sources.
+  if (!data || typeof data !== "object") return []
   const root = data as {
     results?: Array<Record<string, unknown>>
     data?: { web?: Array<Record<string, unknown>> }
