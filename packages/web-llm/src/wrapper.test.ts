@@ -35,7 +35,9 @@ const control = {
   chunks: [] as Array<unknown>,
   /** A streaming reply waits for this after its chunks (an interrupt resolves it). */
   hold: null as Promise<void> | null,
-  release: () => undefined as void
+  release: () => undefined as void,
+  /** An embeddings.create waits for this. */
+  embedHold: null as Promise<void> | null
 }
 ;(globalThis as { __webLlm?: typeof control }).__webLlm = control
 ;(globalThis as { Worker?: unknown }).Worker = class {}
@@ -81,6 +83,7 @@ await build({
                 }}};
                 this.embeddings={create:async(request)=>{
                   control.requests.push(request);
+                  if(control.embedHold) await control.embedHold;
                   return {data:request.input.map((_,index)=>({index,embedding:[index,1]})),usage:{prompt_tokens:3,total_tokens:3}};
                 }};
               }
@@ -110,7 +113,7 @@ type Adapter = {
   create(options?: { onDownloadProgress?: (progress: number) => void }): Promise<unknown>
   destroy(): Promise<void>
 }
-type EmbeddingAdapter = { model: string; createEmbeddings(options: Record<string, unknown>): Promise<{ embeddings: Array<{ vector: Array<number>; index: number }> }> }
+type EmbeddingAdapter = Pick<Adapter, "create" | "destroy"> & { model: string; createEmbeddings(options: Record<string, unknown>): Promise<{ embeddings: Array<{ vector: Array<number>; index: number }> }> }
 type Module = {
   webLlmText: (model: string, config?: Record<string, unknown>) => Adapter & { inputModalities: ReadonlyArray<string> }
   webLlmEmbedding: (model?: string, config?: Record<string, unknown>) => EmbeddingAdapter
@@ -151,6 +154,7 @@ beforeEach(() => {
   control.reloadGate = Promise.resolve()
   control.chunks = [delta({ role: "assistant", content: "Hi" }), delta({}, "stop")]
   control.hold = null
+  control.embedHold = null
 })
 
 test("modelOptions go to WebLLM as given", async () => {
@@ -364,4 +368,63 @@ test("each load applies its catalog: a default adapter loads a stock model after
   const stock = webLlmEmbedding()
   await stock.createEmbeddings({ logger, model: stock.model, input: ["a"] })
   assert.deepEqual(control.reloads.slice(2).map((r) => r.model), ["Custom-Embed-MLC", stock.model])
+})
+
+test("preload and unload wait for the running reply, in both engines", async () => {
+  const { webLlmText, webLlmEmbedding } = await fresh()
+  control.hold = new Promise((resolve) => (control.release = resolve))
+  control.chunks = [delta({ role: "assistant", content: "Hi" })]
+  let first = false
+  const events: Array<Chunk> = []
+  const running = (async () => {
+    for await (const event of webLlmText(MODEL).chatStream(options())) {
+      events.push(event)
+      if (event.type === "TEXT_MESSAGE_CONTENT") first = true
+    }
+  })()
+  while (!first) await new Promise((resolve) => setTimeout(resolve, 0))
+  const preload = webLlmText(MODEL, { contextLength: 1024 }).create()
+  const unload = webLlmText(MODEL, { contextLength: 1024 }).destroy()
+  await new Promise((resolve) => setTimeout(resolve, 10))
+  assert.equal(control.reloads.length, 1, "no reload during the reply")
+  assert.equal(control.unloads, 0, "no unload during the reply")
+  control.release()
+  await Promise.all([running, preload, unload])
+  assert.equal(control.interrupts, 0)
+  assert.equal(events.filter((e) => e.type === "TEXT_MESSAGE_CONTENT").map((e) => e.delta).join(""), "Hi")
+  assert.deepEqual(control.reloads.map((r) => r.chatOptions), [undefined, { context_window_size: 1024 }])
+  assert.equal(control.unloads, 1)
+
+  // The embedding engine: an unload waits for the load before it.
+  let open = () => undefined as void
+  control.reloadGate = new Promise((resolve) => (open = resolve))
+  const embedding = webLlmEmbedding()
+  const loading = embedding.create()
+  const unloading = embedding.destroy()
+  await new Promise((resolve) => setTimeout(resolve, 10))
+  assert.equal(control.unloads, 1, "no unload during the embedding load")
+  open()
+  await Promise.all([loading, unloading])
+  assert.equal(control.unloads, 2)
+})
+
+test("an embedding batch keeps its engine: a preload with another catalog or an unload waits for it", async () => {
+  const { webLlmEmbedding } = await fresh()
+  let open = () => undefined as void
+  control.embedHold = new Promise((resolve) => (open = resolve))
+  const adapter = webLlmEmbedding()
+  const batch = adapter.createEmbeddings({ logger, model: adapter.model, input: ["a"] })
+  while (control.requests.length === 0) await new Promise((resolve) => setTimeout(resolve, 0))
+  const custom = { model_list: [{ model_id: "Custom-Embed-MLC", model: "https://example.com/m", model_lib: "https://example.com/m.wasm", model_type: 1 }] }
+  const preload = webLlmEmbedding("Custom-Embed-MLC", { appConfig: custom }).create()
+  const unload = webLlmEmbedding("Custom-Embed-MLC", { appConfig: custom }).destroy()
+  await new Promise((resolve) => setTimeout(resolve, 10))
+  assert.deepEqual(control.reloads.map((r) => r.model), [adapter.model], "no reload during the batch")
+  assert.equal(control.unloads, 0, "no unload during the batch")
+  open()
+  const result = await batch
+  await Promise.all([preload, unload])
+  assert.equal(result.embeddings.length, 1)
+  assert.deepEqual(control.reloads.map((r) => r.model), [adapter.model, "Custom-Embed-MLC"])
+  assert.equal(control.unloads, 1)
 })

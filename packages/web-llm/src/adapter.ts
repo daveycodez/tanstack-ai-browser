@@ -307,20 +307,35 @@ export class WebLlmTextAdapter<TModel extends WebLlmModel> extends OpenAIBaseCha
   create(options: { onDownloadProgress?: DownloadProgressCallback; signal?: AbortSignal } = {}): Promise<this> {
     const own = this.onDownloadProgress
     const theirs = options.onDownloadProgress
-    const ready = chatEngine.loadModel(this.model, this.settings, {
-      onDownloadProgress: (progress) => {
-        own?.(progress)
-        theirs?.(progress)
-      },
-      ...(options.signal && { signal: options.signal })
-    }).then(() => this)
+    // It takes the engine's turn, like a request, so it never reloads the
+    // engine under another request's reply.
+    const ready = (async () => {
+      const release = await chatEngine.acquire(options.signal)
+      try {
+        await chatEngine.loadModel(this.model, this.settings, {
+          onDownloadProgress: (progress) => {
+            own?.(progress)
+            theirs?.(progress)
+          },
+          ...(options.signal && { signal: options.signal })
+        })
+        return this
+      } finally {
+        release()
+      }
+    })()
     ready.catch(() => undefined)
     return ready
   }
 
-  /** Unloads the model, freeing its GPU memory. It stays in WebLLM's cache. */
+  /** Unloads the model, freeing its GPU memory, once the running reply ends. It stays in WebLLM's cache. */
   async destroy(): Promise<void> {
-    await chatEngine.unloadModel(this.model)
+    const release = await chatEngine.acquire()
+    try {
+      await chatEngine.unloadModel(this.model)
+    } finally {
+      release()
+    }
   }
 
   /**

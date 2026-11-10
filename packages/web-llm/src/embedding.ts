@@ -48,14 +48,28 @@ export class WebLlmEmbeddingAdapter<TModel extends WebLlmEmbeddingModelId> exten
 
   /** Downloads the model if it isn't stored and loads it, with the download's progress. Resolves to this adapter. */
   create(options: { onDownloadProgress?: DownloadProgressCallback; signal?: AbortSignal } = {}): Promise<this> {
-    const ready = this.load(options.signal, options.onDownloadProgress).then(() => this)
+    // It takes the engine's turn, so it never reloads the engine under another call.
+    const ready = (async () => {
+      const release = await embeddingEngine.acquire(options.signal)
+      try {
+        await this.load(options.signal, options.onDownloadProgress)
+        return this
+      } finally {
+        release()
+      }
+    })()
     ready.catch(() => undefined)
     return ready
   }
 
-  /** Unloads the model, freeing its GPU memory. It stays in WebLLM's cache. */
+  /** Unloads the model, freeing its GPU memory, once the engine's current call ends. It stays in WebLLM's cache. */
   async destroy(): Promise<void> {
-    await embeddingEngine.unloadModel(this.model)
+    const release = await embeddingEngine.acquire()
+    try {
+      await embeddingEngine.unloadModel(this.model)
+    } finally {
+      release()
+    }
   }
 
   private load(signal?: AbortSignal, onDownloadProgress?: DownloadProgressCallback) {
@@ -80,8 +94,12 @@ export class WebLlmEmbeddingAdapter<TModel extends WebLlmEmbeddingModelId> exten
         throw new Error(`WebLLM's embedding models return their own size of vector: leave \`dimensions\` out.`)
       }
       logger.request(`activity=embed provider=${this.name} model=${model} inputs=${texts.length}`, { provider: this.name, model })
-      const engine = await this.load(options.abortSignal)
-      const response = await engine.embeddings.create({ ...modelOptions, model, input: texts })
+      // The engine is this batch's from its load to its end, so another
+      // adapter's preload or unload waits for it.
+      const release = await embeddingEngine.acquire(options.abortSignal)
+      const response = await this.load(options.abortSignal)
+        .then((engine) => engine.embeddings.create({ ...modelOptions, model, input: texts }))
+        .finally(release)
       return {
         id: this.generateId(this.name),
         model,
