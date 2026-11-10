@@ -185,8 +185,26 @@ export const WLLAMA_MODEL_REASONING: Readonly<Record<string, ModelReasoning>> =
 export const modelMeta = (model: WllamaChatModel): WllamaModelMeta =>
   WLLAMA_MODEL_META[model]
 
-/** Where a model's GGUF file downloads from: its latest version (main) on Hugging Face. */
-export const modelUrl = (model: WllamaChatModel) => {
-  const { name, file } = modelMeta(model)
-  return `https://huggingface.co/${name}/resolve/main/${file}`
+/** A model the catalog lists, a GGUF file's URL, or a GGUF file on Hugging Face as `owner/repo/file.gguf`. */
+export type WllamaModel = WllamaChatModel | (string & {})
+
+/** Whether the catalog lists `model`. */
+export const listed = (model: string): model is WllamaChatModel =>
+  Object.prototype.hasOwnProperty.call(WLLAMA_MODEL_META, model)
+
+/**
+ * Where a model's GGUF file downloads from: a listed model's file, or the
+ * named one, at its latest version (main) on Hugging Face.
+ */
+export const modelUrl = (model: WllamaModel) => {
+  if (listed(model)) {
+    const { name, file } = modelMeta(model)
+    return `https://huggingface.co/${name}/resolve/main/${file}`
+  }
+  if (/^https?:\/\//.test(model)) return model
+  const [owner, repo, ...path] = model.split("/")
+  if (!owner || !repo || path.length === 0 || !model.endsWith(".gguf")) {
+    throw new Error(`${model} isn't a model this package lists: name its GGUF file, as "owner/repo/file.gguf" or a URL.`)
+  }
+  return `https://huggingface.co/${owner}/${repo}/resolve/main/${path.join("/")}`
 }

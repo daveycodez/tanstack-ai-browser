@@ -17,8 +17,8 @@ import type { WllamaCompat } from "@wllama/wllama/esm/index.js"
 
 import { availability, loadModel, unloadModel } from "./client.js"
 import type { Availability, DownloadProgressCallback, LoadSettings } from "./client.js"
-import { modelMeta } from "./catalog.js"
-import type { Sampling, WllamaChatModel, WllamaModelReasoningByName } from "./catalog.js"
+import { listed, modelMeta } from "./catalog.js"
+import type { Sampling, WllamaChatModel, WllamaModel, WllamaModelReasoningByName } from "./catalog.js"
 
 export type WllamaConfig = {
   /**
@@ -95,10 +95,18 @@ export type WllamaTextModelOptions = {
   parallelToolCalls?: boolean
 }
 
-/** The reasoning levels of a model, for `chat({ reasoning })`; `never` for one that doesn't reason. */
+/** A model's reasoning levels: a listed model's, none for a listed one that doesn't reason, else the switch. */
 type ResolveReasoning<TModel extends string> = TModel extends keyof WllamaModelReasoningByName
   ? WllamaModelReasoningByName[TModel]
-  : never
+  : TModel extends WllamaChatModel
+    ? never
+    : { levels: "off" | "high"; budget: true }
+
+/** The switch for a model the catalog doesn't list: the chat template's `enable_thinking`. */
+const UNLISTED_REASONING = { levels: { off: "false", high: "true" }, budget: true } as const
+
+/** A model's reasoning levels: the catalog's, or the switch for one it doesn't list. */
+const reasoningOf = (model: WllamaModel) => (listed(model) ? modelMeta(model).reasoning : UNLISTED_REASONING)
 
 type MetadataByModality = { text: unknown; image: unknown; audio: unknown; video: unknown; document: unknown }
 
@@ -110,8 +118,8 @@ type CreateParams = Parameters<OpenAIClientLike["chat"]["completions"]["create"]
  * `chat_template_kwargs`, and a thinking budget: left out when the model has
  * no levels or the request doesn't ask, so the template's default applies.
  */
-function thinkingKwargs(request: ReasoningRequest | undefined, model: WllamaChatModel): Record<string, unknown> {
-  const value = resolveReasoning(request, modelMeta(model).reasoning)?.value
+function thinkingKwargs(request: ReasoningRequest | undefined, model: WllamaModel): Record<string, unknown> {
+  const value = resolveReasoning(request, reasoningOf(model))?.value
   if (value === undefined) return {}
   const thinking = value === "true"
   const budget = request?.budgetTokens
@@ -124,9 +132,10 @@ function thinkingKwargs(request: ReasoningRequest | undefined, model: WllamaChat
 /**
  * The card's sampling for a request: its thinking settings while the chat
  * template thinks (asked for, or a model that always thinks), else its
- * own.
+ * own. None for a model the catalog doesn't list: llama.cpp's defaults.
  */
-function cardSampling(request: ReasoningRequest | undefined, model: WllamaChatModel): Sampling {
+function cardSampling(request: ReasoningRequest | undefined, model: WllamaModel): Partial<Sampling> {
+  if (!listed(model)) return {}
   const meta = modelMeta(model)
   const value = resolveReasoning(request, meta.reasoning)?.value
   const thinking = value !== undefined ? value === "true" : !!meta.reasoning && !("off" in meta.reasoning.levels)
@@ -134,7 +143,7 @@ function cardSampling(request: ReasoningRequest | undefined, model: WllamaChatMo
 }
 
 /** `modelOptions` with llama.cpp's names, over the model card's sampling. */
-function llamaSettings(options: WllamaTextModelOptions | undefined, base: Sampling): Record<string, unknown> {
+function llamaSettings(options: WllamaTextModelOptions | undefined, base: Partial<Sampling>): Record<string, unknown> {
   const o = options ?? {}
   const fields = {
     temperature: o.temperature ?? base.temperature,
@@ -156,7 +165,7 @@ function llamaSettings(options: WllamaTextModelOptions | undefined, base: Sampli
  * settings (at once when it's loaded with them) and goes to wllama's
  * `createChatCompletion`.
  */
-function clientFor(model: WllamaChatModel, settings: LoadSettings, onDownloadProgress?: DownloadProgressCallback): OpenAIClientLike {
+function clientFor(model: WllamaModel, settings: LoadSettings, onDownloadProgress?: DownloadProgressCallback): OpenAIClientLike {
   const create = async (body: Record<string, unknown>, options?: { signal?: AbortSignal | null }) => {
     const signal = options?.signal ?? undefined
     const wllama = await loadModel(model, settings, { ...(onDownloadProgress && { onDownloadProgress }), ...(signal && { signal }) })
@@ -175,7 +184,7 @@ const loadSettings = ({ contextLength, wasmUrl, compat, threads, gpu, debug }: W
   ...(debug && { debug })
 })
 
-export class WllamaTextAdapter<TModel extends WllamaChatModel> extends OpenAIBaseChatCompletionsTextAdapter<
+export class WllamaTextAdapter<TModel extends WllamaModel> extends OpenAIBaseChatCompletionsTextAdapter<
   TModel,
   WllamaTextModelOptions,
   readonly ["text"],
@@ -265,7 +274,7 @@ export class WllamaTextAdapter<TModel extends WllamaChatModel> extends OpenAIBas
  * chat({ adapter: wllamaText("unsloth/Qwen3.5-2B-GGUF"), messages, threadId })
  * ```
  */
-export function wllamaText<TModel extends WllamaChatModel>(
+export function wllamaText<TModel extends WllamaModel>(
   model: TModel,
   config: WllamaConfig = {}
 ): WllamaTextAdapter<TModel> {

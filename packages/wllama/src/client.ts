@@ -12,7 +12,7 @@ import { LoggerWithoutDebug, ModelManager, Wllama } from "@wllama/wllama/esm/ind
 import type { WllamaCompat } from "@wllama/wllama/esm/index.js"
 
 import { modelUrl } from "./catalog.js"
-import type { WllamaChatModel } from "./catalog.js"
+import type { WllamaModel } from "./catalog.js"
 
 /**
  * Where a model stands in this browser, with the Prompt API's values
@@ -51,7 +51,7 @@ export const WLLAMA_WASM_URL = `https://cdn.jsdelivr.net/npm/@wllama/wllama@${WL
 
 /** The model wllama holds (or is loading). */
 let loaded: {
-  model: WllamaChatModel
+  model: WllamaModel
   key: string
   wllama: Wllama
   promise: Promise<Wllama>
@@ -63,7 +63,7 @@ let loaded: {
 } | null = null
 
 /** Models whose file is downloading in this page. */
-const downloading = new Set<WllamaChatModel>()
+const downloading = new Set<WllamaModel>()
 
 /** Waits for `promise` until `signal` aborts; the load goes on. */
 const abortable = <T>(promise: Promise<T>, signal: AbortSignal | undefined) =>
@@ -78,7 +78,7 @@ const abortable = <T>(promise: Promise<T>, signal: AbortSignal | undefined) =>
     : promise
 
 /** Frees the loaded model, stopping its download. Given a model, only if it's the one loaded. */
-export async function unloadModel(model?: WllamaChatModel) {
+export async function unloadModel(model?: WllamaModel) {
   const current = loaded
   if (!current || (model !== undefined && current.model !== model)) return
   loaded = null
@@ -94,11 +94,13 @@ export async function unloadModel(model?: WllamaChatModel) {
  * wait; `unloadModel` stops the load.
  */
 export async function loadModel(
-  model: WllamaChatModel,
+  model: WllamaModel,
   settings: LoadSettings,
   { onDownloadProgress, signal }: { onDownloadProgress?: DownloadProgressCallback; signal?: AbortSignal } = {}
 ): Promise<Wllama> {
   signal?.throwIfAborted()
+  // A name that isn't a model throws here, before anything is unloaded.
+  const url = modelUrl(model)
   const key = JSON.stringify(settings)
   if (loaded?.model !== model || loaded.key !== key) {
     await unloadModel()
@@ -111,7 +113,7 @@ export async function loadModel(
     // This caller's callback first: wllama may report progress at once.
     const listeners = new Set<DownloadProgressCallback>(onDownloadProgress ? [onDownloadProgress] : [])
     const promise = wllama
-      .loadModelFromUrl(modelUrl(model), {
+      .loadModelFromUrl(url, {
         signal: abort.signal,
         progressCallback: ({ loaded: bytes, total }) => {
           // A model in storage reports its whole size once, without downloading.
@@ -161,7 +163,7 @@ let storage: ModelManager | undefined
  * "available" when it's loaded or its file is in wllama's storage, else
  * "downloadable". It reads storage only.
  */
-export async function availability(model: WllamaChatModel): Promise<Availability> {
+export async function availability(model: WllamaModel): Promise<Availability> {
   const runs =
     typeof WebAssembly !== "undefined" &&
     typeof Worker !== "undefined" &&

@@ -16,7 +16,7 @@ import type { OpenAIClientLike } from "@tanstack/openai-base"
 import { WebGLLM } from "webgllm"
 import type { LoadProgress } from "webgllm"
 
-import { modelMeta } from "./catalog.js"
+import { modelMeta, WEBGLLM_MODEL_META } from "./catalog.js"
 import type { WebGllmChatModel, WebGllmModelReasoningByName } from "./catalog.js"
 
 /**
@@ -92,9 +92,20 @@ export type WebGllmConfig = {
   onDownloadProgress?: DownloadProgressCallback
 }
 
+/** A model's reasoning levels: a listed model's, none for a listed one that doesn't reason, else the switch. */
 type ResolveReasoning<TModel extends string> = TModel extends keyof WebGllmModelReasoningByName
   ? WebGllmModelReasoningByName[TModel]
-  : never
+  : TModel extends WebGllmChatModel
+    ? never
+    : { levels: "off" | "high"; budget: false }
+
+/** A model the catalog lists, or any Hugging Face repo webgllm can resolve. */
+export type WebGllmModel = WebGllmChatModel | (string & {})
+
+/** The switch for a model the catalog doesn't list: webgllm's `reasoning_effort`, a hint it ignores where it can't apply. */
+const UNLISTED_REASONING = { levels: { off: "none", high: "high" }, budget: false } as const
+
+const listed = (model: string): model is WebGllmChatModel => Object.prototype.hasOwnProperty.call(WEBGLLM_MODEL_META, model)
 
 type MetadataByModality = { text: unknown; image: unknown; audio: unknown; video: unknown; document: unknown }
 
@@ -123,7 +134,7 @@ function toRequestOptions(o: WebGllmTextModelOptions | undefined): Record<string
 const signalOf = (options: TextOptions) =>
   options.abortController?.signal ?? (options.request as RequestInit | undefined)?.signal ?? undefined
 
-export class WebGllmTextAdapter<TModel extends WebGllmChatModel> extends OpenAIBaseChatCompletionsTextAdapter<
+export class WebGllmTextAdapter<TModel extends WebGllmModel> extends OpenAIBaseChatCompletionsTextAdapter<
   TModel,
   WebGllmTextModelOptions,
   readonly ["text"],
@@ -223,7 +234,7 @@ export class WebGllmTextAdapter<TModel extends WebGllmChatModel> extends OpenAIB
   }
 
   protected override modelReasoning(model: string) {
-    return modelMeta(model as WebGllmChatModel).reasoning as ModelReasoning | undefined
+    return (listed(model) ? modelMeta(model).reasoning : UNLISTED_REASONING) as ModelReasoning | undefined
   }
 
   /** webgllm streams thinking as `reasoning_content`. */
@@ -248,6 +259,6 @@ export class WebGllmTextAdapter<TModel extends WebGllmChatModel> extends OpenAIB
  * chat({ adapter: webgllmText("LiquidAI/LFM3-1.7B-GGUF"), messages, threadId })
  * ```
  */
-export function webgllmText<TModel extends WebGllmChatModel>(model: TModel, config?: WebGllmConfig): WebGllmTextAdapter<TModel> {
+export function webgllmText<TModel extends WebGllmModel>(model: TModel, config?: WebGllmConfig): WebGllmTextAdapter<TModel> {
   return new WebGllmTextAdapter(config ?? {}, model)
 }

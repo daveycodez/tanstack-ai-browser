@@ -314,7 +314,7 @@ export class TransformersJsTextAdapter<TModel extends string> extends BaseTextAd
  * chat({ adapter: transformersJsText("onnx-community/LFM3-1.7B-ONNX"), messages, tools })
  * ```
  */
-export function transformersJsText<TModel extends string>(
+export function transformersJsText<TModel extends TransformersJsChatModel | (string & {})>(
   model: TModel,
   config: TransformersJsConfig = {}
 ): TransformersJsTextAdapter<TModel> {

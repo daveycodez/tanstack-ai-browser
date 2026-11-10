@@ -180,3 +180,15 @@ test("a failed load rejects, frees wllama, and the next call loads again", { tim
     assert.equal(control.loads.length, 2)
   })
 })
+
+test("an unlisted model is named by its GGUF file: owner/repo/file.gguf on Hugging Face, or a URL", { timeout: 5000 }, async () => {
+  await withClient("unlisted", async (client, control, release) => {
+    release()
+    await client.wllamaText("bartowski/SmolLM2-135M-Instruct-GGUF/SmolLM2-135M-Instruct-Q4_K_M.gguf").create()
+    assert.equal(control.loads.at(-1)?.url, "https://huggingface.co/bartowski/SmolLM2-135M-Instruct-GGUF/resolve/main/SmolLM2-135M-Instruct-Q4_K_M.gguf")
+    await client.wllamaText("https://example.com/m.gguf").create()
+    assert.equal(control.loads.at(-1)?.url, "https://example.com/m.gguf")
+    await assert.rejects(client.wllamaText("some/repo").create(), /name its GGUF file/)
+  })
+})
+

@@ -6,3 +6,4 @@
 export { wllamaText, WllamaTextAdapter } from "./adapter.js"
 export type { WllamaConfig, WllamaTextModelOptions } from "./adapter.js"
 export type { Availability, DownloadProgressCallback } from "./client.js"
+export type { WllamaModel } from "./catalog.js"

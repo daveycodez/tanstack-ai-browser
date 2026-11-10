@@ -19,7 +19,7 @@ const stream = chat({
 
 It needs WebGL 2 with float render targets (`EXT_color_buffer_float`) and OffscreenCanvas in workers, which current Chrome, Firefox and Safari have; an adapter's `availability()` says `"unavailable"` where they're missing.
 
-The package is shaped like `@tanstack/ai-openrouter`'s text adapter. The root has `webgllmText(model, config?)`, `WebGllmTextAdapter` (with the runtime methods `availability`, `create` and `destroy`) and the types `WebGllmConfig`, `WebGllmTextModelOptions`, `Availability` and `DownloadProgressCallback`; `@tanstack-ai-browser/webgllm/model-meta` has the catalog (below).
+The package is shaped like `@tanstack/ai-openrouter`'s text adapter. The root has `webgllmText(model, config?)`, `WebGllmTextAdapter` (with the runtime methods `availability`, `create` and `destroy`) and the types `WebGllmConfig`, `WebGllmModel`, `WebGllmTextModelOptions`, `Availability` and `DownloadProgressCallback`; `@tanstack-ai-browser/webgllm/model-meta` has the catalog (below).
 
 The engine is the [`webgllm`](https://www.npmjs.com/package/webgllm) package, behind OpenAI's Chat Completions API in the page. The adapter is TanStack's Chat Completions adapter (`@tanstack/openai-base`) with the shared `WebGLLM` instance as its client, so messages, tools, structured output and the stream are TanStack's; it adds loading the model, webgllm's reasoning levels and thinking budget, and its options. Tool-call parsing and repair, thinking, guided tool choice and schema-constrained answers are webgllm's own. See [webgllm.dev](https://webgllm.dev) and its README for how the engine works, its memory and speed.
 
@@ -84,6 +84,8 @@ A failure is a `RUN_ERROR`, as in a chat. Aborting stops the generation and ends
 ## Models and loading
 
 `@tanstack-ai-browser/webgllm/model-meta` has the catalog: `WEBGLLM_CHAT_MODELS` lists the models webgllm runs and `WEBGLLM_MODEL_META` has each one's files, capabilities and sampling (webgllm's catalog). `WEBGLLM_MODEL_REASONING` has each model's reasoning levels in TanStack's shape, for `supportedReasoningLevels()`. Their types are `WebGllmChatModel`, `WebGllmModelMeta` and `WebGllmModelReasoningByName`. LFM3 thinks by default and Qwen3.5 doesn't; `chat({ reasoning })` switches it.
+
+`webgllmText` also takes any Hugging Face repo webgllm can resolve (a supported architecture, in ONNX or GGUF): webgllm reads its files and sampling from the Hub. `chat({ reasoning })` then sends `reasoning_effort` `"none"` or `"high"`, which webgllm applies where the model's chat template can switch thinking.
 
 ```ts
 import { webgllmText } from "@tanstack-ai-browser/webgllm"
