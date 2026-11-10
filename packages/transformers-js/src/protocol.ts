@@ -1,6 +1,8 @@
 /**
- * Messages between the page (client.ts) and the worker (worker.ts). The
- * worker holds one model and runs one generation at a time.
+ * Messages between the page (client.ts) and the model's handler
+ * (handler.ts), in the package's worker, a worker of the caller's, or on a
+ * server in the same process. The handler holds one model and runs one
+ * generation at a time.
  */
 import type { GenerationConfig } from "@huggingface/transformers"
 
@@ -11,11 +13,20 @@ export type Device = "webgpu" | "wasm"
 export type Dtype = "q4f16" | "q4" | "fp16" | "fp32" | "q8" | "int8" | "uint8" | "bnb4"
 
 /**
- * The model to load, and how. Left out, the worker picks the device and
+ * The model to load, and how. Left out, the handler picks the device and
  * weights. `vision` loads it with its vision encoder and processor
  * (Transformers.js's `AutoModelForImageTextToText`), for images.
+ * `localModelPath` and `cacheDir` are Transformers.js's `env` settings of
+ * those names, for a server.
  */
-export type LoadSettings = { model: string; device?: Device; dtype?: Dtype; vision?: boolean }
+export type LoadSettings = {
+  model: string
+  device?: Device
+  dtype?: Dtype
+  vision?: boolean
+  localModelPath?: string
+  cacheDir?: string
+}
 
 /** A part of a user message's content, as chat templates read it: an image stands in its place. */
 export type TemplatePart = { type: "text"; text: string } | { type: "image" }
@@ -71,13 +82,36 @@ export type WorkerRequest =
   | { type: "load"; settings: LoadSettings }
   | ({ type: "generate" } & GenerateRequest)
   | { type: "interrupt" }
+  /** Frees the model; the handler stays, for the next load. */
+  | { type: "unload" }
 
 export type WorkerReply =
   /** The download's progress across the model's files, 0 to 1. */
   | { status: "progress"; progress: number }
   | { status: "ready" }
+  /** The model was freed. */
+  | { status: "unloaded" }
   /** Generated text. */
   | { status: "update"; output: string }
   /** The generation ended (finished, interrupted or out of tokens), with its token counts. */
   | { status: "complete"; inputTokens: number; outputTokens: number }
+  | { status: "error"; message: string }
+
+/** The Whisper model to load, and how: Transformers.js's defaults where left out. */
+export type TranscriptionLoadSettings = { model: string; device?: Device; dtype?: Dtype }
+
+/** Requests to Whisper's handler (transcription-handler.ts). It holds one model. */
+export type TranscriptionRequest =
+  | { type: "load"; settings: TranscriptionLoadSettings }
+  /** The audio's samples at 16 kHz, and the pipeline's own options. */
+  | { type: "transcribe"; samples: Float32Array; options: Record<string, unknown> }
+  | { type: "unload" }
+
+export type TranscriptionReply =
+  /** The download's progress across the model's files, 0 to 1. */
+  | { status: "progress"; progress: number }
+  | { status: "ready" }
+  /** The transcript, with timed chunks if asked for. */
+  | { status: "result"; text: string; chunks?: Array<{ text: string; timestamp: [number, number | null] }> }
+  | { status: "unloaded" }
   | { status: "error"; message: string }

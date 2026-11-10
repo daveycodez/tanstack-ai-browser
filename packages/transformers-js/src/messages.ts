@@ -34,11 +34,14 @@ function imageUrl(source: { type: string; value: string; mimeType?: string }): s
 
 /**
  * The conversation for the chat template, and its images in order: one for
- * each `{ type: "image" }` part.
+ * each `{ type: "image" }` part. A user message with an image goes as
+ * parts; with `asParts`, every user message does, as the templates of models
+ * made for images (SmolVLM's) read them.
  */
 export function toTemplateMessages(
   system: string,
-  messages: ReadonlyArray<ModelMessage>
+  messages: ReadonlyArray<ModelMessage>,
+  asParts = false
 ): { messages: Array<TemplateMessage>; images: Array<string> } {
   const out: Array<TemplateMessage> = system ? [{ role: "system", content: system }] : []
   const images: Array<string> = []
@@ -78,7 +81,7 @@ export function toTemplateMessages(
       }
       out.push({ role: "user", content: parts })
     } else {
-      out.push({ role: "user", content })
+      out.push({ role: "user", content: asParts ? [{ type: "text", text: content }] : content })
     }
   }
   return { messages: out, images }

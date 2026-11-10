@@ -34,12 +34,13 @@ const TOOL_CALL_TOKENS = new Set([
 ])
 
 /**
- * A streamed piece as the page sees it: special tokens (`<|im_end|>`, …)
- * are dropped, except tool-call delimiters. Null for a piece to drop.
+ * A streamed piece as the page sees it: special tokens (the tokenizer's own
+ * `specialTokens`, and anything shaped like `<|im_end|>`) are dropped,
+ * except tool-call delimiters. Null for a piece to drop.
  */
-export function shownText(text: string): string | null {
+export function shownText(text: string, specialTokens?: ReadonlySet<string>): string | null {
   const token = text.trim()
-  const special = /^<\|[^>]+>$/.test(token) || /^<[^|>]+\|>$/.test(token)
+  const special = !!specialTokens?.has(token) || /^<\|[^>]+>$/.test(token) || /^<[^|>]+\|>$/.test(token)
   return special && !TOOL_CALL_TOKENS.has(token) ? null : text
 }
 
