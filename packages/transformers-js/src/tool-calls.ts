@@ -4,7 +4,7 @@
  * calls its own way: in a ```tool_call fence, `<tool_call>` tags, Gemma's
  * `<|tool_call>call:name{…}<tool_call|>`, Qwen3.5's `<function=…>` XML in `<tool_call>` tags, or LFM2's
  * `<|tool_call_start|>[name(…)]<|tool_call_end|>`. The adapter reads the
- * first call out of the streamed text; `chat()` checks it against the tools.
+ * first call to one of the permitted tools out of the streamed text.
  */
 
 /** A tool call read from the model's text. */
@@ -49,54 +49,48 @@ const isObject = (value: unknown): value is Record<string, unknown> =>
 /**
  * The first tool call in a delimited body: a JSON object (or an array of
  * them, or one per line) with `name` and `arguments` (or `parameters`), the
- * arguments possibly a JSON string; or a Python-style call,
- * `[name(key="v")]`; or `call:name{key:value}`.
+ * arguments possibly a JSON string; or, as the whole body, Qwen3.5's
+ * `<function=name>` XML, a Python-style call, `[name(key="v")]`, or
+ * `call:name{key:value}`. JSON is read first, so call syntax inside its
+ * strings stays an argument.
  */
 export function parseToolCall(body: string): ParsedToolCall | undefined {
   const text = body.trim()
+  const json = parseJson(text)
+  if (json !== undefined) return jsonCall(Array.isArray(json) ? json : [json])
   // Qwen3.5's: <function=name><parameter=key>value</parameter></function>.
-  const xml = /<function=([^>\s]+)>([\s\S]*?)(?:<\/function>|$)/.exec(text)
+  const xml = /^<function=([^>\s]+)>([\s\S]*?)(?:<\/function>)?$/.exec(text)
   if (xml) {
     const args: Record<string, unknown> = {}
     for (const [, key, raw] of xml[2].matchAll(/<parameter=([^>\s]+)>([\s\S]*?)<\/parameter>/g)) {
       const value = raw.trim()
-      try {
-        args[key] = JSON.parse(value) as unknown
-      } catch {
-        args[key] = value
-      }
+      args[key] = parseJson(value) ?? value
     }
     return { name: xml[1], arguments: args }
   }
-  const colon = /call:(\w+)\{([^}]*)\}/.exec(text)
+  const colon = /^call:(\w+)\{([^}]*)\}$/.exec(text)
   if (colon) return { name: colon[1], arguments: parseColonArguments(colon[2]) }
-  if (/^\[?\s*\w+\(/.test(text)) {
-    const call = parsePythonCall(text)
-    if (call) return call
-  }
-  const candidates: Array<unknown> = []
+  const python = parsePythonCall(text)
+  if (python) return python
+  return jsonCall(text.split("\n").map(parseJson))
+}
+
+/** `text` as JSON, or undefined. */
+function parseJson(text: string): unknown {
   try {
-    const value = JSON.parse(text) as unknown
-    candidates.push(...(Array.isArray(value) ? value : [value]))
+    return JSON.parse(text) as unknown
   } catch {
-    for (const line of text.split("\n")) {
-      try {
-        candidates.push(JSON.parse(line) as unknown)
-      } catch {
-        // Not JSON.
-      }
-    }
+    return undefined
   }
-  for (const call of candidates) {
+}
+
+/** The first of `values` that is a call: an object with a `name`. */
+function jsonCall(values: Array<unknown>): ParsedToolCall | undefined {
+  for (const call of values) {
     if (!isObject(call) || typeof call.name !== "string" || !call.name) continue
     let args: unknown = call.arguments ?? call.parameters ?? {}
-    if (typeof args === "string") {
-      try {
-        args = JSON.parse(args) as unknown
-      } catch {
-        // Left as the model wrote it.
-      }
-    }
+    // Arguments as a JSON string, else left as the model wrote them.
+    if (typeof args === "string") args = parseJson(args) ?? args
     return { name: call.name, arguments: args }
   }
   return undefined
@@ -178,20 +172,25 @@ function pythonValue(raw: string): unknown {
   }
 }
 
-/** The first Python-style call in `text`: `name(key=value, …)`, maybe in brackets. */
+/**
+ * A Python-style call as the whole of `text`: `name(key=value, …)`, maybe in
+ * brackets; of a bracketed list of calls, the first.
+ */
 function parsePythonCall(text: string): ParsedToolCall | undefined {
-  const match = /(\w+)\(/.exec(text)
+  const match = /^(\[\s*)?(\w+)\(/.exec(text)
   if (!match) return undefined
-  const open = match.index + match[1].length
+  const open = match[0].length - 1
   const close = closing(text, open)
   if (close === -1) return undefined
+  const rest = text.slice(close + 1).trim()
+  if (match[1] ? !rest.endsWith("]") || !/^(\]|,)/.test(rest) : rest !== "") return undefined
   const args: Record<string, unknown> = {}
   for (const part of splitTopLevel(text.slice(open + 1, close))) {
     const at = part.indexOf("=")
     if (at <= 0) continue
     args[part.slice(0, at).trim()] = pythonValue(part.slice(at + 1))
   }
-  return { name: match[1], arguments: args }
+  return { name: match[2], arguments: args }
 }
 
 /** Characters at the end of `text` that could start a delimiter. */
@@ -209,10 +208,10 @@ function partialStart(text: string) {
  * be shown now; text inside a call's delimiters (or a bare `[name(…)]`) is
  * held back. The first call read ends the reply (stop generating then):
  * `call` is the call; text after it is dropped.
- * Delimiters with no call inside are text. `end` gives the rest, an
- * unclosed call as text.
+ * Delimiters with no call inside, or a call to a tool not in `names`, are
+ * text. `end` gives the rest, an unclosed call as text.
  */
-export function toolCallReader() {
+export function toolCallReader(names: ReadonlySet<string>) {
   let buffer = ""
   let start: (Delimiter & { python?: boolean }) | undefined
   let call: ParsedToolCall | undefined
@@ -241,7 +240,8 @@ export function toolCallReader() {
       const close = buffer.indexOf(start.end, start.start.length)
       if (close === -1) return shown
       const block = buffer.slice(0, close + start.end.length)
-      call = parseToolCall(start.python ? block : block.slice(start.start.length, close))
+      const parsed = parseToolCall(start.python ? block : block.slice(start.start.length, close))
+      call = parsed && names.has(parsed.name) ? parsed : undefined
       buffer = buffer.slice(block.length)
       start = undefined
       if (!call) shown += block

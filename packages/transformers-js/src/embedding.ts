@@ -23,12 +23,17 @@ export type TransformersJsEmbeddingConfig = {
   onDownloadProgress?: DownloadProgressCallback
 }
 
+type PipelineOptions = NonNullable<Parameters<FeatureExtractionPipeline["_call"]>[1]>
+
 /**
  * Per-call `modelOptions`: the pipeline's own options (`pooling`,
  * `normalize`, `quantize`, `precision`), sent as given. Mean pooling and
  * normalized vectors by default, as sentence-transformers models expect.
+ * A pooling is needed: `"none"` gives a vector a token, not one a text.
  */
-export type TransformersJsEmbeddingModelOptions = NonNullable<Parameters<FeatureExtractionPipeline["_call"]>[1]>
+export type TransformersJsEmbeddingModelOptions = Omit<PipelineOptions, "pooling"> & {
+  pooling?: Exclude<PipelineOptions["pooling"], "none">
+}
 
 export class TransformersJsEmbeddingAdapter<TModel extends string> extends BaseEmbeddingAdapter<
   TModel,
@@ -110,6 +115,12 @@ export class TransformersJsEmbeddingAdapter<TModel extends string> extends BaseE
       logger.request(`activity=embed provider=${this.name} model=${model} inputs=${texts.length}`, { provider: this.name, model })
       const extractor = await this.load()
       const output = await extractor(texts, { pooling: "mean", normalize: true, ...modelOptions })
+      // One vector a text: [texts, size]. Unpooled output has a vector a token.
+      if (output.dims.length !== 2 || output.dims[0] !== texts.length) {
+        throw new Error(
+          `Transformers.js returned output of shape [${output.dims.join(", ")}], not one vector a text: set a \`pooling\` other than "none".`
+        )
+      }
       const vectors = output.tolist() as Array<Array<number>>
       return {
         id: this.generateId(this.name),

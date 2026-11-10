@@ -172,13 +172,18 @@ export class TransformersJsTextAdapter<TModel extends string> extends BaseTextAd
       )
       // The vision encoder loads once the conversation has an image.
       const vision = prompt.images.length > 0
-      await loadModel({ ...this.settings, ...(vision && { vision }) }, this.onDownloadProgress, signal)
-      const tools = options.toolChoice === "none" ? [] : (options.tools ?? [])
+      // The tools the model may call: none for "none", only the named one for a tool choice.
+      const choice = options.toolChoice
+      const tools =
+        choice === "none"
+          ? []
+          : (options.tools ?? []).filter((tool) => typeof choice !== "object" || tool.name === choice.name)
       const enableThinking = resolveReasoning(options.reasoning, modelReasoning(model))?.value === "true"
       const meta = listed(model)
       const card = (enableThinking && meta?.thinkingSampling) || meta?.sampling
       const generation = generationOptions(options.modelOptions, card, enableThinking)
-      const reader = toolCallReader()
+      // Without tools, the reply is all text: nothing is read as a call.
+      const reader = tools.length > 0 ? toolCallReader(new Set(tools.map((tool) => tool.name))) : undefined
       const splitter = thinkingSplitter()
       const reasoningId = nextId("reasoning")
       let reasoningOpen = false
@@ -199,8 +204,12 @@ export class TransformersJsTextAdapter<TModel extends string> extends BaseTextAd
       /** Thinking as reasoning events; the answer through the tool-call reader. */
       const pieceEvents = function* (pieces: Array<Piece>): Generator<AdapterYieldChunk> {
         for (const { thinking, text: delta } of pieces) {
-          if (reader.call) return
+          if (reader?.call) return
           if (!thinking) {
+            if (!reader) {
+              yield* textEvents(delta)
+              continue
+            }
             yield* textEvents(reader.push(delta))
             // The first call ends the reply: the worker stops, and later text is dropped.
             if (reader.call) interrupt()
@@ -216,6 +225,7 @@ export class TransformersJsTextAdapter<TModel extends string> extends BaseTextAd
       }
       let counts = { inputTokens: 0, outputTokens: 0 }
       const events = generate(
+        { ...this.settings, ...(vision && { vision }) },
         {
           messages: prompt.messages,
           ...(vision && { images: prompt.images }),
@@ -223,7 +233,7 @@ export class TransformersJsTextAdapter<TModel extends string> extends BaseTextAd
           ...(tools.length > 0 && { tools: toTemplateTools(tools) }),
           enableThinking
         },
-        signal
+        { onDownloadProgress: this.onDownloadProgress, signal }
       )
       for await (const event of events) {
         if (event.type === "done") counts = event
@@ -232,9 +242,9 @@ export class TransformersJsTextAdapter<TModel extends string> extends BaseTextAd
       signal?.throwIfAborted()
       yield* pieceEvents(splitter.end())
       yield* closeReasoning()
-      yield* textEvents(reader.end())
+      yield* textEvents(reader?.end() ?? "")
       if (text) yield { type: EventType.TEXT_MESSAGE_END, messageId, model, timestamp: timestamp() }
-      const call = reader.call
+      const call = reader?.call
       if (call) {
         const toolCallId = nextId("call")
         const args = JSON.stringify(call.arguments)

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict"
 import { beforeEach, test } from "node:test"
 
+import { chat } from "@tanstack/ai"
 import type { TextOptions } from "@tanstack/ai"
 
 import type { WorkerReply, WorkerRequest } from "./protocol.js"
@@ -17,13 +18,17 @@ class FakeWorker {
   onerror: unknown = null
   posted: Array<WorkerRequest> = []
   terminated = false
+  /** The model the worker holds. */
+  held: string | undefined
   constructor() {
     FakeWorker.all.push(this)
   }
   postMessage(request: WorkerRequest) {
     this.posted.push(request)
     if (request.type === "load") {
+      this.held = undefined
       setTimeout(() => {
+        this.held = request.settings.model
         this.send({ status: "progress", progress: 0.5 })
         this.send({ status: "ready" })
       }, 0)
@@ -204,6 +209,94 @@ test("text after a tool call in the same piece is dropped", async () => {
 test("toolChoice none sends no tools", async () => {
   await run({ tools: [{ name: "get_weather", description: "Weather" }], toolChoice: "none" })
   assert.equal((generateRequests().at(-1) as Generate).tools, undefined)
+})
+
+/** Runs `chat()` with a get_weather tool that counts its runs, the model's first reply calling it. */
+async function weatherRuns(extra: { toolChoice?: unknown; tools?: Array<{ name: string; description: string }> } = {}) {
+  let runs = 0
+  let generations = 0
+  FakeWorker.reply = (worker) =>
+    worker.stream(generations++ === 0 ? ["<|tool_call_start|>", '[get_weather(city="Oslo")]', "<|tool_call_end|>"] : ["Done."])
+  const getWeather = {
+    name: "get_weather",
+    description: "Weather",
+    execute: async () => {
+      runs++
+      return { temp: 3 }
+    }
+  }
+  const stream = chat({
+    adapter: transformersJsText(MODEL),
+    threadId: "t",
+    messages: [{ role: "user", content: "Weather in Oslo?" }],
+    tools: [getWeather, ...(extra.tools ?? [])],
+    ...(extra.toolChoice !== undefined && { toolChoice: extra.toolChoice as never })
+  })
+  const chunks: Array<Chunk> = []
+  for await (const chunk of stream) chunks.push(chunk as Chunk)
+  return { runs, chunks }
+}
+
+test("chat() runs a tool the model calls", async () => {
+  assert.equal((await weatherRuns()).runs, 1)
+})
+
+test("toolChoice none: a call the model writes anyway is text, and no tool runs", async () => {
+  const { runs, chunks } = await weatherRuns({ toolChoice: "none" })
+  assert.equal(runs, 0)
+  assert.ok(!chunks.some((c) => c.type === "TOOL_CALL_START"))
+  const text = chunks
+    .filter((c) => c.type === "TEXT_MESSAGE_CONTENT")
+    .map((c) => c.delta)
+    .join("")
+  assert.equal(text, '<|tool_call_start|>[get_weather(city="Oslo")]<|tool_call_end|>')
+})
+
+test("toolChoice naming a tool: only that tool goes to the model, and a call to another doesn't run", async () => {
+  const { runs } = await weatherRuns({
+    toolChoice: { type: "tool", name: "lookup" },
+    tools: [{ name: "lookup", description: "Look it up" }]
+  })
+  assert.equal(runs, 0)
+  assert.deepEqual(
+    generateRequests()
+      .at(-1)
+      ?.tools?.map((t) => t.function.name),
+    ["lookup"]
+  )
+})
+
+test("two overlapping requests for different models each generate on their own model", async () => {
+  FakeWorker.reply = (worker) => worker.stream([`on ${worker.held}`])
+  const a = "someone/Model-A-ONNX"
+  const b = "someone/Model-B-ONNX"
+  const [chunksA, chunksB] = await Promise.all([run({ model: a }, a), run({ model: b }, b)])
+  const text = (chunks: Array<Chunk>) => (chunks.filter((c) => c.type === "TEXT_MESSAGE_CONTENT").at(-1) as Chunk).content
+  assert.equal(text(chunksA), `on ${a}`)
+  assert.equal(text(chunksB), `on ${b}`)
+})
+
+test("a request aborted while it waits for the worker never starts its generation", async () => {
+  let finish: (() => void) | undefined
+  FakeWorker.reply = (worker) => {
+    // The first generation waits for `finish`; any later one completes at once.
+    if (finish) return worker.stream(["Second"])
+    worker.send({ status: "update", output: "First" })
+    finish = () => worker.send({ status: "complete", inputTokens: 1, outputTokens: 1 })
+  }
+  const first = run()
+  // Wait until the first request is generating.
+  while (!finish) await new Promise((resolve) => setTimeout(resolve, 0))
+  const before = generateRequests().length
+  const controller = new AbortController()
+  const second = run({ abortController: controller })
+  await new Promise((resolve) => setTimeout(resolve, 5))
+  controller.abort()
+  finish?.()
+  await first
+  const chunks = await second
+  assert.equal((chunks.at(-1) as Chunk).code, "aborted")
+  assert.equal(generateRequests().length, before)
 })
 
 test("a reply that uses every token finishes with length", async () => {

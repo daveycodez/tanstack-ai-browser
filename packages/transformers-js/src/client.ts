@@ -25,6 +25,8 @@ let current: {
   done: Promise<void>
   listeners: Set<DownloadProgressCallback>
 } | null = null
+/** The load settings of the model the worker holds now: `current` may be a load still waiting its turn. */
+let loaded: string | null = null
 let tail: Promise<unknown> = Promise.resolve()
 
 function post(request: WorkerRequest) {
@@ -51,6 +53,10 @@ function turn(): Promise<() => void> {
 const abortError = (signal: AbortSignal) =>
   signal.reason instanceof Error ? signal.reason : new DOMException("The operation was aborted.", "AbortError")
 
+/** The load keys that serve `settings`: its own, and for text, the model with its vision encoder. */
+const keys = (settings: LoadSettings) =>
+  settings.vision ? [JSON.stringify(settings)] : [JSON.stringify(settings), JSON.stringify({ ...settings, vision: true })]
+
 /**
  * Loads a model in the worker (downloading it the first time) unless it's
  * the one there, sharing a load in progress. `onDownloadProgress` hears the
@@ -63,8 +69,7 @@ export function loadModel(
   signal?: AbortSignal
 ): Promise<void> {
   // A model loaded with its vision encoder serves text too: it stays loaded.
-  if (!settings.vision && current?.key === JSON.stringify({ ...settings, vision: true })) settings = { ...settings, vision: true }
-  const key = JSON.stringify(settings)
+  const key = keys(settings).find((k) => k === current?.key) ?? JSON.stringify(settings)
   if (current?.key !== key) {
     const listeners = new Set<DownloadProgressCallback>()
     const load = { key, model: settings.model, ready: false, listeners, done: Promise.resolve() }
@@ -77,8 +82,10 @@ export function loadModel(
             else if (reply.status === "ready") resolve()
             else if (reply.status === "error") reject(new Error(reply.message))
           }
-          post({ type: "load", settings })
+          loaded = null
+          post({ type: "load", settings: JSON.parse(key) as LoadSettings })
         })
+        loaded = key
         load.ready = true
         for (const report of listeners) report(1)
       } catch (error) {
@@ -114,6 +121,7 @@ export function loadModel(
 export function unloadModel(model: string) {
   if (current?.model !== model) return
   current = null
+  loaded = null
   worker?.terminate()
   worker = null
   listener?.({ status: "error", message: "The model was unloaded." })
@@ -129,12 +137,31 @@ export type GenerationEvent =
   | { type: "done"; inputTokens: number; outputTokens: number }
 
 /**
- * One generation in the worker, once it's free: the text as it streams,
- * then the token counts. Aborting `signal` interrupts it; it still
- * completes, with the text so far.
+ * One generation in the worker, on the model `settings` names: it loads
+ * that model (with the download's progress, as `loadModel`), then waits for
+ * the worker's turn and holds it from checking the model to the end of the
+ * generation, so no other request's load comes between. Yields the text as
+ * it streams, then the token counts. Aborting `signal` before the turn
+ * means no generation; after, it interrupts it, which still completes with
+ * the text so far.
  */
-export async function* generate(request: GenerateRequest, signal?: AbortSignal): AsyncGenerator<GenerationEvent> {
-  const release = await turn()
+export async function* generate(
+  settings: LoadSettings,
+  request: GenerateRequest,
+  { onDownloadProgress, signal }: { onDownloadProgress?: DownloadProgressCallback; signal?: AbortSignal } = {}
+): AsyncGenerator<GenerationEvent> {
+  let release: () => void
+  for (;;) {
+    await loadModel(settings, onDownloadProgress, signal)
+    release = await turn()
+    // Another request's load may have taken the worker meanwhile: load this model again.
+    if (keys(settings).some((key) => key === loaded)) break
+    release()
+  }
+  if (signal?.aborted) {
+    release()
+    throw abortError(signal)
+  }
   const replies: Array<WorkerReply> = []
   let wake: (() => void) | null = null
   let ended = false
@@ -151,7 +178,6 @@ export async function* generate(request: GenerateRequest, signal?: AbortSignal):
   signal?.addEventListener("abort", interrupt)
   try {
     post({ type: "generate", ...request })
-    if (signal?.aborted) interrupt()
     for (;;) {
       const reply = await next()
       if (reply.status === "update") yield { type: "text", text: reply.output }
