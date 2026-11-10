@@ -616,9 +616,6 @@ importers:
       '@huggingface/transformers':
         specifier: 4.3.2
         version: 4.3.2(@types/node@26.6.6)
-      llguidance:
-        specifier: 0.2.1
-        version: 0.2.1
     devDependencies:
       '@tanstack/ai':
         specifier: 1.2.0

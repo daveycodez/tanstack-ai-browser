@@ -1,312 +1,261 @@
 /**
- * Reading and writing tool calls in the local models' own formats:
- *
- * - LFM2.5: `<|tool_call_start|>[get_weather(city="Tokyo")]<|tool_call_end|>`
- * - LFM3 and Qwen3.5: `<tool_call>\n<function=get_weather>\n<parameter=city>\nTokyo\n</parameter>\n</function>\n</tool_call>`
- * - Gemma 4: `<|tool_call>call:get_weather{city:<|"|>Tokyo<|"|>}<tool_call|>`
+ * Tool calls read from the model's text. The tools go to the model through
+ * its chat template (`apply_chat_template({ tools })`), and each model writes
+ * calls its own way: in a ```tool_call fence, `<tool_call>` tags, Gemma's
+ * `<|tool_call>call:name{…}<tool_call|>`, or LFM2's
+ * `<|tool_call_start|>[name(…)]<|tool_call_end|>`. The adapter reads the
+ * first call out of the streamed text; `chat()` checks it against the tools.
  */
 
-export type ParsedToolCall = { name: string; args: Record<string, unknown> }
+/** A tool call read from the model's text. */
+export type ParsedToolCall = { name: string; arguments: unknown }
 
-/** How a model writes tool calls. */
-export type ToolFormat = "lfm2" | "lfm3" | "qwen3.5" | "gemma4"
+/** Where a call starts and ends. */
+type Delimiter = { start: string; end: string }
+const DELIMITERS: Array<Delimiter> = [
+  { start: "```tool_call", end: "```" },
+  { start: "```tool-call", end: "```" },
+  { start: "<tool_call>", end: "</tool_call>" },
+  { start: "<|tool_call>", end: "<tool_call|>" },
+  { start: "<|tool_call_start|>", end: "<|tool_call_end|>" }
+]
+/** A bare Python-style call, `[name(...)]`. */
+const PYTHON_CALL = /\[(\w+)\(/
 
-/** Where each format's tool calls start. */
-const MARKERS: Record<ToolFormat, string> = {
-  lfm2: "<|tool_call_start|>",
-  lfm3: "<tool_call>",
-  "qwen3.5": "<tool_call>",
-  gemma4: "<|tool_call>"
-}
-
-/** A Python-style or JSON value: "x", 'x', 1.5, True, None, [1, 2]… */
-function parseValue(raw: string): unknown {
-  const s = raw.trim()
-  if (/^(["']).*\1$/s.test(s)) {
-    try {
-      return JSON.parse(s[0] === "'" ? `"${s.slice(1, -1)}"` : s)
-    } catch {
-      return s.slice(1, -1)
-    }
-  }
-  if (s === "True" || s === "true") return true
-  if (s === "False" || s === "false") return false
-  if (s === "None" || s === "null") return null
-  if (s !== "" && !Number.isNaN(Number(s))) return Number(s)
-  try {
-    return JSON.parse(s)
-  } catch {
-    return s
-  }
-}
-
-/** After a value: the next argument (`, name=`), or the end of the call. */
-const VALUE_END = /^\s*(?:,\s*[A-Za-z_]\w*\s*=|,?\s*\)|$)/
+/** Tool-call delimiters that are special tokens: kept in the streamed text. */
+const TOOL_CALL_TOKENS = new Set([
+  "<tool_call>",
+  "</tool_call>",
+  "<|tool_call|>",
+  "<|tool_call>",
+  "<tool_call|>",
+  "<|tool_call_start|>",
+  "<|tool_call_end|>"
+])
 
 /**
- * Where the string starting at `body[start]` ends (the index of its closing
- * quote). The model doesn't escape quotes inside its strings ('JWST's
- * findings'), so a quote only closes the string when the argument ends
- * after it; otherwise it's part of the text.
+ * A streamed piece as the page sees it: special tokens (`<|im_end|>`, …)
+ * are dropped, except tool-call delimiters, and Gemma's thinking channel is
+ * written as `<think>` tags. Null for a piece to drop.
  */
-function stringEnd(body: string, start: number) {
-  const quote = body[start]
-  let last = -1
-  for (let i = start + 1; i < body.length; i++) {
-    if (body[i] === "\\") i++
-    else if (body[i] === quote) {
-      if (VALUE_END.test(body.slice(i + 1))) return i
-      last = i
+export function shownText(text: string): string | null {
+  const token = text.trim()
+  if (token === "<|channel>") return "<think>"
+  if (token === "<channel|>") return "</think>"
+  const special = /^<\|[^>]+>$/.test(token) || /^<[^|>]+\|>$/.test(token)
+  return special && !TOOL_CALL_TOKENS.has(token) ? null : text
+}
+
+const isObject = (value: unknown): value is Record<string, unknown> =>
+  !!value && typeof value === "object" && !Array.isArray(value)
+
+/**
+ * The first tool call in a delimited body: a JSON object (or an array of
+ * them, or one per line) with `name` and `arguments` (or `parameters`), the
+ * arguments possibly a JSON string; or a Python-style call,
+ * `[name(key="v")]`; or `call:name{key:value}`.
+ */
+export function parseToolCall(body: string): ParsedToolCall | undefined {
+  const text = body.trim()
+  const colon = /call:(\w+)\{([^}]*)\}/.exec(text)
+  if (colon) return { name: colon[1], arguments: parseColonArguments(colon[2]) }
+  if (/^\[?\s*\w+\(/.test(text)) {
+    const call = parsePythonCall(text)
+    if (call) return call
+  }
+  const candidates: Array<unknown> = []
+  try {
+    const value = JSON.parse(text) as unknown
+    candidates.push(...(Array.isArray(value) ? value : [value]))
+  } catch {
+    for (const line of text.split("\n")) {
+      try {
+        candidates.push(JSON.parse(line) as unknown)
+      } catch {
+        // Not JSON.
+      }
     }
   }
-  return last
-}
-
-/** A Python string literal's text, `\'` and `\"` included. */
-function stringText(raw: string) {
-  const inner = raw.slice(1, -1)
-  try {
-    const escaped = inner.replace(/\\'/g, "'").replace(/(^|[^\\])"/g, '$1\\"')
-    return JSON.parse(`"${escaped}"`) as string
-  } catch {
-    return inner
+  for (const call of candidates) {
+    if (!isObject(call) || typeof call.name !== "string" || !call.name) continue
+    let args: unknown = call.arguments ?? call.parameters ?? {}
+    if (typeof args === "string") {
+      try {
+        args = JSON.parse(args) as unknown
+      } catch {
+        // Left as the model wrote it.
+      }
+    }
+    return { name: call.name, arguments: args }
   }
+  return undefined
 }
 
-/** Where a `[…]` or `{…}` starting at `body[start]` ends, strings skipped. */
-function bracketEnd(body: string, start: number) {
-  let depth = 0
-  for (let i = start; i < body.length; i++) {
-    const c = body[i]
-    if (c === '"' || c === "'") {
-      const end = stringEnd(body, i)
-      if (end < 0) return -1
-      i = end
-    } else if (c === "[" || c === "{") depth++
-    else if ((c === "]" || c === "}") && --depth === 0) return i
+/** `key:value,…` pairs, values read as numbers, booleans or null where they are. */
+function parseColonArguments(text: string): Record<string, unknown> {
+  const args: Record<string, unknown> = {}
+  for (const pair of text.split(",")) {
+    const at = pair.indexOf(":")
+    if (at <= 0) continue
+    const raw = pair.slice(at + 1).trim()
+    const number = Number(raw)
+    args[pair.slice(0, at).trim()] =
+      raw === "true" ? true : raw === "false" ? false : raw === "null" ? null : raw !== "" && !Number.isNaN(number) ? number : raw
+  }
+  return args
+}
+
+/** The index of the bracket that closes the one at `open`, past quoted text, or -1. */
+function closing(text: string, open: number) {
+  const pairs: Record<string, string> = { "(": ")", "[": "]", "{": "}" }
+  const stack: Array<string> = []
+  let quote = ""
+  for (let i = open; i < text.length; i++) {
+    const c = text[i]
+    if (quote) {
+      if (c === "\\") i++
+      else if (c === quote) quote = ""
+    } else if (c === '"' || c === "'") quote = c
+    else if (pairs[c]) stack.push(pairs[c])
+    else if (c === stack.at(-1)) {
+      stack.pop()
+      if (stack.length === 0) return i
+    }
   }
   return -1
 }
 
-/** `[name(a="x", b=2), other()]` → calls. */
-function parsePythonic(body: string) {
-  const calls: Array<ParsedToolCall> = []
-  const callStart = /([A-Za-z_][\w.-]*)\(/g
-  let m: RegExpExecArray | null
-  while ((m = callStart.exec(body))) {
-    const args: Record<string, unknown> = {}
-    let i = m.index + m[0].length
-    for (;;) {
-      const key = /^\s*([A-Za-z_]\w*)\s*=\s*/.exec(body.slice(i))
-      if (!key) break
-      i += key[0].length
-      const first = body[i]
-      let end: number
-      if (first === '"' || first === "'") {
-        end = stringEnd(body, i)
-        if (end < 0) break
-        args[key[1]] = stringText(body.slice(i, end + 1))
-      } else if (first === "[" || first === "{") {
-        end = bracketEnd(body, i)
-        if (end < 0) break
-        args[key[1]] = parseValue(body.slice(i, end + 1))
-      } else {
-        const rest = /^[^,)]*/.exec(body.slice(i))?.[0] ?? ""
-        end = i + rest.length - 1
-        args[key[1]] = parseValue(rest)
-      }
-      i = end + 1
-      const comma = /^\s*,/.exec(body.slice(i))
-      if (!comma) break
-      i += comma[0].length
-    }
-    calls.push({ name: m[1], args })
-    // The next call starts after this one's closing parenthesis.
-    const close = body.indexOf(")", i)
-    callStart.lastIndex = close < 0 ? body.length : close + 1
-  }
-  return calls
-}
-
-/** `<function=name><parameter=k>v</parameter></function>` → calls. */
-function parseXmlish(body: string) {
-  const calls: Array<ParsedToolCall> = []
-  for (const f of body.matchAll(
-    /<function=([^>\n]+)>([\s\S]*?)(?:<\/function>|$)/g
-  )) {
-    const args: Record<string, unknown> = {}
-    for (const p of f[2].matchAll(
-      /<parameter=([^>\n]+)>\n?([\s\S]*?)\n?<\/parameter>/g
-    )) {
-      args[p[1].trim()] = parseValue(p[2])
-    }
-    calls.push({ name: f[1].trim(), args })
-  }
-  return calls
-}
-
-/** Gemma 4's string delimiter: `<|"|>text<|"|>`. */
-const GEMMA_QUOTE = '<|"|>'
-
-/**
- * A value in Gemma 4's notation: `<|"|>text<|"|>` strings, bare numbers,
- * true/false/null, `{key:value}` objects with bare keys, and `[…]` arrays.
- * Returns the value and where it ends.
- */
-function gemmaValue(text: string, start: number): [unknown, number] {
-  let i = start
-  while (/\s/.test(text[i] ?? "")) i++
-  if (text.startsWith(GEMMA_QUOTE, i)) {
-    const end = text.indexOf(GEMMA_QUOTE, i + GEMMA_QUOTE.length)
-    const stop = end < 0 ? text.length : end
-    return [
-      text.slice(i + GEMMA_QUOTE.length, stop),
-      end < 0 ? stop : stop + GEMMA_QUOTE.length
-    ]
-  }
-  if (text[i] === "{") return gemmaObject(text, i)
-  if (text[i] === "[") {
-    const items: Array<unknown> = []
-    i++
-    for (;;) {
-      while (/[\s,]/.test(text[i] ?? "")) i++
-      if (i >= text.length || text[i] === "]") return [items, i + 1]
-      const [item, next] = gemmaValue(text, i)
-      items.push(item)
-      if (next <= i) return [items, text.length]
-      i = next
+/** `text` split at its top-level commas (not inside quotes or brackets). */
+function splitTopLevel(text: string) {
+  const parts: Array<string> = []
+  let depth = 0
+  let quote = ""
+  let from = 0
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i]
+    if (quote) {
+      if (c === "\\") i++
+      else if (c === quote) quote = ""
+    } else if (c === '"' || c === "'") quote = c
+    else if ("([{".includes(c)) depth++
+    else if (")]}".includes(c)) depth--
+    else if (c === "," && depth === 0) {
+      parts.push(text.slice(from, i))
+      from = i + 1
     }
   }
-  const raw = /^[^,}\]]*/.exec(text.slice(i))?.[0] ?? ""
-  return [parseValue(raw), i + raw.length]
+  parts.push(text.slice(from))
+  return parts.map((part) => part.trim()).filter(Boolean)
 }
 
-/** `{key:value,…}` in Gemma 4's notation, from `text[start]` (a `{`). */
-function gemmaObject(
-  text: string,
-  start: number
-): [Record<string, unknown>, number] {
-  const object: Record<string, unknown> = {}
-  let i = start + 1
-  for (;;) {
-    while (/[\s,]/.test(text[i] ?? "")) i++
-    if (i >= text.length || text[i] === "}") return [object, i + 1]
-    let key: string
-    if (text.startsWith(GEMMA_QUOTE, i)) {
-      const end = text.indexOf(GEMMA_QUOTE, i + GEMMA_QUOTE.length)
-      if (end < 0) return [object, text.length]
-      key = text.slice(i + GEMMA_QUOTE.length, end)
-      i = end + GEMMA_QUOTE.length
-    } else {
-      const bare = /^[^:{}\s]+/.exec(text.slice(i))?.[0]
-      if (!bare) return [object, text.length]
-      key = bare
-      i += bare.length
-    }
-    while (/\s/.test(text[i] ?? "")) i++
-    if (text[i] !== ":") return [object, text.length]
-    const [value, next] = gemmaValue(text, i + 1)
-    object[key] = value
-    i = next
+/** A Python literal (string, number, True/False/None, list, dict) as a value. */
+function pythonValue(raw: string): unknown {
+  const text = raw.trim()
+  if (text === "True") return true
+  if (text === "False") return false
+  if (text === "None") return null
+  if (/^(["']).*\1$/s.test(text)) return text.slice(1, -1).replace(/\\(["'\\])/g, "$1")
+  const json = text
+    .replace(/'((?:[^'\\]|\\.)*)'/g, (_, inner: string) => JSON.stringify(inner.replace(/\\'/g, "'")))
+    .replace(/\bTrue\b/g, "true")
+    .replace(/\bFalse\b/g, "false")
+    .replace(/\bNone\b/g, "null")
+  try {
+    return JSON.parse(json) as unknown
+  } catch {
+    return text
   }
 }
 
-/** `call:name{…}` bodies of Gemma 4's `<|tool_call>…<tool_call|>` blocks. */
-function parseGemma(text: string) {
-  const calls: Array<ParsedToolCall> = []
-  for (const m of text.matchAll(
-    /<\|tool_call>\s*call:([^{\s]+)\s*([\s\S]*?)(?:<tool_call\|>|$)/g
-  )) {
-    const body = m[2].trim()
-    const args = body.startsWith("{") ? gemmaObject(body, 0)[0] : {}
-    calls.push({ name: m[1], args })
+/** The first Python-style call in `text`: `name(key=value, …)`, maybe in brackets. */
+function parsePythonCall(text: string): ParsedToolCall | undefined {
+  const match = /(\w+)\(/.exec(text)
+  if (!match) return undefined
+  const open = match.index + match[1].length
+  const close = closing(text, open)
+  if (close === -1) return undefined
+  const args: Record<string, unknown> = {}
+  for (const part of splitTopLevel(text.slice(open + 1, close))) {
+    const at = part.indexOf("=")
+    if (at <= 0) continue
+    args[part.slice(0, at).trim()] = pythonValue(part.slice(at + 1))
   }
-  return calls
+  return { name: match[1], arguments: args }
 }
 
-/** Every tool call in `text`, written in the model's format. */
-export function parseToolCalls(
-  text: string,
-  format: ToolFormat
-): Array<ParsedToolCall> {
-  if (format === "gemma4") return parseGemma(text)
-  if (format === "lfm2") {
-    return [
-      ...text.matchAll(
-        /<\|tool_call_start\|>([\s\S]*?)(?:<\|tool_call_end\|>|$)/g
-      )
-    ].flatMap((m) => parsePythonic(m[1]))
-  }
-  return [
-    ...text.matchAll(/<tool_call>([\s\S]*?)(?:<\/tool_call>|$)/g)
-  ].flatMap((m) => parseXmlish(m[1]))
-}
-
-/** Length of the longest end of `text` that could start `marker`. */
-function partialMarker(text: string, marker: string) {
-  for (let n = Math.min(text.length, marker.length - 1); n > 0; n--) {
-    if (marker.startsWith(text.slice(-n))) return n
+/** Characters at the end of `text` that could start a delimiter. */
+function partialStart(text: string) {
+  const longest = Math.max(...DELIMITERS.map((d) => d.start.length)) - 1
+  for (let size = Math.min(text.length, longest); size > 0; size--) {
+    const end = text.slice(-size)
+    if (DELIMITERS.some((d) => d.start.startsWith(end))) return size
   }
   return 0
 }
 
 /**
- * Splits a streaming answer into the text before the first tool call (passed
- * through as it arrives) and the tool-call markup after it (held back and
- * parsed once the reply ends).
+ * Reads a streamed reply: `push` each piece and get back the text that can
+ * be shown now; text inside a call's delimiters (or a bare `[name(…)]`) is
+ * held back. The first call read ends the reply (stop generating then):
+ * `call` is the call, and `trailing` the text after it in the same piece.
+ * Delimiters with no call inside are text. `end` gives the rest, an
+ * unclosed call as text.
  */
-export function createToolCallSplitter(format: ToolFormat) {
-  const marker = MARKERS[format]
-  let held = ""
-  let markup: string | null = null
+export function toolCallReader() {
+  let buffer = ""
+  let start: (Delimiter & { python?: boolean }) | undefined
+  let call: ParsedToolCall | undefined
+  let trailing = ""
 
-  /** Text that can be shown now. */
-  function push(text: string) {
-    if (markup !== null) {
-      markup += text
-      return ""
+  const read = (): string => {
+    let shown = ""
+    while (!call) {
+      if (!start) {
+        const python = PYTHON_CALL.exec(buffer)
+        const found = [
+          ...DELIMITERS.map((d) => ({ d, at: buffer.indexOf(d.start) })),
+          ...(python ? [{ d: { start: python[0], end: ")]", python: true }, at: python.index }] : [])
+        ]
+          .filter((f) => f.at !== -1)
+          .sort((a, b) => a.at - b.at)[0]
+        if (!found) {
+          const keep = partialStart(buffer)
+          shown += buffer.slice(0, buffer.length - keep)
+          buffer = buffer.slice(buffer.length - keep)
+          return shown
+        }
+        shown += buffer.slice(0, found.at)
+        buffer = buffer.slice(found.at)
+        start = found.d
+      }
+      const close = buffer.indexOf(start.end, start.start.length)
+      if (close === -1) return shown
+      const block = buffer.slice(0, close + start.end.length)
+      call = parseToolCall(start.python ? block : block.slice(start.start.length, close))
+      buffer = buffer.slice(block.length)
+      start = undefined
+      if (call) trailing = buffer
+      else shown += block
     }
-    held += text
-    const at = held.indexOf(marker)
-    if (at >= 0) {
-      const before = held.slice(0, at)
-      markup = held.slice(at)
-      held = ""
-      return before
-    }
-    const keep = partialMarker(held, marker)
-    const out = held.slice(0, held.length - keep)
-    held = held.slice(out.length)
-    return out
+    return shown
   }
 
-  /** The rest of the text, and the tool-call markup if any. */
-  function flush() {
-    const rest = held
-    held = ""
-    return { text: rest, markup }
+  return {
+    get call() {
+      return call
+    },
+    get trailing() {
+      return trailing
+    },
+    push(piece: string): string {
+      buffer += piece
+      return read()
+    },
+    end(): string {
+      if (call) return ""
+      const rest = buffer
+      buffer = ""
+      return rest
+    }
   }
-
-  return { push, flush }
-}
-
-/** A value written the way Python (and LFM2.5) writes it. */
-function pythonValue(value: unknown): string {
-  if (value === true) return "True"
-  if (value === false) return "False"
-  if (value === null || value === undefined) return "None"
-  return JSON.stringify(value)
-}
-
-/** A past tool call in LFM2.5's own format, for the assistant turn's text. */
-export function formatLfm2ToolCalls(calls: Array<ParsedToolCall>) {
-  const list = calls
-    .map(
-      (c) =>
-        `${c.name}(${Object.entries(c.args)
-          .map(([k, v]) => `${k}=${pythonValue(v)}`)
-          .join(", ")})`
-    )
-    .join(", ")
-  return `<|tool_call_start|>[${list}]<|tool_call_end|>`
 }

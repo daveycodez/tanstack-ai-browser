@@ -1,120 +1,62 @@
-/** Messages between the page and the local-model worker. */
+/**
+ * Messages between the page (client.ts) and the worker (worker.ts). The
+ * worker holds one model and runs one generation at a time.
+ */
 
-export type ChatTurn = {
+/** Where the model runs: WebGPU, or the CPU through WebAssembly. */
+export type Device = "webgpu" | "wasm"
+
+/** The ONNX weights to load (Transformers.js's `dtype`). */
+export type Dtype = "q4f16" | "q4" | "fp16" | "fp32" | "q8" | "int8" | "uint8" | "bnb4"
+
+/** The model to load, and how. Left out, the worker picks the device and weights. */
+export type LoadSettings = { model: string; device?: Device; dtype?: Dtype }
+
+/** A chat message as Hugging Face chat templates read it. */
+export type TemplateMessage = {
   role: "system" | "user" | "assistant" | "tool"
   content: string
-  /** The reply's thinking; LFM3's template keeps it for the current turn. */
-  thinking?: string
-  /** The reply's thinking, as Gemma 4's template reads it. */
-  reasoning?: string
-  /** Past tool calls, for templates that write them themselves. */
-  tool_calls?: Array<{
-    id?: string
-    type: "function"
-    function: { name: string; arguments: Record<string, unknown> }
-  }>
-  /** A tool result's call, and its tool's name (Gemma 4 writes it). */
+  /** A mapping, not a JSON string: templates serialize the arguments themselves. */
+  tool_calls?: Array<{ id: string; type: "function"; function: { name: string; arguments: unknown } }>
   tool_call_id?: string
   name?: string
 }
 
-/** A tool as chat templates take it (OpenAI's function format). */
-export type ToolSpec = {
+/** A tool as chat templates take it (`apply_chat_template({ tools })`). */
+export type TemplateTool = {
   type: "function"
   function: { name: string; description: string; parameters: unknown }
 }
 
-/**
- * Sampling as the worker takes it (its own wire format; the adapter maps
- * `modelOptions`' camelCase names to it).
- */
-export type WorkerSampling = {
-  temperature: number
-  top_k: number
-  repetition_penalty: number
-  /** Nucleus sampling: the likeliest tokens up to this probability. */
+/** Transformers.js `generate()` options. */
+export type GenerationOptions = {
+  max_new_tokens: number
+  do_sample: boolean
+  temperature?: number
+  top_k?: number
   top_p?: number
-  /** Seeds the sampler's random draws, for repeatable samples. */
-  seed?: number
+  repetition_penalty?: number
 }
 
-/** Token counts of one generation, measured in the worker. */
-export type RunCounts = {
-  /** Tokens of the prompt, including any already in the model's cache. */
-  inputTokens: number
-  /** Tokens at the start of the prompt the model had read on an earlier run. */
-  cachedTokens: number
-  /** Tokens the model generated (the end-of-turn token included). */
-  outputTokens: number
+export type GenerateRequest = {
+  messages: Array<TemplateMessage>
+  options: GenerationOptions
+  tools?: Array<TemplateTool>
+  /** The chat template's `enable_thinking`. */
+  enableThinking: boolean
 }
-
-/**
- * Which weights to load: 4-bit weights with fp16 activations and cache
- * ("q4f16", the smallest), or with fp32 ones ("q4", for models whose
- * activations overflow fp16).
- */
-export type WeightsDtype = "q4f16" | "q4"
 
 export type WorkerRequest =
-  | {
-      type: "load"
-      /** This load, in the replies about it (a later load supersedes it). */
-      loadId: number
-      modelId: string
-      dtype: WeightsDtype
-      /**
-       * Tokens a chat may hold, prompt and reply together: the model's own
-       * context window when left out, and never more. The worker holds
-       * chats to it; the same model with another value isn't loaded again.
-       */
-      contextLength?: number
-    }
-  | {
-      type: "generate"
-      id: string
-      chat: Array<ChatTurn>
-      tools: Array<ToolSpec>
-      /** The chat template's `enable_thinking`; its default when left out. */
-      thinking?: boolean
-      thinkingBudgetTokens?: number
-      outputSchema?: object
-      /** False disables automatic reuse/retention between calls, not autoregressive KV within this run. */
-      cachePrompt?: boolean
-      sampling: WorkerSampling
-      /** Most tokens to generate; the worker's default when left out. */
-      maxTokens?: number
-      /**
-       * Tokens the chat may hold, prompt and reply together: at most what
-       * the model was loaded for, which is also the default.
-       */
-      contextLength?: number
-      /**
-       * Where the model's thinking starts: sent ahead of the reply when the
-       * chat template opens the thinking in the prompt itself.
-       */
-      thinkingOpen: string
-      thinkingClose: string
-    }
-  | { type: "stop"; id: string }
+  | { type: "load"; settings: LoadSettings }
+  | ({ type: "generate" } & GenerateRequest)
+  | { type: "interrupt" }
 
-export type WorkerResponse =
-  | {
-      type: "progress"
-      loadId: number
-      modelId: string
-      progress: number
-      cached: boolean
-    }
-  | { type: "ready"; loadId: number; modelId: string }
-  | { type: "load-error"; loadId: number; modelId: string; message: string }
-  | { type: "token"; id: string; text: string }
-  | {
-      type: "done"
-      id: string
-      stats: RunCounts
-      /** The output or context limit cut the reply off. */
-      length: boolean
-    }
-  | { type: "error"; id: string; message: string }
-  /** A diagnostic line for the page's console (dev only). */
-  | { type: "log"; text: string }
+export type WorkerReply =
+  /** The download's progress across the model's files, 0 to 1. */
+  | { status: "progress"; progress: number }
+  | { status: "ready" }
+  /** Generated text. */
+  | { status: "update"; output: string }
+  /** The generation ended (finished, interrupted or out of tokens), with its token counts. */
+  | { status: "complete"; inputTokens: number; outputTokens: number }
+  | { status: "error"; message: string }

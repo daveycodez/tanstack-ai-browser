@@ -7,7 +7,7 @@ A chat app that runs small language models entirely in your browser. Models are 
 ## Why it's different
 
 - **Private.** In-browser models run on your device. The app has no backend and no accounts: the Cloudflare Worker only serves the pages, prerendered or rendered without any of your data. Sessions, settings and MCP server details stay in your browser's IndexedDB.
-- **Runs on iPhone.** The default model runs on the WebGL engine, which needs no WebGPU, and the runtimes are tuned to stay inside iPhone Safari's memory and GPU limits. In-browser models hold their whole context window per session, prompt and reply together; on iPhone and iPad, 8,192 tokens.
+- **Runs on iPhone.** The default model runs on the WebGL engine, which needs no WebGPU, and the runtimes are tuned to stay inside iPhone Safari's memory and GPU limits. The wllama and WebGL models hold their whole context window per session, prompt and reply together; on iPhone and iPad, 8,192 tokens.
 - **Download once.** Model weights (about 0.8 to 1.1 GB per model) are saved to the browser's Origin Private File System and loaded from disk on later visits.
 - **Reuses work between runs.** The model keeps what it has already read, so a follow-up message, the next step after a tool call, or a new session with the same system prompt only reads what's new. The system prompt and tools are also saved to disk, so they aren't read again after a reload.
 

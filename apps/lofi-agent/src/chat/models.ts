@@ -93,12 +93,10 @@ const isIos = () =>
     (/Macintosh/.test(navigator.userAgent) && navigator.maxTouchPoints > 1))
 
 /**
- * Tokens a chat may hold on iOS, for every local runtime. The packages
- * default to each model's whole context window, which an iPhone tab (2 GB)
- * can't hold: llama.cpp (wllama) reserves the attention cache for all of it
- * up front (3 GB for LFM3's 262,144), and past 8,192 tokens ONNX Runtime
- * (Transformers.js) moves LFM attention memory to buffers too large for a
- * tab. The smaller context also cuts Transformers.js models' rotary tables.
+ * Tokens a chat may hold on iOS, for wllama and webgllm. They default to
+ * each model's whole context window, which an iPhone tab (2 GB) can't hold:
+ * llama.cpp (wllama) reserves the attention cache for all of it up front
+ * (3 GB for LFM3's 262,144). Transformers.js takes no context length.
  */
 const IOS_CONTEXT = 8192
 /** `{ contextLength }` on iOS, nothing elsewhere (the model's own). */
@@ -122,11 +120,7 @@ const local = (id: ModelId, model: TransformersJsChatModel) => {
   id,
   name: repoName(model),
   icon: makerIcon(model),
-  adapter: transformersJsText(model, {
-    debug: import.meta.env.DEV,
-    onDownloadProgress,
-    ...iosContext()
-  }),
+  adapter: transformersJsText(model, { onDownloadProgress }),
   /** Its download and loading progress. */
   status: status as ModelStatusStore | null,
   /** No CPU weights: it can't run where there's no WebGPU. */
