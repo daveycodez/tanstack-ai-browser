@@ -183,7 +183,8 @@ export class TransformersJsTextAdapter<TModel extends string> extends BaseTextAd
       await loadModel(this.settings, this.onDownloadProgress, signal)
       const tools = options.toolChoice === "none" ? [] : (options.tools ?? [])
       const enableThinking = resolveReasoning(options.reasoning, modelReasoning(model))?.value === "true"
-      const card = listed(model)?.sampling
+      const meta = listed(model)
+      const card = (enableThinking && meta?.thinkingSampling) || meta?.sampling
       const generation = generationOptions(options.modelOptions, card, enableThinking)
       const system = normalizeSystemPrompts(options.systemPrompts)
         .map((p) => p.content)

@@ -121,6 +121,18 @@ function thinkingKwargs(request: ReasoningRequest | undefined, model: WllamaChat
   }
 }
 
+/**
+ * The card's sampling for a request: its thinking settings while the chat
+ * template thinks (asked for, or a model that always thinks), else its
+ * own.
+ */
+function cardSampling(request: ReasoningRequest | undefined, model: WllamaChatModel): Sampling {
+  const meta = modelMeta(model)
+  const value = resolveReasoning(request, meta.reasoning)?.value
+  const thinking = value !== undefined ? value === "true" : !!meta.reasoning && !("off" in meta.reasoning.levels)
+  return (thinking && meta.thinkingSampling) || meta.sampling
+}
+
 /** `modelOptions` with llama.cpp's names, over the model card's sampling. */
 function llamaSettings(options: WllamaTextModelOptions | undefined, base: Sampling): Record<string, unknown> {
   const o = options ?? {}
@@ -129,9 +141,9 @@ function llamaSettings(options: WllamaTextModelOptions | undefined, base: Sampli
     top_k: o.topK ?? base.topK,
     repeat_penalty: o.repetitionPenalty ?? base.repetitionPenalty,
     top_p: o.topP ?? base.topP,
-    min_p: o.minP,
+    min_p: o.minP ?? base.minP,
     frequency_penalty: o.frequencyPenalty,
-    presence_penalty: o.presencePenalty,
+    presence_penalty: o.presencePenalty ?? base.presencePenalty,
     seed: o.seed,
     stop: o.stop,
     max_tokens: o.maxCompletionTokens
@@ -224,7 +236,7 @@ export class WllamaTextAdapter<TModel extends WllamaChatModel> extends OpenAIBas
   protected override mapOptionsToRequest(options: TextOptions): CreateParams & { stream: true } {
     const modelOptions = options.modelOptions as WllamaTextModelOptions | undefined
     const settings = {
-      ...llamaSettings(modelOptions, modelMeta(this.model).sampling),
+      ...llamaSettings(modelOptions, cardSampling(options.reasoning, this.model)),
       ...(modelOptions?.parallelToolCalls !== undefined && options.tools?.length && { parallel_tool_calls: modelOptions.parallelToolCalls }),
       ...(options.promptCache?.retention === "none" && { cache_prompt: false })
     }

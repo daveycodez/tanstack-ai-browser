@@ -108,6 +108,16 @@ test("modelOptions go with llama.cpp's names, over the model card's sampling", a
   assert.equal(typeof card.repeat_penalty, "number")
 })
 
+test("Qwen3.5's card sampling: its non-thinking settings by default, its thinking settings while thinking", async () => {
+  const plain = (await run()).request
+  assert.deepEqual(
+    [plain.temperature, plain.top_p, plain.top_k, plain.min_p, plain.presence_penalty, plain.repeat_penalty],
+    [1, 1, 20, 0, 2, 1]
+  )
+  const thinking = (await run({ reasoning: { level: "high", summary: false } })).request
+  assert.deepEqual([thinking.top_p, thinking.presence_penalty], [0.95, 1.5])
+})
+
 test("parallelToolCalls goes to llama.cpp only with tools; the request asks for usage", async () => {
   const tools = [{ name: "lookup", description: "Look up", inputSchema: { type: "object", properties: { q: { type: "string" } } } }]
   assert.equal((await run({ tools, modelOptions: { parallelToolCalls: false } })).request.parallel_tool_calls, false)

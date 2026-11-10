@@ -118,9 +118,24 @@ test("the conversation and tools go to the chat template, with the model card's 
   assert.equal(request.enableThinking, false)
 })
 
-test("a model whose repo carries its sampling gets none from the adapter", async () => {
-  await run({ model: "onnx-community/Qwen3.5-2B-ONNX" }, "onnx-community/Qwen3.5-2B-ONNX")
+test("a model whose repo carries its card's sampling gets none from the adapter", async () => {
+  await run({ model: "onnx-community/gemma-4-E4B-it-ONNX" }, "onnx-community/gemma-4-E4B-it-ONNX")
   assert.deepEqual((generateRequests().at(-1) as Generate).options, { max_new_tokens: 4096 })
+})
+
+test("Qwen3.5's card sampling: its non-thinking settings by default, its thinking settings while thinking", async () => {
+  const qwen = "onnx-community/Qwen3.5-2B-ONNX"
+  await run({ model: qwen }, qwen)
+  assert.deepEqual((generateRequests().at(-1) as Generate).options, {
+    max_new_tokens: 4096,
+    do_sample: true,
+    temperature: 1,
+    top_p: 1,
+    top_k: 20,
+    repetition_penalty: 1
+  })
+  await run({ model: qwen, reasoning: { level: "high", summary: false } }, qwen)
+  assert.equal((generateRequests().at(-1) as Generate).options.top_p, 0.95)
 })
 
 test("modelOptions and reasoning map to generate options and enable_thinking", async () => {

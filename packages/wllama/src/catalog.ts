@@ -17,6 +17,10 @@ export type Sampling = {
   repetitionPenalty: number
   /** Nucleus sampling: the likeliest tokens up to this probability. */
   topP?: number
+  /** Drops tokens less likely than this share of the likeliest one's odds. */
+  minP?: number
+  /** Lowers the odds of tokens that have appeared at all. */
+  presencePenalty?: number
 }
 
 export type WllamaModelMeta = {
@@ -35,6 +39,8 @@ export type WllamaModelMeta = {
   reasoning?: ModelReasoning
   /** Sampling from the model card, used unless `modelOptions` overrides it. */
   sampling: Sampling
+  /** The card's sampling while the chat template thinks, where it differs. */
+  thinkingSampling?: Sampling
 }
 
 // Reasoning shapes, each level's value being the chat template's
@@ -70,16 +76,17 @@ const LFM2_5_THINKING_SAMPLING = {
   repetitionPenalty: 1.05
 } as const satisfies Sampling
 
-/**
- * Qwen3.5's generation config: temperature 0.6, top-k 20, top-p 0.95, no
- * repetition penalty.
- */
+/** Qwen3.5's card, text tasks without thinking (its default). */
 const QWEN_3_5_SAMPLING = {
-  temperature: 0.6,
+  temperature: 1,
   topK: 20,
-  topP: 0.95,
+  topP: 1,
+  minP: 0,
+  presencePenalty: 2,
   repetitionPenalty: 1
 } as const satisfies Sampling
+/** Qwen3.5's card, text tasks with thinking. */
+const QWEN_3_5_THINKING_SAMPLING = { ...QWEN_3_5_SAMPLING, topP: 0.95, presencePenalty: 1.5 } as const satisfies Sampling
 
 // Liquid's models are Q4_K_M: in wllama's WebAssembly build it reads
 // prompts and writes tokens about three times as fast as Q4_0 (llama.cpp
@@ -131,7 +138,8 @@ const QWEN_3_5_2B = {
   supports: TOOLS_AND_THINKING,
   size: "2b",
   reasoning: THINKING_SWITCH,
-  sampling: QWEN_3_5_SAMPLING
+  sampling: QWEN_3_5_SAMPLING,
+  thinkingSampling: QWEN_3_5_THINKING_SAMPLING
 } as const satisfies WllamaModelMeta
 
 export const WLLAMA_CHAT_MODELS = [

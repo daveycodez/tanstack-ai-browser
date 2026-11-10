@@ -2,7 +2,7 @@
  * The models this package lists: Hugging Face ONNX builds that run in the
  * browser, with what each supports, its reasoning levels, whether it runs
  * on the CPU, and its card's sampling where its repo's
- * `generation_config.json` doesn't carry it. Any other Hugging Face id works too (see
+ * `generation_config.json` doesn't carry it (or carries other settings). Any other Hugging Face id works too (see
  * `transformersJsText`).
  */
 import type { ModelReasoning } from "@tanstack/ai"
@@ -31,6 +31,8 @@ export type TransformersJsModelMeta = {
    * file's settings itself). `modelOptions` override it.
    */
   sampling?: Sampling
+  /** The card's sampling while the chat template thinks, where it differs. */
+  thinkingSampling?: Sampling
 }
 
 /** Sampling, as a model card recommends it. Temperature 0 is greedy decoding. */
@@ -47,6 +49,14 @@ const LFM3_SAMPLING = { temperature: 0.1, topK: 50, repetitionPenalty: 1.1 } as 
 const LFM2_5_SAMPLING = { temperature: 0.1, topK: 50, repetitionPenalty: 1.05 } as const satisfies Sampling
 /** LFM2.5 Thinking's card. */
 const LFM2_5_THINKING_SAMPLING = { temperature: 0.05, topK: 50, repetitionPenalty: 1.05 } as const satisfies Sampling
+/**
+ * Qwen3.5's card, text tasks without thinking (its default). Its repo's
+ * generation_config.json has the card's coding settings instead; the card's
+ * presence penalty isn't in Transformers.js.
+ */
+const QWEN_3_5_SAMPLING = { temperature: 1, topK: 20, topP: 1, repetitionPenalty: 1 } as const satisfies Sampling
+/** Qwen3.5's card, text tasks with thinking. */
+const QWEN_3_5_THINKING_SAMPLING = { ...QWEN_3_5_SAMPLING, topP: 0.95 } as const satisfies Sampling
 /** LFM2 1.2B Tool's card: greedy decoding. */
 const LFM2_TOOL_SAMPLING = { temperature: 0 } as const satisfies Sampling
 
@@ -139,7 +149,9 @@ const QWEN_3_5_2B = {
   name: "onnx-community/Qwen3.5-2B-ONNX",
   supports: TOOLS_AND_THINKING,
   size: "2b",
-  reasoning: THINKING_SWITCH
+  reasoning: THINKING_SWITCH,
+  sampling: QWEN_3_5_SAMPLING,
+  thinkingSampling: QWEN_3_5_THINKING_SAMPLING
 } as const satisfies TransformersJsModelMeta
 
 const MODELS = [
