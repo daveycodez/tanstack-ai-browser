@@ -1,6 +1,6 @@
 /** The adapter's options: at load time, and per `embed()` call. */
 
-/** Options that apply when the embedder loads (see `loadModel`). */
+/** Options for creating MediaPipe's TextEmbedder. */
 export type MediaPipeEmbeddingConfig = {
   /**
    * MediaPipe's `baseOptions.delegate`: `"CPU"` or `"GPU"`, MediaPipe's
@@ -11,34 +11,18 @@ export type MediaPipeEmbeddingConfig = {
    */
   delegate?: "CPU" | "GPU"
   /**
-   * The model's TFLite file, to serve it yourself (or another MediaPipe
-   * text embedder model). By default, Google's own copy (the model's `file`
-   * in `MEDIAPIPE_MODEL_META`).
+   * MediaPipe's `baseOptions.modelAssetPath`: the model's TFLite file, to
+   * serve it yourself (or another MediaPipe text embedder model). By
+   * default, Google's own copy (the model's `file` in `MEDIAPIPE_MODEL_META`).
    */
   modelAssetPath?: string
   /**
-   * The folder MediaPipe's WebAssembly files are served from: the
-   * `wasm/` folder of `@mediapipe/tasks-text`. By default, the installed
-   * version's own folder on jsDelivr. A relative path is relative to the
-   * page, as is `modelAssetPath`.
+   * The folder MediaPipe's WebAssembly files are served from (the `wasm/`
+   * folder of `@mediapipe/tasks-text`), for MediaPipe's
+   * `FilesetResolver.forTextTasks`. By default, the installed version's own
+   * folder on jsDelivr.
    */
   wasmPath?: string
-  /**
-   * Keep MediaPipe's WebAssembly in Cache Storage with the model, so loads
-   * work offline (true by default). MediaPipe then loads it from `blob:`
-   * URLs, which a Content Security Policy has to allow (`script-src blob:`
-   * in the worker). `false` has MediaPipe load it straight from `wasmPath`
-   * (through the browser's HTTP cache), so a policy of `script-src 'self'
-   * 'wasm-unsafe-eval'` works with the files served by the site. The model
-   * is kept in Cache Storage either way.
-   */
-  cacheWasm?: boolean
-  /**
-   * The model file's download progress, 0 to 1, when a call (`embed()`,
-   * say) starts its download; then 1 once the embedder is ready. To load it
-   * ahead of time with progress, see `create`.
-   */
-  onDownloadProgress?: (progress: number) => void
 }
 
 /** Options for one `embed()` call, as its `modelOptions`. */
@@ -46,15 +30,14 @@ export type MediaPipeEmbeddingProviderOptions = {
   /**
    * L2-normalizes each vector to unit length (MediaPipe's `l2Normalize`).
    * Universal Sentence Encoder's vectors aren't unit length (about 11), so
-   * turn it on to compare them by dot product. Off by default, unless
-   * `quantize` is on.
+   * turn it on to compare them by dot product. Off by default.
    */
   l2Normalize?: boolean
   /**
    * Scalar-quantizes each vector to bytes (MediaPipe's `quantize`): each
    * number is then an integer from -128 to 127 (the byte, read as signed).
-   * MediaPipe's quantization assumes unit-length vectors, so `l2Normalize`
-   * is on with it unless set to false. Off by default.
+   * MediaPipe's quantization assumes unit-length vectors, so use it with
+   * `l2Normalize`. Off by default.
    */
   quantize?: boolean
 }

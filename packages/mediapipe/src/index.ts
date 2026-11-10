@@ -5,7 +5,7 @@
  */
 export { MediaPipeEmbeddingAdapter, mediaPipeEmbedding } from "./adapter.js"
 export type {
+  Availability,
   MediaPipeEmbeddingConfig,
   MediaPipeEmbeddingProviderOptions
 } from "./adapter.js"
-export type { Availability, DownloadProgressCallback } from "./client.js"
