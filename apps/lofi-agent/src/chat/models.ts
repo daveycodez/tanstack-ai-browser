@@ -403,9 +403,11 @@ export const modelInfo = (id: ModelId) =>
   MODELS.find((m) => m.id === DEFAULT_MODEL) ??
   MODELS[0]
 
-/** Whether a model reads images: its adapter's input, from its catalog. */
-export const readsImages = (id: ModelId) =>
-  (modelInfo(id).adapter.inputModalities as ReadonlyArray<string> | undefined)?.includes("image") ?? false
+/** What can be attached for a model: the images and audio its adapter's input lists. */
+export const attachableKinds = (id: ModelId): ReadonlyArray<"image" | "audio"> => {
+  const input = (modelInfo(id).adapter.inputModalities ?? []) as ReadonlyArray<string>
+  return (["image", "audio"] as const).filter((kind) => input.includes(kind))
+}
 
 /** Whether `value` is the id of a model in the list, as a run reads it. */
 export const isModelId = (value: unknown): value is ModelId =>

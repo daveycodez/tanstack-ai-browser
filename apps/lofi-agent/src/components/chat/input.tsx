@@ -1,5 +1,5 @@
 /**
- * The `input` widget: the prompt input, with attached images above its
+ * The `input` widget: the prompt input, with attached images and audio above its
  * text, and the plus button, the model picker (and its thinking effort) and
  * voice input in its toolbar.
  */
@@ -21,16 +21,16 @@ import {
   effortFor,
   effortOptions,
   PROVIDERS,
-  readsImages,
+  attachableKinds,
   useBackends,
   useModels
 } from "#/chat/models"
 import type { ModelId } from "#/chat/models"
 import { Action } from "#/components/ai/actions"
 import {
-  imageAttachments,
   PromptInputAddAttachment,
-  PromptInputAttachments
+  PromptInputAttachments,
+  toAttachments
 } from "#/components/ai/attachments"
 import { ModelSelector } from "#/components/ai/model-selector"
 import {
@@ -50,11 +50,11 @@ export function ChatPromptInput() {
   const { send } = useThread()
   const { isLoading, stop } = useChatContext()
   const model = useSelectedModel()
-  const imagesAllowed = readsImages(model)
+  const kinds = attachableKinds(model)
   // A message sent while a reply runs waits in the queue.
   const canSend = !!value.trim() || attachments.length > 0
   const attach = (files: Iterable<File>) => {
-    void imageAttachments(files).then((added) => setAttachments((current) => [...current, ...added]))
+    void toAttachments(files, kinds).then((added) => setAttachments((current) => [...current, ...added]))
   }
 
   // Dictation adds to whatever was already typed when it started.
@@ -71,12 +71,12 @@ export function ChatPromptInput() {
     if (!canSend) return
     dictation.cancel()
     const text = value.trim()
-    // Images first, then the text, as a model reads a picture and its question.
-    const images: Array<ContentPart> = attachments.map((attachment) => ({
-      type: "image",
+    // Attachments first, then the text, as a model reads a picture or clip and its question.
+    const media: Array<ContentPart> = attachments.map((attachment) => ({
+      type: attachment.kind,
       source: { type: "data", value: attachment.data, mimeType: attachment.mimeType }
     }))
-    send(images.length ? [...images, ...(text ? [{ type: "text" as const, content: text }] : [])] : text)
+    send(media.length ? [...media, ...(text ? [{ type: "text" as const, content: text }] : [])] : text)
     setValue("")
     setAttachments(() => [])
   }
@@ -93,8 +93,8 @@ export function ChatPromptInput() {
         enterKeyHint="send"
         onChange={(e) => setValue(e.target.value)}
         onPaste={(e) => {
-          const files = [...e.clipboardData.files].filter((file) => file.type.startsWith("image/"))
-          if (files.length === 0 || !imagesAllowed) return
+          const files = [...e.clipboardData.files].filter((file) => kinds.some((kind) => file.type.startsWith(`${kind}/`)))
+          if (files.length === 0) return
           e.preventDefault()
           attach(files)
         }}
@@ -107,7 +107,7 @@ export function ChatPromptInput() {
       />
       <PromptInputToolbar>
         <PromptInputTools>
-          {imagesAllowed && <PromptInputAddAttachment onAdd={attach} />}
+          {kinds.length > 0 && <PromptInputAddAttachment kinds={kinds} onAdd={attach} />}
           <ChatModelSelector />
         </PromptInputTools>
         <PromptInputTools end>

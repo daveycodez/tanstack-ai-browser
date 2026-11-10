@@ -1,29 +1,50 @@
 /**
- * Image attachments, laid out as in assistant-ui's composer (MIT,
+ * Image and audio attachments, laid out as in assistant-ui's composer (MIT,
  * github.com/assistant-ui/assistant-ui): a plus button in the toolbar, square
- * thumbnails above the text with a remove button each, and a full-size
- * preview on click. A sent message shows its images as the same thumbnails.
+ * tiles above the text with a remove button each, and a full-size preview
+ * (or a player, for audio) on click. A sent message shows its attachments as
+ * the same tiles.
  */
+import MusicNote from "@gravity-ui/icons/MusicNote"
 import Plus from "@gravity-ui/icons/Plus"
 import { Button, CloseButton, Modal, Tooltip } from "@heroui/react"
 import { useRef, useState } from "react"
 
-/** An image to send: its data as base64, and a URL to show it. */
-export type Attachment = { id: string; name: string; mimeType: string; data: string }
+/** What an attachment is: the content part it's sent as. */
+export type AttachmentKind = "image" | "audio"
 
-/** An attachment's image as a URL. */
+/** An image or audio clip to send, with its data as base64. */
+export type Attachment = { id: string; kind: AttachmentKind; name: string; mimeType: string; data: string }
+
+/** The kind of attachment a file makes, or nothing for another file. */
+const kindOf = (file: File): AttachmentKind | undefined =>
+  file.type.startsWith("image/") ? "image" : file.type.startsWith("audio/") ? "audio" : undefined
+
+/** An attachment's data as a URL. */
 export const attachmentUrl = (attachment: Pick<Attachment, "mimeType" | "data">) =>
   `data:${attachment.mimeType};base64,${attachment.data}`
 
 /** Longest side of an attached image: larger ones are scaled down, as models see them smaller anyway. */
 const MAX_SIDE = 1024
 
+function base64(bytes: Uint8Array) {
+  let binary = ""
+  for (let i = 0; i < bytes.length; i += 0x8000) binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000))
+  return btoa(binary)
+}
+
+/** An audio file as an attachment, as it is. */
+async function audioAttachment(file: File): Promise<Attachment> {
+  const data = base64(new Uint8Array(await file.arrayBuffer()))
+  return { id: crypto.randomUUID(), kind: "audio", name: file.name || "Audio", mimeType: file.type, data }
+}
+
 /**
  * An image file as an attachment: scaled down to `MAX_SIDE` and saved as
  * JPEG, on white where it was transparent. A model's image tokens grow with
  * the image's size, and the chat keeps the image.
  */
-export async function toAttachment(file: File): Promise<Attachment> {
+async function imageAttachment(file: File): Promise<Attachment> {
   const bitmap = await createImageBitmap(file)
   const scale = Math.min(1, MAX_SIDE / Math.max(bitmap.width, bitmap.height))
   const width = Math.round(bitmap.width * scale)
@@ -36,18 +57,36 @@ export async function toAttachment(file: File): Promise<Attachment> {
   context.drawImage(bitmap, 0, 0, width, height)
   bitmap.close()
   const blob = await canvas.convertToBlob({ type: "image/jpeg", quality: 0.9 })
-  const bytes = new Uint8Array(await blob.arrayBuffer())
-  let binary = ""
-  for (let i = 0; i < bytes.length; i += 0x8000) binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000))
-  return { id: crypto.randomUUID(), name: file.name || "Image", mimeType: "image/jpeg", data: btoa(binary) }
+  const data = base64(new Uint8Array(await blob.arrayBuffer()))
+  return { id: crypto.randomUUID(), kind: "image", name: file.name || "Image", mimeType: "image/jpeg", data }
 }
 
-/** The images among pasted or picked files, as attachments. */
-export const imageAttachments = (files: Iterable<File>) =>
-  Promise.all([...files].filter((file) => file.type.startsWith("image/")).map(toAttachment))
+/** The files among `files` of the kinds given, as attachments. */
+export const toAttachments = (files: Iterable<File>, kinds: ReadonlyArray<AttachmentKind>) =>
+  Promise.all(
+    [...files].flatMap((file) => {
+      const kind = kindOf(file)
+      if (!kind || !kinds.includes(kind)) return []
+      return [kind === "image" ? imageAttachment(file) : audioAttachment(file)]
+    })
+  )
 
-/** A square thumbnail that opens the image full size; with `onRemove`, a remove button at its corner. */
-export function AttachmentThumbnail({ src, name, onRemove }: { src: string; name: string; onRemove?: () => void }) {
+/**
+ * A square tile: an image's thumbnail, or a note icon for audio. It opens the
+ * image full size, or a player for audio; with `onRemove`, a remove button
+ * at its corner.
+ */
+export function AttachmentThumbnail({
+  kind = "image",
+  src,
+  name,
+  onRemove
+}: {
+  kind?: AttachmentKind
+  src: string
+  name: string
+  onRemove?: () => void
+}) {
   const [isOpen, setIsOpen] = useState(false)
   return (
     <div className="relative flex size-14 shrink-0">
@@ -58,7 +97,11 @@ export function AttachmentThumbnail({ src, name, onRemove }: { src: string; name
           className="size-14 min-w-0 overflow-hidden rounded-2xl border border-separator p-0"
           onPress={() => setIsOpen(true)}
         >
-          <img alt="" src={src} className="size-full object-cover" />
+          {kind === "image" ? (
+            <img alt="" src={src} className="size-full object-cover" />
+          ) : (
+            <MusicNote className="size-5 text-muted" />
+          )}
         </Button>
         <Tooltip.Content>{name}</Tooltip.Content>
       </Tooltip>
@@ -73,7 +116,14 @@ export function AttachmentThumbnail({ src, name, onRemove }: { src: string; name
         <Modal.Container size="lg">
           <Modal.Dialog aria-label={name} className="p-2">
             <Modal.CloseTrigger />
-            <img alt={name} src={src} className="max-h-[80vh] w-full rounded-xl object-contain" />
+            {kind === "image" ? (
+              <img alt={name} src={src} className="max-h-[80vh] w-full rounded-xl object-contain" />
+            ) : (
+              <div className="flex flex-col gap-3 p-4 pt-8">
+                <p className="truncate text-sm font-medium">{name}</p>
+                <audio controls autoPlay src={src} className="w-full" />
+              </div>
+            )}
           </Modal.Dialog>
         </Modal.Container>
       </Modal.Backdrop>
@@ -96,6 +146,7 @@ export function PromptInputAttachments({
       {attachments.map((attachment) => (
         <AttachmentThumbnail
           key={attachment.id}
+          kind={attachment.kind}
           src={attachmentUrl(attachment)}
           name={attachment.name}
           onRemove={() => onRemove(attachment.id)}
@@ -105,15 +156,22 @@ export function PromptInputAttachments({
   )
 }
 
-/** The plus button: picks images to attach. */
-export function PromptInputAddAttachment({ onAdd }: { onAdd: (files: FileList) => void }) {
+/** The plus button: picks files of the kinds given to attach. */
+export function PromptInputAddAttachment({
+  kinds,
+  onAdd
+}: {
+  kinds: ReadonlyArray<AttachmentKind>
+  onAdd: (files: FileList) => void
+}) {
   const input = useRef<HTMLInputElement>(null)
+  const label = `Add ${kinds.join(" or ")}`
   return (
     <>
       <input
         ref={input}
         type="file"
-        accept="image/*"
+        accept={kinds.map((kind) => `${kind}/*`).join(",")}
         multiple
         hidden
         onChange={(event) => {
@@ -126,13 +184,13 @@ export function PromptInputAddAttachment({ onAdd }: { onAdd: (files: FileList) =
           isIconOnly
           size="sm"
           variant="ghost"
-          aria-label="Add image"
+          aria-label={label}
           className="text-muted"
           onPress={() => input.current?.click()}
         >
           <Plus />
         </Button>
-        <Tooltip.Content>Add image</Tooltip.Content>
+        <Tooltip.Content>{label}</Tooltip.Content>
       </Tooltip>
     </>
   )

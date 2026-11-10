@@ -48,23 +48,23 @@ export function ChatMessage({ message }: MessageProps<typeof chatOptions>) {
   return null
 }
 
-/** A user message's images, as content parts to send again. */
-const imageParts = (message: UIMessage): Array<ContentPart> =>
-  message.parts.flatMap((part) => (part.type === "image" ? [part as ContentPart] : []))
+/** A user message's images and audio, as content parts to send again. */
+const mediaParts = (message: UIMessage): Array<ContentPart> =>
+  message.parts.flatMap((part) => (part.type === "image" || part.type === "audio" ? [part as ContentPart] : []))
 
-/** An image part's source as a URL, or nothing for a provider file. */
-const imageSrc = (source: { type: string; value: string; mimeType?: string }) =>
-  source.type === "file" ? undefined : source.type === "data" ? `data:${source.mimeType ?? "image/jpeg"};base64,${source.value}` : source.value
+/** A media part's source as a URL, or nothing for a provider file. */
+const mediaSrc = (source: { type: string; value: string; mimeType?: string }) =>
+  source.type === "file" ? undefined : source.type === "data" ? `data:${source.mimeType ?? "application/octet-stream"};base64,${source.value}` : source.value
 
 function UserMessage({ message }: { message: UIMessage }) {
   const { messages } = useChatContext()
   const { resend, remove } = useThread()
   const [isEditing, setIsEditing] = useState(false)
   const text = messageText(message)
-  const images = imageParts(message)
-  // Its images go again with the text, edited or not.
+  const media = mediaParts(message)
+  // Its images and audio go again with the text, edited or not.
   const content = (next: string) =>
-    images.length ? [...images, ...(next ? [{ type: "text" as const, content: next }] : [])] : next
+    media.length ? [...media, ...(next ? [{ type: "text" as const, content: next }] : [])] : next
 
   if (isEditing) {
     return (
@@ -88,11 +88,13 @@ function UserMessage({ message }: { message: UIMessage }) {
 
   return (
     <Message from="user">
-      {images.length > 0 && (
+      {media.length > 0 && (
         <div className="flex max-w-[80%] flex-wrap justify-end gap-2">
-          {images.map((part, index) => {
-            const src = part.type === "image" ? imageSrc(part.source as { type: string; value: string; mimeType?: string }) : undefined
-            return src ? <AttachmentThumbnail key={index} src={src} name={`Image ${index + 1}`} /> : null
+          {media.map((part, index) => {
+            if (part.type !== "image" && part.type !== "audio") return null
+            const src = mediaSrc(part.source as { type: string; value: string; mimeType?: string })
+            const name = `${part.type === "image" ? "Image" : "Audio"} ${index + 1}`
+            return src ? <AttachmentThumbnail key={index} kind={part.type} src={src} name={name} /> : null
           })}
         </div>
       )}
