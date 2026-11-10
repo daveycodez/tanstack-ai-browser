@@ -247,7 +247,7 @@ export const PROVIDERS = [
   { id: "apfel", name: "apfel" },
   { id: "prompt-api", name: "Prompt API" },
   { id: "transformers-js", name: "Transformers.js" },
-  { id: "webgllm", name: "WebGL" },
+  { id: "webgllm", name: "WebGLLM" },
   { id: "wllama", name: "Wllama" }
 ] as const
 
