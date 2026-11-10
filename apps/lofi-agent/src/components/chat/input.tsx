@@ -202,13 +202,8 @@ function ChatModelSelector() {
         effort={level}
         effortLabel={level && effortButtonLabel(model, level)}
         onEffortChange={(id) => setEffort(id as ReasoningLevel)}
-        status={
-          afm === "checking"
-            ? { text: "Loading model" }
-            : afm === "unavailable"
-              ? { text: "Apple model not available", isError: true }
-              : null
-        }
+        // A failed check opens the setup dialog, which says what's wrong.
+        status={afm === "checking" ? { text: "Loading model" } : null}
       />
     </>
   )

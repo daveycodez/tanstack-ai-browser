@@ -68,7 +68,7 @@ export function ModelSelector({
   effortLabel?: string
   onEffortChange?: (id: string) => void
   /** A short note beside the button, such as a check in progress. */
-  status?: { text: string; isError?: boolean } | null
+  status?: { text: string } | null
 }) {
   const [isOpen, setIsOpen] = useState(false)
   const current = sections
@@ -180,12 +180,8 @@ export function ModelSelector({
         </Popover.Content>
       </Popover>
       {status && (
-        <span
-          className={`flex min-w-0 items-center gap-1.5 text-xs whitespace-nowrap tabular-nums ${status.isError ? "text-danger" : "text-muted"}`}
-        >
-          {!status.isError && (
-            <Spinner size="sm" color="current" className="shrink-0" />
-          )}
+        <span className="flex min-w-0 items-center gap-1.5 text-xs whitespace-nowrap tabular-nums text-muted">
+          <Spinner size="sm" color="current" className="shrink-0" />
           <span className="min-w-0 truncate">{status.text}</span>
         </span>
       )}
