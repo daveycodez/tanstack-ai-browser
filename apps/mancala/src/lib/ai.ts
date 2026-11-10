@@ -258,7 +258,7 @@ export async function chooseAiMove(
         ? chat({
             ...options,
             adapter: apfelText(APFEL_MODEL) as AnyTextAdapter,
-            modelOptions: { maxCompletionTokens: MAX_OUTPUT_TOKENS }
+            modelOptions: { max_tokens: MAX_OUTPUT_TOKENS }
           })
         : opponent.model === "prompt-api"
           ? chat({ ...options, adapter: promptApiText() })
@@ -268,7 +268,7 @@ export async function chooseAiMove(
               ...(opponentOption(opponent.model).thinking !== "none" && {
                 reasoning
               }),
-              modelOptions: { maxCompletionTokens: MAX_OUTPUT_TOKENS }
+              modelOptions: { max_completion_tokens: MAX_OUTPUT_TOKENS }
             })
     const { object: answer, raw } = await readStructuredAnswer(stream, controller.signal, {
       onGenerating: () => onPhase?.("generating"),

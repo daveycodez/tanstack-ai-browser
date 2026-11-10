@@ -2,10 +2,9 @@
  * A TanStack AI text adapter for Apple's on-device Foundation Model, served
  * by apfel. apfel speaks OpenAI's Chat Completions API, so this is TanStack's
  * OpenAI-compatible adapter pointed at it: tool calls and structured output
- * go to apfel as `tools` and `response_format`. It takes `modelOptions` with
- * the OpenRouter adapter's names and sends them with OpenAI's, and adds
- * `availability()` and `create()`, which ask apfel whether it serves the
- * model.
+ * go to apfel as `tools` and `response_format`, and `modelOptions` as given.
+ * It adds `availability()` and `create()`, which ask apfel whether it serves
+ * the model.
  */
 import { openaiCompatibleText } from "@tanstack/ai-openai/compatible"
 import type { OpenAICompatibleChatAdapter } from "@tanstack/ai-openai/compatible"
@@ -19,13 +18,12 @@ export type ApfelConfig = {
   defaultHeaders?: Record<string, string>
 }
 
-/** Per-call `modelOptions`, with the OpenRouter adapter's names. */
+/** Per-call `modelOptions`: the request fields apfel takes, with OpenAI's names, sent as given. */
 export type ApfelTextModelOptions = {
-  /** Sent as `max_tokens`. */
-  maxCompletionTokens?: number
+  /** Most tokens to generate. */
+  max_tokens?: number
   temperature?: number
-  /** Sent as `top_p`. */
-  topP?: number
+  top_p?: number
   seed?: number
 }
 
@@ -44,18 +42,6 @@ const DEFAULT_BASE_URL = "http://127.0.0.1:11434/v1"
 
 /** A model apfel serves: Apple's ("apple-foundationmodel", the default), or any other name. */
 export type ApfelModel = ApfelChatModel | (string & {})
-
-/** `modelOptions` with OpenAI's names, as the request takes them. */
-function toOpenAI(options: ApfelTextModelOptions | undefined) {
-  if (!options) return undefined
-  const { maxCompletionTokens, temperature, topP, seed } = options
-  return {
-    ...(maxCompletionTokens !== undefined && { max_tokens: maxCompletionTokens }),
-    ...(temperature !== undefined && { temperature }),
-    ...(topP !== undefined && { top_p: topP }),
-    ...(seed !== undefined && { seed })
-  }
-}
 
 /**
  * An adapter for a model apfel serves: Apple's on-device model by default.
@@ -85,24 +71,6 @@ export function apfelText(modelOrConfig?: ApfelModel | ApfelConfig, maybeConfig:
     // apfel runs on the user's own machine: there's no secret key to expose.
     dangerouslyAllowBrowser: true
   }) as OpenAICompatibleChatAdapter<ApfelModel, ApfelTextModelOptions>
-
-  // Each call's modelOptions, renamed for the request.
-  const chatStream = adapter.chatStream.bind(adapter)
-  adapter.chatStream = (options) => chatStream({ ...options, modelOptions: toOpenAI(options.modelOptions) })
-  const structuredOutput = adapter.structuredOutput.bind(adapter)
-  adapter.structuredOutput = (options) =>
-    structuredOutput({
-      ...options,
-      chatOptions: { ...options.chatOptions, modelOptions: toOpenAI(options.chatOptions.modelOptions) }
-    })
-  if (adapter.structuredOutputStream) {
-    const structuredOutputStream = adapter.structuredOutputStream.bind(adapter)
-    adapter.structuredOutputStream = (options) =>
-      structuredOutputStream({
-        ...options,
-        chatOptions: { ...options.chatOptions, modelOptions: toOpenAI(options.chatOptions.modelOptions) }
-      })
-  }
 
   const availability = async (signal?: AbortSignal): Promise<Availability> => {
     try {

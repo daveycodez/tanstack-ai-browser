@@ -19,7 +19,7 @@ const stream = chat({
 
 It needs WebGPU; an adapter's `availability()` says `"unavailable"` where the browser gives no GPU adapter. Some models also need WebGPU's `shader-f16` feature (their catalog entry's `required_features`), which WebLLM checks when it loads them.
 
-The package is shaped like `@tanstack/ai-openrouter`'s text adapter. The root has `webLlmText(model, config?)`, `WebLlmTextAdapter` (with the runtime methods `availability`, `create` and `destroy`) and the types `WebLlmConfig`, `WebLlmModel`, `WebLlmTextModelOptions`, `Availability` and `DownloadProgressCallback`; `@tanstack-ai-browser/web-llm/model-meta` has the catalog (below).
+The package is shaped like `@tanstack/ai-openai`'s text adapter. The root has `webLlmText(model, config?)`, `WebLlmTextAdapter` (with the runtime methods `availability`, `create` and `destroy`) and the types `WebLlmConfig`, `WebLlmModel`, `WebLlmTextModelOptions`, `Availability` and `DownloadProgressCallback`; `@tanstack-ai-browser/web-llm/model-meta` has the catalog (below).
 
 The engine is the official [`@mlc-ai/web-llm`](https://www.npmjs.com/package/@mlc-ai/web-llm) package, which answers OpenAI's Chat Completions API in the page. The adapter is TanStack's Chat Completions adapter (`@tanstack/openai-base`) with WebLLM's engine as its client, so messages, structured output and the stream are TanStack's; the prompt (each model's conversation template), sampling and grammar-constrained answers are WebLLM's own. Tools go by prompt (below). See WebLLM's documentation for how the engine works.
 
@@ -43,19 +43,11 @@ What maps to what:
 | abort (the request's signal)                      | the engine's `interruptGenerate()`                                         |
 | `modelOptions`                                    | see below                                                                  |
 
-`modelOptions` use the names of TanStack's OpenRouter adapter (the OpenRouter SDK's camelCase fields), so the same options work with both:
+`modelOptions` are WebLLM's own request fields, sent as given, as TanStack's adapters do with their provider's fields: OpenAI's names (`max_tokens`, `temperature`, `top_p`, `frequency_penalty`, `presence_penalty`, `seed`, `stop`, `logit_bias`, …) and WebLLM's own (`repetition_penalty`, `ignore_eos`, `extra_body`). Their type is WebLLM's `ChatCompletionRequestBase`, without the fields the adapter writes from `chat()`'s own options (messages, tools, the output schema, streaming).
 
-| `modelOptions`        | WebLLM request       | Notes |
-| --------------------- | -------------------- | ----- |
-| `maxCompletionTokens` | `max_tokens`         | |
-| `temperature`         | `temperature`        | |
-| `topP`                | `top_p`              | |
-| `frequencyPenalty`    | `frequency_penalty`  | |
-| `presencePenalty`     | `presence_penalty`   | |
-| `seed`                | `seed`               | An integer |
-| `stop`                | `stop`               | |
-| `logitBias`           | `logit_bias`         | |
-| `repetitionPenalty`   | `repetition_penalty` | WebLLM's own |
+```ts
+chat({ adapter: webLlmText("Qwen3-0.6B-q4f16_1-MLC"), messages, modelOptions: { max_tokens: 512, temperature: 0.7 } })
+```
 
 Unset sampling fields take the model's own config from WebLLM's catalog.
 

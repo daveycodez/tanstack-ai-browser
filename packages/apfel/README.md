@@ -33,12 +33,7 @@ Start apfel with `apfel --serve --cors`.
 
 ## Model options
 
-`modelOptions` uses the names from TanStack's OpenRouter adapter, sent with OpenAI's:
-
-- `maxCompletionTokens`, sent as `max_tokens`
-- `temperature`
-- `topP`, sent as `top_p`
-- `seed`
+`modelOptions` are the request fields apfel takes, with OpenAI's names, sent as given (as TanStack's adapters do with their provider's fields): `max_tokens`, `temperature`, `top_p` and `seed`.
 
 ## Exports
 

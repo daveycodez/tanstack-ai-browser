@@ -35,30 +35,32 @@ export type TransformersJsModelMeta = {
   thinkingSampling?: Sampling
 }
 
-/** Sampling, as a model card recommends it. Temperature 0 is greedy decoding. */
+/** Sampling, as a model card recommends it, in Transformers.js's `generate()` settings (the names `modelOptions` takes). */
 export type Sampling = {
-  temperature: number
-  topK?: number
-  topP?: number
-  repetitionPenalty?: number
+  /** False is greedy decoding. */
+  do_sample: boolean
+  temperature?: number
+  top_k?: number
+  top_p?: number
+  repetition_penalty?: number
 }
 
 /** LFM3's card ("General": chat, tool use, agents, coding). */
-const LFM3_SAMPLING = { temperature: 0.1, topK: 50, repetitionPenalty: 1.1 } as const satisfies Sampling
+const LFM3_SAMPLING = { do_sample: true, temperature: 0.1, top_k: 50, repetition_penalty: 1.1 } as const satisfies Sampling
 /** LFM2.5 Instruct's card. */
-const LFM2_5_SAMPLING = { temperature: 0.1, topK: 50, repetitionPenalty: 1.05 } as const satisfies Sampling
+const LFM2_5_SAMPLING = { do_sample: true, temperature: 0.1, top_k: 50, repetition_penalty: 1.05 } as const satisfies Sampling
 /** LFM2.5 Thinking's card. */
-const LFM2_5_THINKING_SAMPLING = { temperature: 0.05, topK: 50, repetitionPenalty: 1.05 } as const satisfies Sampling
+const LFM2_5_THINKING_SAMPLING = { do_sample: true, temperature: 0.05, top_k: 50, repetition_penalty: 1.05 } as const satisfies Sampling
 /**
  * Qwen3.5's card, text tasks without thinking (its default). Its repo's
  * generation_config.json has the card's coding settings instead; the card's
  * presence penalty isn't in Transformers.js.
  */
-const QWEN_3_5_SAMPLING = { temperature: 1, topK: 20, topP: 1, repetitionPenalty: 1 } as const satisfies Sampling
+const QWEN_3_5_SAMPLING = { do_sample: true, temperature: 1, top_k: 20, top_p: 1, repetition_penalty: 1 } as const satisfies Sampling
 /** Qwen3.5's card, text tasks with thinking. */
-const QWEN_3_5_THINKING_SAMPLING = { ...QWEN_3_5_SAMPLING, topP: 0.95 } as const satisfies Sampling
+const QWEN_3_5_THINKING_SAMPLING = { ...QWEN_3_5_SAMPLING, top_p: 0.95 } as const satisfies Sampling
 /** LFM2 1.2B Tool's card: greedy decoding. */
-const LFM2_TOOL_SAMPLING = { temperature: 0 } as const satisfies Sampling
+const LFM2_TOOL_SAMPLING = { do_sample: false } as const satisfies Sampling
 
 /** A chat template that takes `enable_thinking` (LFM3, Qwen3.5). */
 const THINKING_SWITCH = { levels: { off: "false", high: "true" }, budget: false } as const

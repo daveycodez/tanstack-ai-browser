@@ -1,6 +1,6 @@
 /**
  * What the adapter adds to TanStack's Chat Completions adapter: llama.cpp's
- * option names over the model card's sampling, the chat template's thinking
+ * request fields over the model card's sampling, the chat template's thinking
  * switch, reading thinking, schemas as given, and the caller's signal
  * reaching wllama. llama.cpp is stubbed.
  */
@@ -89,19 +89,10 @@ beforeEach(() => {
   control.chunks = [delta({ role: "assistant", content: "Hi" }), delta({}, "stop")]
 })
 
-test("modelOptions go with llama.cpp's names, over the model card's sampling", async () => {
-  const { request } = await run({
-    modelOptions: { maxCompletionTokens: 64, temperature: 0.2, topP: 0.9, minP: 0.05, frequencyPenalty: 0.1, presencePenalty: 0.5, seed: 7, stop: ["END"] }
-  })
-  assert.equal(request.max_tokens, 64)
-  assert.equal(request.temperature, 0.2)
-  assert.equal(request.top_p, 0.9)
-  assert.equal(request.min_p, 0.05)
-  assert.equal(request.frequency_penalty, 0.1)
-  assert.equal(request.presence_penalty, 0.5)
-  assert.equal(request.seed, 7)
-  assert.deepEqual(request.stop, ["END"])
-  assert.equal(request.maxCompletionTokens, undefined)
+test("modelOptions go to llama.cpp as given, over the model card's sampling", async () => {
+  const given = { max_tokens: 64, temperature: 0.2, top_p: 0.9, min_p: 0.05, frequency_penalty: 0.1, presence_penalty: 0.5, seed: 7, stop: ["END"] }
+  const { request } = await run({ modelOptions: given })
+  for (const [key, value] of Object.entries(given)) assert.deepEqual(request[key], value, key)
   // Left out: the model card's.
   const card = (await run()).request
   assert.equal(typeof card.top_k, "number")
@@ -118,12 +109,11 @@ test("Qwen3.5's card sampling: its non-thinking settings by default, its thinkin
   assert.deepEqual([thinking.top_p, thinking.presence_penalty], [0.95, 1.5])
 })
 
-test("parallelToolCalls goes to llama.cpp only with tools; the request asks for usage", async () => {
+test("parallel_tool_calls goes to llama.cpp as given; the request asks for usage", async () => {
   const tools = [{ name: "lookup", description: "Look up", inputSchema: { type: "object", properties: { q: { type: "string" } } } }]
-  assert.equal((await run({ tools, modelOptions: { parallelToolCalls: false } })).request.parallel_tool_calls, false)
-  const without = (await run({ modelOptions: { parallelToolCalls: false } })).request
-  assert.equal(without.parallel_tool_calls, undefined)
-  assert.deepEqual(without.stream_options, { include_usage: true })
+  const request = (await run({ tools, modelOptions: { parallel_tool_calls: false } })).request
+  assert.equal(request.parallel_tool_calls, false)
+  assert.deepEqual(request.stream_options, { include_usage: true })
 })
 
 test("reasoning: the chat template's enable_thinking, a budget when thinking, nothing when not asked", async () => {

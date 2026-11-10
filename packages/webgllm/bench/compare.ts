@@ -233,7 +233,7 @@ async function runTjs(text: string, cpu = false) {
       model,
       threadId: `bench-${Math.random()}`,
       messages: [{ role: "user", content }],
-      modelOptions: { temperature: 0, maxCompletionTokens: maxTokens }
+      modelOptions: { do_sample: false, max_new_tokens: maxTokens }
     })
     for await (const event of stream) {
       if (event.type === "TEXT_MESSAGE_CONTENT" || event.type === "REASONING_MESSAGE_CONTENT") {

@@ -27,7 +27,7 @@ The Prompt API is in desktop Chrome and Edge (tested in Chrome 156, where web pa
 - `onContextOverflow` in the config is called when a thread's session overflows its context window (the session's `contextoverflow` event); Chrome then drops the oldest messages after the system prompt.
 - `adapter.destroy()` closes every thread's session (see Sessions); the browser keeps the model.
 
-`languages` (`["en"]` by default) tells the model which languages to expect in and out; Chrome's model takes `en`, `es`, `ja`, `de` and `fr`. `modelOptions` takes what a session takes: `samplingMode` (`"most-predictable"` to `"most-creative"`; on web pages only in Chrome's Sampling Parameters origin trial), and `temperature` and `topK` (extensions only). The Prompt API has no output cap, nucleus sampling, penalties or stop sequences, so there's no `maxCompletionTokens`, `topP` or `stop`. The model doesn't reason, so `chat()` offers no `reasoning` option for it, and a `reasoning` request is ignored.
+`languages` (`["en"]` by default) tells the model which languages to expect in and out; Chrome's model takes `en`, `es`, `ja`, `de` and `fr`. `modelOptions` takes what a session takes, with Chrome's names: `samplingMode` (`"most-predictable"` to `"most-creative"`; on web pages only in Chrome's Sampling Parameters origin trial), and `temperature` and `topK` (extensions only). The Prompt API has no output cap, nucleus sampling, penalties or stop sequences, so `modelOptions` has none. The model doesn't reason, so `chat()` offers no `reasoning` option for it, and a `reasoning` request is ignored.
 
 ## Sessions
 

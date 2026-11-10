@@ -7,7 +7,7 @@
  * TanStack's, and llama.cpp writes the prompt with the model's chat template
  * and reads its thinking and tool calls back. This file adds what's wllama's
  * own: loading the model with the adapter's settings, the chat template's
- * thinking switch, llama.cpp's sampling settings.
+ * thinking switch, the model card's sampling.
  */
 import type { ReasoningRequest, TextOptions } from "@tanstack/ai"
 import { resolveReasoning } from "@tanstack/ai/adapter-internals"
@@ -61,38 +61,41 @@ export type WllamaConfig = {
 }
 
 /**
- * Per-call `modelOptions`, named as OpenRouter's adapter names them, so an
- * app can swap this adapter for `@tanstack/ai-openrouter`'s unchanged;
- * mapped to llama.cpp's own settings. Sampling left out comes from the
- * model card.
+ * Per-call `modelOptions`: llama.cpp's own request fields, sent as given
+ * (wllama answers with llama.cpp's OpenAI-compatible server code), over the
+ * model card's sampling. These are the common ones; llama.cpp's others go
+ * through too.
  */
 export type WllamaTextModelOptions = {
   /** Most tokens to generate, thinking included. llama.cpp's default otherwise: up to the context limit. */
-  maxCompletionTokens?: number
+  max_tokens?: number
   /** Randomness of sampling: 0 is greedy. */
   temperature?: number
   /** Nucleus sampling: the likeliest tokens up to this probability, in (0, 1]. */
-  topP?: number
-  /** Lowers the odds of tokens by how often they've appeared (llama.cpp's `frequency_penalty`). */
-  frequencyPenalty?: number
-  /** Lowers the odds of tokens that have appeared at all (llama.cpp's `presence_penalty`). */
-  presencePenalty?: number
+  top_p?: number
+  /** Sampling from the likeliest `top_k` tokens only (0: all of them). */
+  top_k?: number
+  /** Drops tokens less likely than this share of the likeliest one's odds. */
+  min_p?: number
+  /** Penalizes tokens already in the chat (1: off). */
+  repeat_penalty?: number
+  /** Lowers the odds of tokens by how often they've appeared. */
+  frequency_penalty?: number
+  /** Lowers the odds of tokens that have appeared at all. */
+  presence_penalty?: number
   /** Seeds the sampler, for the same samples from the same request. */
   seed?: number
   /** Where to stop: the reply ends before the first of these it would write. */
   stop?: string | Array<string>
-  /** Sampling from the likeliest `topK` tokens only (0: all of them). */
-  topK?: number
-  /** Drops tokens less likely than this share of the likeliest one's odds (llama.cpp's `min_p`). */
-  minP?: number
-  /** Penalizes tokens already in the chat (llama.cpp's `repeat_penalty`; 1: off). */
-  repetitionPenalty?: number
+  /** Adds to the odds of tokens, by token id. */
+  logit_bias?: Record<string, number>
   /**
-   * False keeps a reply to one tool call (llama.cpp's `parallel_tool_calls`,
-   * which constrains the model to a single call). True or left out: as many
+   * False constrains the model to one tool call. True or left out: as many
    * as the model writes, when its chat template supports several.
    */
-  parallelToolCalls?: boolean
+  parallel_tool_calls?: boolean
+  /** The chat template's own variables; `chat({ reasoning })` sets its `enable_thinking`. */
+  chat_template_kwargs?: Record<string, unknown>
 }
 
 /** A model's reasoning levels: a listed model's, none for a listed one that doesn't reason, else the switch. */
@@ -118,13 +121,17 @@ type CreateParams = Parameters<OpenAIClientLike["chat"]["completions"]["create"]
  * `chat_template_kwargs`, and a thinking budget: left out when the model has
  * no levels or the request doesn't ask, so the template's default applies.
  */
-function thinkingKwargs(request: ReasoningRequest | undefined, model: WllamaModel): Record<string, unknown> {
+function thinkingKwargs(
+  request: ReasoningRequest | undefined,
+  model: WllamaModel,
+  kwargs: Record<string, unknown> | undefined
+): Record<string, unknown> {
   const value = resolveReasoning(request, reasoningOf(model))?.value
   if (value === undefined) return {}
   const thinking = value === "true"
   const budget = request?.budgetTokens
   return {
-    chat_template_kwargs: { enable_thinking: thinking },
+    chat_template_kwargs: { ...kwargs, enable_thinking: thinking },
     ...(thinking && budget !== undefined && { reasoning_budget_tokens: budget })
   }
 }
@@ -140,24 +147,6 @@ function cardSampling(request: ReasoningRequest | undefined, model: WllamaModel)
   const value = resolveReasoning(request, meta.reasoning)?.value
   const thinking = value !== undefined ? value === "true" : !!meta.reasoning && !("off" in meta.reasoning.levels)
   return (thinking && meta.thinkingSampling) || meta.sampling
-}
-
-/** `modelOptions` with llama.cpp's names, over the model card's sampling. */
-function llamaSettings(options: WllamaTextModelOptions | undefined, base: Partial<Sampling>): Record<string, unknown> {
-  const o = options ?? {}
-  const fields = {
-    temperature: o.temperature ?? base.temperature,
-    top_k: o.topK ?? base.topK,
-    repeat_penalty: o.repetitionPenalty ?? base.repetitionPenalty,
-    top_p: o.topP ?? base.topP,
-    min_p: o.minP ?? base.minP,
-    frequency_penalty: o.frequencyPenalty,
-    presence_penalty: o.presencePenalty ?? base.presencePenalty,
-    seed: o.seed,
-    stop: o.stop,
-    max_tokens: o.maxCompletionTokens
-  }
-  return Object.fromEntries(Object.entries(fields).filter(([, value]) => value !== undefined))
 }
 
 /**
@@ -241,16 +230,16 @@ export class WllamaTextAdapter<TModel extends WllamaModel> extends OpenAIBaseCha
     await unloadModel(this.model)
   }
 
-  /** The request, with llama.cpp's settings over the model card's, and the chat template's thinking switch. */
+  /** The request, with `modelOptions` as given over the model card's sampling, and the chat template's thinking switch. */
   protected override mapOptionsToRequest(options: TextOptions): CreateParams & { stream: true } {
     const modelOptions = options.modelOptions as WllamaTextModelOptions | undefined
     const settings = {
-      ...llamaSettings(modelOptions, cardSampling(options.reasoning, this.model)),
-      ...(modelOptions?.parallelToolCalls !== undefined && options.tools?.length && { parallel_tool_calls: modelOptions.parallelToolCalls }),
+      ...cardSampling(options.reasoning, this.model),
+      ...modelOptions,
       ...(options.promptCache?.retention === "none" && { cache_prompt: false })
     }
     const request = super.mapOptionsToRequest({ ...options, modelOptions: settings, reasoning: undefined })
-    return Object.assign(request, thinkingKwargs(options.reasoning, this.model))
+    return Object.assign(request, thinkingKwargs(options.reasoning, this.model, modelOptions?.chat_template_kwargs))
   }
 
   /** llama.cpp streams thinking as `reasoning_content`. */

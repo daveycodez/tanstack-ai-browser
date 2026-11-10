@@ -51,7 +51,7 @@ const nextConfig: NextConfig = {
 
 ## Exports
 
-The package is shaped like `@tanstack/ai-openrouter`'s text adapter:
+The package is shaped like `@tanstack/ai-openai`'s text adapter:
 
 - `@tanstack-ai-browser/wllama`: `wllamaText(model, config?)`, `WllamaTextAdapter` (with the runtime methods `availability`, `create` and `destroy`) and the types `WllamaConfig`, `WllamaModel`, `WllamaTextModelOptions`, `Availability` and `DownloadProgressCallback`.
 - `@tanstack-ai-browser/wllama/model-meta`: the catalog, `WLLAMA_CHAT_MODELS`, `WLLAMA_MODEL_META` and `WLLAMA_MODEL_REASONING`, with the types `WllamaChatModel`, `WllamaModelMeta` and `WllamaModelReasoningByName`.
@@ -77,7 +77,7 @@ wllama answers llama.cpp's OpenAI-compatible Chat Completions API in the page, s
 
 **Reasoning:** thinking (llama.cpp's `reasoning_content`) streams as reasoning events. Qwen3.5 2B doesn't think unless asked; `chat({ reasoning: "high" })` turns it on, through its chat template's `enable_thinking` (llama.cpp's `chat_template_kwargs`). LFM2.5 1.2B Thinking always thinks. `chat({ reasoning })` is a type error for the models that don't reason.
 
-**Options** go in `modelOptions` per call, named as TanStack's OpenRouter adapter names them, so swapping this adapter for `@tanstack/ai-openrouter`'s needs no other change: `maxCompletionTokens`, `temperature`, `topP`, `frequencyPenalty`, `presencePenalty`, `seed`, `stop` and `parallelToolCalls`, plus llama.cpp's `topK`, `minP` and `repetitionPenalty` (its `repeat_penalty`). `parallelToolCalls` goes to llama.cpp as `parallel_tool_calls` with tools: false constrains the model to one tool call; left out, llama.cpp allows several where the chat template supports them. The adapter maps them to llama.cpp's own settings; sampling left out comes from the model card (`WLLAMA_MODEL_META[model].sampling`). Without `maxCompletionTokens`, a reply may run to the context limit, as llama.cpp's default.
+**Options** go in `modelOptions` per call: llama.cpp's own request fields, sent as given, as TanStack's adapters do with their provider's fields. wllama answers with llama.cpp's OpenAI-compatible server code, so these are OpenAI's names and llama.cpp's: `max_tokens`, `temperature`, `top_p`, `top_k`, `min_p`, `repeat_penalty`, `frequency_penalty`, `presence_penalty`, `seed`, `stop`, `logit_bias`, `parallel_tool_calls` (false constrains the model to one tool call; left out, llama.cpp allows several where the chat template supports them) and `chat_template_kwargs`; llama.cpp's other fields go through too. Sampling left out comes from the model card (`WLLAMA_MODEL_META[model].sampling`, in the same names). Without `max_tokens`, a reply may run to the context limit, as llama.cpp's default.
 
 **Structured output:** `chat({ outputSchema })` sends the schema as given in `response_format`, and llama.cpp constrains the answer to it with its JSON Schema grammar. With `stream: true` it streams as TanStack's standard events.
 

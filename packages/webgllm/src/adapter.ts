@@ -5,8 +5,7 @@
  * Completions adapter with the shared `WebGLLM` instance as its client:
  * messages, tools, structured output and the stream (text, thinking, tool
  * calls) are TanStack's. This file adds what's webgllm's own: loading the
- * model before a call, its reasoning levels and thinking budget, and its
- * sampling options.
+ * model before a call, and its reasoning levels and thinking budget.
  */
 import type { AdapterYieldChunk, ModelReasoning, TextOptions } from "@tanstack/ai"
 import { resolveReasoning } from "@tanstack/ai/adapter-internals"
@@ -14,7 +13,7 @@ import type { StructuredOutputOptions, StructuredOutputResult } from "@tanstack/
 import { OpenAIBaseChatCompletionsTextAdapter } from "@tanstack/openai-base"
 import type { OpenAIClientLike } from "@tanstack/openai-base"
 import { WebGLLM } from "webgllm"
-import type { LoadProgress } from "webgllm"
+import type { ChatCompletionCreateParamsBase, LoadProgress } from "webgllm"
 
 import { modelMeta, WEBGLLM_MODEL_META } from "./catalog.js"
 import type { WebGllmChatModel, WebGllmModelReasoningByName } from "./catalog.js"
@@ -49,32 +48,23 @@ const downloadShare = ({ progress, loadedBytes, totalBytes }: LoadProgress) =>
   totalBytes ? Math.min((loadedBytes ?? 0) / totalBytes, 1) : Math.min(progress / 0.9, 1)
 
 /**
- * Per-call `modelOptions`, named like TanStack's OpenRouter adapter's, and
- * sent with webgllm's (OpenAI's) names.
+ * Per-call `modelOptions`: webgllm's own request fields (OpenAI's names, and
+ * its `top_k`, `min_p`, `repetition_penalty` and `repair_tool_calls`), sent
+ * as given. The fields the adapter writes from `chat()`'s own options
+ * (messages, tools, the output schema, streaming, reasoning) are left out.
  */
-export type WebGllmTextModelOptions = {
-  /** Maximum generated tokens, thinking included; otherwise EOS or remaining context. */
-  maxCompletionTokens?: number
-  temperature?: number
-  topP?: number
-  presencePenalty?: number
-  /** Not supported by webgllm: anything but 0 is refused with its `unsupported-parameter` error. */
-  frequencyPenalty?: number
-  /** Text that ends the reply where it appears (not included). */
-  stop?: string | Array<string>
-  /** Makes sampling repeatable. */
-  seed?: number
-  /** False keeps only the first tool call of a reply. */
-  parallelToolCalls?: boolean
-  /** webgllm: samples from the k likeliest tokens. */
-  topK?: number
-  /** webgllm: drops tokens less likely than this fraction of the likeliest. */
-  minP?: number
-  /** webgllm: penalizes tokens already in the chat. */
-  repetitionPenalty?: number
-  /** webgllm: false returns tool calls as the model wrote them, without its repair. Default true. */
-  repairToolCalls?: boolean
-}
+export type WebGllmTextModelOptions = Omit<
+  ChatCompletionCreateParamsBase,
+  | "model"
+  | "messages"
+  | "stream"
+  | "stream_options"
+  | "tools"
+  | "tool_choice"
+  | "response_format"
+  | "reasoning_effort"
+  | "reasoning"
+>
 
 /** Options for `webgllmText`. */
 export type WebGllmConfig = {
@@ -111,25 +101,6 @@ type MetadataByModality = { text: unknown; image: unknown; audio: unknown; video
 
 /** A Chat Completions request, as the base adapter writes it. */
 type CreateParams = Parameters<OpenAIClientLike["chat"]["completions"]["create"]>[0]
-
-/** `modelOptions` with webgllm's names. */
-function toRequestOptions(o: WebGllmTextModelOptions | undefined): Record<string, unknown> {
-  const fields = {
-    max_completion_tokens: o?.maxCompletionTokens,
-    temperature: o?.temperature,
-    top_p: o?.topP,
-    top_k: o?.topK,
-    min_p: o?.minP,
-    repetition_penalty: o?.repetitionPenalty,
-    presence_penalty: o?.presencePenalty,
-    frequency_penalty: o?.frequencyPenalty,
-    stop: o?.stop,
-    seed: o?.seed,
-    parallel_tool_calls: o?.parallelToolCalls,
-    repair_tool_calls: o?.repairToolCalls
-  }
-  return Object.fromEntries(Object.entries(fields).filter(([, value]) => value !== undefined))
-}
 
 const signalOf = (options: TextOptions) =>
   options.abortController?.signal ?? (options.request as RequestInit | undefined)?.signal ?? undefined
@@ -221,10 +192,9 @@ export class WebGllmTextAdapter<TModel extends WebGllmModel> extends OpenAIBaseC
     return super.structuredOutput(options)
   }
 
-  /** The request, with webgllm's option names, thinking budget and prompt cache. */
+  /** The request, with `modelOptions` as given, the thinking budget and the prompt cache. */
   protected override mapOptionsToRequest(options: TextOptions): CreateParams & { stream: true } {
-    const modelOptions = options.modelOptions as WebGllmTextModelOptions | undefined
-    const request = super.mapOptionsToRequest({ ...options, modelOptions: toRequestOptions(modelOptions) })
+    const request = super.mapOptionsToRequest(options)
     const resolved = resolveReasoning(options.reasoning, this.modelReasoning(this.model))
     const budget = resolved?.value === "high" ? resolved.budgetTokens : undefined
     return Object.assign(request, {

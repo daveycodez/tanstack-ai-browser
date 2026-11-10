@@ -45,56 +45,23 @@ test("a call loads the model, then streams thinking, text and tool calls as AG-U
   })
 })
 
-test("modelOptions go with webgllm's names", async () => {
-  await collect(
-    webgllmText(MODEL).chatStream(
-      textOptions({
-        modelOptions: {
-          maxCompletionTokens: 64,
-          temperature: 0.2,
-          topP: 0.9,
-          topK: 40,
-          minP: 0.05,
-          repetitionPenalty: 1.1,
-          presencePenalty: 0.5,
-          stop: ["END"],
-          seed: 7,
-          parallelToolCalls: false,
-          repairToolCalls: false
-        }
-      })
-    )
-  )
+test("modelOptions go to webgllm as given", async () => {
+  const given = {
+    max_completion_tokens: 64,
+    temperature: 0.2,
+    top_p: 0.9,
+    top_k: 40,
+    min_p: 0.05,
+    repetition_penalty: 1.1,
+    presence_penalty: 0.5,
+    stop: ["END"],
+    seed: 7,
+    parallel_tool_calls: false,
+    repair_tool_calls: false
+  }
+  await collect(webgllmText(MODEL).chatStream(textOptions({ modelOptions: given })))
   const body = lastBody() as unknown as Record<string, unknown>
-  assert.deepEqual(
-    {
-      max_completion_tokens: body.max_completion_tokens,
-      temperature: body.temperature,
-      top_p: body.top_p,
-      top_k: body.top_k,
-      min_p: body.min_p,
-      repetition_penalty: body.repetition_penalty,
-      presence_penalty: body.presence_penalty,
-      stop: body.stop,
-      seed: body.seed,
-      parallel_tool_calls: body.parallel_tool_calls,
-      repair_tool_calls: body.repair_tool_calls
-    },
-    {
-      max_completion_tokens: 64,
-      temperature: 0.2,
-      top_p: 0.9,
-      top_k: 40,
-      min_p: 0.05,
-      repetition_penalty: 1.1,
-      presence_penalty: 0.5,
-      stop: ["END"],
-      seed: 7,
-      parallel_tool_calls: false,
-      repair_tool_calls: false
-    }
-  )
-  assert.equal(body.maxCompletionTokens, undefined)
+  for (const [key, value] of Object.entries(given)) assert.deepEqual(body[key], value, key)
 })
 
 test("reasoning: off and high as webgllm's reasoning_effort, a budget as reasoning.max_tokens", async () => {

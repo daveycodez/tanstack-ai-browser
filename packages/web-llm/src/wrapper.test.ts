@@ -130,15 +130,10 @@ beforeEach(() => {
   control.hold = null
 })
 
-test("modelOptions go with WebLLM's names", async () => {
-  const { request, events } = await run(webLlmText(MODEL), {
-    modelOptions: { maxCompletionTokens: 64, temperature: 0.2, topP: 0.9, frequencyPenalty: 0.1, presencePenalty: 0.5, repetitionPenalty: 1.1, seed: 7, stop: ["END"], logitBias: { "42": -100 } }
-  })
-  assert.deepEqual(
-    [request.max_tokens, request.temperature, request.top_p, request.frequency_penalty, request.presence_penalty, request.repetition_penalty, request.seed, request.stop, request.logit_bias],
-    [64, 0.2, 0.9, 0.1, 0.5, 1.1, 7, ["END"], { "42": -100 }]
-  )
-  assert.equal(request.maxCompletionTokens, undefined)
+test("modelOptions go to WebLLM as given", async () => {
+  const given = { max_tokens: 64, temperature: 0.2, top_p: 0.9, frequency_penalty: 0.1, presence_penalty: 0.5, repetition_penalty: 1.1, seed: 7, stop: ["END"], logit_bias: { "42": -100 } }
+  const { request, events } = await run(webLlmText(MODEL), { modelOptions: given })
+  for (const [key, value] of Object.entries(given)) assert.deepEqual(request[key], value, key)
   assert.equal(request.model, MODEL)
   assert.equal(events.find((e) => e.type === "TEXT_MESSAGE_CONTENT")?.delta, "Hi")
   // Left out: WebLLM's own (the model's config).
@@ -266,8 +261,8 @@ test("reasoning turns thinking on or off with WebLLM's enable_thinking, for mode
   const off = (await run(webLlmText(MODEL), { reasoning: { level: "off" } })).request
   assert.deepEqual(off.extra_body, { enable_thinking: false })
   assert.equal(off.reasoning_effort, undefined)
-  const on = (await run(webLlmText(MODEL), { reasoning: { level: "high" } })).request
-  assert.deepEqual(on.extra_body, { enable_thinking: true })
+  const on = (await run(webLlmText(MODEL), { reasoning: { level: "high" }, modelOptions: { extra_body: { enable_latency_breakdown: true } } })).request
+  assert.deepEqual(on.extra_body, { enable_latency_breakdown: true, enable_thinking: true })
   // Not asked: the model thinks as it would.
   assert.equal((await run(webLlmText(MODEL))).request.extra_body, undefined)
   // A model without the switch gets none.

@@ -20,7 +20,7 @@ import type { Availability, DownloadProgressCallback } from "./client.js"
 import { toTemplateMessages, toTemplateTools } from "./messages.js"
 import { TRANSFORMERS_JS_MODEL_META, TRANSFORMERS_JS_MODEL_REASONING } from "./model-meta.js"
 import type { Sampling, TransformersJsChatModel, TransformersJsModelReasoningByName } from "./model-meta.js"
-import type { Device, Dtype, GenerationOptions, LoadSettings } from "./protocol.js"
+import type { Device, Dtype, GenerationOptions, GenerationSettings, LoadSettings } from "./protocol.js"
 import { thinkingSplitter } from "./thinking.js"
 import type { Piece } from "./thinking.js"
 import { toolCallReader } from "./tool-calls.js"
@@ -38,19 +38,13 @@ export type TransformersJsConfig = {
   onDownloadProgress?: DownloadProgressCallback
 }
 
-/** Per-call `modelOptions`, named as TanStack's OpenRouter adapter names them. */
-export type TransformersJsTextModelOptions = {
-  /** Most tokens to generate: 4096 by default, 8192 while thinking. */
-  maxCompletionTokens?: number
-  /** Randomness of sampling, 0.7 by default: 0 is greedy. */
-  temperature?: number
-  /** Nucleus sampling: the likeliest tokens up to this probability. */
-  topP?: number
-  /** Sampling from the likeliest `topK` tokens only: 3 by default. */
-  topK?: number
-  /** Divides the scores of tokens already in the chat (1: off). */
-  repetitionPenalty?: number
-}
+/**
+ * Per-call `modelOptions`: Transformers.js's own `generate()` settings (its
+ * `GenerationConfig`: `max_new_tokens`, `do_sample`, `temperature`, `top_k`,
+ * `top_p`, `repetition_penalty`, …), sent as given over the model card's
+ * sampling. `max_new_tokens` is 4096 by default, 8192 while thinking.
+ */
+export type TransformersJsTextModelOptions = GenerationSettings
 
 /** The switch for a model this package doesn't list: the chat template's `enable_thinking`. */
 const UNLISTED_REASONING = { levels: { off: "false", high: "true" }, budget: false } as const
@@ -72,28 +66,16 @@ const listed = (model: string) =>
 const modelReasoning = (model: string): ModelReasoning | undefined =>
   listed(model) ? TRANSFORMERS_JS_MODEL_REASONING[model] : UNLISTED_REASONING
 
-/** The call's `generate()` options, unset ones left to the worker's defaults. */
 /**
- * Transformers.js's `generate()` options: `modelOptions` over the model
- * card's sampling (`sampling` in the catalog). Left unset, the repo's own
- * `generation_config.json` applies.
+ * Transformers.js's `generate()` settings: `modelOptions` as given, over the
+ * model card's sampling (`sampling` in the catalog), with a cap. Left unset,
+ * the repo's own `generation_config.json` applies.
  */
-function generationOptions(
+const generationOptions = (
   options: TransformersJsTextModelOptions | undefined,
   card: Sampling | undefined,
   thinking: boolean
-): GenerationOptions {
-  const { maxCompletionTokens, temperature, topP, topK, repetitionPenalty } = { ...card, ...options }
-  const fields = {
-    max_new_tokens: maxCompletionTokens || (thinking ? 8192 : 4096),
-    do_sample: temperature === undefined ? undefined : temperature > 0,
-    temperature: temperature || undefined,
-    top_p: topP,
-    top_k: topK,
-    repetition_penalty: repetitionPenalty
-  }
-  return Object.fromEntries(Object.entries(fields).filter(([, value]) => value !== undefined)) as GenerationOptions
-}
+): GenerationOptions => ({ max_new_tokens: thinking ? 8192 : 4096, ...card, ...options })
 
 let ids = 0
 const nextId = (prefix: string) => `${prefix}_${Date.now().toString(36)}_${(ids++).toString(36)}`

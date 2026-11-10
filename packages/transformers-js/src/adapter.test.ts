@@ -138,19 +138,21 @@ test("Qwen3.5's card sampling: its non-thinking settings by default, its thinkin
   assert.equal((generateRequests().at(-1) as Generate).options.top_p, 0.95)
 })
 
-test("modelOptions and reasoning map to generate options and enable_thinking", async () => {
+test("modelOptions go to generate() as given, over the card's sampling; reasoning maps to enable_thinking", async () => {
   await run({
     reasoning: { level: "high", summary: true },
-    modelOptions: { maxCompletionTokens: 100, temperature: 0, topP: 0.9, topK: 20, repetitionPenalty: 1.1 }
+    modelOptions: { max_new_tokens: 100, do_sample: false, top_p: 0.9, top_k: 20, no_repeat_ngram_size: 3 }
   })
   const request = generateRequests().at(-1) as Generate
   assert.equal(request.enableThinking, true)
   assert.deepEqual(request.options, {
     max_new_tokens: 100,
     do_sample: false,
+    temperature: 0.1,
     top_p: 0.9,
     top_k: 20,
-    repetition_penalty: 1.1
+    repetition_penalty: 1.1,
+    no_repeat_ngram_size: 3
   })
   // Thinking without a cap gets the longer default.
   await run({ reasoning: { level: "high", summary: true } })
@@ -206,7 +208,7 @@ test("toolChoice none sends no tools", async () => {
 
 test("a reply that uses every token finishes with length", async () => {
   FakeWorker.reply = (worker) => worker.stream(["long"], 5)
-  const chunks = await run({ modelOptions: { maxCompletionTokens: 5 } })
+  const chunks = await run({ modelOptions: { max_new_tokens: 5 } })
   assert.equal((chunks.at(-1) as Chunk).finishReason, "length")
 })
 

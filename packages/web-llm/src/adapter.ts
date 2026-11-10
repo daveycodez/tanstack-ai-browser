@@ -13,7 +13,7 @@ import type { ModelReasoning, TextOptions, Tool } from "@tanstack/ai"
 import { resolveReasoning } from "@tanstack/ai/adapter-internals"
 import { OpenAIBaseChatCompletionsTextAdapter } from "@tanstack/openai-base"
 import type { OpenAIClientLike } from "@tanstack/openai-base"
-import type { AppConfig, ChatCompletionRequest, ResponseFormat } from "@mlc-ai/web-llm"
+import type { AppConfig, ChatCompletionRequest, ChatCompletionRequestBase, ResponseFormat } from "@mlc-ai/web-llm"
 
 import { availability, loadModel, unloadModel } from "./client.js"
 import type { Availability, DownloadProgressCallback, LoadSettings } from "./client.js"
@@ -45,31 +45,16 @@ export type WebLlmConfig = {
 }
 
 /**
- * Per-call `modelOptions`, named as OpenRouter's adapter names them, so an
- * app can swap this adapter for `@tanstack/ai-openrouter`'s unchanged;
- * mapped to WebLLM's request fields. Sampling left out comes from the
- * model's own config in WebLLM's catalog.
+ * Per-call `modelOptions`: WebLLM's own request fields (OpenAI's names, and
+ * its `repetition_penalty`, `ignore_eos` and `extra_body`), sent as given.
+ * The fields the adapter writes from `chat()`'s own options (messages,
+ * tools, the output schema, streaming) are left out. Sampling left out
+ * comes from the model's own config in WebLLM's catalog.
  */
-export type WebLlmTextModelOptions = {
-  /** Most tokens to generate (WebLLM's `max_tokens`). Otherwise up to the context window. */
-  maxCompletionTokens?: number
-  /** Randomness of sampling: 0 is greedy. */
-  temperature?: number
-  /** Nucleus sampling: the likeliest tokens up to this probability, in (0, 1]. */
-  topP?: number
-  /** Lowers the odds of tokens by how often they've appeared. */
-  frequencyPenalty?: number
-  /** Lowers the odds of tokens that have appeared at all. */
-  presencePenalty?: number
-  /** WebLLM: penalizes tokens already in the chat (`repetition_penalty`; 1: off). */
-  repetitionPenalty?: number
-  /** Seeds the sampler, for the same samples from the same request (an integer). */
-  seed?: number
-  /** Where to stop: the reply ends before the first of these it would write. */
-  stop?: string | Array<string>
-  /** Adds to the odds of tokens, by token id: -100 to 100. */
-  logitBias?: Record<string, number>
-}
+export type WebLlmTextModelOptions = Omit<
+  ChatCompletionRequestBase,
+  "messages" | "model" | "stream" | "stream_options" | "tools" | "tool_choice" | "response_format"
+>
 
 /** A model WebLLM's catalog lists, or any `model_id` of the adapter's `appConfig`. */
 export type WebLlmModel = WebLlmChatModel | (string & {})
@@ -78,22 +63,6 @@ type MetadataByModality = { text: unknown; image: unknown; audio: unknown; video
 
 /** A Chat Completions request, as the base adapter writes it. */
 type CreateParams = Parameters<OpenAIClientLike["chat"]["completions"]["create"]>[0]
-
-/** `modelOptions` with WebLLM's names. */
-function toRequestOptions(o: WebLlmTextModelOptions | undefined): Record<string, unknown> {
-  const fields = {
-    max_tokens: o?.maxCompletionTokens,
-    temperature: o?.temperature,
-    top_p: o?.topP,
-    frequency_penalty: o?.frequencyPenalty,
-    presence_penalty: o?.presencePenalty,
-    repetition_penalty: o?.repetitionPenalty,
-    seed: o?.seed,
-    stop: o?.stop,
-    logit_bias: o?.logitBias
-  }
-  return Object.fromEntries(Object.entries(fields).filter(([, value]) => value !== undefined))
-}
 
 /** OpenAI's `response_format`, in WebLLM's shape: a JSON Schema goes as `json_object` with the schema as text. */
 function toResponseFormat(format: unknown): ResponseFormat {
@@ -343,7 +312,7 @@ export class WebLlmTextAdapter<TModel extends WebLlmModel> extends OpenAIBaseCha
   }
 
   /**
-   * The request, with WebLLM's option names, thinking on or off (WebLLM's
+   * The request, with `modelOptions` as given, thinking on or off (WebLLM's
    * `extra_body.enable_thinking`; left out when not asked, so the model
    * thinks as it would), and tools by prompt (see tools.ts).
    */
@@ -351,13 +320,10 @@ export class WebLlmTextAdapter<TModel extends WebLlmModel> extends OpenAIBaseCha
     const modelOptions = options.modelOptions as WebLlmTextModelOptions | undefined
     const tools = options.toolChoice === "none" ? [] : (options.tools ?? [])
     const thinking = resolveReasoning(options.reasoning, this.modelReasoning(this.model))?.value
-    const request = super.mapOptionsToRequest({
-      ...options,
-      tools: [],
-      reasoning: undefined,
-      modelOptions: toRequestOptions(modelOptions)
-    })
-    if (thinking !== undefined) Object.assign(request, { extra_body: { enable_thinking: thinking === "true" } })
+    const request = super.mapOptionsToRequest({ ...options, tools: [], reasoning: undefined })
+    if (thinking !== undefined) {
+      Object.assign(request, { extra_body: { ...modelOptions?.extra_body, enable_thinking: thinking === "true" } })
+    }
     if (tools.length === 0) return request
     const messages = withPromptTools(request.messages as unknown as Array<RequestMessage>, tools)
     return Object.assign(request, { messages, [PROMPT_TOOLS]: true }) as typeof request

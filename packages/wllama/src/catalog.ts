@@ -7,20 +7,20 @@ import type { ModelReasoning } from "@tanstack/ai"
 import type { ModelReasoningCapability } from "@tanstack/ai/adapter-internals"
 
 /**
- * Sampling settings from a model's card, in `modelOptions`' names
- * (OpenRouter's convention): used unless a call's `modelOptions` overrides it.
+ * Sampling settings from a model's card, in llama.cpp's request fields (the
+ * names `modelOptions` takes): used unless a call's `modelOptions` sets them.
  */
 export type Sampling = {
   temperature: number
-  topK: number
+  top_k: number
   /** llama.cpp's repetition penalty (`--repeat-penalty`). */
-  repetitionPenalty: number
+  repeat_penalty: number
   /** Nucleus sampling: the likeliest tokens up to this probability. */
-  topP?: number
+  top_p?: number
   /** Drops tokens less likely than this share of the likeliest one's odds. */
-  minP?: number
+  min_p?: number
   /** Lowers the odds of tokens that have appeared at all. */
-  presencePenalty?: number
+  presence_penalty?: number
 }
 
 export type WllamaModelMeta = {
@@ -66,27 +66,27 @@ const TOOLS = {
 /** The cards' llama.cpp settings: `--temp 0.1 --top-k 50 --repeat-penalty 1.05`. */
 const LFM2_5_SAMPLING = {
   temperature: 0.1,
-  topK: 50,
-  repetitionPenalty: 1.05
+  top_k: 50,
+  repeat_penalty: 1.05
 } as const satisfies Sampling
 /** LFM2.5 Thinking's card: `--temp 0.05 --top-k 50 --repeat-penalty 1.05`. */
 const LFM2_5_THINKING_SAMPLING = {
   temperature: 0.05,
-  topK: 50,
-  repetitionPenalty: 1.05
+  top_k: 50,
+  repeat_penalty: 1.05
 } as const satisfies Sampling
 
 /** Qwen3.5's card, text tasks without thinking (its default). */
 const QWEN_3_5_SAMPLING = {
   temperature: 1,
-  topK: 20,
-  topP: 1,
-  minP: 0,
-  presencePenalty: 2,
-  repetitionPenalty: 1
+  top_k: 20,
+  top_p: 1,
+  min_p: 0,
+  presence_penalty: 2,
+  repeat_penalty: 1
 } as const satisfies Sampling
 /** Qwen3.5's card, text tasks with thinking. */
-const QWEN_3_5_THINKING_SAMPLING = { ...QWEN_3_5_SAMPLING, topP: 0.95, presencePenalty: 1.5 } as const satisfies Sampling
+const QWEN_3_5_THINKING_SAMPLING = { ...QWEN_3_5_SAMPLING, top_p: 0.95, presence_penalty: 1.5 } as const satisfies Sampling
 
 // Liquid's models are Q4_K_M: in wllama's WebAssembly build it reads
 // prompts and writes tokens about three times as fast as Q4_0 (llama.cpp

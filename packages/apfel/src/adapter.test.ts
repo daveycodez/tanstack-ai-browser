@@ -36,7 +36,7 @@ test("a chat goes to apfel's Chat Completions with tools, and OpenRouter-style o
     threadId: "apfel-test",
     messages: [{ role: "user", content: "hey" }],
     tools: [weather],
-    modelOptions: { maxCompletionTokens: 64, temperature: 0.2, topP: 0.9, seed: 1 },
+    modelOptions: { max_tokens: 64, temperature: 0.2, top_p: 0.9, seed: 1 },
     stream: false
   })
   assert.equal(typeof text === "string" ? text : text.text, "Hi")
@@ -46,7 +46,5 @@ test("a chat goes to apfel's Chat Completions with tools, and OpenRouter-style o
   assert.equal(body.temperature, 0.2)
   assert.equal(body.top_p, 0.9)
   assert.equal(body.seed, 1)
-  assert.equal(body.maxCompletionTokens, undefined)
-  assert.equal(body.topP, undefined)
   assert.equal((body.tools as Array<{ function: { name: string } }>)[0].function.name, "get_weather")
 })

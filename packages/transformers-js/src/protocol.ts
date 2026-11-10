@@ -2,6 +2,7 @@
  * Messages between the page (client.ts) and the worker (worker.ts). The
  * worker holds one model and runs one generation at a time.
  */
+import type { GenerationConfig } from "@huggingface/transformers"
 
 /** Where the model runs: WebGPU, or the CPU through WebAssembly. */
 export type Device = "webgpu" | "wasm"
@@ -28,16 +29,25 @@ export type TemplateTool = {
   function: { name: string; description: string; parameters: unknown }
 }
 
-/** Transformers.js `generate()` options. */
-export type GenerationOptions = {
-  max_new_tokens: number
-  /** Left out, the repo's `generation_config.json` decides. */
-  do_sample?: boolean
-  temperature?: number
-  top_k?: number
-  top_p?: number
-  repetition_penalty?: number
-}
+/**
+ * Transformers.js's `generate()` settings (its `GenerationConfig`), as a
+ * call may set them: the worker sets the streamer and what it returns.
+ * Left out, the repo's `generation_config.json` decides.
+ */
+export type GenerationSettings = Partial<
+  Omit<
+    GenerationConfig,
+    | "streamer"
+    | "return_dict_in_generate"
+    | "num_return_sequences"
+    | "output_attentions"
+    | "output_hidden_states"
+    | "output_scores"
+  >
+>
+
+/** A generation's settings, with its cap. */
+export type GenerationOptions = GenerationSettings & { max_new_tokens: number }
 
 export type GenerateRequest = {
   messages: Array<TemplateMessage>

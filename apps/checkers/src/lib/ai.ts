@@ -245,7 +245,7 @@ export async function chooseAiMove(
         ? chat({
             ...options,
             adapter: apfelText(APFEL_MODEL) as AnyTextAdapter,
-            modelOptions: { maxCompletionTokens: MAX_OUTPUT_TOKENS }
+            modelOptions: { max_tokens: MAX_OUTPUT_TOKENS }
           })
         : opponent.model === "prompt-api"
         ? chat({ ...options, adapter: promptApiText() })
@@ -254,7 +254,7 @@ export async function chooseAiMove(
             // Runtime catalog metadata determines the selected model's reasoning support.
             adapter: webgllmText(opponent.model as WebGllmChatModel) as AnyTextAdapter,
             ...(thinkingSupport !== "none" && { reasoning }),
-            modelOptions: { maxCompletionTokens: MAX_OUTPUT_TOKENS }
+            modelOptions: { max_completion_tokens: MAX_OUTPUT_TOKENS }
           })
     const { object: answer, raw } = await readStructuredAnswer(stream, generationSignal, {
       onGenerating: () => onPhase?.("generating"),
