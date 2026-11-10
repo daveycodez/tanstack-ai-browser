@@ -17,7 +17,6 @@ What does leave your device: calls to MCP servers (Exa's web search, if it's on,
 
 | Model                     | Notes                                                                                                                                                                                                         |
 | ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Gemma 4 E4B               | Google's Gemma 4 E4B (4.5B effective parameters), in onnx-community's Transformers.js build: about 5 GB, for desktops. Its vision and audio encoders are downloaded with it, for image and audio input later. |
 | LFM3 1.7B Web             | Liquid AI's LFM3, in a custom ONNX build for iPhone Safari: 4-bit weights (about 900 MB), a smaller vocabulary, and flash attention in its sliding-window layers to keep memory down on long prompts.         |
 | LFM3 1.7B                 | The `onnx-community` ONNX export of LFM3.                                                                                                                                                                     |
 | LFM2.5 1.2B               | Liquid AI's ONNX build of LFM2.5 Instruct.                                                                                                                                                                    |
@@ -36,7 +35,7 @@ The picker's WebGL section runs models on `@tanstack-ai-browser/webgllm`, built 
 
 The GGUF models are in the picker's wllama section. They run on the CPU, WebGPU or not: on half the cores (wllama's default) where the page is cross-origin isolated (see `src/start.ts`), in every browser, Safari and Firefox included, since the site's headers use `Cross-Origin-Embedder-Policy: require-corp`. LFM3's GGUFs aren't there: wllama 3.8.1's llama.cpp predates LFM3, so they run on the WebGL engine instead, and a saved pick of one moves there (Liquid's) or to LFM3 Web on Transformers.js.
 
-The "Web" builds are published under [`daveycodez` on Hugging Face](https://huggingface.co/daveycodez). Models download their repository's latest version (main). Models whose thinking can be switched on and off (LFM3, its GGUF build included, and Gemma 4) get a Reasoning row at the bottom of the model picker, Off or High, High by default, as in webgllm's demo; the picker's button shows the level after the model's name while reasoning is on. A model that declared more reasoning levels would offer each of them by name.
+The "Web" builds are published under [`daveycodez` on Hugging Face](https://huggingface.co/daveycodez). Models download their repository's latest version (main). Models whose thinking can be switched on and off (LFM3, its GGUF build included, and Qwen3.5) get a Reasoning row at the bottom of the model picker, Off or High, High by default, as in webgllm's demo; the picker's button shows the level after the model's name while reasoning is on. A model that declared more reasoning levels would offer each of them by name.
 
 ## Features
 
@@ -61,7 +60,7 @@ The "Web" builds are published under [`daveycodez` on Hugging Face](https://hugg
 - Light, dark and system themes
 - Add to Home Screen: installs as an app with its own icon, and keeps the downloaded model more reliably than a Safari tab
 - GGUF models (the wllama section) run with llama.cpp's WebAssembly build: download once to the Origin Private File System, reuse what they've read across follow-ups and tool calls, and need no WebGPU
-- Without WebGPU (Firefox on Android, for one), the WebGL models still run on the GPU, the default among them. The Transformers.js models run on the CPU through WebAssembly, on their CPU (`q4`) weights, with nothing to set: every model but Gemma 4 can. Where WebGL 2 isn't available either, the picker starts on LFM2 1.2B Tool. Much slower than the GPU, especially while generating.
+- Without WebGPU (Firefox on Android, for one), the WebGL models still run on the GPU, the default among them. The Transformers.js models run on the CPU through WebAssembly, on their CPU (`q4`) weights, with nothing to set. Where WebGL 2 isn't available either, the picker starts on LFM2 1.2B Tool. Much slower than the GPU, especially while generating.
 - Pages render on the server (the home page is prerendered), with skeletons for what comes from IndexedDB until it opens
 - TanStack Devtools in development, with the AI and Router panels (no button: open them with Ctrl + ~)
 
@@ -145,5 +144,5 @@ apps/lofi-agent/           the app (Nx project "lofi-agent")
 - The chat follows TanStack AI's [ts-react-ui-chatbot example](https://github.com/TanStack/ai/tree/main/examples/ts-react-ui-chatbot), styled after HeroUI Pro's chat with HeroUI's open-source components. The sidebar layout and the thinking effort picker follow [assistant-ui](https://github.com/assistant-ui/assistant-ui) (MIT).
 - Provider icons are from [LobeHub Icons](https://github.com/lobehub/lobe-icons) (MIT).
 - City names are from [GeoNames](https://www.geonames.org) (CC BY 4.0): `public/data/cities.json`, built by `scripts/build-cities.mjs` (`pnpm --filter @tanstack-ai-browser/lofi-agent build-cities`).
-- LFM3 and LFM2.5 are models by [Liquid AI](https://huggingface.co/LiquidAI); Gemma 4 is by [Google DeepMind](https://deepmind.google/models/gemma/).
+- LFM3 and LFM2.5 are models by [Liquid AI](https://huggingface.co/LiquidAI).
 - Apple's model is reached through [apfel](https://apfel.franzai.com).

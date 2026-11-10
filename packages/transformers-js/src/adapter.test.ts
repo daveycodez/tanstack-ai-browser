@@ -118,8 +118,8 @@ test("the conversation and tools go to the chat template, with the model card's 
   assert.equal(request.enableThinking, false)
 })
 
-test("a model whose repo carries its card's sampling gets none from the adapter", async () => {
-  await run({ model: "onnx-community/gemma-4-E4B-it-ONNX" }, "onnx-community/gemma-4-E4B-it-ONNX")
+test("a model the catalog doesn't list gets no sampling from the adapter: its repo's generation_config.json applies", async () => {
+  await run({ model: "someone/Some-Model-ONNX" }, "someone/Some-Model-ONNX")
   assert.deepEqual((generateRequests().at(-1) as Generate).options, { max_new_tokens: 4096 })
 })
 

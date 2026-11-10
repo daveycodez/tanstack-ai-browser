@@ -40,12 +40,10 @@ test("Gemma's call with its string tokens dropped", () => {
   assert.deepEqual(reader.call, { name: "f", arguments: { city: "Oslo" } })
 })
 
-test("special tokens are dropped, tool-call delimiters kept, Gemma's channel shown as think tags", () => {
+test("special tokens are dropped, tool-call delimiters kept", () => {
   assert.equal(shownText("<|im_end|>"), null)
   assert.equal(shownText("<end_of_turn|>"), null)
   assert.equal(shownText("<|tool_call_start|>"), "<|tool_call_start|>")
   assert.equal(shownText("<tool_call>"), "<tool_call>")
-  assert.equal(shownText("<|channel>"), "<think>")
-  assert.equal(shownText("<channel|>"), "</think>")
   assert.equal(shownText("Hello "), "Hello ")
 })

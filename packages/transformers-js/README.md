@@ -29,7 +29,6 @@ const stream = chat({
 
 | Model                                      | Reasoning         | Without WebGPU |
 | ------------------------------------------ | ----------------- | -------------- |
-| `onnx-community/gemma-4-E4B-it-ONNX`       | on/off            | no             |
 | `daveycodez/LFM3-1.7B-Web-ONNX`            | on/off            | yes            |
 | `onnx-community/LFM3-1.7B-ONNX`            | on/off            | no             |
 | `daveycodez/LFM2.5-1.2B-Web-ONNX`          | none              | yes            |
@@ -48,7 +47,7 @@ const stream = chat({
 
 ## Options
 
-`modelOptions` per call, mapped to Transformers.js's `generate()`: `maxCompletionTokens` (`max_new_tokens`: 4096 by default, 8192 while thinking), `temperature` (0 is greedy), `topP`, `topK` and `repetitionPenalty`. Left out, each listed model uses its card's recommended sampling: from its repo's `generation_config.json`, which Transformers.js applies itself (Gemma 4), or from the catalog where the repo doesn't carry it (the LFM models) or carries other settings (Qwen3.5's file has its card's coding settings; the catalog has its text settings, with and without thinking, less the presence penalty Transformers.js doesn't have).
+`modelOptions` per call, mapped to Transformers.js's `generate()`: `maxCompletionTokens` (`max_new_tokens`: 4096 by default, 8192 while thinking), `temperature` (0 is greedy), `topP`, `topK` and `repetitionPenalty`. Left out, each listed model uses its card's recommended sampling, from the catalog: the LFM repos' `generation_config.json` doesn't carry it, and Qwen3.5's has its card's coding settings, not its text settings (the catalog has those, with and without thinking, less the presence penalty Transformers.js doesn't have). A model the catalog doesn't list gets its repo's `generation_config.json`, which Transformers.js applies itself.
 
 **Reasoning:** `chat({ reasoning })` sets the chat template's `enable_thinking` for a model that thinks (a model the package doesn't list gets the on/off switch). The thinking comes back as `REASONING_*` events, apart from the answer: what the model writes between `<think>` and `</think>`, including a thought the chat template opens in the prompt (Qwen3.5's) and Gemma's thinking channel.
 

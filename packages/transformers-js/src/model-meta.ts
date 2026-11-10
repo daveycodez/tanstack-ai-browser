@@ -60,21 +60,13 @@ const QWEN_3_5_THINKING_SAMPLING = { ...QWEN_3_5_SAMPLING, topP: 0.95 } as const
 /** LFM2 1.2B Tool's card: greedy decoding. */
 const LFM2_TOOL_SAMPLING = { temperature: 0 } as const satisfies Sampling
 
-/** A chat template that takes `enable_thinking` (LFM3, Gemma 4, Qwen3.5). */
+/** A chat template that takes `enable_thinking` (LFM3, Qwen3.5). */
 const THINKING_SWITCH = { levels: { off: "false", high: "true" }, budget: false } as const
 /** A model that always thinks (LFM2.5 Thinking): its template takes no switch. */
 const ALWAYS_THINKS = { levels: { high: "true" }, budget: false } as const
 
 const TOOLS_AND_THINKING = { input: ["text"], output: ["text"], capabilities: ["tools", "thinking"] } as const
 const TOOLS = { input: ["text"], output: ["text"], capabilities: ["tools"] } as const
-
-/** Gemma 4 E4B, its text model only (embedding and decoder, 4.9 GB). */
-const GEMMA_4_E4B = {
-  name: "onnx-community/gemma-4-E4B-it-ONNX",
-  supports: TOOLS_AND_THINKING,
-  size: "4b",
-  reasoning: THINKING_SWITCH
-} as const satisfies TransformersJsModelMeta
 
 /** LFM3 built for the web: GPTQ 4-bit, a 48k vocabulary, flash attention in its sliding-window layers. */
 const LFM3_1_7B_WEB = {
@@ -155,7 +147,6 @@ const QWEN_3_5_2B = {
 } as const satisfies TransformersJsModelMeta
 
 const MODELS = [
-  GEMMA_4_E4B,
   LFM3_1_7B_WEB,
   LFM3_1_7B,
   LFM2_5_1_2B_WEB,
@@ -176,7 +167,6 @@ export type TransformersJsChatModel = Listed["name"]
 
 /** Each listed model's metadata, by name. */
 export const TRANSFORMERS_JS_MODEL_META: Readonly<Record<TransformersJsChatModel, TransformersJsModelMeta>> = {
-  [GEMMA_4_E4B.name]: GEMMA_4_E4B,
   [LFM3_1_7B_WEB.name]: LFM3_1_7B_WEB,
   [LFM3_1_7B.name]: LFM3_1_7B,
   [LFM2_5_1_2B_WEB.name]: LFM2_5_1_2B_WEB,

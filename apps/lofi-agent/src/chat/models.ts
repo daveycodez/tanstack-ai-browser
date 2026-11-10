@@ -22,7 +22,6 @@ import { createStore } from "#/lib/store"
 
 export type ModelId =
   | "apple-fm"
-  | "gemma-4-e4b"
   | "lfm3"
   | "lfm3-web"
   | "lfm2.5"
@@ -104,11 +103,7 @@ const iosContext = () => (isIos() ? { contextLength: IOS_CONTEXT } : {})
 
 /** A model's maker's logo in /public/icons (LobeHub icons, MIT). */
 const makerIcon = (model: string) =>
-  /gemma/i.test(model)
-    ? "/icons/gemma.svg"
-    : /qwen/i.test(model)
-      ? "/icons/qwen.svg"
-      : "/icons/liquid.svg"
+  /qwen/i.test(model) ? "/icons/qwen.svg" : "/icons/liquid.svg"
 
 /** A model's name in the picker: its Hugging Face repo name, as written. */
 const repoName = (model: string) => model.slice(model.indexOf("/") + 1)
@@ -198,7 +193,6 @@ export const MODELS = [
     /** The browser's model doesn't reason. */
     reasoning: undefined
   },
-  local("gemma-4-e4b", "onnx-community/gemma-4-E4B-it-ONNX"),
   local("lfm3", "onnx-community/LFM3-1.7B-ONNX"),
   local("lfm3-web", "daveycodez/LFM3-1.7B-Web-ONNX"),
   local("lfm2.5", "LiquidAI/LFM2.5-1.2B-Instruct-ONNX"),
@@ -253,7 +247,7 @@ export const PROVIDERS = [
 
 /**
  * The effort levels to offer for a model, least to most thinking: the
- * levels its reasoning data has (LFM3 and Gemma 4: off and high). None for
+ * levels its reasoning data has (LFM3 and Qwen3.5: off and high). None for
  * a model with one level or none, which has nothing to pick: LFM2.5
  * Thinking always thinks, the others never do.
  */
@@ -285,7 +279,7 @@ const EFFORT_LABELS: Record<ReasoningLevel, string> = {
 
 /**
  * The picker's options for a model's levels, each by name: Off and High for
- * LFM3 and Gemma 4, as in webgllm's demo.
+ * LFM3 and Qwen3.5, as in webgllm's demo.
  */
 export function effortOptions(id: ModelId) {
   return effortLevels(id).map((level) => ({

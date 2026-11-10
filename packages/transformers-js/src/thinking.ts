@@ -1,7 +1,7 @@
 /**
  * Splits a streamed reply at `<think>` and `</think>` into thinking and
  * answer text. (The worker writes an opening tag the chat template put in
- * the prompt, and Gemma's thinking channel, as `<think>`.)
+ * the prompt as `<think>`.)
  */
 
 /** A run of streamed text: thinking, or the answer. */

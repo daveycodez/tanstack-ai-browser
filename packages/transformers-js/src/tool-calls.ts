@@ -35,13 +35,10 @@ const TOOL_CALL_TOKENS = new Set([
 
 /**
  * A streamed piece as the page sees it: special tokens (`<|im_end|>`, …)
- * are dropped, except tool-call delimiters, and Gemma's thinking channel is
- * written as `<think>` tags. Null for a piece to drop.
+ * are dropped, except tool-call delimiters. Null for a piece to drop.
  */
 export function shownText(text: string): string | null {
   const token = text.trim()
-  if (token === "<|channel>") return "<think>"
-  if (token === "<channel|>") return "</think>"
   const special = /^<\|[^>]+>$/.test(token) || /^<[^|>]+\|>$/.test(token)
   return special && !TOOL_CALL_TOKENS.has(token) ? null : text
 }
