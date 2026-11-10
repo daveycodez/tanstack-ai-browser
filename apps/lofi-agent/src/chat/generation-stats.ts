@@ -111,9 +111,6 @@ export type ReplyStats = {
   firstTokenSeconds?: number
 }
 
-/** Below this much reading time, a prompt-speed figure is noise. */
-const MIN_READ_MS = 100
-
 const sum = (values: Array<number | undefined>) =>
   values.every((v) => v !== undefined)
     ? values.reduce<number>((a, b) => a + (b ?? 0), 0)
@@ -154,10 +151,10 @@ export function replyStatsOf(
     outputTokens: sum(generations.map((g) => g.outputTokens)),
     totalTokens: lastTotal,
     promptTokensPerSecond:
-      readTokens !== undefined && readTokens > 0 && readMs >= MIN_READ_MS
+      readTokens !== undefined && readTokens > 0 && readMs > 0
         ? readTokens / (readMs / 1000)
         : undefined,
-    // Shown however short the reply (one token has no rate).
+    // Both rates show however short the reading or reply (one token has no rate).
     tokensPerSecond:
       decodeMs > 0 ? decodeTokens / (decodeMs / 1000) : undefined,
     firstTokenSeconds:
