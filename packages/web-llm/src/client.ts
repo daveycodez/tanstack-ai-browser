@@ -75,9 +75,36 @@ function engineSlot(name: string, worker?: Worker) {
     report: MLCEngineConfig["initProgressCallback"]
   } | null = null
 
-  /** The engine, in its worker. Its load progress goes to the waiting callers while the model downloads. */
-  const getEngine = () =>
-    (engine ??= new WebWorkerMLCEngine(worker ?? new Worker(new URL("./worker.js", import.meta.url), { type: "module", name }), {
+  /** Each engine's failure: it rejects when the engine's worker fails (WebLLM itself never notices). */
+  const failures = new WeakMap<WebWorkerMLCEngine, Promise<never>>()
+  /** A caller's worker that failed before it ever answered: its script didn't load, so nothing can run in it. */
+  let dead: Error | null = null
+  /** Whether the worker has sent anything: one that has is running. */
+  let answered = false
+  const failedToLoad = () => new Error("WebLLM's worker failed to load its script.")
+  if (worker) {
+    // From the adapter's creation on, so a failure before its first call isn't missed.
+    worker.addEventListener("message", () => {
+      answered = true
+    })
+    worker.addEventListener("error", () => {
+      if (!engine && !answered) dead ??= failedToLoad()
+    })
+  }
+
+  /**
+   * The engine, in its worker. Its load progress goes to the waiting callers
+   * while the model downloads. If the worker fails (its script doesn't load,
+   * it throws, or a message can't be read), what waits on the engine rejects
+   * and the engine is dropped: the package's own worker is ended and the
+   * next call starts another; a caller's worker gets a new engine, unless
+   * it never ran.
+   */
+  function getEngine(): WebWorkerMLCEngine {
+    if (engine) return engine
+    if (dead) throw dead
+    const host = worker ?? new Worker(new URL("./worker.js", import.meta.url), { type: "module", name })
+    const created = new WebWorkerMLCEngine(host, {
       initProgressCallback: (report) => {
         const current = loaded
         current?.report?.(report)
@@ -88,9 +115,54 @@ function engineSlot(name: string, worker?: Worker) {
         if (progress >= 1) current.downloading = false
         else for (const listener of current.listeners) listener(progress)
       }
-    }))
+    })
+    if (!worker) answered = false
+    const onMessage = () => {
+      answered = true
+    }
+    let fail = (_error: Error) => undefined as void
+    const failure = new Promise<never>((_, reject) => (fail = reject))
+    // Nothing may be waiting when it fails.
+    failure.catch(() => undefined)
+    const onFailure = (event: Event) => {
+      const detail = (event as ErrorEvent).message
+      const error = detail ? new Error(`WebLLM's worker failed: ${detail}`) : answered ? new Error("WebLLM's worker failed.") : failedToLoad()
+      host.removeEventListener("error", onFailure)
+      host.removeEventListener("messageerror", onFailure)
+      host.removeEventListener("message", onMessage)
+      if (!worker) host.terminate()
+      else if (!answered) dead = error
+      if (engine === created) {
+        engine = null
+        loaded = null
+      }
+      fail(error)
+    }
+    host.addEventListener("error", onFailure)
+    host.addEventListener("messageerror", onFailure)
+    host.addEventListener("message", onMessage)
+    failures.set(created, failure)
+    engine = created
+    return created
+  }
+
+  /** `promise`, unless `engine`'s worker fails first. */
+  const guard = <T>(engine: WebWorkerMLCEngine, promise: Promise<T>): Promise<T> =>
+    Promise.race([promise, failures.get(engine) ?? promise])
 
   return {
+    guard,
+
+    /** A streamed reply's chunks, ending with the worker's failure if it fails midway. */
+    async *guardStream<T>(engine: WebWorkerMLCEngine, stream: AsyncIterable<T>): AsyncGenerator<T> {
+      const chunks = stream[Symbol.asyncIterator]()
+      for (;;) {
+        const next = await guard(engine, chunks.next())
+        if (next.done) return
+        yield next.value
+      }
+    },
+
     /**
      * Waits for the engine to itself, after the callers before, and resolves
      * to the call that hands it on. WebLLM queues generations but stops them
@@ -144,7 +216,7 @@ function engineSlot(name: string, worker?: Worker) {
           // The worker keeps the last catalog it was given: give it this load's.
           engine.setAppConfig(settings.appConfig ?? prebuiltAppConfig)
           if (settings.engineConfig?.logLevel) engine.setLogLevel(settings.engineConfig.logLevel)
-          await engine.reload(model, settings.chatOptions)
+          await guard(engine, engine.reload(model, settings.chatOptions))
         })().finally(() => {
           current.downloading = false
         })
@@ -173,7 +245,7 @@ function engineSlot(name: string, worker?: Worker) {
       const current = loaded
       if (!current || !engine || (model !== undefined && current.model !== model)) return
       loaded = null
-      await engine.unload()
+      await guard(engine, engine.unload())
     },
 
     /**

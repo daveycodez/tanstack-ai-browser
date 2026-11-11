@@ -111,7 +111,7 @@ export class WebLlmEmbeddingAdapter<TModel extends WebLlmEmbeddingModelId> exten
       // adapter's preload or unload waits for it.
       const release = await this.engine.acquire(options.abortSignal)
       const response = await this.load(options.abortSignal)
-        .then((engine) => engine.embeddings.create({ ...modelOptions, model, input: texts }))
+        .then((engine) => this.engine.guard(engine, engine.embeddings.create({ ...modelOptions, model, input: texts })))
         .finally(release)
       return {
         id: this.generateId(this.name),

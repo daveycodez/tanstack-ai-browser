@@ -223,7 +223,7 @@ async function* withThinking(stream: AsyncIterable<Chunk>): AsyncIterable<Chunk>
  * itself, loads the model with the adapter's settings (at once when it's
  * loaded with them) and goes to WebLLM's `chat.completions.create`. WebLLM
  * takes no AbortSignal: the caller's signal stops the generation with the
- * engine's `interruptGenerate`.
+ * engine's `interruptGenerate`. A request fails if the engine's worker does.
  */
 function clientFor(
   chatEngine: EngineSlot,
@@ -254,9 +254,10 @@ function clientFor(
       interrupt = () => engine.interruptGenerate()
       signal?.throwIfAborted()
       signal?.addEventListener("abort", interrupt, { once: true })
-      const result = await engine.chat.completions.create(request)
+      // (WebLLM never notices its worker failing: the slot ends the wait.)
+      const result = await chatEngine.guard(engine, engine.chat.completions.create(request))
       if (!request.stream) return result
-      const split = withThinking(result as AsyncIterable<Chunk>)
+      const split = withThinking(chatEngine.guardStream(engine, result as AsyncIterable<Chunk>))
       const stream = promptTools ? withToolCalls(split, interrupt) : split
       streaming = true
       return (async function* () {

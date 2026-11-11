@@ -43,7 +43,33 @@ const control = {
   logLevels: [] as Array<string>
 }
 ;(globalThis as { __webLlm?: typeof control }).__webLlm = control
-;(globalThis as { Worker?: unknown }).Worker = class {}
+/** A stand-in worker: it can fail, as a real one whose script doesn't load or throws. */
+class FakeWorker {
+  static started: Array<FakeWorker> = []
+  listeners = new Map<string, Set<(event: unknown) => void>>()
+  terminated = false
+  constructor(mine = false) {
+    if (!mine) FakeWorker.started.push(this)
+  }
+  addEventListener(type: string, listener: (event: unknown) => void) {
+    if (!this.listeners.has(type)) this.listeners.set(type, new Set())
+    this.listeners.get(type)?.add(listener)
+  }
+  removeEventListener(type: string, listener: (event: unknown) => void) {
+    this.listeners.get(type)?.delete(listener)
+  }
+  dispatch(type: string, event: unknown = {}) {
+    for (const listener of [...(this.listeners.get(type) ?? [])]) listener(event)
+  }
+  terminate() {
+    this.terminated = true
+  }
+}
+;(globalThis as { Worker?: unknown }).Worker = class extends FakeWorker {
+  constructor() {
+    super()
+  }
+}
 
 const outfile = join(temporary, "web-llm-adapter.mjs")
 await build({
@@ -439,7 +465,7 @@ test("an embedding batch keeps its engine: a preload with another catalog or an 
 
 test("a worker of your own holds the engine, shared by the adapters given it; the package's engines stay apart", async () => {
   const { webLlmText, webLlmEmbedding } = await fresh()
-  const mine = { mine: true }
+  const mine = new FakeWorker(true)
   await webLlmText(MODEL, { worker: mine }).create()
   await webLlmText(MODEL, { worker: mine }).create()
   assert.deepEqual(control.workers, [mine], "one engine for the worker")
@@ -467,4 +493,47 @@ test("engineConfig: the log level is set at the load, WebLLM's reports are passe
   assert.deepEqual(control.logLevels, ["DEBUG"])
   assert.deepEqual(reports, [0.5, 1])
   assert.deepEqual(control.reloads.map((r) => r.model), ["Custom-MLC"], "found in engineConfig's catalog")
+})
+
+test("a worker of your own that fails to load rejects the load and every later one; the engine's turn is freed", async () => {
+  const { webLlmText } = await fresh()
+  const mine = new FakeWorker(true)
+  control.reloadGate = new Promise(() => undefined)
+  const adapter = webLlmText(MODEL, { worker: mine })
+  const loading = adapter.create()
+  await new Promise((resolve) => setTimeout(resolve, 5))
+  mine.dispatch("error", {})
+  await assert.rejects(loading, /failed to load its script/)
+  // It never ran: nothing waits on it again.
+  await assert.rejects(webLlmText(MODEL, { worker: mine }).create(), /failed to load its script/)
+  const { events } = await run(adapter)
+  assert.match(String(events.find((e) => e.type === "RUN_ERROR")?.message), /failed to load its script/)
+})
+
+test("the package's worker failing mid-reply ends the reply with its error; the next call starts a new worker", async () => {
+  const { webLlmText } = await fresh()
+  const before = FakeWorker.started.length
+  control.hold = new Promise(() => undefined)
+  const adapter = webLlmText(MODEL)
+  const running = run(adapter)
+  while (control.prefills.length === 0) await new Promise((resolve) => setTimeout(resolve, 0))
+  const worker = FakeWorker.started.at(-1) as FakeWorker
+  worker.dispatch("message")
+  worker.dispatch("error", { message: "out of memory" })
+  const { events } = await running
+  assert.match(String(events.find((e) => e.type === "RUN_ERROR")?.message), /WebLLM's worker failed: out of memory/)
+  assert.ok(worker.terminated)
+  control.hold = null
+  await adapter.create()
+  assert.equal(FakeWorker.started.length, before + 2, "a new worker for the next load")
+  assert.equal(control.reloads.length, 2)
+})
+
+test("a worker of your own that failed before the adapter's first call rejects it at once", async () => {
+  const { webLlmText } = await fresh()
+  const mine = new FakeWorker(true)
+  const adapter = webLlmText(MODEL, { worker: mine })
+  mine.dispatch("error", {})
+  await assert.rejects(adapter.create(), /failed to load its script/)
+  assert.equal(control.reloads.length, 0)
 })

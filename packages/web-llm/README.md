@@ -97,6 +97,8 @@ const adapter = webLlmText("Qwen3-1.7B-q4f16_1-MLC", { worker })
 
 `WebWorkerMLCEngineHandler` is WebLLM's own, exported here too. The worker holds one model, as WebLLM's handler does: adapters given the same worker take turns in it, and a chat adapter and an embedding adapter given the same worker unload each other's model, so give each its own. `destroy()` unloads the model and leaves the worker running.
 
+WebLLM's engine doesn't notice its worker failing, so the adapter listens for it: if the worker's script doesn't load, or the worker throws, the load, reply or embedding waiting on it fails with the worker's error instead of waiting forever. The package's own worker is ended and the next call starts another; a worker of your own that never ran fails every later call at once.
+
 ## Images
 
 WebLLM's vision models (Phi-3.5 Vision) read images: send image parts in a user message, as data (base64) or http URLs. They go to WebLLM as OpenAI's `image_url`, without `detail`, which WebLLM refuses. The adapter's `inputModalities` says whether a model reads them.
