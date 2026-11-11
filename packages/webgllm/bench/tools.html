@@ -39,16 +39,27 @@
         steps: q.has("steps") ? Number(q.get("steps")) : undefined
       }
       log(`params ${JSON.stringify(params)}`)
-      const worker = new Worker("/bundle/bench/tools-worker.js", { type: "module" })
-      worker.onmessage = ({ data }) => {
-        if (data.type === "log") log(data.text)
-        else if (data.type === "result")
-          void fetch("/result", { method: "POST", body: JSON.stringify(data.value) })
-        else if (data.type === "error") log(`ERROR: ${data.message}\nALL DONE`)
-        else if (data.type === "done") log("ALL DONE")
+      const result = (value) => void fetch("/result", { method: "POST", body: JSON.stringify(value) })
+      if (params.runtime === "webgl") {
+        // webgllm runs from the page, which starts the model's worker.
+        try {
+          const { main } = await import("/bundle/bench/tools-check.js")
+          await main(params, { log, result })
+          log("ALL DONE")
+        } catch (error) {
+          log(`ERROR: ${error instanceof Error ? `${error.message}\n${error.stack}` : error}\nALL DONE`)
+        }
+      } else {
+        const worker = new Worker("/bundle/bench/tools-worker.js", { type: "module" })
+        worker.onmessage = ({ data }) => {
+          if (data.type === "log") log(data.text)
+          else if (data.type === "result") result(data.value)
+          else if (data.type === "error") log(`ERROR: ${data.message}\nALL DONE`)
+          else if (data.type === "done") log("ALL DONE")
+        }
+        worker.onerror = (e) => log(`worker error: ${e.message}\nALL DONE`)
+        worker.postMessage(params)
       }
-      worker.onerror = (e) => log(`worker error: ${e.message}\nALL DONE`)
-      worker.postMessage(params)
     </script>
   </body>
 </html>

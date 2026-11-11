@@ -5,8 +5,8 @@
  */
 import type { ModelReasoning } from "@tanstack/ai"
 import type { ModelReasoningCapability } from "@tanstack/ai/adapter-internals"
-import { WEBGL_MODEL_META, WEBGL_TEXT_MODELS } from "webgllm/advanced"
-import type { WebGlModelMeta, WebGlModelReasoning, WebGlTextModel } from "webgllm/advanced"
+import { WEBGL_MODEL_META, WEBGL_TEXT_MODELS } from "webgllm"
+import type { WebGlModelMeta, WebGlModelReasoning, WebGlTextModel } from "webgllm"
 
 /** The models webgllm runs: its catalog's text models. */
 export const WEBGLLM_CHAT_MODELS: typeof WEBGL_TEXT_MODELS = WEBGL_TEXT_MODELS

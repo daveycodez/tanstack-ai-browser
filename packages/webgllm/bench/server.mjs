@@ -3,11 +3,8 @@
  * require-corp) so wllama gets threads, and prints what the pages post.
  * Bundled with esbuild on request:
  * - `/bundle/<path>.js`: this package's `<path>.ts` (the bench pages and
- *   workers; `webgllm` imports resolve to the installed npm package);
- * - `/bundle-webgllm/<path>.js`: the installed webgllm's `dist/<path>.js`
- *   with its dependencies, for its worker (`/bundle-webgllm/worker.js`,
- *   passed to `new WebGLLM({ worker })`: a bundle can't follow its
- *   `new URL("./worker.js", import.meta.url)`);
+ *   workers; `webgllm` imports resolve to the installed npm package, and
+ *   the worker it starts is `/bundle/bench/worker.js`, bench/worker.ts);
  * - `/bundle-tjs/…`, `/bundle-wllama/…`: the transformers-js and wllama
  *   packages' sources.
  *
@@ -36,8 +33,6 @@ import { build } from "esbuild"
 const here = dirname(fileURLToPath(import.meta.url))
 const pkg = join(here, "..")
 const repo = join(here, "../../..")
-/** The installed webgllm package (the adapter's dependency). */
-const webgllmDist = join(pkg, "node_modules/webgllm/dist")
 const port = Number(process.argv[2] ?? 8787)
 const resultsFile = process.env.RESULTS_FILE ?? join(here, "results.jsonl")
 
@@ -91,23 +86,17 @@ function resolve(url) {
   return null
 }
 
-/**
- * `/bundle/bench/compare.js` → packages/webgllm/bench/compare.ts, bundled;
- * `/bundle-webgllm/worker.js` → node_modules/webgllm/dist/worker.js, bundled.
- */
+/** `/bundle/bench/compare.js` → packages/webgllm/bench/compare.ts, bundled. */
 async function bundle(path, res) {
   // /bundle-tjs/… and /bundle-wllama/… are the transformers-js and wllama
   // packages' sources, for comparisons.
-  const webgllm = path.startsWith("/bundle-webgllm/")
-  const base = webgllm
-    ? webgllmDist
-    : path.startsWith("/bundle-tjs/")
-      ? join(repo, "packages/transformers-js")
-      : path.startsWith("/bundle-wllama/")
-        ? join(repo, "packages/wllama")
-        : pkg
-  const rest = path.replace(/^\/bundle(-tjs|-wllama|-webgllm)?\//, "")
-  const entry = resolvePath(base, `./${webgllm ? rest : rest.replace(/\.js$/, ".ts")}`)
+  const base = path.startsWith("/bundle-tjs/")
+    ? join(repo, "packages/transformers-js")
+    : path.startsWith("/bundle-wllama/")
+      ? join(repo, "packages/wllama")
+      : pkg
+  const rest = path.replace(/^\/bundle(-tjs|-wllama)?\//, "")
+  const entry = resolvePath(base, `./${rest.replace(/\.js$/, ".ts")}`)
   if (!inside(base, entry)) return res.writeHead(404, isolation).end()
   try {
     const out = await build({
@@ -135,8 +124,7 @@ createServer((req, res) => {
     path.endsWith(".js") &&
     (path.startsWith("/bundle/") ||
       path.startsWith("/bundle-tjs/") ||
-      path.startsWith("/bundle-wllama/") ||
-      path.startsWith("/bundle-webgllm/"))
+      path.startsWith("/bundle-wllama/"))
   )
     return void bundle(path, res)
   if (req.method === "POST") {

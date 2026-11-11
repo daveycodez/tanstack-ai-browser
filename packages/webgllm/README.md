@@ -28,7 +28,7 @@ The engine is the [`webgllm`](https://www.npmjs.com/package/webgllm) package, be
 `webgllmText(model, config?)` takes:
 
 - `contextLength`: most tokens a chat may hold, prompt and reply together; the model's whole context by default (LFM3: 262,144), never more. Smaller takes less memory. Changing it loads the model again.
-- `worker`: a function that starts the Web Worker a model runs in, in place of webgllm's own (webgllm's `worker` option): `() => new Worker(url, { type: "module" })`, where `url` is webgllm's worker script (`node_modules/webgllm/dist/worker.js`), served or bundled your way. webgllm calls it for each model it loads, as it runs a worker a model and ends it when the model unloads. Adapters given the same function share one `WebGLLM`, apart from the page's; with workers of your own `availability()` doesn't check the page for WebGL 2, as webgllm doesn't.
+- `worker`: a Web Worker of your own to run the model in (see A worker of your own).
 
 There are no callbacks of its own: thinking, text, tool calls and structured output all come back as TanStack's standard stream events, so an app can swap this adapter for TanStack's OpenAI or OpenRouter adapter without other changes.
 
@@ -51,6 +51,25 @@ chat({ adapter: webgllmText("LiquidAI/LFM3-1.7B-GGUF"), messages, modelOptions: 
 ```
 
 Unset sampling fields take the model card's values (webgllm's), and there's no output cap unless you set one. Events come back as TanStack's Chat Completions adapter writes them: reasoning, text and tool call events, and `RUN_FINISHED` with the finish reason and token usage. Timings aren't in it: measure them from the stream, as for any adapter. A model that fails to load ends the run with a `RUN_ERROR` whose `code` is webgllm's (`download-failed`, `storage-full`, `webgl2-unavailable`); other failures are TanStack's `RUN_ERROR`. Aborting the request stops the generation and ends the stream without one.
+
+## A worker of your own
+
+webgllm starts a worker for each model it loads. To run the model in one you start (bundled your way, or shared with your own code), write the worker with webgllm's handler and give it to the adapter:
+
+```ts
+// worker.ts
+import { WebGLLMWorkerHandler } from "@tanstack-ai-browser/webgllm"
+
+const handler = new WebGLLMWorkerHandler()
+self.onmessage = (event) => handler.onmessage(event)
+```
+
+```ts
+const worker = new Worker(new URL("./worker.ts", import.meta.url), { type: "module" })
+const adapter = webgllmText("LiquidAI/LFM3-1.7B-GGUF", { worker })
+```
+
+`WebGLLMWorkerHandler` is webgllm's own, exported here too. The worker holds one model: adapters given the same worker share it, and loading another model replaces the one there once its running reply ends. `destroy()` frees the model's GPU memory and leaves the worker running. Without a worker, webgllm keeps several models loaded at once, a worker each, up to its memory budget.
 
 ## Thinking and structured output
 
