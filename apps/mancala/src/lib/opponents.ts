@@ -1,6 +1,6 @@
 import { browserModel } from "./browser-model.ts"
-import { WEBGLLM_MODEL_META, WEBGLLM_CHAT_MODELS } from "@tanstack-ai-browser/webgllm/model-meta"
-import type { WebGllmChatModel } from "@tanstack-ai-browser/webgllm/model-meta"
+import { WEBGLLM_MODEL_META, WEBGLLM_CHAT_MODELS } from "@tanstack-ai-browser/webgllm"
+import type { WebGllmChatModel } from "@tanstack-ai-browser/webgllm"
 
 export type OpponentModel =
   WebGllmChatModel | "prompt-api" | "apple-foundationmodel"

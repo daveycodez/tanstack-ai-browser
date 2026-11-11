@@ -21,7 +21,7 @@ const stream = chat({
 ## Exports
 
 - `@tanstack-ai-browser/transformers-js`: `transformersJsText(model, config?)`, `TransformersJsTextAdapter` (with `availability`, `create` and `destroy`), `transformersJsEmbedding(model?, config?)`, `TransformersJsEmbeddingAdapter`, `transformersJsTranscription(model?, config?)`, `TransformersJsTranscriptionAdapter`, `TransformersJsWorkerHandler` and `TransformersJsTranscriptionWorkerHandler` (for a worker of your own, below), and the types `TransformersJsConfig`, `TransformersJsTextModelOptions`, `TransformersJsEmbeddingConfig`, `TransformersJsEmbeddingModelOptions`, `TransformersJsTranscriptionConfig`, `TransformersJsTranscriptionModelOptions`, `Availability` and `DownloadProgressCallback`.
-- `@tanstack-ai-browser/transformers-js/model-meta`: `TRANSFORMERS_JS_CHAT_MODELS`, `TRANSFORMERS_JS_MODEL_META` and `TRANSFORMERS_JS_MODEL_REASONING`, with the types `TransformersJsChatModel`, `TransformersJsModelMeta` and `TransformersJsModelReasoningByName`.
+- The catalog, from the same root: `TRANSFORMERS_JS_CHAT_MODELS`, `TRANSFORMERS_JS_MODEL_META` and `TRANSFORMERS_JS_MODEL_REASONING`, with the types `TransformersJsChatModel`, `TransformersJsModelMeta` and `TransformersJsModelReasoningByName`.
 
 ## Models
 

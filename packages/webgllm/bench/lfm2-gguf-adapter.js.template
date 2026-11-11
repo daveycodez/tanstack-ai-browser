@@ -1,5 +1,5 @@
 
-import {webgllmText} from '@tanstack-ai-browser/webgllm';import {WEBGLLM_MODEL_META} from '@tanstack-ai-browser/webgllm/model-meta';
+import {webgllmText} from '@tanstack-ai-browser/webgllm';import {WEBGLLM_MODEL_META} from '@tanstack-ai-browser/webgllm';
 import {resolveDebugOption} from '@tanstack/ai/adapter-internals';
 const status=document.querySelector('#status'),output=document.querySelector('#report');let running=false;
 document.querySelector('#run').onclick=async()=>{if(running)return;running=true;output.textContent='';const model=document.querySelector('#model').value,meta=WEBGLLM_MODEL_META[model],thinking=model.includes('Thinking');let thinkingChars=0;

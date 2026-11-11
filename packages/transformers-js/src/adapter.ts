@@ -348,7 +348,7 @@ export class TransformersJsTextAdapter<TModel extends string> extends BaseTextAd
 
 /**
  * A TanStack AI text adapter for a Transformers.js model: a listed one (see
- * `@tanstack-ai-browser/transformers-js/model-meta`) or any Hugging Face
+ * `TRANSFORMERS_JS_CHAT_MODELS`) or any Hugging Face
  * ONNX id.
  *
  * @example

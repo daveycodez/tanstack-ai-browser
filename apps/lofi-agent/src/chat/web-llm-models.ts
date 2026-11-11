@@ -4,10 +4,8 @@
  * 6 MB module, so it stays out of the page's first load until the picker
  * opens or a WebLLM model is the saved pick.
  */
-import { webLlmText } from "@tanstack-ai-browser/web-llm"
-import type { DownloadProgressCallback } from "@tanstack-ai-browser/web-llm"
-import { WEB_LLM_CHAT_MODELS, WEB_LLM_MODEL_META, WEB_LLM_MODEL_REASONING } from "@tanstack-ai-browser/web-llm/model-meta"
-import type { WebLlmChatModel } from "@tanstack-ai-browser/web-llm/model-meta"
+import { webLlmText, WEB_LLM_CHAT_MODELS, WEB_LLM_MODEL_META, WEB_LLM_MODEL_REASONING } from "@tanstack-ai-browser/web-llm"
+import type { DownloadProgressCallback, WebLlmChatModel } from "@tanstack-ai-browser/web-llm"
 import type { ModelReasoning } from "@tanstack/ai"
 
 /**

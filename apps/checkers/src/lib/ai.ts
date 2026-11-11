@@ -14,7 +14,7 @@ import type { PromptInput, PromptVersion } from "./shared-prompt"
 import type { Game } from "./checkers"
 import { APFEL_MODEL, opponentOption, resolveOpponent } from "./opponents"
 import type { OpponentSettings } from "./opponents"
-import type { WebGllmChatModel } from "@tanstack-ai-browser/webgllm/model-meta"
+import type { WebGllmChatModel } from "@tanstack-ai-browser/webgllm"
 
 export type { ModelStatus } from "./model-status"
 

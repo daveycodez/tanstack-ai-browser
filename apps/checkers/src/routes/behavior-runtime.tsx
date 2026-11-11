@@ -1,7 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router"
 import { useEffect } from "react"
-import { webgllmText } from "@tanstack-ai-browser/webgllm"
-import { WEBGLLM_CHAT_MODELS } from "@tanstack-ai-browser/webgllm/model-meta"
+import { webgllmText, WEBGLLM_CHAT_MODELS } from "@tanstack-ai-browser/webgllm"
 import { runStandardStudy } from "../../bench/standard-study"
 import { STANDARD_CHANNEL } from "../../bench/run-standard-in-frame"
 import type { StandardCommand, StandardEvent } from "../../bench/run-standard-in-frame"
