@@ -69,7 +69,7 @@ const worker = new Worker(new URL("./worker.ts", import.meta.url), { type: "modu
 const adapter = webgllmText("LiquidAI/LFM3-1.7B-GGUF", { worker })
 ```
 
-`WebGLLMWorkerHandler` is webgllm's own, exported here too. The worker holds one model: adapters given the same worker share it, and loading another model replaces the one there once its running reply ends. `destroy()` frees the model's GPU memory and leaves the worker running. Without a worker, webgllm keeps several models loaded at once, a worker each, up to its memory budget.
+`WebGLLMWorkerHandler` is webgllm's own, exported here too. The worker holds one model: adapters given the same worker share it, and loading another model replaces the one there once its running reply ends. `destroy()` frees the model's GPU memory and leaves the worker running. If the worker fails (its script doesn't load, or it crashes), the call waiting on it rejects with webgllm's `worker-failed` error (webgllm 0.3.1 and later). Without a worker, webgllm keeps several models loaded at once, a worker each, up to its memory budget.
 
 ## Thinking and structured output
 
