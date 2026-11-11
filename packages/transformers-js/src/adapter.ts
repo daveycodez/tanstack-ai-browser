@@ -209,7 +209,7 @@ export class TransformersJsTextAdapter<TModel extends string> extends BaseTextAd
           .map((p) => p.content)
           .join("\n\n"),
         options.messages,
-        // A model the config calls a vision model: its template reads user messages as parts.
+        // A model the config calls a vision model: its template reads every message as parts.
         !!this.settings.vision
       )
       // The vision encoder loads once the conversation has an image.

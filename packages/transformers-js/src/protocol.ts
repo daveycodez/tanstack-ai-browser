@@ -34,7 +34,7 @@ export type TemplatePart = { type: "text"; text: string } | { type: "image" }
 /** A chat message as Hugging Face chat templates read it. */
 export type TemplateMessage = {
   role: "system" | "user" | "assistant" | "tool"
-  /** Parts for a user message with images. */
+  /** Parts for a user message with images, and for every message of a model whose template reads parts. */
   content: string | Array<TemplatePart>
   /** A mapping, not a JSON string: templates serialize the arguments themselves. */
   tool_calls?: Array<{ id: string; type: "function"; function: { name: string; arguments: unknown } }>

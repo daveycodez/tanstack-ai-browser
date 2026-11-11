@@ -440,6 +440,28 @@ test("vision: a model the package doesn't list reads images, and loads with its 
   assert.deepEqual(load, { type: "load", settings: { model: "HuggingFaceTB/SmolVLM-256M-Instruct", vision: true } })
 })
 
+test("vision: every message goes to the template as parts: the system prompt, earlier replies and tool results too", async () => {
+  const adapter = transformersJsText("HuggingFaceTB/SmolVLM-256M-Instruct", { vision: true })
+  const messages = [
+    { role: "user", content: "Hi" },
+    { role: "assistant", content: "Hello!", toolCalls: [{ id: "c1", type: "function", function: { name: "t", arguments: "{}" } }] },
+    { role: "tool", toolCallId: "c1", content: "done" },
+    { role: "user", content: "Again" }
+  ] as TextOptions["messages"]
+  for await (const _ of adapter.chatStream(options({ systemPrompts: ["Be brief."], messages }))) void _
+  const request = generateRequests().at(-1) as Generate
+  assert.deepEqual(
+    request.messages.map((m) => [m.role, m.content]),
+    [
+      ["system", [{ type: "text", text: "Be brief." }]],
+      ["user", [{ type: "text", text: "Hi" }]],
+      ["assistant", [{ type: "text", text: "Hello!" }]],
+      ["tool", [{ type: "text", text: "done" }]],
+      ["user", [{ type: "text", text: "Again" }]]
+    ]
+  )
+})
+
 test("localModelPath and cacheDir go with the load", async () => {
   await transformersJsText("owner/local-model", { localModelPath: "/models", cacheDir: "/cache" }).create()
   const load = lastWorker().posted.filter((r) => r.type === "load").at(-1)

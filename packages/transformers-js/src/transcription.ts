@@ -48,8 +48,9 @@ type Transcript = Extract<TranscriptionReply, { status: "result" }>
 /**
  * Whisper's handler and the model it holds. Requests take turns: a
  * transcription holds the handler from loading its model to its result.
+ * Exported for tests.
  */
-function createTranscriber(open: Open<TranscriptionRequest, TranscriptionReply>) {
+export function createTranscriber(open: Open<TranscriptionRequest, TranscriptionReply>) {
   let port: Port<TranscriptionRequest> | null = null
   let listener: ((reply: TranscriptionReply) => void) | null = null
   /** The settings of the model the handler holds, and of one it's loading. */
@@ -118,16 +119,23 @@ function createTranscriber(open: Open<TranscriptionRequest, TranscriptionReply>)
       }
     },
 
-    /** The transcript of `samples` (16 kHz), on the model `settings` names, loading it first if it isn't there. */
+    /**
+     * The transcript of `samples` (16 kHz), on the model `settings` names,
+     * loading it first if it isn't there. Aborting `signal` while it waits
+     * its turn or for the model means no transcription (the load goes on).
+     */
     async transcribe(
       settings: TranscriptionLoadSettings,
       listeners: Array<DownloadProgressCallback>,
       samples: Float32Array,
-      options: Record<string, unknown>
+      options: Record<string, unknown>,
+      signal?: AbortSignal
     ): Promise<Transcript> {
       const release = await turn()
       try {
+        signal?.throwIfAborted()
         await ensure(settings, listeners)
+        signal?.throwIfAborted()
         // A worker takes the samples' buffer; a handler on the page reads them in place.
         return await ask(
           { type: "transcribe", samples, options },
@@ -252,13 +260,19 @@ export class TransformersJsTranscriptionAdapter<TModel extends string> extends B
       const timestamps = responseFormat === "verbose_json"
       // (Before the samples go: a worker takes their buffer.)
       const duration = samples.length / SAMPLE_RATE
-      const output = await this.transcriber.transcribe(this.settings, this.listeners(), samples, {
-        chunk_length_s: 30,
-        stride_length_s: 5,
-        ...(language && { language }),
-        ...(timestamps && { return_timestamps: true }),
-        ...modelOptions
-      })
+      const output = await this.transcriber.transcribe(
+        this.settings,
+        this.listeners(),
+        samples,
+        {
+          chunk_length_s: 30,
+          stride_length_s: 5,
+          ...(language && { language }),
+          ...(timestamps && { return_timestamps: true }),
+          ...modelOptions
+        },
+        options.abortSignal
+      )
       return {
         id: this.generateId(),
         model,
