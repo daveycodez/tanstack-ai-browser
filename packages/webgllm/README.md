@@ -98,7 +98,7 @@ Models with a vision encoder read images (webgllm 0.2.3 and later): Qwen3.5 2B's
 
 ## Models and loading
 
-The root has the catalog too: `WEBGLLM_CHAT_MODELS` lists the models webgllm runs and `WEBGLLM_MODEL_META` has each one's files, capabilities and sampling (webgllm's catalog). `WEBGLLM_MODEL_REASONING` has each model's reasoning levels in TanStack's shape, for `supportedReasoningLevels()`. Their types are `WebGllmChatModel`, `WebGllmModelMeta` and `WebGllmModelReasoningByName`. LFM3 thinks by default and Qwen3.5 doesn't; `chat({ reasoning })` switches it.
+The root has the catalog too, webgllm's own re-exported under the adapter's names: `WEBGLLM_CHAT_MODELS` (webgllm's `WEBGL_TEXT_MODELS`) lists the models webgllm runs and `WEBGLLM_MODEL_META` (its `WEBGL_MODEL_META`) has each one's files, capabilities and sampling. `WEBGLLM_MODEL_REASONING` has each model's reasoning levels in TanStack's shape, for `supportedReasoningLevels()`. Their types are `WebGllmChatModel`, `WebGllmModelMeta` and `WebGllmModelReasoningByName`. LFM3 thinks by default and Qwen3.5 doesn't; `chat({ reasoning })` switches it.
 
 `webgllmText` also takes any Hugging Face repo webgllm can resolve (a supported architecture, in ONNX or GGUF), or the URL of a model's `.gguf` file or `.onnx` graph with its tokenizer files in the same folder: webgllm reads its files and sampling from there. `chat({ reasoning })` then sends `reasoning_effort` `"none"` or `"high"`, which webgllm applies where the model's chat template can switch thinking.
 

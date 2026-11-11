@@ -4,4 +4,5 @@
  */
 export { apfelText } from "./adapter.js"
 export type { ApfelConfig, ApfelModel, ApfelTextAdapter, ApfelTextModelOptions, Availability } from "./adapter.js"
-export * from "./model-meta.js"
+export { APFEL_CHAT_MODELS, APFEL_MODEL_META } from "./model-meta.js"
+export type { ApfelChatModel, ApfelModelMeta } from "./model-meta.js"

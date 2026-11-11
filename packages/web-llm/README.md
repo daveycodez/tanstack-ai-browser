@@ -63,7 +63,7 @@ Events come back as TanStack's Chat Completions adapter writes them: text and to
 
 ## Models and loading
 
-The root has the catalog too, WebLLM's own (`prebuiltAppConfig.model_list`): `WEB_LLM_CHAT_MODELS` lists each chat model's `model_id`, `WEB_LLM_MODEL_INPUT` what each reads (`["text", "image"]` for WebLLM's vision models, `model_type` VLM), `WEB_LLM_MODEL_REASONING` each one's reasoning levels (see Thinking; `false` for none), and `WEB_LLM_MODEL_META` has each one's catalog entry (`ModelRecord`: weights, compiled library, `vram_required_MB`, `low_resource_required`, `required_features`, its config overrides) by `model_id`. `WEB_LLM_EMBEDDING_MODELS` and `WEB_LLM_EMBEDDING_MODEL_META` list its embedding models. Their types are `WebLlmChatModel`, `WebLlmEmbeddingModel` and `WebLlmModelMeta`. WebLLM types its catalog as a list, so model names are strings.
+The root has the model lists too: `WEB_LLM_CHAT_MODELS` lists WebLLM's chat models by `model_id` and `WEB_LLM_EMBEDDING_MODELS` its embedding models, both read from WebLLM's own catalog, and `WEB_LLM_MODEL_REASONING` has each chat model's reasoning levels (see Thinking; `false` for none), which the catalog doesn't say. Their types are `WebLlmChatModel` and `WebLlmEmbeddingModel`; WebLLM types its catalog as a list, so model names are strings. The catalog itself is WebLLM's `prebuiltAppConfig`, re-exported as it is: each model's entry (`ModelRecord`: weights, compiled library, `model_type`, `vram_required_MB`, `low_resource_required`, `required_features`, its config overrides) is in its `model_list`.
 
 ```ts
 import { webLlmText } from "@tanstack-ai-browser/web-llm"

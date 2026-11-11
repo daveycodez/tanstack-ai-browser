@@ -12,4 +12,5 @@ export type { TransformersJsTranscriptionConfig, TransformersJsTranscriptionMode
 // The handlers of the chat model and of Whisper, for a Web Worker of your own (`worker` in the adapters' config).
 export { TransformersJsWorkerHandler } from "./handler.js"
 export { TransformersJsTranscriptionWorkerHandler } from "./transcription-handler.js"
-export * from "./model-meta.js"
+export { TRANSFORMERS_JS_CHAT_MODELS, TRANSFORMERS_JS_MODEL_META, TRANSFORMERS_JS_MODEL_REASONING } from "./model-meta.js"
+export type { TransformersJsChatModel, TransformersJsModelMeta, TransformersJsModelReasoningByName } from "./model-meta.js"

@@ -9,4 +9,5 @@ export type {
   PromptApiTextModelOptions
 } from "./adapter.js"
 export type { Availability, DownloadProgressCallback } from "./types.js"
-export * from "./model-meta.js"
+export { PROMPT_API_CHAT_MODELS, PROMPT_API_MODEL_META } from "./model-meta.js"
+export type { PromptApiChatModel, PromptApiModelMeta } from "./model-meta.js"

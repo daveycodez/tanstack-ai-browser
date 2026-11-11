@@ -9,4 +9,10 @@ export type {
   MediaPipeEmbeddingConfig,
   MediaPipeEmbeddingProviderOptions
 } from "./adapter.js"
-export * from "./model-meta.js"
+export { MEDIAPIPE_EMBEDDING_MODELS, MEDIAPIPE_MODEL_META } from "./model-meta.js"
+export type {
+  MediaPipeEmbeddingModel,
+  MediaPipeEmbeddingModelInputModalitiesByName,
+  MediaPipeEmbeddingModelMeta,
+  MediaPipeEmbeddingModelProviderOptionsByName
+} from "./model-meta.js"

@@ -7,4 +7,5 @@ export { webgllmText, WebGllmTextAdapter } from "./adapter.js"
 export type { Availability, DownloadProgressCallback, WebGllmConfig, WebGllmModel, WebGllmTextModelOptions } from "./adapter.js"
 // webgllm's own worker handler, for a worker of your own (`worker` in the adapter's config).
 export { WebGLLMWorkerHandler } from "webgllm"
-export * from "./model-meta.js"
+export { WEBGLLM_CHAT_MODELS, WEBGLLM_MODEL_META, WEBGLLM_MODEL_REASONING } from "./catalog.js"
+export type { WebGllmChatModel, WebGllmModelMeta, WebGllmModelReasoningByName } from "./catalog.js"
