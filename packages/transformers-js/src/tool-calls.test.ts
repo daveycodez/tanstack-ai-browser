@@ -46,6 +46,11 @@ test("special tokens are dropped, tool-call delimiters kept", () => {
   assert.equal(shownText("<|tool_call_start|>"), "<|tool_call_start|>")
   assert.equal(shownText("<tool_call>"), "<tool_call>")
   assert.equal(shownText("Hello "), "Hello ")
+  // A tokenizer's own special tokens, whatever their shape; its tool-call delimiters stay.
+  const special = new Set(["<end_of_utterance>", "<tool_call>"])
+  assert.equal(shownText("<end_of_utterance>", special), null)
+  assert.equal(shownText("<end_of_utterance>"), "<end_of_utterance>")
+  assert.equal(shownText("<tool_call>", special), "<tool_call>")
 })
 
 test("tool syntax inside a JSON call's string arguments stays an argument", () => {

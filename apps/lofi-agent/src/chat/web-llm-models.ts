@@ -4,10 +4,8 @@
  * 6 MB module, so it stays out of the page's first load until the picker
  * opens or a WebLLM model is the saved pick.
  */
-import { webLlmText } from "@tanstack-ai-browser/web-llm"
-import type { DownloadProgressCallback } from "@tanstack-ai-browser/web-llm"
-import { WEB_LLM_CHAT_MODELS, WEB_LLM_MODEL_META, WEB_LLM_MODEL_REASONING } from "@tanstack-ai-browser/web-llm/model-meta"
-import type { WebLlmChatModel } from "@tanstack-ai-browser/web-llm/model-meta"
+import { prebuiltAppConfig, webLlmText, WEB_LLM_CHAT_MODELS, WEB_LLM_MODEL_REASONING } from "@tanstack-ai-browser/web-llm"
+import type { DownloadProgressCallback, WebLlmChatModel } from "@tanstack-ai-browser/web-llm"
 import type { ModelReasoning } from "@tanstack/ai"
 
 /**
@@ -16,9 +14,12 @@ import type { ModelReasoning } from "@tanstack/ai"
  */
 const WEB_LLM_MEMORY_MB = 1536
 
+/** Each model's entry in WebLLM's catalog, by `model_id`. */
+const records = new Map(prebuiltAppConfig.model_list.map((record) => [record.model_id, record]))
+
 /** A WebLLM build that loads on an iPhone; Gemma 2's Japanese build is left out. */
 const fitsIphone = (model: WebLlmChatModel) =>
-  (WEB_LLM_MODEL_META[model]?.vram_required_MB ?? Infinity) <= WEB_LLM_MEMORY_MB && !model.includes("-jpn-")
+  (records.get(model)?.vram_required_MB ?? Infinity) <= WEB_LLM_MEMORY_MB && !model.includes("-jpn-")
 
 /**
  * Each WebLLM model once, at its lowest quantization: the fewest weight bits

@@ -18,8 +18,7 @@ adb reverse tcp:8787 tcp:8787        # a phone over USB: localhost is a secure c
 
 Pages post their lines to `/log`, which the server prints as `[page] …`. On top of static files, the server bundles with esbuild on request:
 
-- `/bundle/<path>.js`: this package's `<path>.ts` (`/bundle/bench/compare.js` is `bench/compare.ts`). `webgllm` and `webgllm/advanced` resolve to the installed npm package (`packages/webgllm/node_modules/webgllm`, its `dist/`).
-- `/bundle-webgllm/<path>.js`: the installed webgllm's `dist/<path>.js` with its dependencies (`@huggingface/jinja`, `@huggingface/tokenizers`, `llguidance`). Pages pass `/bundle-webgllm/worker.js` to `new WebGLLM({ worker })`, since a bundle can't follow webgllm's own `new URL("./worker.js", import.meta.url)`.
+- `/bundle/<path>.js`: this package's `<path>.ts` (`/bundle/bench/compare.js` is `bench/compare.ts`). `webgllm` resolves to the installed npm package (`packages/webgllm/node_modules/webgllm`, its `dist/`), and the worker it starts for each model is `/bundle/bench/worker.js` (`bench/worker.ts`: webgllm's handler, as its own worker is written).
 - `/bundle-tjs/…`, `/bundle-wllama/…`: the transformers-js and wllama packages' sources; `/wllama/` and `/wasm/` serve the official `@wllama/wllama`'s JavaScript and WebAssembly (the wllama package's dependency).
 
 ## compare.html
@@ -28,7 +27,6 @@ Pages post their lines to `/log`, which the server prints as `[page] …`. On to
 
 - `run=webgllm` (alias `webgl`): webgllm through its public API (`WebGLLM`, `chat.completions.create` with `temperature: 0`, `top_k: 1`, `repetition_penalty: 1.1`, `max_tokens`), the model downloaded to the page's storage the first time. Speeds and the first-token time are each call's `timings`; prompt tokens read are `usage.prompt_tokens` minus its cached tokens. Then a retry of the last prompt (it should read no prompt tokens and give the same reply). Default model `onnx-community/LFM3-1.7B-ONNX`.
   - `&followup=1` instead times a follow-up: each run a first message, its reply, then an ~80-token question with the reply in the chat, as the app sends it; prints how many of the follow-up's prompt tokens were read again and how long that took.
-  - `&batch=256`: prompt tokens per pass (`webgllm/advanced`'s `setPromptBatch`; 512 by default).
   - `&debug=1`: the worker's info messages in the console.
 - `run=switch&models=a,b&rounds=5`: one `WebGLLM` switching models, unloading the last before loading the next, a short reply after each load.
 - `run=tjs` or `tjs-cpu`: Transformers.js on WebGPU (q4f16), or on the CPU (q4), through the transformers-js package's worker.
@@ -42,8 +40,8 @@ Pages post their lines to `/log`, which the server prints as `[page] …`. On to
 
 Prompts that need a tool (weather, web search, calendar, run Python), with thinking off, as token ids from `REF_DIR/<set>/tool_prompts.json`. For each prompt it prints the probability that the reply starts with `<tool_call>`, the top token, and KL against each CPU reference in the set at that position, then writes a 48-token greedy reply to `RESULTS_FILE`.
 
-- `?set=lfm3&runtime=webgl&format=onnx&onnx=onnx-community`: webgllm's engine (`webgllm/advanced`'s `Engine`, run forward by forward) on the ONNX build in `ONNX_COMMUNITY_DIR` (`&graph=` for another graph path).
-- `?set=lfm3&runtime=webgl&format=gguf&model=LFM3-1.7B-QAD-Q4_0.gguf`: the same engine on a GGUF in `MODELS_DIR`.
+- `?set=lfm3&runtime=webgl&format=onnx&onnx=onnx-community`: webgllm on the ONNX build in `ONNX_COMMUNITY_DIR` (`&graph=` for another graph path), loaded by its graph's URL. Token ids go in with `forwardTokensAndSample`, and every forward's logits come back through a `LogitProcessor` in the model's worker (`tools-logits-worker.ts`), which leaves only the top token to sample, so the reply is greedy. This side of the check runs on the page (`tools-check.ts`), which starts the model's worker; Transformers.js's runs in a worker (`tools-worker.ts`).
+- `?set=lfm3&runtime=webgl&format=gguf&model=LFM3-1.7B-QAD-Q4_0.gguf`: the same on a GGUF in `MODELS_DIR`. webgllm loads a model by URL with its tokenizer, so `tokenizer.json` and `tokenizer_config.json` go beside the GGUF.
 - `?set=lfm3&runtime=tjs&onnx=onnx-community`: Transformers.js 4.3.2 on WebGPU (q4f16), with the app's ONNX Runtime.
 
 `tool-ref/` makes the sets: `make_lfm3_ref.py` (prompts and onnxruntime CPU logits), `add_lfm3_ref.py` (another CPU reference, such as exact 4-bit math), `make_qwen_ref.py` (the same prompts in Qwen3.5's template, no logits) and `llama_ref.py` (a running llama-server's first-token probabilities and replies, for GGUFs).

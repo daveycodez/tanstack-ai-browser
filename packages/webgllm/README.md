@@ -19,7 +19,7 @@ const stream = chat({
 
 It needs WebGL 2 with float render targets (`EXT_color_buffer_float`) and OffscreenCanvas in workers, which current Chrome, Firefox and Safari have; an adapter's `availability()` says `"unavailable"` where they're missing.
 
-The package is shaped like `@tanstack/ai-openai`'s text adapter. The root has `webgllmText(model, config?)`, `WebGllmTextAdapter` (with the runtime methods `availability`, `create` and `destroy`) and the types `WebGllmConfig`, `WebGllmModel`, `WebGllmTextModelOptions`, `Availability` and `DownloadProgressCallback`; `@tanstack-ai-browser/webgllm/model-meta` has the catalog (below).
+The package is shaped like `@tanstack/ai-openai`'s text adapter. The root has `webgllmText(model, config?)`, `WebGllmTextAdapter` (with the runtime methods `availability`, `create` and `destroy`) and the types `WebGllmConfig`, `WebGllmModel`, `WebGllmTextModelOptions`, `Availability` and `DownloadProgressCallback`, and the catalog (below).
 
 The engine is the [`webgllm`](https://www.npmjs.com/package/webgllm) package, behind OpenAI's Chat Completions API in the page. The adapter is TanStack's Chat Completions adapter (`@tanstack/openai-base`) with the shared `WebGLLM` instance as its client, so messages, tools, structured output and the stream are TanStack's; it adds loading the model, webgllm's reasoning levels and thinking budget, and its options. Tool-call parsing and repair, thinking, guided tool choice and schema-constrained answers are webgllm's own. See [webgllm.dev](https://webgllm.dev) and its README for how the engine works, its memory and speed.
 
@@ -28,6 +28,7 @@ The engine is the [`webgllm`](https://www.npmjs.com/package/webgllm) package, be
 `webgllmText(model, config?)` takes:
 
 - `contextLength`: most tokens a chat may hold, prompt and reply together; the model's whole context by default (LFM3: 262,144), never more. Smaller takes less memory. Changing it loads the model again.
+- `worker`: a Web Worker of your own to run the model in (see A worker of your own).
 
 There are no callbacks of its own: thinking, text, tool calls and structured output all come back as TanStack's standard stream events, so an app can swap this adapter for TanStack's OpenAI or OpenRouter adapter without other changes.
 
@@ -50,6 +51,25 @@ chat({ adapter: webgllmText("LiquidAI/LFM3-1.7B-GGUF"), messages, modelOptions: 
 ```
 
 Unset sampling fields take the model card's values (webgllm's), and there's no output cap unless you set one. Events come back as TanStack's Chat Completions adapter writes them: reasoning, text and tool call events, and `RUN_FINISHED` with the finish reason and token usage. Timings aren't in it: measure them from the stream, as for any adapter. A model that fails to load ends the run with a `RUN_ERROR` whose `code` is webgllm's (`download-failed`, `storage-full`, `webgl2-unavailable`); other failures are TanStack's `RUN_ERROR`. Aborting the request stops the generation and ends the stream without one.
+
+## A worker of your own
+
+webgllm starts a worker for each model it loads. To run the model in one you start (bundled your way, or shared with your own code), write the worker with webgllm's handler and give it to the adapter:
+
+```ts
+// worker.ts
+import { WebGLLMWorkerHandler } from "@tanstack-ai-browser/webgllm"
+
+const handler = new WebGLLMWorkerHandler()
+self.onmessage = (event) => handler.onmessage(event)
+```
+
+```ts
+const worker = new Worker(new URL("./worker.ts", import.meta.url), { type: "module" })
+const adapter = webgllmText("LiquidAI/LFM3-1.7B-GGUF", { worker })
+```
+
+`WebGLLMWorkerHandler` is webgllm's own, exported here too. The worker holds one model: adapters given the same worker share it, and loading another model replaces the one there once its running reply ends. `destroy()` frees the model's GPU memory and leaves the worker running. If the worker fails (its script doesn't load, or it crashes), the call waiting on it rejects with webgllm's `worker-failed` error (webgllm 0.3.1 and later). Without a worker, webgllm keeps several models loaded at once, a worker each, up to its memory budget.
 
 ## Thinking and structured output
 
@@ -78,7 +98,7 @@ Models with a vision encoder read images (webgllm 0.2.3 and later): Qwen3.5 2B's
 
 ## Models and loading
 
-`@tanstack-ai-browser/webgllm/model-meta` has the catalog: `WEBGLLM_CHAT_MODELS` lists the models webgllm runs and `WEBGLLM_MODEL_META` has each one's files, capabilities and sampling (webgllm's catalog). `WEBGLLM_MODEL_REASONING` has each model's reasoning levels in TanStack's shape, for `supportedReasoningLevels()`. Their types are `WebGllmChatModel`, `WebGllmModelMeta` and `WebGllmModelReasoningByName`. LFM3 thinks by default and Qwen3.5 doesn't; `chat({ reasoning })` switches it.
+The root has the catalog too, webgllm's own re-exported under the adapter's names: `WEBGLLM_CHAT_MODELS` (webgllm's `WEBGL_TEXT_MODELS`) lists the models webgllm runs and `WEBGLLM_MODEL_META` (its `WEBGL_MODEL_META`) has each one's files, capabilities and sampling. `WEBGLLM_MODEL_REASONING` has each model's reasoning levels in TanStack's shape, for `supportedReasoningLevels()`. Their types are `WebGllmChatModel`, `WebGllmModelMeta` and `WebGllmModelReasoningByName`. LFM3 thinks by default and Qwen3.5 doesn't; `chat({ reasoning })` switches it.
 
 `webgllmText` also takes any Hugging Face repo webgllm can resolve (a supported architecture, in ONNX or GGUF), or the URL of a model's `.gguf` file or `.onnx` graph with its tokenizer files in the same folder: webgllm reads its files and sampling from there. `chat({ reasoning })` then sends `reasoning_effort` `"none"` or `"high"`, which webgllm applies where the model's chat template can switch thinking.
 

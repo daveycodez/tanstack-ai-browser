@@ -9,7 +9,6 @@
  */
 import { WebGLLM } from "webgllm"
 import type { ChatCompletionMessageParam } from "webgllm"
-import { loadTokenizer, setPromptBatch } from "webgllm/advanced"
 
 const params = new URLSearchParams(location.search)
 const out = document.getElementById("out") as HTMLPreElement
@@ -44,17 +43,21 @@ async function promptText(length: number) {
     ),
     fetch("/hf/chat_template.jinja").then((r) => r.text())
   ])
-  const tokenizer = loadTokenizer({
-    tokenizerJson,
-    tokenizerConfig,
-    chatTemplate
-  })
+  // Transformers.js's tokenizer (webgllm exports none, like WebLLM).
+  const { PreTrainedTokenizer } = await import("@huggingface/transformers")
+  const tokenizer = new PreTrainedTokenizer(tokenizerJson, tokenizerConfig)
   // Repeats of the filler from its token count (re-encoding the whole
   // prompt per repeat is quadratic), then a few more to reach the length.
   const count = (pad: string) =>
-    tokenizer.encodeChat([{ role: "user", content: pad + QUESTION }], {
-      addGenerationPrompt: true
-    }).length
+    (
+      tokenizer.apply_chat_template([{ role: "user", content: pad + QUESTION }], {
+        chat_template: chatTemplate,
+        add_generation_prompt: true,
+        tokenize: true,
+        return_tensor: false,
+        return_dict: false
+      }) as Array<number>
+    ).length
   const base = count("")
   const per = count(FILLER) - base
   let pad = FILLER.repeat(Math.max(0, Math.floor((length - base) / per)))
@@ -264,20 +267,11 @@ async function runTjs(text: string, cpu = false) {
 
 /**
  * The shared WebGLLM for ?run=webgllm and ?run=switch: the published
- * webgllm package, its worker bundled by the server (a bundle can't follow
- * webgllm's own `new URL("./worker.js", import.meta.url)`).
+ * webgllm package, starting its own workers (worker.ts, where the page's
+ * bundle sends webgllm's `new URL("./worker.js", import.meta.url)`).
  */
 function createWebgllm() {
-  // ?batch=N: prompt tokens read per pass (webgllm/advanced's
-  // setPromptBatch; 512 when left out). Set before the model loads.
-  const batch = params.get("batch")
-  if (batch) {
-    setPromptBatch(Number(batch))
-    log(`prompt batch: ${batch}`)
-  }
   return new WebGLLM({
-    worker: () =>
-      new Worker("/bundle-webgllm/worker.js", { type: "module", name: "webgllm" }),
     // ?debug=1: the worker's and engine's info messages in the console.
     logLevel: params.get("debug") ? "info" : "warn"
   })

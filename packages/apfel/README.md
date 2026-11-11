@@ -44,9 +44,6 @@ Image parts go to apfel as OpenAI `image_url` parts, so `adapter.inputModalities
 - `@tanstack-ai-browser/apfel`:
   - `apfelText(config?)` for Apple's model, or `apfelText(model, config?)` for another model apfel serves
   - the types `ApfelConfig`, `ApfelModel`, `ApfelTextAdapter`, `ApfelTextModelOptions` and `Availability`
-- `@tanstack-ai-browser/apfel/model-meta`:
-  - `APFEL_CHAT_MODELS`
-  - `APFEL_MODEL_META`
-  - the types `ApfelChatModel` and `ApfelModelMeta`
+  - the catalog: `APFEL_CHAT_MODELS` and `APFEL_MODEL_META`, with the types `ApfelChatModel` and `ApfelModelMeta`
 
 **Status:** early (0.x). The API may change.

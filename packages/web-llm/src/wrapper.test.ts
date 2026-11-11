@@ -37,10 +37,39 @@ const control = {
   hold: null as Promise<void> | null,
   release: () => undefined as void,
   /** An embeddings.create waits for this. */
-  embedHold: null as Promise<void> | null
+  embedHold: null as Promise<void> | null,
+  /** The worker each engine was made with, and the log levels set. */
+  workers: [] as Array<unknown>,
+  logLevels: [] as Array<string>
 }
 ;(globalThis as { __webLlm?: typeof control }).__webLlm = control
-;(globalThis as { Worker?: unknown }).Worker = class {}
+/** A stand-in worker: it can fail, as a real one whose script doesn't load or throws. */
+class FakeWorker {
+  static started: Array<FakeWorker> = []
+  listeners = new Map<string, Set<(event: unknown) => void>>()
+  terminated = false
+  constructor(mine = false) {
+    if (!mine) FakeWorker.started.push(this)
+  }
+  addEventListener(type: string, listener: (event: unknown) => void) {
+    if (!this.listeners.has(type)) this.listeners.set(type, new Set())
+    this.listeners.get(type)?.add(listener)
+  }
+  removeEventListener(type: string, listener: (event: unknown) => void) {
+    this.listeners.get(type)?.delete(listener)
+  }
+  dispatch(type: string, event: unknown = {}) {
+    for (const listener of [...(this.listeners.get(type) ?? [])]) listener(event)
+  }
+  terminate() {
+    this.terminated = true
+  }
+}
+;(globalThis as { Worker?: unknown }).Worker = class extends FakeWorker {
+  constructor() {
+    super()
+  }
+}
 
 const outfile = join(temporary, "web-llm-adapter.mjs")
 await build({
@@ -61,6 +90,7 @@ await build({
             const control=globalThis.__webLlm;
             export const hasModelInCache=async(model)=>control.cached.has(model);
             export const ModelType={LLM:0,embedding:1,VLM:2};
+            export class WebWorkerMLCEngineHandler{}
             export const prebuiltAppConfig={model_list:[{model_id:"Qwen3-1.7B-q4f16_1-MLC"},{model_id:"Qwen2.5-0.5B-Instruct-q4f16_1-MLC"},{model_id:"Phi-3.5-vision-instruct-q4f16_1-MLC",model_type:2},{model_id:"snowflake-arctic-embed-s-q0f32-MLC-b4",model_type:1}]};
             // Like WebLLM: the worker keeps the last catalog it was given
             // (the prebuilt one at first), reload looks the model up in it,
@@ -68,6 +98,7 @@ await build({
             // the engine's, ending whichever generation runs.
             export class WebWorkerMLCEngine{
               constructor(worker,config){
+                control.workers.push(worker);
                 this.report=config.initProgressCallback;
                 this.appConfig=prebuiltAppConfig;
                 this.lock=Promise.resolve();
@@ -88,6 +119,7 @@ await build({
                 }};
               }
               setAppConfig(appConfig){this.appConfig=appConfig}
+              setLogLevel(level){control.logLevels.push(level)}
               async reload(model,chatOptions){
                 if(!this.appConfig.model_list.some((record)=>record.model_id===model)) throw new Error("Cannot find model record in appConfig for "+model);
                 control.reloads.push({model,chatOptions});
@@ -155,6 +187,8 @@ beforeEach(() => {
   control.chunks = [delta({ role: "assistant", content: "Hi" }), delta({}, "stop")]
   control.hold = null
   control.embedHold = null
+  control.workers = []
+  control.logLevels = []
 })
 
 test("modelOptions go to WebLLM as given", async () => {
@@ -427,4 +461,79 @@ test("an embedding batch keeps its engine: a preload with another catalog or an 
   assert.equal(result.embeddings.length, 1)
   assert.deepEqual(control.reloads.map((r) => r.model), [adapter.model, "Custom-Embed-MLC"])
   assert.equal(control.unloads, 1)
+})
+
+test("a worker of your own holds the engine, shared by the adapters given it; the package's engines stay apart", async () => {
+  const { webLlmText, webLlmEmbedding } = await fresh()
+  const mine = new FakeWorker(true)
+  await webLlmText(MODEL, { worker: mine }).create()
+  await webLlmText(MODEL, { worker: mine }).create()
+  assert.deepEqual(control.workers, [mine], "one engine for the worker")
+  assert.equal(control.reloads.length, 1, "already loaded in it")
+  await webLlmEmbedding(undefined, { worker: mine }).create()
+  assert.deepEqual(control.workers, [mine], "embedding in the same worker shares its engine")
+  await webLlmText(MODEL).create()
+  assert.equal(control.workers.length, 2)
+  assert.notEqual(control.workers[1], mine, "the package's own worker")
+  await webLlmText(MODEL, { worker: mine }).destroy()
+  assert.equal(control.unloads, 0, "the worker holds the embedding model now")
+  await webLlmEmbedding(undefined, { worker: mine }).destroy()
+  assert.equal(control.unloads, 1)
+})
+
+test("engineConfig: the log level is set at the load, WebLLM's reports are passed on, and its appConfig is the catalog", async () => {
+  const { webLlmText } = await fresh()
+  control.progress = [0.5, 1]
+  const reports: Array<number> = []
+  const custom = { model_list: [{ model_id: "Custom-MLC", model: "https://example.com/m", model_lib: "https://example.com/m.wasm" }] }
+  const adapter = webLlmText("Custom-MLC", {
+    engineConfig: { logLevel: "DEBUG", appConfig: custom, initProgressCallback: (report: { progress: number }) => reports.push(report.progress) }
+  })
+  await adapter.create()
+  assert.deepEqual(control.logLevels, ["DEBUG"])
+  assert.deepEqual(reports, [0.5, 1])
+  assert.deepEqual(control.reloads.map((r) => r.model), ["Custom-MLC"], "found in engineConfig's catalog")
+})
+
+test("a worker of your own that fails to load rejects the load and every later one; the engine's turn is freed", async () => {
+  const { webLlmText } = await fresh()
+  const mine = new FakeWorker(true)
+  control.reloadGate = new Promise(() => undefined)
+  const adapter = webLlmText(MODEL, { worker: mine })
+  const loading = adapter.create()
+  await new Promise((resolve) => setTimeout(resolve, 5))
+  mine.dispatch("error", {})
+  await assert.rejects(loading, /failed to load its script/)
+  // It never ran: nothing waits on it again.
+  await assert.rejects(webLlmText(MODEL, { worker: mine }).create(), /failed to load its script/)
+  const { events } = await run(adapter)
+  assert.match(String(events.find((e) => e.type === "RUN_ERROR")?.message), /failed to load its script/)
+})
+
+test("the package's worker failing mid-reply ends the reply with its error; the next call starts a new worker", async () => {
+  const { webLlmText } = await fresh()
+  const before = FakeWorker.started.length
+  control.hold = new Promise(() => undefined)
+  const adapter = webLlmText(MODEL)
+  const running = run(adapter)
+  while (control.prefills.length === 0) await new Promise((resolve) => setTimeout(resolve, 0))
+  const worker = FakeWorker.started.at(-1) as FakeWorker
+  worker.dispatch("message")
+  worker.dispatch("error", { message: "out of memory" })
+  const { events } = await running
+  assert.match(String(events.find((e) => e.type === "RUN_ERROR")?.message), /WebLLM's worker failed: out of memory/)
+  assert.ok(worker.terminated)
+  control.hold = null
+  await adapter.create()
+  assert.equal(FakeWorker.started.length, before + 2, "a new worker for the next load")
+  assert.equal(control.reloads.length, 2)
+})
+
+test("a worker of your own that failed before the adapter's first call rejects it at once", async () => {
+  const { webLlmText } = await fresh()
+  const mine = new FakeWorker(true)
+  const adapter = webLlmText(MODEL, { worker: mine })
+  mine.dispatch("error", {})
+  await assert.rejects(adapter.create(), /failed to load its script/)
+  assert.equal(control.reloads.length, 0)
 })

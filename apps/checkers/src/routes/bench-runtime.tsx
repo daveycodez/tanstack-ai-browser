@@ -1,5 +1,4 @@
-import { webgllmText } from "@tanstack-ai-browser/webgllm"
-import { WEBGLLM_CHAT_MODELS } from "@tanstack-ai-browser/webgllm/model-meta"
+import { webgllmText, WEBGLLM_CHAT_MODELS } from "@tanstack-ai-browser/webgllm"
 import { useEffect } from "react"
 import { createFileRoute } from "@tanstack/react-router"
 import { runBenchmark } from "../../bench/runner"

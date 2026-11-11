@@ -1,15 +1,14 @@
 /**
- * The models WebLLM runs, from its own catalog (`prebuiltAppConfig`): its
- * chat models (some of which read images) and its embedding models.
+ * The models WebLLM runs, by name, from its own catalog (`prebuiltAppConfig`,
+ * which the package re-exports as it is): its chat models (some of which
+ * read images) and its embedding models, with what the catalog doesn't
+ * say, which chat models have the thinking switch.
  */
 import { ModelType, prebuiltAppConfig } from "@mlc-ai/web-llm"
 import type { ModelRecord } from "@mlc-ai/web-llm"
 import type { ModelReasoning } from "@tanstack/ai"
 
 import { THINKING_MODELS } from "./thinking-models.js"
-
-/** A model's catalog entry, as WebLLM gives it. */
-export type WebLlmModelMeta = ModelRecord
 
 const chatRecords = prebuiltAppConfig.model_list.filter((record) => record.model_type !== ModelType.embedding)
 
@@ -37,16 +36,6 @@ export type WebLlmEmbeddingModel = ModelRecord["model_id"]
 
 /** WebLLM's embedding models (Snowflake's Arctic Embed), by `model_id`. */
 export const WEB_LLM_EMBEDDING_MODELS: ReadonlyArray<WebLlmEmbeddingModel> = embeddingRecords.map((record) => record.model_id)
-
-/** Each embedding model's catalog entry, by `model_id`. */
-export const WEB_LLM_EMBEDDING_MODEL_META: Readonly<Record<WebLlmEmbeddingModel, WebLlmModelMeta>> = Object.fromEntries(
-  embeddingRecords.map((record) => [record.model_id, record])
-)
-
-/** Each chat model's catalog entry, by `model_id`. */
-export const WEB_LLM_MODEL_META: Readonly<Record<WebLlmChatModel, WebLlmModelMeta>> = Object.fromEntries(
-  chatRecords.map((record) => [record.model_id, record])
-)
 
 /**
  * Thinking on and off, for a model whose chat template has the switch:

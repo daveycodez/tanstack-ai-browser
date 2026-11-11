@@ -54,11 +54,11 @@ const nextConfig: NextConfig = {
 The package is shaped like `@tanstack/ai-openai`'s text adapter:
 
 - `@tanstack-ai-browser/wllama`: `wllamaText(model, config?)`, `WllamaTextAdapter` (with the runtime methods `availability`, `create` and `destroy`) and the types `WllamaConfig`, `WllamaModel`, `WllamaTextModelOptions`, `Availability` and `DownloadProgressCallback`.
-- `@tanstack-ai-browser/wllama/model-meta`: the catalog, `WLLAMA_CHAT_MODELS`, `WLLAMA_MODEL_META` and `WLLAMA_MODEL_REASONING`, with the types `WllamaChatModel`, `WllamaModelMeta` and `WllamaModelReasoningByName`.
+- The catalog, from the same root: `WLLAMA_CHAT_MODELS`, `WLLAMA_MODEL_META` and `WLLAMA_MODEL_REASONING`, with the types `WllamaChatModel`, `WllamaModelMeta` and `WllamaModelReasoningByName`.
 
 ## Models
 
-`WLLAMA_CHAT_MODELS` (in `@tanstack-ai-browser/wllama/model-meta`) lists the models this package knows, and `WLLAMA_MODEL_META` has each one's details: Hugging Face repository, GGUF file, capabilities, reasoning levels and the sampling from its card. They're Liquid AI's official GGUF builds, and Unsloth's build of Qwen3.5 2B. LFM3's GGUFs aren't listed: wllama 3.8.1's llama.cpp doesn't know their architecture ([ngxson/wllama#310](https://github.com/ngxson/wllama/issues/310)).
+`WLLAMA_CHAT_MODELS` lists the models this package knows, and `WLLAMA_MODEL_META` has each one's details: Hugging Face repository, GGUF file, capabilities, reasoning levels and the sampling from its card. They're Liquid AI's official GGUF builds, and Unsloth's build of Qwen3.5 2B. LFM3's GGUFs aren't listed: wllama 3.8.1's llama.cpp doesn't know their architecture ([ngxson/wllama#310](https://github.com/ngxson/wllama/issues/310)).
 
 Any other GGUF works too: name its file, as `"owner/repo/file.gguf"` on Hugging Face (its latest version) or as a URL. An unlisted model gets llama.cpp's default sampling and the chat template's `enable_thinking` switch for `chat({ reasoning })`.
 

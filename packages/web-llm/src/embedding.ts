@@ -10,15 +10,22 @@ import { requireTextOnlyEmbeddingInput } from "@tanstack/ai"
 import type { EmbeddingOptions, EmbeddingResult } from "@tanstack/ai"
 import { toRunErrorPayload } from "@tanstack/ai/adapter-internals"
 import { BaseEmbeddingAdapter } from "@tanstack/ai/adapters"
-import type { AppConfig, EmbeddingCreateParams } from "@mlc-ai/web-llm"
+import type { AppConfig, EmbeddingCreateParams, MLCEngineConfig } from "@mlc-ai/web-llm"
 
-import { embeddingEngine } from "./client.js"
-import type { Availability, DownloadProgressCallback } from "./client.js"
+import { engineFor } from "./client.js"
+import type { Availability, DownloadProgressCallback, EngineSlot, LoadSettings } from "./client.js"
 import type { WebLlmEmbeddingModel } from "./catalog.js"
 
 export type WebLlmEmbeddingConfig = {
   /** WebLLM's model list, for a model its catalog doesn't have. WebLLM's `prebuiltAppConfig` by default. */
   appConfig?: AppConfig
+  /** WebLLM's engine config, applied when the model loads (see `webLlmText`'s). */
+  engineConfig?: MLCEngineConfig
+  /**
+   * A Web Worker of your own to run WebLLM in (see `webLlmText`'s). It holds
+   * one model: give the chat adapter another, or they unload each other.
+   */
+  worker?: Worker
   /** The model's download progress, 0 to 1, when a call starts its download; then 1 once it's ready. */
   onDownloadProgress?: DownloadProgressCallback
 }
@@ -35,22 +42,28 @@ export class WebLlmEmbeddingAdapter<TModel extends WebLlmEmbeddingModelId> exten
 > {
   readonly name = "web-llm" as const
   private readonly loadConfig: WebLlmEmbeddingConfig
+  private readonly settings: LoadSettings
+  /** The engine the model loads in: the package's for embedding, or the adapter's own worker's. */
+  private readonly engine: EngineSlot
 
   constructor(config: WebLlmEmbeddingConfig, model: TModel) {
     super(model, {})
     this.loadConfig = config
+    const { appConfig = config.engineConfig?.appConfig, engineConfig } = config
+    this.settings = { ...(appConfig && { appConfig }), ...(engineConfig && { engineConfig }) }
+    this.engine = engineFor("embedding", config.worker)
   }
 
   /** Where the model stands in this browser, with the Prompt API's values (see `webLlmText`'s). */
   availability(): Promise<Availability> {
-    return embeddingEngine.availability(this.model, this.loadConfig.appConfig)
+    return this.engine.availability(this.model, this.settings.appConfig)
   }
 
   /** Downloads the model if it isn't stored and loads it, with the download's progress. Resolves to this adapter. */
   create(options: { onDownloadProgress?: DownloadProgressCallback; signal?: AbortSignal } = {}): Promise<this> {
     // It takes the engine's turn, so it never reloads the engine under another call.
     const ready = (async () => {
-      const release = await embeddingEngine.acquire(options.signal)
+      const release = await this.engine.acquire(options.signal)
       try {
         await this.load(options.signal, options.onDownloadProgress)
         return this
@@ -64,9 +77,9 @@ export class WebLlmEmbeddingAdapter<TModel extends WebLlmEmbeddingModelId> exten
 
   /** Unloads the model, freeing its GPU memory, once the engine's current call ends. It stays in WebLLM's cache. */
   async destroy(): Promise<void> {
-    const release = await embeddingEngine.acquire()
+    const release = await this.engine.acquire()
     try {
-      await embeddingEngine.unloadModel(this.model)
+      await this.engine.unloadModel(this.model)
     } finally {
       release()
     }
@@ -74,7 +87,7 @@ export class WebLlmEmbeddingAdapter<TModel extends WebLlmEmbeddingModelId> exten
 
   private load(signal?: AbortSignal, onDownloadProgress?: DownloadProgressCallback) {
     const own = this.loadConfig.onDownloadProgress
-    return embeddingEngine.loadModel(this.model, { ...(this.loadConfig.appConfig && { appConfig: this.loadConfig.appConfig }) }, {
+    return this.engine.loadModel(this.model, this.settings, {
       ...((own || onDownloadProgress) && {
         onDownloadProgress: (progress: number) => {
           own?.(progress)
@@ -96,9 +109,9 @@ export class WebLlmEmbeddingAdapter<TModel extends WebLlmEmbeddingModelId> exten
       logger.request(`activity=embed provider=${this.name} model=${model} inputs=${texts.length}`, { provider: this.name, model })
       // The engine is this batch's from its load to its end, so another
       // adapter's preload or unload waits for it.
-      const release = await embeddingEngine.acquire(options.abortSignal)
+      const release = await this.engine.acquire(options.abortSignal)
       const response = await this.load(options.abortSignal)
-        .then((engine) => engine.embeddings.create({ ...modelOptions, model, input: texts }))
+        .then((engine) => this.engine.guard(engine, engine.embeddings.create({ ...modelOptions, model, input: texts })))
         .finally(release)
       return {
         id: this.generateId(this.name),

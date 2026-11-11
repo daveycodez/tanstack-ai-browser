@@ -380,3 +380,90 @@ test("images: the vision encoder loads with the first image, each image in its p
   assert.equal(loads().length, 1)
   assert.equal((generateRequests().at(-1) as Generate).images, undefined)
 })
+
+/** A worker of the caller's: it answers through its listeners, like a real one, and frees its model when asked. */
+class OwnWorker {
+  posted: Array<WorkerRequest> = []
+  listeners = new Set<(event: { data: WorkerReply }) => void>()
+  terminated = false
+  addEventListener(type: string, listener: (event: { data: WorkerReply }) => void) {
+    if (type === "message") this.listeners.add(listener)
+  }
+  removeEventListener(_type: string, listener: (event: { data: WorkerReply }) => void) {
+    this.listeners.delete(listener)
+  }
+  send(data: WorkerReply) {
+    for (const listener of this.listeners) listener({ data })
+  }
+  postMessage(request: WorkerRequest) {
+    this.posted.push(request)
+    setTimeout(() => {
+      if (request.type === "load") this.send({ status: "ready" })
+      else if (request.type === "unload") this.send({ status: "unloaded" })
+      else if (request.type === "generate") {
+        this.send({ status: "update", output: "Mine" })
+        this.send({ status: "complete", inputTokens: 3, outputTokens: 1 })
+      }
+    }, 0)
+  }
+  terminate() {
+    this.terminated = true
+  }
+}
+
+test("a worker of your own runs the model, shared by the adapters given it; destroy frees the model and leaves it running", async () => {
+  const worker = new OwnWorker()
+  const config = { worker: worker as unknown as Worker }
+  const before = FakeWorker.all.length
+  const adapter = transformersJsText("someone/Mine-ONNX", config)
+  const chunks: Array<Chunk> = []
+  for await (const chunk of adapter.chatStream(options({ model: "someone/Mine-ONNX" }))) chunks.push(chunk as Chunk)
+  assert.equal(chunks.find((c) => c.type === "TEXT_MESSAGE_CONTENT")?.delta, "Mine")
+  await transformersJsText("someone/Mine-ONNX", config).create()
+  assert.deepEqual(worker.posted.map((r) => r.type), ["load", "generate"], "the second adapter found the model loaded")
+  assert.equal(FakeWorker.all.length, before, "the package's worker wasn't started")
+  assert.equal(await adapter.availability(), "available")
+  await adapter.destroy()
+  assert.deepEqual(worker.posted.map((r) => r.type), ["load", "generate", "interrupt", "unload"])
+  assert.equal(worker.terminated, false)
+  assert.equal(await adapter.availability(), "downloadable")
+  await adapter.create()
+  assert.equal(worker.posted.at(-1)?.type, "load", "it loads again in the same worker")
+})
+
+test("vision: a model the package doesn't list reads images, and loads with its vision encoder from the start", async () => {
+  const adapter = transformersJsText("HuggingFaceTB/SmolVLM-256M-Instruct", { vision: true })
+  assert.deepEqual(adapter.inputModalities, ["text", "image"])
+  assert.equal(transformersJsText("HuggingFaceTB/SmolVLM-256M-Instruct").inputModalities, undefined)
+  await adapter.create()
+  const load = lastWorker().posted.filter((r) => r.type === "load").at(-1)
+  assert.deepEqual(load, { type: "load", settings: { model: "HuggingFaceTB/SmolVLM-256M-Instruct", vision: true } })
+})
+
+test("vision: every message goes to the template as parts: the system prompt, earlier replies and tool results too", async () => {
+  const adapter = transformersJsText("HuggingFaceTB/SmolVLM-256M-Instruct", { vision: true })
+  const messages = [
+    { role: "user", content: "Hi" },
+    { role: "assistant", content: "Hello!", toolCalls: [{ id: "c1", type: "function", function: { name: "t", arguments: "{}" } }] },
+    { role: "tool", toolCallId: "c1", content: "done" },
+    { role: "user", content: "Again" }
+  ] as TextOptions["messages"]
+  for await (const _ of adapter.chatStream(options({ systemPrompts: ["Be brief."], messages }))) void _
+  const request = generateRequests().at(-1) as Generate
+  assert.deepEqual(
+    request.messages.map((m) => [m.role, m.content]),
+    [
+      ["system", [{ type: "text", text: "Be brief." }]],
+      ["user", [{ type: "text", text: "Hi" }]],
+      ["assistant", [{ type: "text", text: "Hello!" }]],
+      ["tool", [{ type: "text", text: "done" }]],
+      ["user", [{ type: "text", text: "Again" }]]
+    ]
+  )
+})
+
+test("localModelPath and cacheDir go with the load", async () => {
+  await transformersJsText("owner/local-model", { localModelPath: "/models", cacheDir: "/cache" }).create()
+  const load = lastWorker().posted.filter((r) => r.type === "load").at(-1)
+  assert.deepEqual(load, { type: "load", settings: { model: "owner/local-model", localModelPath: "/models", cacheDir: "/cache" } })
+})

@@ -85,3 +85,14 @@ exact<Equal<Thinkers,
   | "LiquidAI/LFM2.5-1.2B-Thinking-GGUF"
   | "unsloth/Qwen3.5-2B-GGUF"
   | "onnx-community/Qwen3.5-2B-ONNX">>(true)
+
+test("a worker of your own has a WebGLLM of its own, shared by the adapters given it", async () => {
+  const worker = { postMessage: () => undefined, addEventListener: () => undefined, removeEventListener: () => undefined } as unknown as Worker
+  type WithEngine = { engine: { webgllm: unknown } }
+  const first = webgllmText(MODEL, { worker }) as unknown as WithEngine
+  const second = webgllmText(MODEL, { worker }) as unknown as WithEngine
+  const page = webgllmText(MODEL) as unknown as WithEngine
+  assert.equal(first.engine.webgllm, second.engine.webgllm)
+  assert.notEqual(first.engine.webgllm, page.engine.webgllm)
+  assert.ok(first.engine.webgllm instanceof WebGLLM)
+})

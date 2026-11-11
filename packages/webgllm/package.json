@@ -36,12 +36,6 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js",
       "default": "./dist/index.js"
-    },
-    "./model-meta": {
-      "@tanstack-ai-browser/source": "./src/model-meta.ts",
-      "types": "./dist/model-meta.d.ts",
-      "import": "./dist/model-meta.js",
-      "default": "./dist/model-meta.js"
     }
   },
   "files": [
@@ -63,7 +57,7 @@
   },
   "dependencies": {
     "@tanstack/openai-base": "^1.0.2",
-    "webgllm": "^0.2.3"
+    "webgllm": "^0.3.1"
   },
   "devDependencies": {
     "@huggingface/transformers": "4.3.2",

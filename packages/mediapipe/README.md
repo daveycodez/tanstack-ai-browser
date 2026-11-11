@@ -23,7 +23,7 @@ if ((await adapter.availability()) !== "unavailable") {
 
 It runs the official `@mediapipe/tasks-text` package (1.2.2), unmodified and through its public API, on the page: `FilesetResolver.forTextTasks(wasmPath)`, then `TextEmbedder.createFromOptions` with the model's path, then `embed()` per text. MediaPipe fetches its files itself.
 
-The package is shaped like TanStack's embedding adapters. The root has `mediaPipeEmbedding(model?, config?)`, `MediaPipeEmbeddingAdapter` (with the runtime methods below) and the types `MediaPipeEmbeddingConfig`, `MediaPipeEmbeddingProviderOptions` and `Availability`. `@tanstack-ai-browser/mediapipe/model-meta` has `MEDIAPIPE_EMBEDDING_MODELS` (one model, `"universal-sentence-encoder"`) and `MEDIAPIPE_MODEL_META` (its file, size and dimensions), with the types `MediaPipeEmbeddingModel`, `MediaPipeEmbeddingModelMeta`, `MediaPipeEmbeddingModelProviderOptionsByName` and `MediaPipeEmbeddingModelInputModalitiesByName`.
+The package is shaped like TanStack's embedding adapters. The root has `mediaPipeEmbedding(model?, config?)`, `MediaPipeEmbeddingAdapter` (with the runtime methods below) and the types `MediaPipeEmbeddingConfig`, `MediaPipeEmbeddingProviderOptions` and `Availability`. It also has the catalog: `MEDIAPIPE_EMBEDDING_MODELS` (one model, `"universal-sentence-encoder"`) and `MEDIAPIPE_MODEL_META` (its file, size and dimensions), with the types `MediaPipeEmbeddingModel`, `MediaPipeEmbeddingModelMeta`, `MediaPipeEmbeddingModelProviderOptionsByName` and `MediaPipeEmbeddingModelInputModalitiesByName`.
 
 ## The model
 

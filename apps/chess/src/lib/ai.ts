@@ -10,7 +10,7 @@ import { analyzeMovePrompt } from "./analysis-worker"
 import type { Game } from "./chess"
 import { APFEL_MODEL, isWebGlOpponent, opponentOption, resolveOpponent } from "./opponents"
 import type { OpponentSettings } from "./opponents"
-import type { WebGllmChatModel } from "@tanstack-ai-browser/webgllm/model-meta"
+import type { WebGllmChatModel } from "@tanstack-ai-browser/webgllm"
 
 import type { PromptVersion } from "./shared-prompt"
 

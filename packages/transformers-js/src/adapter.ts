@@ -1,9 +1,10 @@
 /**
  * A TanStack AI text adapter for Transformers.js models that run in the
- * browser, in a Web Worker the package starts: on WebGPU, or on the CPU
- * through WebAssembly. Hand it to `chat()` like any hosted model's adapter:
- * `chat()` runs tools and the agent loop, and each `chatStream` call is one
- * generation in the worker, streamed back as AG-UI events.
+ * browser, in a Web Worker (the package's, or one of your own): on WebGPU,
+ * or on the CPU through WebAssembly. On a server (Node.js) the same models
+ * run in the server's process. Hand it to `chat()` like any hosted model's
+ * adapter: `chat()` runs tools and the agent loop, and each `chatStream`
+ * call is one generation, streamed back as AG-UI events.
  *
  * Tools go to the model through its chat template, and the first call it
  * writes ends the reply (tool-calls.ts). Thinking stays in the text, as the
@@ -15,8 +16,8 @@ import { resolveReasoning } from "@tanstack/ai/adapter-internals"
 import { BaseTextAdapter } from "@tanstack/ai/adapters"
 import type { StructuredOutputResult } from "@tanstack/ai/adapters"
 
-import { availability, generate, interrupt, loadModel, unloadModel } from "./client.js"
-import type { Availability, DownloadProgressCallback } from "./client.js"
+import { clientFor } from "./client.js"
+import type { Availability, Client, DownloadProgressCallback } from "./client.js"
 import { toTemplateMessages, toTemplateTools } from "./messages.js"
 import { TRANSFORMERS_JS_MODEL_META, TRANSFORMERS_JS_MODEL_REASONING } from "./model-meta.js"
 import type { Sampling, TransformersJsChatModel, TransformersJsModelReasoningByName } from "./model-meta.js"
@@ -26,10 +27,34 @@ import type { Piece } from "./thinking.js"
 import { toolCallReader } from "./tool-calls.js"
 
 export type TransformersJsConfig = {
-  /** "webgpu" or "wasm" (the CPU): WebGPU where the browser has it by default. */
+  /**
+   * "webgpu" or "wasm" (the CPU): WebGPU where the browser has it by
+   * default. On a server the CPU is ONNX Runtime's own build, the default
+   * there.
+   */
   device?: Device
   /** The ONNX weights to load: "q4f16" on WebGPU and "q4" on the CPU by default. */
   dtype?: Dtype
+  /**
+   * Whether the model reads images, for a model the package doesn't list
+   * (SmolVLM, say): it loads with its processor and vision encoder
+   * (Transformers.js's `AutoProcessor` and `AutoModelForImageTextToText`),
+   * and the adapter's `inputModalities` has images. A listed model's catalog
+   * entry says; set it for one to load its vision encoder from the start.
+   */
+  vision?: boolean
+  /**
+   * A Web Worker of your own to run the model in, in place of the one the
+   * package starts: a module whose `onmessage` goes to a
+   * `TransformersJsWorkerHandler` (exported from this package).
+   * It holds one model, so adapters given the same worker share it;
+   * `destroy()` frees the model and leaves the worker running.
+   */
+  worker?: Worker
+  /** On a server: the folder local models load from (Transformers.js's `env.localModelPath`). */
+  localModelPath?: string
+  /** On a server: the folder downloaded models are kept in (Transformers.js's `env.cacheDir`). */
+  cacheDir?: string
   /**
    * The model's download progress, 0 to 1, when a call (`chat()`, say)
    * starts its download; then 1 once it's ready. To load it ahead of time,
@@ -97,33 +122,43 @@ export class TransformersJsTextAdapter<TModel extends string> extends BaseTextAd
   override readonly kind = "text" as const
   readonly name = "transformers-js" as const
   override readonly api = "transformers-js" as const
-  /** Text, and images for a listed model whose repo has a vision encoder; not known for another model. */
+  /**
+   * Text, and images for a listed model whose repo has a vision encoder or
+   * a model the config calls a `vision` model; not known for another model.
+   */
   override readonly inputModalities: ReadonlyArray<"text" | "image"> | undefined
   private readonly settings: LoadSettings
   private readonly onDownloadProgress: DownloadProgressCallback | undefined
+  /** The handler the model runs in: the package's, or the adapter's own worker's. */
+  private readonly client: Client
 
   constructor(config: TransformersJsConfig, model: TModel) {
     super({}, model)
     this.settings = {
       model,
       ...(config.device && { device: config.device }),
-      ...(config.dtype && { dtype: config.dtype })
+      ...(config.dtype && { dtype: config.dtype }),
+      ...(config.vision && { vision: true }),
+      ...(config.localModelPath !== undefined && { localModelPath: config.localModelPath }),
+      ...(config.cacheDir !== undefined && { cacheDir: config.cacheDir })
     }
     this.onDownloadProgress = config.onDownloadProgress
-    this.inputModalities = listed(model)?.supports.input
+    this.client = clientFor(config.worker)
+    this.inputModalities = config.vision ? ["text", "image"] : listed(model)?.supports.input
   }
 
   /**
    * Where the model stands in this browser, with the Prompt API's values:
-   * "unavailable" where it can't run (on a server, or without WebGPU for a
-   * listed model without CPU weights), "downloading" while it loads,
+   * "unavailable" where it can't run (without WebGPU for a listed model
+   * without CPU weights, or on a server that isn't Node.js), "downloading"
+   * while it loads,
    * "available" when it's loaded or its weights are in Transformers.js's
    * cache, else "downloadable".
    */
   availability(): Promise<Availability> {
     const meta = listed(this.model)
     const runsOnCpu = this.settings.device === "wasm" || (meta ? (meta.cpu ?? false) : true)
-    return availability(this.model, runsOnCpu)
+    return this.client.availability(this.model, runsOnCpu)
   }
 
   /**
@@ -138,14 +173,18 @@ export class TransformersJsTextAdapter<TModel extends string> extends BaseTextAd
     const report = (progress: number) => {
       for (const listener of listeners) listener(progress)
     }
-    const ready = loadModel(this.settings, report, options.signal).then(() => this)
+    const ready = this.client.loadModel(this.settings, report, options.signal).then(() => this)
     ready.catch(() => undefined)
     return ready
   }
 
-  /** Ends the worker if it holds this model, freeing its memory. Its files stay cached. */
-  async destroy(): Promise<void> {
-    unloadModel(this.model)
+  /**
+   * Frees the model's memory, if its handler holds this model: the
+   * package's worker ends; a worker of your own, or a server, frees the
+   * model and stays. Its files stay cached.
+   */
+  destroy(): Promise<void> {
+    return this.client.unloadModel(this.model)
   }
 
   async *chatStream(options: TextOptions<TransformersJsTextModelOptions>): AsyncIterable<AdapterYieldChunk> {
@@ -154,6 +193,7 @@ export class TransformersJsTextAdapter<TModel extends string> extends BaseTextAd
     const messageId = nextId("msg")
     const model = this.model
     const signal = signalOf(options)
+    const client = this.client
     const timestamp = () => Date.now()
     yield {
       type: EventType.RUN_STARTED,
@@ -168,7 +208,9 @@ export class TransformersJsTextAdapter<TModel extends string> extends BaseTextAd
         normalizeSystemPrompts(options.systemPrompts)
           .map((p) => p.content)
           .join("\n\n"),
-        options.messages
+        options.messages,
+        // A model the config calls a vision model: its template reads every message as parts.
+        !!this.settings.vision
       )
       // The vision encoder loads once the conversation has an image.
       const vision = prompt.images.length > 0
@@ -212,7 +254,7 @@ export class TransformersJsTextAdapter<TModel extends string> extends BaseTextAd
             }
             yield* textEvents(reader.push(delta))
             // The first call ends the reply: the worker stops, and later text is dropped.
-            if (reader.call) interrupt()
+            if (reader.call) client.interrupt()
             continue
           }
           if (!reasoningOpen) {
@@ -224,7 +266,7 @@ export class TransformersJsTextAdapter<TModel extends string> extends BaseTextAd
         }
       }
       let counts = { inputTokens: 0, outputTokens: 0 }
-      const events = generate(
+      const events = client.generate(
         { ...this.settings, ...(vision && { vision }) },
         {
           messages: prompt.messages,
@@ -306,7 +348,7 @@ export class TransformersJsTextAdapter<TModel extends string> extends BaseTextAd
 
 /**
  * A TanStack AI text adapter for a Transformers.js model: a listed one (see
- * `@tanstack-ai-browser/transformers-js/model-meta`) or any Hugging Face
+ * `TRANSFORMERS_JS_CHAT_MODELS`) or any Hugging Face
  * ONNX id.
  *
  * @example

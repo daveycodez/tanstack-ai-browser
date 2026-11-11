@@ -1,20 +1,17 @@
 import { clampReasoningLevel, supportedReasoningLevels } from "@tanstack/ai"
 import type { ModelReasoning, ReasoningLevel } from "@tanstack/ai"
-import { transformersJsText } from "@tanstack-ai-browser/transformers-js"
 import {
+  transformersJsText,
   TRANSFORMERS_JS_MODEL_META,
   TRANSFORMERS_JS_MODEL_REASONING
-} from "@tanstack-ai-browser/transformers-js/model-meta"
-import type { TransformersJsChatModel } from "@tanstack-ai-browser/transformers-js/model-meta"
-import { wllamaText } from "@tanstack-ai-browser/wllama"
-import { WLLAMA_MODEL_REASONING } from "@tanstack-ai-browser/wllama/model-meta"
-import type { WllamaChatModel } from "@tanstack-ai-browser/wllama/model-meta"
-import { webgllmText } from "@tanstack-ai-browser/webgllm"
-import { WEBGLLM_MODEL_REASONING } from "@tanstack-ai-browser/webgllm/model-meta"
-import type { WebGllmChatModel } from "@tanstack-ai-browser/webgllm/model-meta"
+} from "@tanstack-ai-browser/transformers-js"
+import type { TransformersJsChatModel } from "@tanstack-ai-browser/transformers-js"
+import { wllamaText, WLLAMA_MODEL_REASONING } from "@tanstack-ai-browser/wllama"
+import type { WllamaChatModel } from "@tanstack-ai-browser/wllama"
+import { webgllmText, WEBGLLM_MODEL_REASONING } from "@tanstack-ai-browser/webgllm"
+import type { WebGllmChatModel } from "@tanstack-ai-browser/webgllm"
 // Types only: WebLLM loads on demand (./web-llm-models.ts).
-import type { webLlmText } from "@tanstack-ai-browser/web-llm"
-import type { WebLlmChatModel } from "@tanstack-ai-browser/web-llm/model-meta"
+import type { webLlmText, WebLlmChatModel } from "@tanstack-ai-browser/web-llm"
 import type { webLlmModel as WebLlmModel } from "./web-llm-models.ts"
 import { apfelText } from "@tanstack-ai-browser/apfel"
 import { PromptApiTextAdapter, promptApiText } from "@tanstack-ai-browser/prompt-api"

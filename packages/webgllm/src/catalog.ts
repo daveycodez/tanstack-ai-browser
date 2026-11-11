@@ -1,24 +1,18 @@
 /**
- * The models webgllm runs, from its catalog, with their reasoning levels in
- * TanStack AI's shape (for `chat({ reasoning })` and
- * `supportedReasoningLevels()`).
+ * The models webgllm runs: webgllm's own catalog, re-exported under this
+ * adapter's names, with their reasoning levels in TanStack AI's shape (for
+ * `chat({ reasoning })` and `supportedReasoningLevels()`).
  */
 import type { ModelReasoning } from "@tanstack/ai"
 import type { ModelReasoningCapability } from "@tanstack/ai/adapter-internals"
-import { WEBGL_MODEL_META, WEBGL_TEXT_MODELS } from "webgllm/advanced"
-import type { WebGlModelMeta, WebGlModelReasoning, WebGlTextModel } from "webgllm/advanced"
+import { WEBGL_MODEL_META, WEBGL_TEXT_MODELS } from "webgllm"
+import type { WebGlModelMeta, WebGlModelReasoning, WebGlTextModel } from "webgllm"
 
-/** The models webgllm runs: its catalog's text models. */
-export const WEBGLLM_CHAT_MODELS: typeof WEBGL_TEXT_MODELS = WEBGL_TEXT_MODELS
+// webgllm's catalog as it is: the models it runs, and each one's entry by name.
+export { WEBGL_TEXT_MODELS as WEBGLLM_CHAT_MODELS, WEBGL_MODEL_META as WEBGLLM_MODEL_META } from "webgllm"
+export type { WebGlTextModel as WebGllmChatModel, WebGlModelMeta as WebGllmModelMeta } from "webgllm"
 
-/** A model webgllm runs. */
-export type WebGllmChatModel = WebGlTextModel
-
-/** A model's catalog entry, as webgllm gives it. */
-export type WebGllmModelMeta = WebGlModelMeta
-
-/** Each model's catalog entry, by name. */
-export const WEBGLLM_MODEL_META: typeof WEBGL_MODEL_META = WEBGL_MODEL_META
+type WebGllmChatModel = WebGlTextModel
 
 /**
  * The reasoning levels of each model that thinks, exactly as its catalog
@@ -34,8 +28,8 @@ export type WebGllmModelReasoningByName = {
 
 /** Reasoning data of each model (`false`: it doesn't think), for `supportedReasoningLevels()`. */
 export const WEBGLLM_MODEL_REASONING = Object.fromEntries(
-  WEBGLLM_CHAT_MODELS.map((model) => [model, WEBGLLM_MODEL_META[model].reasoning ?? false])
+  WEBGL_TEXT_MODELS.map((model) => [model, WEBGL_MODEL_META[model].reasoning ?? false])
 ) as Readonly<Record<WebGllmChatModel, ModelReasoning>>
 
 /** A model's catalog entry. */
-export const modelMeta = (model: WebGllmChatModel): WebGllmModelMeta => WEBGLLM_MODEL_META[model]
+export const modelMeta = (model: WebGllmChatModel): WebGlModelMeta => WEBGL_MODEL_META[model]

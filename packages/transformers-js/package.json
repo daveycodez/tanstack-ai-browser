@@ -1,7 +1,7 @@
 {
   "name": "@tanstack-ai-browser/transformers-js",
   "version": "0.1.0",
-  "description": "TanStack AI adapter for Transformers.js models running in the browser on WebGPU",
+  "description": "TanStack AI adapter for Transformers.js models running in the browser on WebGPU, or on a server",
   "license": "MIT",
   "author": "daveycodez",
   "repository": {
@@ -34,12 +34,6 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js",
       "default": "./dist/index.js"
-    },
-    "./model-meta": {
-      "@tanstack-ai-browser/source": "./src/model-meta.ts",
-      "types": "./dist/model-meta.d.ts",
-      "import": "./dist/model-meta.js",
-      "default": "./dist/model-meta.js"
     }
   },
   "files": [

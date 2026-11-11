@@ -34,13 +34,19 @@ function imageUrl(source: { type: string; value: string; mimeType?: string }): s
 
 /**
  * The conversation for the chat template, and its images in order: one for
- * each `{ type: "image" }` part.
+ * each `{ type: "image" }` part. A user message with an image goes as
+ * parts; with `asParts`, every message's content does (the system prompt
+ * and the model's own replies too), as the templates of models made for
+ * images (SmolVLM's) read every role.
  */
 export function toTemplateMessages(
   system: string,
-  messages: ReadonlyArray<ModelMessage>
+  messages: ReadonlyArray<ModelMessage>,
+  asParts = false
 ): { messages: Array<TemplateMessage>; images: Array<string> } {
-  const out: Array<TemplateMessage> = system ? [{ role: "system", content: system }] : []
+  /** A message's text, as the template takes it. */
+  const textContent = (text: string): TemplateMessage["content"] => (asParts ? [{ type: "text", text }] : text)
+  const out: Array<TemplateMessage> = system ? [{ role: "system", content: textContent(system) }] : []
   const images: Array<string> = []
   const toolNames = new Map<string, string>()
   for (const m of messages) {
@@ -50,7 +56,7 @@ export function toTemplateMessages(
       for (const call of calls) toolNames.set(call.id, call.function.name)
       out.push({
         role: "assistant",
-        content,
+        content: textContent(content),
         ...(calls.length > 0 && {
           tool_calls: calls.map((call) => ({
             id: call.id,
@@ -65,7 +71,7 @@ export function toTemplateMessages(
         role: "tool",
         tool_call_id: id,
         name: toolNames.get(id) ?? "tool",
-        content: m.error === undefined ? content : JSON.stringify({ error: true, message: m.error })
+        content: textContent(m.error === undefined ? content : JSON.stringify({ error: true, message: m.error }))
       })
     } else if (Array.isArray(m.content) && m.content.some((part) => part.type === "image")) {
       const parts: Array<TemplatePart> = []
@@ -78,7 +84,7 @@ export function toTemplateMessages(
       }
       out.push({ role: "user", content: parts })
     } else {
-      out.push({ role: "user", content })
+      out.push({ role: "user", content: textContent(content) })
     }
   }
   return { messages: out, images }
