@@ -40,14 +40,14 @@ export type LoadSettings = {
 }
 
 /** The version of `@wllama/wllama` this package depends on. */
-export const WLLAMA_VERSION = "3.8.1"
+export const WLLAMA_VERSION = "3.13.0"
 
 /**
  * wllama's WebAssembly file on jsDelivr, for `WLLAMA_VERSION`: the URL of
- * wllama's own `WasmFromCDN`, which its 3.8.1 package doesn't ship. It has
- * to match wllama's JavaScript, so it's the same version.
+ * wllama's own `WasmFromCDN`. It has to match wllama's JavaScript, so it's
+ * the same version.
  */
-export const WLLAMA_WASM_URL = `https://cdn.jsdelivr.net/npm/@wllama/wllama@${WLLAMA_VERSION}/src/wasm/wllama.wasm`
+export const WLLAMA_WASM_URL = `https://cdn.jsdelivr.net/npm/@wllama/wllama@${WLLAMA_VERSION}/esm/wasm/wllama.wasm`
 
 /** The model wllama holds (or is loading). */
 let loaded: {

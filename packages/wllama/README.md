@@ -1,6 +1,6 @@
 # @tanstack-ai-browser/wllama
 
-A [TanStack AI](https://tanstack.com/ai) adapter for GGUF models that run in the browser, with [wllama](https://github.com/ngxson/wllama): llama.cpp compiled to WebAssembly, in a Web Worker. It runs on WebGPU where the browser has it, and on the CPU elsewhere, so it runs in any browser with WebAssembly SIMD: Firefox on Android and iPhone Safari included. It runs the official [`@wllama/wllama`](https://www.npmjs.com/package/@wllama/wllama) package (3.8.1) as published, through its public API and options, with its own WebAssembly builds: no patched, vendored or rebuilt copy of wllama or llama.cpp. A wllama or llama.cpp bug is fixed here when a wllama release with the fix is out.
+A [TanStack AI](https://tanstack.com/ai) adapter for GGUF models that run in the browser, with [wllama](https://github.com/ngxson/wllama): llama.cpp compiled to WebAssembly, in a Web Worker. It runs on WebGPU where the browser has it, and on the CPU elsewhere, so it runs in any browser with WebAssembly SIMD: Firefox on Android and iPhone Safari included. It runs the official [`@wllama/wllama`](https://www.npmjs.com/package/@wllama/wllama) package (3.13.0) as published, through its public API and options, with its own WebAssembly builds: no patched, vendored or rebuilt copy of wllama or llama.cpp. A wllama or llama.cpp bug is fixed here when a wllama release with the fix is out.
 
 ```sh
 npm install @tanstack-ai-browser/wllama @tanstack/ai
@@ -114,7 +114,7 @@ The page holds one wllama model at a time, loaded with the settings of the adapt
 `chat()` runs tools and the agent loop; each model call is one chat completion from llama.cpp's OpenAI-compatible API (`createChatCompletion`), in wllama's worker. llama.cpp writes the prompt with the model's chat template, reads thinking and tool calls back, and reuses whatever start of the prompt it has already read. wllama's defaults apply, except:
 
 - **Context:** the model's own training context (see above), not wllama's 1,024, which a system prompt with tools outgrows.
-- **WebGPU or CPU:** wllama's default: on WebGPU where the browser has it and wllama can drive it (Chrome and Edge with JSPI, Safari through wllama's compat build), on the CPU elsewhere (Firefox, which has no JSPI, and browsers without WebGPU). `wllamaText(model, { gpu: false })` runs on the CPU only. llama.cpp's WebGPU and CPU code are wllama 3.8.1's, unchanged.
+- **WebGPU or CPU:** wllama's default: on WebGPU where the browser has it and wllama can drive it (Chrome and Edge with JSPI, Safari through wllama's compat build), on the CPU elsewhere (Firefox, which has no JSPI, and browsers without WebGPU). `wllamaText(model, { gpu: false })` runs on the CPU only. llama.cpp's WebGPU and CPU code are wllama 3.13.0's, unchanged.
 - **Full sliding-window cache:** `swa_full: true`, so a model with sliding-window layers reuses what it has read after a tool call instead of rereading the whole prompt. It costs a little memory, and nothing for models without such layers.
 - **Threads:** wllama's default, half the cores, where the page is cross-origin isolated (`Cross-Origin-Opener-Policy: same-origin` with `Cross-Origin-Embedder-Policy: require-corp`; Safari and Firefox on Android ignore `credentialless`); one elsewhere. `wllamaText(model, { threads })` sets a number.
 
@@ -122,7 +122,7 @@ The GGUF file is saved to the Origin Private File System by wllama, and loads fr
 
 ### Self-hosting the WebAssembly
 
-By default wllama loads its WebAssembly file from jsDelivr, at the version this package depends on (`https://cdn.jsdelivr.net/npm/@wllama/wllama@3.8.1/src/wasm/wllama.wasm`), as wllama loads its compat build for Safari. To serve them with your site (offline use, no third-party request), copy `@wllama/wllama/esm/wasm/wllama.wasm` and, for Safari, `@wllama/wllama-compat`'s `wasm/wllama.wasm` and `wasm/wllama.js` (same version), and pass their URLs. The file must match the installed wllama's JavaScript, so copy it from the same version.
+By default wllama loads its WebAssembly file from jsDelivr, at the version this package depends on (`https://cdn.jsdelivr.net/npm/@wllama/wllama@3.13.0/esm/wasm/wllama.wasm`), as wllama loads its compat build for Safari. To serve them with your site (offline use, no third-party request), copy `@wllama/wllama/esm/wasm/wllama.wasm` and, for Safari, `@wllama/wllama-compat`'s `wasm/wllama.wasm` and `wasm/wllama.js` (same version), and pass their URLs. The file must match the installed wllama's JavaScript, so copy it from the same version.
 
 ```ts
 wllamaText("LiquidAI/LFM2.5-350M-GGUF", {

@@ -1,5 +1,5 @@
 /** The version of `@mediapipe/tasks-text` this package depends on. */
-export const MEDIAPIPE_VERSION = "1.2.2"
+export const MEDIAPIPE_VERSION = "1.2.3"
 
 /**
  * MediaPipe's WebAssembly folder on jsDelivr, for `MEDIAPIPE_VERSION`. Its

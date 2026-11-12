@@ -54,9 +54,9 @@
     "@tanstack/ai": "^1.0.0"
   },
   "devDependencies": {
-    "@tanstack/ai": "1.2.0"
+    "@tanstack/ai": "1.4.0"
   },
   "dependencies": {
-    "@mediapipe/tasks-text": "1.2.2"
+    "@mediapipe/tasks-text": "1.2.3"
   }
 }

@@ -55,11 +55,11 @@
     "@tanstack/ai": "^1.0.0"
   },
   "dependencies": {
-    "@mlc-ai/web-llm": "^0.2.87",
-    "@tanstack/openai-base": "^1.0.2"
+    "@mlc-ai/web-llm": "^0.2.88",
+    "@tanstack/openai-base": "^1.0.4"
   },
   "devDependencies": {
-    "@tanstack/ai": "1.2.0",
+    "@tanstack/ai": "1.4.0",
     "esbuild": "0.28.2"
   }
 }

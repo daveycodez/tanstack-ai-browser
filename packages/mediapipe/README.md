@@ -21,7 +21,7 @@ if ((await adapter.availability()) !== "unavailable") {
 }
 ```
 
-It runs the official `@mediapipe/tasks-text` package (1.2.2), unmodified and through its public API, on the page: `FilesetResolver.forTextTasks(wasmPath)`, then `TextEmbedder.createFromOptions` with the model's path, then `embed()` per text. MediaPipe fetches its files itself.
+It runs the official `@mediapipe/tasks-text` package (1.2.3), unmodified and through its public API, on the page: `FilesetResolver.forTextTasks(wasmPath)`, then `TextEmbedder.createFromOptions` with the model's path, then `embed()` per text. MediaPipe fetches its files itself.
 
 The package is shaped like TanStack's embedding adapters. The root has `mediaPipeEmbedding(model?, config?)`, `MediaPipeEmbeddingAdapter` (with the runtime methods below) and the types `MediaPipeEmbeddingConfig`, `MediaPipeEmbeddingProviderOptions` and `Availability`. It also has the catalog: `MEDIAPIPE_EMBEDDING_MODELS` (one model, `"universal-sentence-encoder"`) and `MEDIAPIPE_MODEL_META` (its file, size and dimensions), with the types `MediaPipeEmbeddingModel`, `MediaPipeEmbeddingModelMeta`, `MediaPipeEmbeddingModelProviderOptionsByName` and `MediaPipeEmbeddingModelInputModalitiesByName`.
 
@@ -57,7 +57,7 @@ Each adapter creates its own TextEmbedder, on its first `embed()` or `create()`.
 ## Where the files load from
 
 - The model, from Google's own storage: `https://storage.googleapis.com/mediapipe-models/text_embedder/universal_sentence_encoder/float32/1/universal_sentence_encoder.tflite` (6,120,274 bytes).
-- MediaPipe's WebAssembly (7 MB), from the installed `@mediapipe/tasks-text`'s own folder on jsDelivr: `https://cdn.jsdelivr.net/npm/@mediapipe/tasks-text@1.2.2/wasm`. It has to match MediaPipe's JavaScript, so it's the same version. To host it yourself, serve `node_modules/@mediapipe/tasks-text/wasm` and pass its URL as `wasmPath`.
+- MediaPipe's WebAssembly (7 MB), from the installed `@mediapipe/tasks-text`'s own folder on jsDelivr: `https://cdn.jsdelivr.net/npm/@mediapipe/tasks-text@1.2.3/wasm`. It has to match MediaPipe's JavaScript, so it's the same version. To host it yourself, serve `node_modules/@mediapipe/tasks-text/wasm` and pass its URL as `wasmPath`.
 
 MediaPipe fetches them itself, so the browser's HTTP cache keeps them between loads. Both load on cross-origin isolated pages (`Cross-Origin-Embedder-Policy: require-corp`): Google's storage sends CORS (`Access-Control-Allow-Origin: *`), and jsDelivr sends CORS and `Cross-Origin-Resource-Policy: cross-origin`.
 

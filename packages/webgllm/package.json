@@ -56,12 +56,12 @@
     "@tanstack/ai": "^1.0.0"
   },
   "dependencies": {
-    "@tanstack/openai-base": "^1.0.2",
+    "@tanstack/openai-base": "^1.0.4",
     "webgllm": "^0.3.2"
   },
   "devDependencies": {
     "@huggingface/transformers": "4.3.2",
-    "@tanstack/ai": "1.2.0",
+    "@tanstack/ai": "1.4.0",
     "esbuild": "0.28.2"
   }
 }

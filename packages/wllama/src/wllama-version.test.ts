@@ -12,4 +12,8 @@ test("the default WebAssembly URL is the installed @wllama/wllama's version", ()
   const source = readFileSync(join(pkg, "src/client.ts"), "utf8")
   const pinned = /export const WLLAMA_VERSION = "([^"]+)"/.exec(source)?.[1]
   assert.equal(pinned, installed, "update WLLAMA_VERSION in client.ts with the dependency")
+  // The file's path in the package has moved between versions (src/wasm in 3.8, esm/wasm in 3.13).
+  const url = /export const WLLAMA_WASM_URL = `([^`]+)`/.exec(source)?.[1].replace("${WLLAMA_VERSION}", installed)
+  const own = (require("@wllama/wllama/esm/wasm-from-cdn.cjs") as { default: { default: string } }).default.default
+  assert.equal(url, own, "WLLAMA_WASM_URL is wllama's own WasmFromCDN URL")
 })
