@@ -43,7 +43,7 @@ Original raw v1 reports remain intact; the audit explains the corrected grading.
 ## Shared production path
 
 The runner calls `chooseAiMove`, exactly as the game does, with instrumentation callbacks.
-The original baseline (`baseline-v1`) is preserved unchanged. The current `shared-v19`
+The original baseline (`baseline-v1`) is preserved unchanged. The current `shared-v20`
 contract uses descriptive actions such as `Jump king d2 over c3 to b4`. Every legal action
 remains in the enum; neither card order nor a hidden fallback selects a move for the model.
 
@@ -59,6 +59,45 @@ and move-card descriptions. It preserves the complete board/history, legal label
 explicit net points and zeroes, exchange witness lines, and the existing outcome search.
 See [the compaction benchmark](PROMPT-COMPACTION.md) for native before/after token counts,
 tactical results and counterbalanced serial timing. No recommendations are reintroduced.
+
+`shared-v20` adds a blunder guard to `shared-v19`. An action is left out of a final
+`SOUND CHOICES` line when another listed action is safer in the existing checked outcomes:
+
+- it lets Human win (next turn, or forced within the checked replies) while another
+  action does not; or
+- its checked net is below the best net among the remaining actions, so a free gain is
+  not passed over and the smallest unavoidable loss stays listed.
+
+An immediate win or draw and a verified forced win are always listed, at least one action
+always remains, and the line is omitted when no action is worse. The system prompt gains
+one constant line, `Choose from SOUND CHOICES when listed; the other actions lose more.`
+The list comes last because LFM3 ignored a mark on the card alone. The guard stops there: unlike the
+`shared-v17` recommendations it applies none of the tie-breaks (exposure, next-turn
+captures, crowning material, draw avoidance), so several actions usually remain and the
+model chooses among them. On the 43 suite positions with a choice, `shared-v17`
+recommended a single action in 22 and `shared-v20` lists a single action in 11; the
+mean is 2.4 recommended against 3.5 listed, of 5.5 legal. Board/history, every legal
+action and its label/order, all other facts, lookahead, schema and sampling are those
+of `shared-v19`.
+
+Measured on LFM3-1.7B-GGUF, 2026-11-12, thinking off, model-default sampling:
+
+- Suite, all 44 positions, two paired orders: 62/64 for both versions, with the same
+  two failures.
+- Six games of `shared-v19` against Cake at depth 3, every nonforced decision audited
+  by Cake: 4 of 186 decisions were actions the guard leaves out, and two of them cost
+  about 1,400 Cake units each, 40% of the summed regret. Replayed, `shared-v19` chose
+  the same four actions 32 times of 32; `shared-v20` chose a listed action 24 of 24.
+- 51 of those games' positions that have a list, one decision each: same action in 43,
+  lower regret in 6, higher in 2; mean regret 74.4 before and 17.3 after, the difference
+  being the two costly decisions.
+- Two earlier forms were rejected: an `AVOID` mark on the card with no list (ignored:
+  the same four actions 32 of 32), and a list of every non-losing action (one suite
+  position failed twice because a move winning a piece was one of nine listed).
+
+All three of `shared-v17`, `shared-v19` and `shared-v20` lose their games to Cake at
+depth 3, so game results do not separate them; whole games were not replayed on the
+final form.
 
 Move outcomes enumerate the candidate, every legal Red reply (including complete
 multi-jumps), and each immediate Black response. Man=1 and king=2 are transparent rough

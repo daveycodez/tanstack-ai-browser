@@ -194,14 +194,14 @@ test("compact v8 retains every board, history, horizon, legal card and position 
 
 
 test("benchmark validation accepts every historical and candidate prompt version", () => {
-  for (const version of ["baseline-v1", "shared-v6", "shared-v7", "shared-v8", "shared-v9", "shared-v10", "shared-v11", "shared-v12", "shared-v13", "shared-v14", "shared-v15", "shared-v16", "shared-v17", "shared-v18", "shared-v19"]) assert.equal(isPromptVersion(version), true)
-  for (const version of ["", "shared-v20", "unknown"]) assert.equal(isPromptVersion(version), false)
+  for (const version of ["baseline-v1", "shared-v6", "shared-v7", "shared-v8", "shared-v9", "shared-v10", "shared-v11", "shared-v12", "shared-v13", "shared-v14", "shared-v15", "shared-v16", "shared-v17", "shared-v18", "shared-v19", "shared-v20"]) assert.equal(isPromptVersion(version), true)
+  for (const version of ["", "shared-v21", "unknown"]) assert.equal(isPromptVersion(version), false)
 })
 
 
 test("v9 keeps the smallest-loss fallback conditional and preserves every existing dynamic input", () => {
-  assert.equal(PREVIOUS_PROMPT_VERSION, "shared-v18")
-  assert.equal(SHARED_PROMPT_VERSION, "shared-v19")
+  assert.equal(PREVIOUS_PROMPT_VERSION, "shared-v19")
+  assert.equal(SHARED_PROMPT_VERSION, "shared-v20")
   assert.equal(SHARED_V9_SYSTEM_PROMPT.replace(` ${SMALLEST_LOSS_INSTRUCTION}`, ""), SHARED_V8_SYSTEM_PROMPT)
   for (const fixture of CASES) {
     const game = gameForCase(fixture), moves = legalMoves(game.board, "ai")

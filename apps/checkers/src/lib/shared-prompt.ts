@@ -4,9 +4,9 @@ import type { Game, Move } from "./checkers.ts"
 import { annotateMoves, describeMove, materialBalance, OUTCOME_VERSION, LEGACY_OUTCOME_VERSION, TRADE_OUTCOME_VERSION } from "./move-outcomes.ts"
 import type { AnnotatedMove } from "./move-outcomes.ts"
 
-export const SHARED_PROMPT_VERSION = "shared-v19" as const
-export const PREVIOUS_PROMPT_VERSION = "shared-v18" as const
-export const PROMPT_VERSIONS = ["baseline-v1", "shared-v6", "shared-v7", "shared-v8", "shared-v9", "shared-v10", "shared-v11", "shared-v12", "shared-v13", "shared-v14", "shared-v15", "shared-v16", "shared-v17", "shared-v18", "shared-v19"] as const
+export const SHARED_PROMPT_VERSION = "shared-v20" as const
+export const PREVIOUS_PROMPT_VERSION = "shared-v19" as const
+export const PROMPT_VERSIONS = ["baseline-v1", "shared-v6", "shared-v7", "shared-v8", "shared-v9", "shared-v10", "shared-v11", "shared-v12", "shared-v13", "shared-v14", "shared-v15", "shared-v16", "shared-v17", "shared-v18", "shared-v19", "shared-v20"] as const
 export type PromptVersion = typeof PROMPT_VERSIONS[number]
 export const isPromptVersion = (value: string): value is PromptVersion => PROMPT_VERSIONS.some(version => version === value)
 export const SHARED_SYSTEM_PROMPT = "Choose one legal Black action using the verified checkers outcomes. Win now or force a win; otherwise prevent Red's immediate win. Prefer higher nonnegative checked material gains. Take free captures and crown a man now before ordinary quiet development when safe. Prevent free Red promotions when no better exchange exists. Avoid a draw when ahead; prefer an available draw when behind unless a listed win exists. When no tactic decides, favor safe quiet progress: advance men or use kings together to restrict safe escapes. Avoid needless reversals; a retreat can still be necessary. Each card is a separate alternative. Card order is not a recommendation."
@@ -39,6 +39,7 @@ export const SHARED_V8_SYSTEM_PROMPT = [COMPACT_POLICY, COMPACT_RULES, COMPACT_O
 export const SMALLEST_LOSS_INSTRUCTION = "If every checked exchange loses material, prefer the smallest loss."
 export const SHARED_V9_SYSTEM_PROMPT = SHARED_V8_SYSTEM_PROMPT.replace("Prefer higher nonnegative checked material gains.", `Prefer higher nonnegative checked material gains. ${SMALLEST_LOSS_INSTRUCTION}`)
 export const PRIORITY_INSTRUCTION = "Choose from CHECKED PRIORITY CHOICES when listed; use other hints to break ties."
+export const SOUND_INSTRUCTION = "Choose from SOUND CHOICES when listed; the other actions do worse."
 export const SHARED_V10_SYSTEM_PROMPT = SHARED_V9_SYSTEM_PROMPT.replace("\nAmerican rules:", `\n${PRIORITY_INSTRUCTION}\nAmerican rules:`)
 const COMPACT_FACT_EXPLANATIONS: Record<typeof FACT_EXPLANATIONS[number][0], string> = {
   "BLACK CAN FORCE A WIN ON ITS NEXT TURN:": "Every legal Red reply permits a Black winning move.",
@@ -123,7 +124,30 @@ export function checkedPriorityChoices(game: Game, moves: readonly AnnotatedMove
   return choices
 }
 
+/** The blunder guard: actions that lose the game, or whose checked net is below the best, where another listed action does better.
+ * It ranks nothing among the remaining actions, so the choice between them stays the model's.
+ * An immediate result (a win or a draw) and a verified forced win are never among them.
+ */
+export function avoidableLosses(moves: readonly AnnotatedMove[]): AnnotatedMove[] {
+  const open = moves.filter(move => move.outcome.status === "playing" && !move.outcome.forcesWinNextTurn && !move.outcome.forcesWinWithinFourTurns)
+  const survivors = open.filter(move => !move.outcome.allowsRedWin && !move.outcome.allowsCheckedLoss)
+  // With no survivor, losing the game is unavoidable unless another action ends or wins it.
+  const sound = survivors.length || open.length < moves.length ? survivors : open
+  const best = Math.max(...sound.map(move => move.outcome.worstNetAfterResponse))
+  return open.filter(move => !sound.includes(move) || move.outcome.worstNetAfterResponse < best)
+}
+
 export function buildSharedPrompt(game: Game, annotated: readonly AnnotatedMove[], version: Exclude<PromptVersion, "baseline-v1"> = SHARED_PROMPT_VERSION): PromptInput {
+  if (version === "shared-v20") {
+    const previous = buildSharedPrompt(game, annotated, "shared-v19")
+    const avoid = new Set(avoidableLosses(annotated).map(move => move.id))
+    const [policy, ...reading] = previous.systemPrompt.split("\n")
+    // The list comes last, where the model reads it just before answering; a mark on a card alone is ignored.
+    const sound = avoid.size ? [`SOUND CHOICES: ${previous.choices.filter(choice => !avoid.has(choice.id)).map(choice => choice.label).join("; ")}.`] : []
+    return { ...previous, version,
+      systemPrompt: [policy, SOUND_INSTRUCTION, ...reading].join("\n"),
+      prompt: [previous.prompt, ...sound].join("\n") }
+  }
   if (version === "shared-v19") return concisePrompt(buildSharedPrompt(game, annotated, "shared-v18"), annotated.some(move => move.outcome.redTurnsChecked === 2))
   if (version === "shared-v18") {
     const previous = buildSharedPrompt(game, annotated, "shared-v17")
@@ -237,5 +261,5 @@ export function buildSharedPrompt(game: Game, annotated: readonly AnnotatedMove[
 }
 
 export function buildMovePrompt(game: Game, moves: readonly Move[] = legalMoves(game.board, "ai"), version: PromptVersion = SHARED_PROMPT_VERSION): PromptInput {
-  return version === "baseline-v1" ? buildBaselinePrompt(game, moves) : buildSharedPrompt(game, annotateMoves(game, moves, version === "shared-v15" || version === "shared-v16" || version === "shared-v17" || version === "shared-v18" || version === "shared-v19", version === "shared-v16" || version === "shared-v17" || version === "shared-v18" || version === "shared-v19"), version)
+  return version === "baseline-v1" ? buildBaselinePrompt(game, moves) : buildSharedPrompt(game, annotateMoves(game, moves, version === "shared-v15" || version === "shared-v16" || version === "shared-v17" || version === "shared-v18" || version === "shared-v19" || version === "shared-v20", version === "shared-v16" || version === "shared-v17" || version === "shared-v18" || version === "shared-v19" || version === "shared-v20"), version)
 }
