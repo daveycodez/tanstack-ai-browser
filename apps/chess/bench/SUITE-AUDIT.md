@@ -371,3 +371,10 @@ Each has an independently reconstructed FEN, a complete legal presentation order
 and a history that the runner replays and checks before inference. The manual
 fixture audit now covers 46 records total. These cache snapshots are excluded from
 All positions and Calibration counts and do not add tactical pass/fail objectives.
+
+
+## Outcome review extension
+
+The original local objective sets remain unchanged for comparison. Seven additional recorded positions contain complete frozen offline evaluations for 136 legal alternatives. `assessment-audit.ts` independently restores full histories and validates every legal order and teacher PV. No evaluation data enters a model prompt.
+
+Outcome review accepts all positive mating forecasts, exact alternative mating continuations, near-equal moves (within 200 cp) and different lines preserving at least +300 cp. A larger deterioration becomes a mistake only with a 400-cp drop and substantial harm or loss of a clear advantage. Bound/depth-limited evaluations, close disagreements and already-losing positions remain diagnostic. Concrete rule errors are checked independently. The objective counter is not a count of all good/bad moves; every legal move stays selectable.

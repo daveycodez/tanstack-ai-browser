@@ -2,13 +2,36 @@ import type { UsageInfo } from "@tanstack/ai"
 import type { OpponentModel } from "../src/lib/opponents.ts"
 export type ReasoningMode = "off" | "native" | "emulated-working-notes"
 
+export type OutcomeAssessment = {
+  verdict: "acceptable" | "mistake" | "uncertain" | "ungraded"
+  basis: "rules" | "engine" | "objective" | "runtime"
+  reason: string
+}
+export type EngineReview = {
+  depth: number
+  nodes: number
+  sourceRun: string
+  game: number
+  ply: number
+  grades: {
+    moveId: string
+    scoreType: "cp" | "mate"
+    score: number
+    depth: number
+    nodes: number
+    bound: boolean
+    pv: string[]
+  }[]
+}
 export type BenchmarkCase = {
   id: string
   label: string
   description: string
   fen: string
   history?: string[]
+  humanColor?: "white" | "black"
   expectedMoveIds: string[] | null
+  engineReview?: EngineReview
   orders: string[][]
   condition?: string
   suite?: "core" | "context"
@@ -30,6 +53,8 @@ export type BenchmarkResult = {
   moveId?: string
   legal: boolean
   passed: boolean | null
+  /** Independent outcome review; an unmet local objective is not automatically a mistake. */
+  assessment?: OutcomeAssessment
   signal: boolean | null
   index: number
   total: number
@@ -86,5 +111,6 @@ export type BenchmarkReport = {
     scored: number
     firstOption: number
     medianSeconds: number | null
+    outcomes?: Record<OutcomeAssessment["verdict"], number>
   }
 }

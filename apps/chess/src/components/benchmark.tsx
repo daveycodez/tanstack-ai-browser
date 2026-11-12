@@ -9,7 +9,8 @@ import {
   opponentOption
 } from "../lib/opponents"
 import type { OpponentModel } from "../lib/opponents"
-import { CASES } from "../../bench/cases"
+import { BENCHMARK_CASES as CASES } from "../../bench/catalog"
+import { SHARED_PROMPT_VERSION } from "../lib/shared-prompt"
 import { CACHE_REPLAY_CASES } from "../../bench/cache-replay"
 import { runBenchmark } from "../../bench/runner"
 import { runBenchmarkInFrame } from "../../bench/run-in-frame"
@@ -46,9 +47,10 @@ function PositionSummary({
             <th scope="col">Position</th>
             <th scope="col">Partition</th>
             <th scope="col">
-              {diagnostic ? "Observed signal" : "Objective met"}
+              {diagnostic ? "Observed signal" : "Local objective"}
             </th>
             <th scope="col">Legal choices</th>
+            <th scope="col">Outcome review</th>
             <th scope="col">Median time</th>
           </tr>
         </thead>
@@ -75,6 +77,7 @@ function PositionSummary({
                     {trials.filter((trial) => trial.legal).length} /{" "}
                     {trials.length}
                   </td>
+                  <td>{trials.filter(r => r.assessment?.verdict === "mistake").length} mistakes; {trials.filter(r => !r.assessment || r.assessment.verdict === "uncertain" || r.assessment.verdict === "ungraded").length} uncertain/unscored</td>
                   <td>
                     {seconds(median(trials.map((trial) => trial.seconds)))}
                   </td>
@@ -83,7 +86,7 @@ function PositionSummary({
             })
           ) : (
             <tr className="empty-row">
-              <td colSpan={5}>
+              <td colSpan={6}>
                 {diagnostic
                   ? "Diagnostic observations will appear separately from scored objectives."
                   : "Scored results will appear as trials finish."}
@@ -175,13 +178,13 @@ const TrialRow = memo(function TrialRow({ result, runReasoning }: {
         </td>
         <td>
           <span
-            className={`badge ${result.passed === null ? "neutral" : result.passed ? "good" : "bad"}`}
+            className={`badge ${result.assessment?.verdict === "mistake" ? "bad" : result.passed || result.assessment?.verdict === "acceptable" ? "good" : "neutral"}`}
           >
-            {result.passed === null
-              ? "Diagnostic"
-              : result.passed
-                ? "Met"
-                : "Not met"}
+            {result.assessment?.verdict === "mistake" ? "Clear mistake"
+              : result.assessment?.verdict === "uncertain" ? "Uncertain / review"
+              : result.passed ? "Objective met"
+              : result.assessment?.verdict === "acceptable" ? "Acceptable alternative"
+              : result.passed === null ? "Open-ended" : "Other plan / review"}
           </span>
         </td>
         <td className="numeric">{seconds(result.seconds)}</td>
@@ -191,8 +194,9 @@ const TrialRow = memo(function TrialRow({ result, runReasoning }: {
         <td colSpan={7}>
           <LazyDetails summary="Inspect objective and model response">
             {() => <div className="trial-detail">
-              <Detail title="Objective">{result.objective}</Detail>
-              <Detail title="Accepted moves">
+              <Detail title="Local teaching objective">{result.objective}</Detail>
+              {result.assessment && <Detail title="Independent outcome review">{`${result.assessment.verdict}: ${result.assessment.reason}`}</Detail>}
+              <Detail title="Moves demonstrating the local objective">
                 {result.expectedMoveIds?.join(", ") ??
                   "Ungraded diagnostic. No best move is asserted."}
               </Detail>
@@ -556,6 +560,7 @@ export function BenchmarkView() {
             model. Inspect the move, its objective, and the model’s actual
             response.
           </p>
+          <p className="configuration-notes">Shared prompt: <code>{SHARED_PROMPT_VERSION}</code>. Every legal move remains selectable.</p>
         </div>
         <span className="manual-badge">Manual diagnostic</span>
       </header>
@@ -795,7 +800,7 @@ export function BenchmarkView() {
           <strong>
             {scored.filter((result) => result.passed).length} / {scored.length}
           </strong>{" "}
-          scored objectives met
+          local objectives demonstrated
         </span>
         <span>
           <strong>
@@ -804,7 +809,11 @@ export function BenchmarkView() {
           legal choices
         </span>
         <span>
-          <strong>{diagnostics.length}</strong> diagnostic trials, ungraded
+          <strong>{diagnostics.length}</strong> open-ended objective trials
+        </span>
+        <span><strong>{results.filter(r => r.assessment?.verdict === "mistake").length}</strong> clear mistakes</span>
+        <span><strong>{results.filter(r => r.assessment?.verdict === "uncertain").length}</strong> uncertain choices</span>
+        <span><strong>{results.filter(r => !r.assessment || r.assessment.verdict === "ungraded").length}</strong> outcome-unscored trials
         </span>
       </div>
       {cacheResults.length > 0 && (
@@ -815,9 +824,9 @@ export function BenchmarkView() {
       )}
       <section className="results-section" aria-labelledby="scored-heading">
         <div className="section-heading">
-          <h2 id="scored-heading">Scored objectives</h2>
+          <h2 id="scored-heading">Local objective signals</h2>
           <p>
-            Measures the stated objective, without claiming an engine-best move.
+            Multiple sound moves can be acceptable. Missing a local teaching objective is not automatically a bad move; use the independent outcome review before calling it a failure.
           </p>
         </div>
         <PositionSummary
@@ -855,7 +864,7 @@ export function BenchmarkView() {
                 <th scope="col">Selected move</th>
                 <th scope="col">Choice</th>
                 <th scope="col">Legal</th>
-                <th scope="col">Objective</th>
+                <th scope="col">Objective / outcome review</th>
                 <th scope="col">Time</th>
                 <th scope="col">Error</th>
               </tr>

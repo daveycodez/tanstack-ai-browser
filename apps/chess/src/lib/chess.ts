@@ -97,9 +97,24 @@ export type ReplyMaterialLoss = {
   /** Opposing source piece and square before its capture; promotion is in netMaterial. */
   capturedBy: PieceRef
   netMaterial: number
+  /** Optional bounded capture continuation, in SAN; opponent moves first. */
+  exchangeLine?: string[]
 }
 /** Compatibility view containing only queen/rook captures. */
 export type ReplyMajorLoss = ReplyMaterialLoss
+export type QuietForkThreat = {
+  replyId: string
+  replyNotation: string
+  attacker: PieceRef
+  targets: PieceRef[]
+  captureDefense: "none" | "losing" | "unresolved"
+  captureNet?: number
+  /** Starts with your attempted capture of the attacker. */
+  captureLine?: string[]
+  /** Best immediate defense against the fork, followed by bounded capture play. */
+  responseNet?: number
+  responseLine?: string[]
+}
 export type PromotionReply = {
   id: string
   from: number
@@ -137,6 +152,18 @@ export type MoveContextOptions = {
   promotionReplies?: boolean
   kingMobility?: boolean
   safety?: boolean
+  /** Opt-in capture settlement; historical prompts retain immediate recapture math. */
+  exchangeTail?: boolean
+  /** Opt-in extra opponent capture after a compensating local recapture. */
+  exchangeFollowupCapture?: boolean
+  /** Include a direct capture example only when it explains the entire net. */
+  captureLineExamples?: boolean
+  /** Opt-in preview of legal noncapturing opponent forks. */
+  quietForks?: boolean
+  /** Certify the fork cost across every immediate legal defense. */
+  checkForkResponses?: boolean
+  /** Stop a fork proof once a legal defense cannot worsen the known risk. */
+  pruneDominatedForks?: boolean
 }
 export type AnnotatedMove = Move & {
   piece: PieceType
@@ -155,6 +182,9 @@ export type AnnotatedMove = Move & {
     kingMobility?: KingMobility
     replyMaterialLosses?: ReplyMaterialLoss[]
     replyMajorLosses?: ReplyMajorLoss[]
+    quietForkThreats?: QuietForkThreat[]
+    /** The opt-in extra capture tree hit a bound or a draw-ending branch. */
+    exchangeFollowupUnresolved?: boolean
     drawReason?: string
     /** Distinct opposing pieces with a legal capture of the moved piece. */
     recapture: {
@@ -925,10 +955,142 @@ function kingMobilityAfterMove(
   }
 }
 
+/** Capture-only settlement, optionally including one further opponent capture
+ * after a local recapture. Either side may leave through a legal other move.
+ * Quiet follow-ups are not searched.
+ * A recapture which permits immediate mate cannot count as compensation.
+ * The engine retains real history and is restored on every return/abort.
+ */
+function settledRecaptureGain(engine: Chess, reply: ChessMove, requireFirstCapture = false, followLandingSquare = false, followupCapture = false): { gain: number; line: string[] } | undefined {
+  let nodes = followupCapture ? 512 : 128
+  const limit = Symbol("exchange limit")
+  const value = (piece: PieceType) => pieceValues[piece] ?? 0
+  function visit(sign: 1 | -1, knownLegal?: ChessMove[], requireCapture = false, target: Square = reply.to, extraAvailable = followupCapture): { gain: number; line: string[] } {
+    if (--nodes < 0) throw limit
+    if (positionStatus(engine).status !== "playing") return { gain: 0, line: [] }
+    const legal = knownLegal ?? engine.moves({ verbose: true })
+    const onTarget = (move: ChessMove) => describe(move).captures.includes(indexOf(target))
+    const captures = legal.filter(move => move.captured && (onTarget(move) || (extraAvailable && sign === -1)))
+    // Any actual legal move outside this local exchange can end the preview.
+    let best = !requireCapture && legal.some(move => !captures.includes(move)) ? { gain: 0, line: [] as string[] } : undefined
+    for (const capture of captures) {
+      engine.move(capture)
+      try {
+        // A material return that loses the game next turn is not compensation.
+        const nextLegal = engine.moves({ verbose: true })
+        if (nextLegal.some(move => move.san.endsWith("#"))) continue
+        // Do not turn a draw-ending branch into a certified material-loss forecast.
+        if (followupCapture && engine.isDraw()) throw limit
+        const outside = !onTarget(capture)
+        const tail = visit(sign === 1 ? -1 : 1, nextLegal, false, followLandingSquare || followupCapture || outside ? capture.to : target, extraAvailable && !outside)
+        const gain = sign * (value(capture.captured ?? "p") + (capture.promotion ? value(capture.promotion) - value("p") : 0)) + tail.gain
+        if (!best || (sign === 1 ? gain > best.gain : gain < best.gain)) best = { gain, line: [capture.san, ...tail.line] }
+      } finally { engine.undo() }
+    }
+    // No usable recapture is a zero material return, not a claim of survival.
+    return best ?? { gain: 0, line: [] }
+  }
+  engine.move(reply)
+  try { return visit(1, undefined, requireFirstCapture) }
+  catch (error) { if (error === limit) return undefined; throw error }
+  finally { engine.undo() }
+}
+
+/** Check every immediate defense, not just captures of the forking piece.
+ * The opponent's next legal captures use the bounded exchange tree; later quiet
+ * plans are outside the claim. Incomplete searches publish no certified cost.
+ */
+function checkedForkResponses(engine: Chess, reply: ChessMove, riskFloor?: number): { net: number; line: string[] } | undefined {
+  let nodes = 512
+  const limit = Symbol("fork response limit")
+  const tick = () => { if (--nodes < 0) throw limit }
+  engine.move(reply)
+  try {
+    if (positionStatus(engine).status !== "playing") return { net: 0, line: [] }
+    let best = -Infinity, bestLine: string[] = []
+    for (const defense of engine.moves({ verbose: true })) {
+      tick(); engine.move(defense)
+      try {
+        if (positionStatus(engine).status !== "playing") return { net: 0, line: [defense.san] }
+        const replies = engine.moves({ verbose: true })
+        // Never rate a defense allowing mate as better than a material loss.
+        if (replies.some(move => move.san.endsWith("#"))) continue
+        let worst = 0, witness: string[] = []
+        const analyze = replyAnalyzer(engine)
+        for (const capture of replies.filter(move => move.captured && move.captured !== "k")) {
+          tick(); engine.move(capture)
+          let credible = false
+          try {
+            credible = positionStatus(engine).status === "playing" && !engine.moves().some(san => san.endsWith("#"))
+          } finally { engine.undo() }
+          if (!credible) continue
+          const settlement = settledRecaptureGain(engine, capture, false, true)
+          if (!settlement) throw limit
+          const loss = materialLossAfterReply(defense, capture, analyze, settlement)
+          if (loss && loss.netMaterial < worst) { worst = loss.netMaterial; witness = loss.exchangeLine ?? [capture.san] }
+          // Further opponent replies cannot improve an already inferior defense.
+          if (worst <= best) break
+        }
+        if (worst >= 0) return { net: 0, line: [defense.san] }
+        if (riskFloor !== undefined && worst >= riskFloor) return undefined
+        if (worst > best) { best = worst; bestLine = [defense.san, ...witness] }
+      } finally { engine.undo() }
+    }
+    return Number.isFinite(best) ? { net: best, line: bestLine } : undefined
+  } catch (error) { if (error === limit) return undefined; throw error }
+  finally { engine.undo() }
+}
+
+/** A legal quiet reply may create a fork before capturing anything. These are
+ * conditional threats, not a claim that every defense loses. Safe local capture
+ * defenses suppress the warning; other defenses are deliberately not ranked.
+ */
+function quietForkAfterReply(engine: Chess, reply: ChessMove, checkResponses = false, riskFloor?: number): QuietForkThreat | undefined {
+  if (reply.captured || reply.san.endsWith("#")) return undefined
+  const preview = new Chess(reply.after)
+  const potential = preview.board().flat().flatMap((piece, square): PieceRef[] => {
+    if (!piece || piece.color === reply.color || piece.type === "p") return []
+    if (piece.type === "k" && !reply.san.endsWith("+")) return []
+    return preview.attackers(squareName(square) as Square, reply.color).includes(reply.to)
+      ? [{ piece: piece.type, square }] : []
+  })
+  if (potential.length < 2) return undefined
+  let targets: PieceRef[], captures: ChessMove[]
+  engine.move(reply)
+  try {
+    if (positionStatus(engine).status !== "playing") return undefined
+    // Reject geometric targets which the moved piece cannot legally capture.
+    const future = hypotheticalEngine(engine, reply.color).moves({ verbose: true })
+      .filter(move => move.from === reply.to && move.captured && move.captured !== "k")
+    targets = potential.filter(target => target.piece === "k" || future.some(move => move.to === squareName(target.square)))
+    if (targets.length < 2) return undefined
+    captures = engine.moves({ verbose: true }).filter(move => describe(move).captures.includes(indexOf(reply.to)))
+  } finally { engine.undo() }
+  if (checkResponses) {
+    const response = checkedForkResponses(engine, reply, riskFloor)
+    if (!response || response.net >= 0) return undefined
+    return { replyId: describe(reply).id, replyNotation: reply.san,
+      attacker: { piece: reply.piece, square: indexOf(reply.to) }, targets,
+      captureDefense: captures.length ? "unresolved" : "none",
+      responseNet: response.net, responseLine: [reply.san, ...response.line] }
+  }
+  const defense = captures.length ? settledRecaptureGain(engine, reply, true) : undefined
+  if (defense?.line.length && defense.gain >= 0) return undefined
+  const losing = defense && defense.line.length > 0 && defense.gain < 0
+  return {
+    replyId: describe(reply).id, replyNotation: reply.san,
+    attacker: { piece: reply.piece, square: indexOf(reply.to) }, targets,
+    captureDefense: !captures.length ? "none" : losing ? "losing" : "unresolved",
+    ...(losing ? { captureNet: defense.gain, captureLine: defense.line } : {})
+  }
+}
+
 function materialLossAfterReply(
   candidate: ChessMove,
   reply: ChessMove,
-  analyzeReply: AnalyzeReply
+  analyzeReply: AnalyzeReply,
+  exchange?: { gain: number; line: string[] },
+  directLine = false
 ): ReplyMaterialLoss | undefined {
   if (!reply.captured || reply.captured === "k") return undefined
   const value = (piece: PieceType) => pieceValues[piece] ?? 0
@@ -951,13 +1113,14 @@ function materialLossAfterReply(
     )
   )
   const netMaterial =
-    candidateGain - value(reply.captured) - promotionGain + recaptureGain
+    candidateGain - value(reply.captured) - promotionGain + (exchange?.gain ?? recaptureGain)
   if (netMaterial >= 0) return undefined
   return {
     piece: reply.captured,
     square: describe(reply).captures[0],
     capturedBy: { piece: reply.piece, square: indexOf(reply.from) },
-    netMaterial
+    netMaterial,
+    ...(exchange ? { exchangeLine: [reply.san, ...exchange.line] } : directLine && netMaterial === candidateGain - value(reply.captured) - promotionGain ? { exchangeLine: [reply.san] } : {})
   }
 }
 
@@ -999,7 +1162,9 @@ export function annotatedLegalMoves(
       const state = positionStatus(engine, game.humanColor)
       const analyzeReply = replyAnalyzer(engine)
       let allowsMateInOne = false
+      let exchangeFollowupUnresolved = false
       let replies: ChessMove[] = []
+      const quietForkThreats: QuietForkThreat[] | undefined = options.quietForks ? [] : undefined
       const promotionReplies: PromotionReply[] | undefined = options.promotionReplies ? [] : undefined
       const replyMaterialLosses: ReplyMaterialLoss[] | undefined =
         options.safety ? [] : undefined
@@ -1014,9 +1179,14 @@ export function annotatedLegalMoves(
         replies = engine.moves({ verbose: true })
         for (const reply of replies) {
           if (reply.san.endsWith("#")) allowsMateInOne = true
+          if (quietForkThreats && !options.pruneDominatedForks) { const fork = quietForkAfterReply(engine, reply, options.checkForkResponses); if (fork) quietForkThreats.push(fork) }
           if (promotionReplies && reply.promotion) promotionReplies.push(promotionReplyOutcome(candidate, reply, analyzeReply))
           if (replyMaterialLosses) {
-            const loss = materialLossAfterReply(candidate, reply, analyzeReply)
+            const immediate = materialLossAfterReply(candidate, reply, analyzeReply, undefined, options.captureLineExamples)
+            const needsExchange = options.exchangeTail && !immediate && reply.captured && analyzeReply(reply).recaptures.length
+            const exchange = needsExchange ? settledRecaptureGain(engine, reply, false, false, options.exchangeFollowupCapture) : undefined
+            if (needsExchange && options.exchangeFollowupCapture && !exchange) exchangeFollowupUnresolved = true
+            const loss = exchange ? materialLossAfterReply(candidate, reply, analyzeReply, exchange, options.captureLineExamples) : immediate
             if (loss) {
               replyMaterialLosses.push(loss)
               if (loss.piece === "q" || loss.piece === "r")
@@ -1032,6 +1202,19 @@ export function annotatedLegalMoves(
             value: pieceValues[reply.piece],
             square
           })
+        }
+        if (quietForkThreats && options.pruneDominatedForks && !allowsMateInOne) {
+          const value = (piece: PieceType) => pieceValues[piece] ?? 0
+          const initialGain = (candidate.captured ? value(candidate.captured) : 0) + (candidate.promotion ? value(candidate.promotion) - value("p") : 0)
+          let riskFloor = Math.min(0, ...(replyMaterialLosses ?? []).map(loss => loss.netMaterial))
+          for (const reply of replies) {
+            const promotionGain = reply.promotion ? value(reply.promotion) - value("p") : 0
+            const fork = quietForkAfterReply(engine, reply, options.checkForkResponses, riskFloor - initialGain + promotionGain)
+            if (fork) {
+              quietForkThreats.push(fork)
+              if (fork.responseNet !== undefined) riskFloor = Math.min(riskFloor, initialGain - promotionGain + fork.responseNet)
+            }
+          }
         }
       }
       const ownAfterMoves =
@@ -1054,6 +1237,8 @@ export function annotatedLegalMoves(
           stalemate: state.drawReason === "Stalemate",
           allowsMateInOne,
           ...(promotionReplies ? { promotionReplies } : {}),
+          ...(quietForkThreats ? { quietForkThreats } : {}),
+          ...(exchangeFollowupUnresolved ? { exchangeFollowupUnresolved: true } : {}),
           ...(options.kingMobility && beforeBoard ? { kingMobility: kingMobilityAfterMove(engine, candidate, beforeOtherMoves, replies, beforeBoard) } : {}),
           ...(replyMaterialLosses
             ? { replyMaterialLosses, replyMajorLosses }

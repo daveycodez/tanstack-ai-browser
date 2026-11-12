@@ -52,10 +52,10 @@ WebGL's total generation
 ceiling is 8,192 tokens; Prompt API's browser-managed final-output limit is recorded
 as `null`. These are different capabilities.
 
-Every model receives the same **shared-v99-concise** system and user assembly, standard
+Every model receives the same **shared-v111-decoded-state-only** system and user assembly, standard
 piece values and model-default sampling. Ownership is phrased as **you/opponent**;
 **light/dark** identifies piece color for either assignment. The model receives complete
-decoded piece lists and FEN state metadata; full FEN remains in game/audit records.
+decoded piece lists and plain-language turn/castling/en-passant/clock metadata; full FEN remains in game/audit records.
 See [the v98/v99 compaction comparison](PROMPT-COMPACTION.md) and [latest aggregates](latest.json) for native token counts, unchanged-suite scores, and serial timings.
 
 The optional **WebGL temperature** control
@@ -75,11 +75,13 @@ a sole legal choice needs no generation.
 
 ## Suite and grading
 
-The current **audited-v10** suite contains **39 positions: 36 calibration and 3 held
-out**, with **21 scored objectives and 18 neutral diagnostics**. Calibration has
-18 scored positions and 18 diagnostics. At the default two repetitions this is
-72 calibration trials or 78 trials for the complete suite. Four-repetition
-calibration runs contain 144 trials and 72 scored decisions.
+The current **audited-v11-outcome-review** catalog contains **46 positions: 43 calibration and 3 held out**. It retains the original 39 local-objective/observation cases and adds seven recorded positions with complete frozen offline evaluations. At two repetitions this is 86 calibration decisions or 92 for the whole catalog. The seven cache-replay positions remain a separate control.
+
+The objective counter is a **teaching signal**, not a general bad-move count. Its original accepted sets remain available for historical comparisons. A missed local objective can be a sound alternative; it is neutral until independent outcome evidence supports a clear mistake.
+
+Independent outcome review accepts every winning mate regardless of mate distance, verified alternative mating continuations, moves within 200 cp of the strongest fixed-budget child, and different plans retaining at least +300 cp. Small differences outside those bands are **uncertain**, not failures. A 400-cp deterioration must also become substantially worse or lose a clear advantage before it is labeled a mistake. Already-losing positions, node/depth limits and bound scores remain diagnostic. Illegal moves, an avoidable next-turn mate and drawing instead of an available forced win are concrete rule failures. All reference data is post-run evaluation only and never enters model prompts.
+
+Examples: all six verified defenses in the check-response fixture pass, while its seventh playable response is uncertain; nine different choices preserve the recorded promotion advantage. In a genuinely forced tactical position, only one move may qualify because the alternatives lose substantial material. No model is required to copy one preferred opening, move ID or shortest mating line.
 
 Use calibration for prompt selection. Freeze source before holdouts. If held-out
 results influence another change, those positions have become calibration data;
@@ -172,3 +174,9 @@ Development builds also list **Apple-FoundationModel** (Apfel on this Mac). Its
 optional working notes are adapter-emulated, as labeled in reports. WebGL sampling
 overrides do not apply to Apfel. Recorded fixtures explicitly assign the human
 White so ordinary game-color assignment cannot change benchmark ownership.
+
+## Production guidance
+
+The default uses the tactical pipeline verified in the v111 experiments: bounded capture/recapture settlement, one additional opponent capture after local recapture, checked quiet forks, explicit immediate-mate action warnings, paired legal witness/net lines, compact worst-fork presentation and decoded metadata. The historical v98/v99 builders remain available for regression comparisons. The model still selects from every legal move; no safety veto, engine-selected substitute, analyst score or forced re-selection is used. Ordinary gameplay keeps reasoning off by default and the existing generation deadline.
+
+The clean production implementation reproduced all 96 benchmark inputs and 33 head-to-head inputs from the validated v111 run exactly, including system text and choice cards. Prior experiments recorded a Stockfish Skill-0/depth-1 win in ten attempts (1 win, 7 losses, 2 unresolved caps), and a win as Black against a clean-context GPT-6.1 Sol High agent (33...Rc1#). These are bounded observations, not a general strength or win-rate claim. Rejected prompt variants and temporary match bridges are not part of this production patch.

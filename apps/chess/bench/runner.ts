@@ -6,7 +6,8 @@ import type { OpponentModel } from "../src/lib/opponents.ts"
 import type { PromptVersion } from "../src/lib/shared-prompt.ts"
 import { isPromptVersion, SHARED_PROMPT_VERSION } from "../src/lib/shared-prompt.ts"
 import { benchmarkOrder } from "./order.ts"
-import { CASES } from "./cases.ts"
+import { BENCHMARK_CASES as CASES, SUITE_VERSION } from "./catalog.ts"
+import { assessMove } from "./assess-move.ts"
 import { CACHE_REPLAY_CASES } from "./cache-replay.ts"
 import type { BenchmarkReport, BenchmarkResult } from "./types.ts"
 declare const __CHESS_BENCH_REVISION__: string
@@ -88,7 +89,7 @@ export async function runBenchmark(
       caseIds: cases.map((c) => c.id),
       suiteVersion: cases.every(c => c.id.startsWith("cache-"))
         ? "cache-replay-v1"
-        : "audited-v10",
+        : SUITE_VERSION,
       outputContract: "san-risk-enum-v14",
       promptVersion: options.promptVersion ?? SHARED_PROMPT_VERSION,
       moveOrderSeed,
@@ -115,8 +116,8 @@ export async function runBenchmark(
     for (let repetition = 0; repetition < options.repetitions; repetition++) {
       if (options.signal.aborted) break outer
       const game = testCase.history
-        ? testCase.history.reduce(applyMove, newGame("white"))
-        : fromFen(testCase.fen)
+        ? testCase.history.reduce(applyMove, newGame(testCase.humanColor ?? "white"))
+        : fromFen(testCase.fen, testCase.humanColor ?? "white")
       if (game.fen !== testCase.fen)
         throw new Error(`Fixture history mismatch: ${testCase.id}`)
       // Match gameplay: each turn/retry shares a clean provider prefix within a game.
@@ -192,12 +193,14 @@ export async function runBenchmark(
           testCase.expectedMoveIds === null
             ? null
             : testCase.expectedMoveIds.includes(result.moveId)
+        result.assessment = assessMove(testCase, result.moveId)
         result.signal = testCase.signalMoveIds
           ? testCase.signalMoveIds.includes(result.moveId)
           : null
       } catch (error) {
         if (options.signal.aborted) break outer
         result.error = error instanceof Error ? error.message : String(error)
+        result.assessment = { verdict: "ungraded", basis: "runtime", reason: "Operational error; no chess judgment." }
       } finally {
         result.seconds = (performance.now() - started) / 1000
         options.signal.removeEventListener("abort", abort)
@@ -213,6 +216,12 @@ export async function runBenchmark(
     legal: xs.filter((r) => r.legal).length,
     passed: xs.filter((r) => r.passed === true).length,
     scored: xs.filter((r) => r.passed !== null).length,
+    outcomes: {
+      acceptable: xs.filter(r => r.assessment?.verdict === "acceptable").length,
+      mistake: xs.filter(r => r.assessment?.verdict === "mistake").length,
+      uncertain: xs.filter(r => r.assessment?.verdict === "uncertain").length,
+      ungraded: xs.filter(r => !r.assessment || r.assessment.verdict === "ungraded").length
+    },
     firstOption: xs.filter((r) => r.index === 0).length,
     medianSeconds: times.length
       ? times.length % 2

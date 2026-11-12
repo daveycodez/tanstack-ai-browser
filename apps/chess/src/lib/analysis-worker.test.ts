@@ -6,9 +6,10 @@ import { analyzeMovePrompt } from "./analysis-worker.ts"
 import type { AnalysisRequest } from "./analysis-worker.ts"
 import { buildMoveAnalysis } from "./move-analysis.ts"
 import { annotatedLegalMoves, applyMove, currentThreats, fromFen, newGame } from "./chess.ts"
-import { buildSharedPrompt } from "./shared-prompt.ts"
+import { buildSharedPrompt, CONCISE_PROMPT_VERSION } from "./shared-prompt.ts"
 import { stableMoveOrder } from "./move-order.ts"
 import { CASES } from "../../bench/cases.ts"
+import { RECORDED_CASES } from "../../bench/recorded-cases.ts"
 
 const request: AnalysisRequest = { game: applyMove(newGame("white"), "e2e4"), moveOrderSeed: "worker-parity" }
 class RecordingWorker extends EventTarget {
@@ -29,17 +30,54 @@ test("the real analysis worker preserves the previous production prompt, facts a
       const moves = stableMoveOrder(annotatedLegalMoves(game, {
         relationships: true, mobility: true,
         support: game.board.some(piece => piece?.side === game.turn && (piece.type === "q" || piece.type === "r")),
-        castling: /[kq]/.test(game.fen.split(" ")[2]),
+        castling: /[kq]/i.test(game.fen.split(" ")[2]),
         kingCover: true, promotionReplies: true, kingMobility: true, safety: true
       }), "worker-parity")
-      const expected = buildSharedPrompt({ game, moves, currentThreats: currentThreats(game) })
+      const expected = buildSharedPrompt({ game, moves, currentThreats: currentThreats(game) }, CONCISE_PROMPT_VERSION)
       const reply = once(worker, "message")
-      worker.postMessage({ game, moveOrderSeed: "worker-parity" })
+      worker.postMessage({ game, moveOrderSeed: "worker-parity", promptVersion: CONCISE_PROMPT_VERSION })
       const [value] = await reply
       assert.deepEqual(value, { input: expected }, fixture.id)
     }
   } finally { await worker.terminate() }
 })
+
+test("the normal worker default activates the validated fork and exchange guidance", async () => {
+  const url = new URL("./analysis.worker.ts", import.meta.url).href
+  const worker = new NodeWorker(
+    `import {parentPort} from 'node:worker_threads';globalThis.postMessage=data=>parentPort.postMessage(data);await import(${JSON.stringify(url)});parentPort.on('message',data=>globalThis.onmessage({data}));`,
+    { eval: true, execArgv: ["--experimental-strip-types"] }
+  )
+  try {
+    for (const id of ["quiet-fork-king-rook", "quiet-fork-queen-rook"]) {
+      const f = RECORDED_CASES.find((f) => f.id === id)
+      assert.ok(f?.history)
+      const game = f.history.reduce(applyMove, newGame(f.humanColor)),
+        moveOrder = f.orders[0],
+        reply = once(worker, "message")
+      worker.postMessage({ game, moveOrder })
+      const [value] = await reply,
+        expected = buildMoveAnalysis({
+          game,
+          moveOrder,
+          promptVersion: "shared-v111-decoded-state-only"
+        })
+      assert.deepEqual(value, { input: expected })
+      assert.ok(value.input.prompt.includes("Turn: you."))
+      const risk =
+        id === "quiet-fork-king-rook"
+          ? value.input.choices.find((c: { id: string }) => c.id === "c4b3")
+          : value.input.choices.find((c: { id: string }) => c.id === "f2f3")
+      assert.equal(
+        risk?.label,
+        id === "quiet-fork-king-rook" ? "RISK -1: Bb3" : "RISK -5: f3"
+      )
+    }
+  } finally {
+    await worker.terminate()
+  }
+})
+
 
 test("diagnostic move-order overrides remain complete and exact", () => {
   const order = CASES[0].orders[0]
