@@ -1062,6 +1062,20 @@ function kingMobilityAfterMove(
   }
 }
 
+/** The positions one candidate move's searches (its replies' exchanges, then
+ * its quiet-fork checks) may visit between them. Each search has its own
+ * limit (128 or 512 positions), but a candidate can meet dozens of captures
+ * and forking replies: without a share, queens on an open board cost tens of
+ * thousands of positions a turn. Every candidate gets the same share, so none
+ * is assessed more closely than another; a search that runs out publishes no
+ * result, as any incomplete one.
+ */
+const CANDIDATE_SEARCH_NODES = 600
+/** What's left of the candidate's share; undefined outside an analysis. */
+let searchNodesLeft: number | undefined
+/** Takes one position from the candidate's share; false once it's spent. */
+const spendSearchNode = () => searchNodesLeft === undefined || --searchNodesLeft >= 0
+
 /** Capture-only settlement, optionally including one further opponent capture
  * after a local recapture. Either side may leave through a legal other move.
  * Quiet follow-ups are not searched.
@@ -1073,7 +1087,7 @@ function settledRecaptureGain(engine: Chess, reply: ChessMove, requireFirstCaptu
   const limit = Symbol("exchange limit")
   const value = (piece: PieceType) => pieceValues[piece] ?? 0
   function visit(sign: 1 | -1, knownLegal?: ChessMove[], requireCapture = false, target: Square = reply.to, extraAvailable = followupCapture): { gain: number; line: string[] } {
-    if (--nodes < 0) throw limit
+    if (--nodes < 0 || !spendSearchNode()) throw limit
     if (positionStatus(engine).status !== "playing") return { gain: 0, line: [] }
     const legal = knownLegal ?? verboseMoves(engine)
     const onTarget = (move: ChessMove) => describe(move).captures.includes(indexOf(target))
@@ -1110,7 +1124,7 @@ function settledRecaptureGain(engine: Chess, reply: ChessMove, requireFirstCaptu
 function checkedForkResponses(engine: Chess, reply: ChessMove, riskFloor?: number): { net: number; line: string[] } | undefined {
   let nodes = 512
   const limit = Symbol("fork response limit")
-  const tick = () => { if (--nodes < 0) throw limit }
+  const tick = () => { if (--nodes < 0 || !spendSearchNode()) throw limit }
   advance(engine, reply)
   try {
     if (positionStatus(engine).status !== "playing") return { net: 0, line: [] }
@@ -1264,6 +1278,7 @@ export function annotatedLegalMoves(
     const move = describe(candidate)
     // One candidate's searches meet the same positions again and again.
     listedMoves = new Map()
+    searchNodesLeft = CANDIDATE_SEARCH_NODES
     advance(engine, candidate)
     try {
       const state = positionStatus(engine, game.humanColor)
@@ -1412,6 +1427,7 @@ export function annotatedLegalMoves(
     } finally {
       retreat(engine)
       listedMoves = undefined
+      searchNodesLeft = undefined
     }
   })
 }
