@@ -20,6 +20,16 @@
         "chess"
       ],
       "port": 3003
+    },
+    {
+      "name": "checkers",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": [
+        "nx",
+        "dev",
+        "checkers"
+      ],
+      "port": 3002
     }
   ]
 }
