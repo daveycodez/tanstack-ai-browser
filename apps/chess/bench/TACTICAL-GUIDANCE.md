@@ -16,4 +16,19 @@ The default is now `shared-v112-compact`: the v111 pipeline's moves, labels, ord
 
 Each candidate move's exchange and quiet-fork searches now share 600 positions; a search that runs out publishes no result, as any incomplete one. Without it a late middlegame turn's analysis visited tens of thousands of positions. On those 272 positions the ceiling changes 14 prompts.
 
-Neither change has been through the model benchmark: the v111 results above describe v111's wording and unbounded searches. Run the matched comparison (v111 against v112) before relying on them for the new default.
+### Matched comparison, v111 wording against v112
+
+Run 2026-11-12 in the Mac desktop app's browser, LFM3-1.7B-GGUF alone, at revision `f87f806`: the 39 positions of `cases.ts`, two stress orders each, thinking off, model defaults, half the positions run v111 then v112 and the other half v112 then v111 (the v98/v99 protocol). Both versions ran with the search ceiling, so this compares the wording only.
+
+| Measure | v111 | v112 |
+|---|---:|---:|
+| Scored decisions passed | 40/42 | 42/42 |
+| Legal decisions | 78/78 | 78/78 |
+| Outcome review: acceptable / mistake | 40 / 0 | 42 / 0 |
+| Mean native full input, tokens | 1,903.6 | 1,508.8 (−20.7%) |
+| Mean prompt, characters | 6,129 | 4,402 (−28.2%) |
+| Median decision time | 1.06 s | 0.86 s |
+
+Zero generation errors in 156 decisions. 72 of the 78 paired decisions chose the same move; the two scored differences (`free-queen`, second order, and `observed-free-bishop-on-h6`, first order) both passed under v112 and missed the local objective under v111. Native tokens include the response schema's labels and the chat framing, which the wording doesn't change. The times are one serial run and include the analysis; they are not a mobile or whole-game claim, and one model on one suite is not evidence about strength.
+
+The search ceiling itself has not been compared with unbounded searches on the model: the earlier v111 results above were recorded without it.
