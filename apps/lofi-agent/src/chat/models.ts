@@ -33,6 +33,7 @@ export type ModelId =
   | "lfm2.5-350m"
   | "qwen3.5-2b"
   | "qwen3.5-0.8b"
+  | "lfm3-gguf"
   | "lfm2.5-gguf"
   | "lfm2.5-thinking-gguf"
   | "lfm2.5-350m-gguf"
@@ -263,6 +264,7 @@ export const MODELS = [
   local("lfm2.5-350m", "LiquidAI/LFM2.5-350M-ONNX"),
   local("qwen3.5-2b", "onnx-community/Qwen3.5-2B-ONNX"),
   local("qwen3.5-0.8b", "onnx-community/Qwen3.5-0.8B-ONNX"),
+  gguf("lfm3-gguf", "LiquidAI/LFM3-1.7B-GGUF"),
   gguf("lfm2.5-gguf", "LiquidAI/LFM2.5-1.2B-Instruct-GGUF"),
   gguf("lfm2.5-thinking-gguf", "LiquidAI/LFM2.5-1.2B-Thinking-GGUF"),
   gguf("lfm2.5-350m-gguf", "LiquidAI/LFM2.5-350M-GGUF"),
@@ -453,21 +455,6 @@ export const isModelId = (value: unknown): value is ModelId =>
   allModels().some((m) => m.id === value)
 
 /**
- * Models the picker no longer offers, and the same model on another runtime
- * to use instead when a setting or a session still names one. wllama 3.8.1's
- * llama.cpp predates LFM3's architecture, so LFM3's GGUFs don't load there:
- * Liquid's GGUF runs on the WebGL engine, LFM3 Web on Transformers.js.
- */
-const RETIRED_MODELS: Readonly<Record<string, ModelId>> = {
-  "lfm3-gguf": "lfm3-webgl",
-  "lfm3-web-gguf": "lfm3-web"
-}
-
-/** A saved model id, with a retired one replaced by its stand-in. */
-export const currentModelId = (value: unknown): unknown =>
-  (typeof value === "string" && RETIRED_MODELS[value]) || value
-
-/**
  * Apple's model is reached through apfel, a server on the Mac: macOS only.
  * iPadOS reports itself as a Mac too, so a touch screen rules it out.
  */
@@ -614,8 +601,8 @@ export const offered = (
   isMac: boolean,
   hasGpu: boolean
 ): ModelId => {
-  const id = currentModelId(saved)
-  if (typeof id === "string" && id.startsWith("web-llm:")) void loadWebLlmModels()
+  const id = saved
+  if (id.startsWith("web-llm:")) void loadWebLlmModels()
   return isModelId(id) && canRun(id, isMac, hasGpu)
     ? id
     : canRun(DEFAULT_MODEL, isMac, hasGpu)

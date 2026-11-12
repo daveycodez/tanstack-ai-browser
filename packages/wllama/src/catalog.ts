@@ -44,8 +44,9 @@ export type WllamaModelMeta = {
 }
 
 // Reasoning shapes, each level's value being the chat template's
-// `enable_thinking`. Qwen3.5's template takes it (thinking off by default);
-// LFM2.5 Thinking always thinks and takes no switch.
+// `enable_thinking`. LFM3's template takes it (thinking by default), and
+// Qwen3.5's (thinking off by default); LFM2.5 Thinking always thinks and
+// takes no switch.
 const THINKING_SWITCH = {
   levels: { off: "false", high: "true" },
   budget: true
@@ -63,6 +64,12 @@ const TOOLS = {
   capabilities: ["tools"]
 } as const
 
+/** LFM3's card: `--temp 0.1 --top-k 50 --repeat-penalty 1.1`. */
+const LFM3_SAMPLING = {
+  temperature: 0.1,
+  top_k: 50,
+  repeat_penalty: 1.1
+} as const satisfies Sampling
 /** The cards' llama.cpp settings: `--temp 0.1 --top-k 50 --repeat-penalty 1.05`. */
 const LFM2_5_SAMPLING = {
   temperature: 0.1,
@@ -94,6 +101,20 @@ const QWEN_3_5_THINKING_SAMPLING = { ...QWEN_3_5_SAMPLING, top_p: 0.95, presence
 // faster than Q5_K_M, Q6_K and Q8_0, at 5% more size than Q4_0. LFM2.5
 // 1.2B on an M3 Ultra, 24 threads: Q4_K_M 231 prompt tokens/s and 112
 // tokens/s, Q4_0 (Liquid's QAD build too) 65 and 45.
+
+/**
+ * Liquid AI's LFM3 1.7B, from its official GGUF repository: thinks by
+ * default, or answers straight away with reasoning off. It needs wllama
+ * 3.13's llama.cpp, the first published with its architecture.
+ */
+const LFM3_1_7B = {
+  name: "LiquidAI/LFM3-1.7B-GGUF",
+  file: "LFM3-1.7B-Q4_K_M.gguf",
+  supports: TOOLS_AND_THINKING,
+  size: "1.7b",
+  reasoning: THINKING_SWITCH,
+  sampling: LFM3_SAMPLING
+} as const satisfies WllamaModelMeta
 
 /** Liquid AI's LFM2.5 1.2B Instruct, from its official GGUF repository. */
 const LFM2_5_1_2B = {
@@ -143,6 +164,7 @@ const QWEN_3_5_2B = {
 } as const satisfies WllamaModelMeta
 
 export const WLLAMA_CHAT_MODELS = [
+  LFM3_1_7B.name,
   LFM2_5_1_2B.name,
   LFM2_5_1_2B_THINKING.name,
   LFM2_5_350M.name,
@@ -156,6 +178,7 @@ export type WllamaChatModel = (typeof WLLAMA_CHAT_MODELS)[number]
 export const WLLAMA_MODEL_META: Readonly<
   Record<WllamaChatModel, WllamaModelMeta>
 > = {
+  [LFM3_1_7B.name]: LFM3_1_7B,
   [LFM2_5_1_2B.name]: LFM2_5_1_2B,
   [LFM2_5_1_2B_THINKING.name]: LFM2_5_1_2B_THINKING,
   [LFM2_5_350M.name]: LFM2_5_350M,
@@ -163,6 +186,7 @@ export const WLLAMA_MODEL_META: Readonly<
 }
 
 const WLLAMA_REASONING = {
+  [LFM3_1_7B.name]: LFM3_1_7B.reasoning,
   [LFM2_5_1_2B_THINKING.name]: LFM2_5_1_2B_THINKING.reasoning,
   [QWEN_3_5_2B.name]: QWEN_3_5_2B.reasoning
 } as const

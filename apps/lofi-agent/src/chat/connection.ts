@@ -19,7 +19,6 @@ import { ABORTED, untilAborted } from "./abortable"
 import { isReasoningLevel, selectedModel } from "./model"
 import { messagesFor } from "./media"
 import {
-  currentModelId,
   effortFor,
   inputModalities,
   isModelId,
@@ -29,7 +28,7 @@ import {
 
 /** The model a session forwarded with this run, if it's one we have. */
 function readModel(forwarded: Record<string, unknown> | undefined) {
-  const model = currentModelId(forwarded?.model)
+  const model = forwarded?.model
   return isModelId(model) ? model : selectedModel()
 }
 

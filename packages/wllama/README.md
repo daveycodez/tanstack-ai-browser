@@ -58,12 +58,13 @@ The package is shaped like `@tanstack/ai-openai`'s text adapter:
 
 ## Models
 
-`WLLAMA_CHAT_MODELS` lists the models this package knows, and `WLLAMA_MODEL_META` has each one's details: Hugging Face repository, GGUF file, capabilities, reasoning levels and the sampling from its card. They're Liquid AI's official GGUF builds, and Unsloth's build of Qwen3.5 2B. LFM3's GGUFs aren't listed: wllama 3.8.1's llama.cpp doesn't know their architecture ([ngxson/wllama#310](https://github.com/ngxson/wllama/issues/310)).
+`WLLAMA_CHAT_MODELS` lists the models this package knows, and `WLLAMA_MODEL_META` has each one's details: Hugging Face repository, GGUF file, capabilities, reasoning levels and the sampling from its card. They're Liquid AI's official GGUF builds, and Unsloth's build of Qwen3.5 2B.
 
 Any other GGUF works too: name its file, as `"owner/repo/file.gguf"` on Hugging Face (its latest version) or as a URL. An unlisted model gets llama.cpp's default sampling and the chat template's `enable_thinking` switch for `chat({ reasoning })`.
 
 | Model                                | Reasoning                       | File            |
 | ------------------------------------ | ------------------------------- | --------------- |
+| `LiquidAI/LFM3-1.7B-GGUF`            | on or off (`"high"` or `"off"`) | Q4_K_M, 1.10 GB |
 | `LiquidAI/LFM2.5-1.2B-Instruct-GGUF` | none                            | Q4_K_M, 731 MB  |
 | `LiquidAI/LFM2.5-1.2B-Thinking-GGUF` | always (`"high"`)               | Q4_K_M, 731 MB  |
 | `LiquidAI/LFM2.5-350M-GGUF`          | none                            | Q4_K_M, 229 MB  |
@@ -75,13 +76,15 @@ wllama answers llama.cpp's OpenAI-compatible Chat Completions API in the page, s
 
 **Tools** work as with any adapter: pass them to `chat({ tools })`, MCP tools included. llama.cpp writes them into the prompt with the model's chat template and parses the model's calls back.
 
-**Reasoning:** thinking (llama.cpp's `reasoning_content`) streams as reasoning events. Qwen3.5 2B doesn't think unless asked; `chat({ reasoning: "high" })` turns it on, through its chat template's `enable_thinking` (llama.cpp's `chat_template_kwargs`). LFM2.5 1.2B Thinking always thinks. `chat({ reasoning })` is a type error for the models that don't reason.
+LFM3 needs wllama 3.13 or later: its llama.cpp is the first published with LFM3's architecture.
+
+**Reasoning:** thinking (llama.cpp's `reasoning_content`) streams as reasoning events. LFM3 thinks by default; `chat({ reasoning: "off" })` turns it off, through its chat template's `enable_thinking` (llama.cpp's `chat_template_kwargs`). Qwen3.5 2B doesn't think unless asked; `chat({ reasoning: "high" })` turns it on the same way. LFM2.5 1.2B Thinking always thinks. `chat({ reasoning })` is a type error for the models that don't reason.
 
 **Options** go in `modelOptions` per call: llama.cpp's own request fields, sent as given, as TanStack's adapters do with their provider's fields. wllama answers with llama.cpp's OpenAI-compatible server code, so these are OpenAI's names and llama.cpp's: `max_tokens`, `temperature`, `top_p`, `top_k`, `min_p`, `repeat_penalty`, `frequency_penalty`, `presence_penalty`, `seed`, `stop`, `logit_bias`, `parallel_tool_calls` (false constrains the model to one tool call; left out, llama.cpp allows several where the chat template supports them) and `chat_template_kwargs`; llama.cpp's other fields go through too. Sampling left out comes from the model card (`WLLAMA_MODEL_META[model].sampling`, in the same names). Without `max_tokens`, a reply may run to the context limit, as llama.cpp's default.
 
 **Structured output:** `chat({ outputSchema })` sends the schema as given in `response_format`, and llama.cpp constrains the answer to it with its JSON Schema grammar. With `stream: true` it streams as TanStack's standard events.
 
-**Context:** `wllamaText(model, { contextLength })` sets how many tokens a chat may hold, prompt and reply together. By default it's the model's whole context window, read from its GGUF (262,144 for Qwen3.5 2B, 128,000 for LFM2.5). Unlike Transformers.js and the WebGL engine, which grow their attention memory as a chat fills it, llama.cpp reserves it for the whole context when the model loads, which can be GBs for a full window. Fine on a desktop; on an iPhone set 8,192. On the CPU, where that memory is WebAssembly's (4 GB at most), set it too: a model whose whole window doesn't fit there (Qwen3.5 2B's 262,144 tokens take 3 GB) fails to load with an error. Changing it loads the model again.
+**Context:** `wllamaText(model, { contextLength })` sets how many tokens a chat may hold, prompt and reply together. By default it's the model's whole context window, read from its GGUF (262,144 for LFM3 and Qwen3.5 2B, 128,000 for LFM2.5). Unlike Transformers.js and the WebGL engine, which grow their attention memory as a chat fills it, llama.cpp reserves it for the whole context when the model loads, which can be GBs for a full window. Fine on a desktop; on an iPhone set 8,192. On the CPU, where that memory is WebAssembly's (4 GB at most), set it too: a model whose whole window doesn't fit there (Qwen3.5 2B's 262,144 tokens take 3 GB) fails to load with an error. Changing it loads the model again.
 
 **Usage** is in each call's `RUN_FINISHED` event, as llama.cpp reports it: `promptTokens`, `completionTokens`, `totalTokens`, and `promptTokensDetails.cachedTokens` for the start of the prompt llama.cpp reused from an earlier call. Timings aren't in it: measure them from the stream, as for any adapter.
 
