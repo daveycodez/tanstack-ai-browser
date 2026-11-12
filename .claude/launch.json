@@ -4,8 +4,22 @@
     {
       "name": "lofi-agent",
       "runtimeExecutable": "pnpm",
-      "runtimeArgs": ["nx", "dev", "lofi-agent"],
+      "runtimeArgs": [
+        "nx",
+        "dev",
+        "lofi-agent"
+      ],
       "port": 3000
+    },
+    {
+      "name": "chess",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": [
+        "nx",
+        "dev",
+        "chess"
+      ],
+      "port": 3003
     }
   ]
 }
