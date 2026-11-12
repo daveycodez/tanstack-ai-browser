@@ -291,8 +291,11 @@ function internalsOf(engine: Chess): EngineInternals | undefined {
   internalsChecked ??= INTERNALS.every((name) => typeof internals[name] === "function") && typeof internals._hash === "bigint"
   return internalsChecked ? internals : undefined
 }
-/** Each listed move's generated form, to play it without finding it again. */
-const generatedMoves = new WeakMap<ChessMove, InternalMove>()
+/** A listed move's generated form, kept on it to play it without finding it again. */
+const GENERATED = Symbol("generated move")
+type ListedMove = ChessMove & { [GENERATED]?: InternalMove }
+/** chess.js's flag letters for each combination of flag bits it generates. */
+const flagLetters = new Map<number, string>()
 /** The move lists of one analysis by FEN, which decides a position's legal moves: positions recur within it. */
 let listedMoves: Map<string, ChessMove[]> | undefined
 /** chess.js's flag letters, in the order its `Move` writes them. */
@@ -325,18 +328,23 @@ function verboseMoves(engine: Chess): ChessMove[] {
   const generated = internals._moves({ legal: true })
   const moves = generated.map((move) => {
     const from = squareOf0x88(move.from), to = squareOf0x88(move.to)
-    const listed = Object.create(listedMove) as Record<string, unknown>
+    const listed = Object.create(listedMove) as Record<string | typeof GENERATED, unknown>
     listed.color = move.color
     listed.from = from
     listed.to = to
     listed.piece = move.piece
     if (move.captured) listed.captured = move.captured
     if (move.promotion) listed.promotion = move.promotion
-    listed.flags = FLAG_LETTERS.map(([bit, letter]) => (move.flags & bit ? letter : "")).join("")
+    let letters = flagLetters.get(move.flags)
+    if (letters === undefined) {
+      letters = FLAG_LETTERS.map(([bit, letter]) => (move.flags & bit ? letter : "")).join("")
+      flagLetters.set(move.flags, letters)
+    }
+    listed.flags = letters
     listed.san = internals._moveToSan(move, generated)
     listed.lan = from + to + (move.promotion ?? "")
     listed.before = before
-    generatedMoves.set(listed as unknown as ChessMove, move)
+    listed[GENERATED] = move
     return listed as unknown as ChessMove
   })
   listedMoves?.set(before, moves)
@@ -346,7 +354,7 @@ function verboseMoves(engine: Chess): ChessMove[] {
 /** `engine.move(move)` for a move listed at this position, without chess.js describing it again. */
 function advance(engine: Chess, move: ChessMove) {
   const internals = internalsOf(engine)
-  const generated = generatedMoves.get(move)
+  const generated = (move as ListedMove)[GENERATED]
   if (!internals || !generated) {
     engine.move(move)
     return
