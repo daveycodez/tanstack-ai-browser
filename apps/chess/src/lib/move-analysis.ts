@@ -1,7 +1,7 @@
 import { annotatedLegalMoves, currentThreats } from "./chess.ts"
 import type { Game } from "./chess.ts"
 import type { PromptVersion } from "./shared-prompt.ts"
-import { buildSharedPrompt, SHARED_PROMPT_VERSION, TACTICAL_PROMPT_VERSION } from "./shared-prompt.ts"
+import { buildSharedPrompt, SHARED_PROMPT_VERSION, usesTacticalAnalysis } from "./shared-prompt.ts"
 import { stableMoveOrder } from "./move-order.ts"
 
 export type AnalysisRequest = {
@@ -15,7 +15,7 @@ export type AnalysisInput = ReturnType<typeof buildSharedPrompt>
 /** Production annotations and prompt assembly, run off the UI thread. */
 export function buildMoveAnalysis({ game, moveOrder, moveOrderSeed, promptVersion }: AnalysisRequest): AnalysisInput {
   const version = promptVersion ?? SHARED_PROMPT_VERSION
-  const tactical = version === TACTICAL_PROMPT_VERSION
+  const tactical = usesTacticalAnalysis(version)
   let moves = annotatedLegalMoves(game, {
     relationships: true,
     mobility: true,

@@ -52,7 +52,7 @@ WebGL's total generation
 ceiling is 8,192 tokens; Prompt API's browser-managed final-output limit is recorded
 as `null`. These are different capabilities.
 
-Every model receives the same **shared-v111-decoded-state-only** system and user assembly, standard
+Every model receives the same **shared-v112-compact** system and user assembly (v111's facts in fewer words; see [tactical guidance](TACTICAL-GUIDANCE.md)), standard
 piece values and model-default sampling. Ownership is phrased as **you/opponent**;
 **light/dark** identifies piece color for either assignment. The model receives complete
 decoded piece lists and plain-language turn/castling/en-passant/clock metadata; full FEN remains in game/audit records.

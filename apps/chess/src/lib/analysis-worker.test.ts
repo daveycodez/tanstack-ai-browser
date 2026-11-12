@@ -42,7 +42,7 @@ test("the real analysis worker preserves the previous production prompt, facts a
   } finally { await worker.terminate() }
 })
 
-test("the normal worker default activates the validated fork and exchange guidance", async () => {
+test("the normal worker default activates the fork and exchange guidance, in the compact wording", async () => {
   const url = new URL("./analysis.worker.ts", import.meta.url).href
   const worker = new NodeWorker(
     `import {parentPort} from 'node:worker_threads';globalThis.postMessage=data=>parentPort.postMessage(data);await import(${JSON.stringify(url)});parentPort.on('message',data=>globalThis.onmessage({data}));`,
@@ -60,7 +60,7 @@ test("the normal worker default activates the validated fork and exchange guidan
         expected = buildMoveAnalysis({
           game,
           moveOrder,
-          promptVersion: "shared-v111-decoded-state-only"
+          promptVersion: "shared-v112-compact"
         })
       assert.deepEqual(value, { input: expected })
       assert.ok(value.input.prompt.includes("Turn: you."))

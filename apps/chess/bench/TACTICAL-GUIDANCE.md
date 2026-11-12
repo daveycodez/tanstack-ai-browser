@@ -9,3 +9,11 @@ The capture continuation distinguishes an equal local exchange from a later lost
 The production default reproduced 96 recorded benchmark inputs and 33 head-to-head inputs byte-for-byte, including system text and every choice card. That profile recorded a Stockfish Skill-0/depth-1 win in a ten-game experiment (1 win, 7 losses, 2 unresolved caps) and a win as Black against GPT-6.1 Sol High with neutral inputs (33...Rc1#). Those observations are not a general strength or reliable win-rate estimate. Rejected experimental prompt variants, match bridges and reasoning diagnostics are excluded from this patch.
 
 The benchmark now reports local teaching objectives separately from independent outcome review. Multiple sound plans qualify; uncertain choices stay diagnostic. The model is not required to reproduce one Stockfish move or one opening. See [the suite audit](SUITE-AUDIT.md) and [benchmark instructions](README.md).
+
+## Compact wording and the search ceiling (v112)
+
+The default is now `shared-v112-compact`: the v111 pipeline's moves, labels, order, warnings, squares and nets, in fewer words. A card says a capture once (`DANGER: bishop f5 takes knight h3, net -3` in place of the danger, its net and a one-capture exchange line repeating both), lists name moves by SAN alone, the recent moves drop their coordinates, and the system prompt states each rule once. Over the 272 positions of one recorded game and three random games the input is 36% shorter in characters (user prompt 39.5%, system prompt 24%). `shared-v111-decoded-state-only` stays selectable for matched comparisons.
+
+Each candidate move's exchange and quiet-fork searches now share 600 positions; a search that runs out publishes no result, as any incomplete one. Without it a late middlegame turn's analysis visited tens of thousands of positions. On those 272 positions the ceiling changes 14 prompts.
+
+Neither change has been through the model benchmark: the v111 results above describe v111's wording and unbounded searches. Run the matched comparison (v111 against v112) before relying on them for the new default.

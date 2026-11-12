@@ -77,9 +77,9 @@ test("light AI receives its actual pieces, castles and player-relative history/o
   assert.match(input.systemPrompt, /negative means your loss/)
   assert.match(input.prompt, /Your pieces \(light\):\nKing: e1/)
   assert.match(input.prompt, /Opponent's pieces \(dark\):\nKing: e8/)
-  assert.match(input.prompt, /You: e4 \(e2e4\)\nOpponent: e5 \(e7e5\)/)
+  assert.match(input.prompt, /You: e4\nOpponent: e5/)
   assert.match(input.prompt, /Your king in check: no/)
-  assert.match(input.prompt, /opponent's capture possibilities/)
+  assert.match(input.prompt, /Opponent can capture now:/)
   assert.match(systemPromptFor(newGame("white")), /^You control the dark chess pieces\./)
   const castle = fromFen("r3k2r/8/8/8/8/8/8/R3K2R w KQkq - 0 1", "black")
   const choices = buildMoveAnalysis({ game: castle }).choices

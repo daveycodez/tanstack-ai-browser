@@ -12,6 +12,7 @@ import {
 import { buildMoveAnalysis } from "./move-analysis.ts"
 import {
   buildSharedPrompt,
+  COMPACT_PROMPT_VERSION,
   CONCISE_PROMPT_VERSION,
   SHARED_PROMPT_VERSION,
   TACTICAL_PROMPT_VERSION,
@@ -35,8 +36,8 @@ const material = (b: Chess) =>
       0
     )
 
-test("default tactical guidance exposes the real fork and post-recapture loss with every legal action retained", () => {
-  assert.equal(SHARED_PROMPT_VERSION, TACTICAL_PROMPT_VERSION)
+test("tactical guidance exposes the real fork and post-recapture loss with every legal action retained", () => {
+  assert.equal(SHARED_PROMPT_VERSION, COMPACT_PROMPT_VERSION)
   const game = actual(),
     saved = structuredClone(game),
     old = buildMoveAnalysis({
@@ -44,7 +45,11 @@ test("default tactical guidance exposes the real fork and post-recapture loss wi
       promptVersion: CONCISE_PROMPT_VERSION,
       moveOrder: f.orders[0]
     })
-  const output = buildMoveAnalysis({ game, moveOrder: f.orders[0] })
+  const output = buildMoveAnalysis({
+    game,
+    promptVersion: TACTICAL_PROMPT_VERSION,
+    moveOrder: f.orders[0]
+  })
   assert.deepEqual(
     output.choices.map((c) => [c.id, c.notation]),
     old.choices.map((c) => [c.id, c.notation])
@@ -62,7 +67,10 @@ test("default tactical guidance exposes the real fork and post-recapture loss wi
   assert.ok(output.prompt.includes("opponent Nxb3, you cxb3, opponent Qxd5"))
   assert.ok(output.prompt.includes("Turn: you."))
   assert.ok(!output.prompt.includes("FEN state ("))
-  assert.equal(output.systemPrompt, systemPromptFor(game))
+  assert.equal(
+    output.systemPrompt,
+    systemPromptFor(game, TACTICAL_PROMPT_VERSION)
+  )
   assert.deepEqual(game, saved)
   for (const choice of output.choices) {
     const capture = choice.outcome.match(
@@ -84,7 +92,11 @@ test("all orders and both roles retain exact legal actions and clear decoded sta
   for (const fixture of RECORDED_CASES.slice(0, 3)) {
     assert.ok(fixture.history)
     const game = fixture.history.reduce(applyMove, newGame(fixture.humanColor))
-    const output = buildMoveAnalysis({ game, moveOrder: fixture.orders[1] })
+    const output = buildMoveAnalysis({
+      game,
+      promptVersion: TACTICAL_PROMPT_VERSION,
+      moveOrder: fixture.orders[1]
+    })
     assert.deepEqual(
       output.choices.map((c) => c.id),
       fixture.orders[1]
@@ -126,11 +138,14 @@ test("incomplete exchange proofs never certify compensation or remove a legal ac
     move = moves.find((m) => m.id === "c4b3")
   assert.ok(move)
   move.outcome.exchangeFollowupUnresolved = true
-  const output = buildSharedPrompt({
-      game,
-      moves,
-      currentThreats: currentThreats(game)
-    }),
+  const output = buildSharedPrompt(
+      {
+        game,
+        moves,
+        currentThreats: currentThreats(game)
+      },
+      TACTICAL_PROMPT_VERSION
+    ),
     choice = output.choices.find((c) => c.id === move.id)
   assert.ok(choice)
   assert.match(choice.outcome, /preview incomplete/)
