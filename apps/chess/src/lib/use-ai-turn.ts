@@ -5,12 +5,35 @@ import { commitMove, currentGame } from "./db"
 import { resolveOpponent, sameOpponent } from "./opponents"
 
 export type AiTurnState = {
-  phase: "idle" | "loading" | "processing" | "choosing" | "error"
+  /**
+   * The turn's step: "waiting" for another tab's turn to end, "analyzing"
+   * the position's moves (before the model), "loading" the model (its
+   * download, or its stored files into memory), the model "processing" the
+   * prompt, then "choosing" (writing its answer).
+   */
+  phase: "idle" | "waiting" | "analyzing" | "loading" | "processing" | "choosing" | "error"
+  /** 0-1 of a download; undefined while a stored model loads (no measure of it). */
   progress?: number
   downloading?: boolean
   message?: string
 }
 const IDLE: AiTurnState = { phase: "idle" }
+const ANALYZING: AiTurnState = { phase: "analyzing" }
+/** How long a move with no alternative waits before it's played. */
+const FORCED_MOVE_PAUSE_MS = 1000
+/** A turn still not started after this long is waiting for another tab's. */
+const WAITING_AFTER_MS = 1500
+
+const pause = (ms: number, signal: AbortSignal) =>
+  new Promise<void>((resolve) => {
+    const done = () => {
+      clearTimeout(timer)
+      signal.removeEventListener("abort", done)
+      resolve()
+    }
+    const timer = setTimeout(done, ms)
+    signal.addEventListener("abort", done, { once: true })
+  })
 
 export function useAiTurn(game: Game | undefined, busy: boolean) {
   const [result, setResult] = useState<{ key: string; state: AiTurnState }>()
@@ -49,7 +72,11 @@ export function useAiTurn(game: Game | undefined, busy: boolean) {
         return { key, state }
       })
 
+    // Across tabs one turn runs at a time: until this one starts, say so.
+    const waiting = setTimeout(() => setState({ phase: "waiting" }), WAITING_AFTER_MS)
     const run = async () => {
+      clearTimeout(waiting)
+      setState(ANALYZING)
       const active = await currentGame()
       if (controller.signal.aborted) return
       if (
@@ -64,6 +91,10 @@ export function useAiTurn(game: Game | undefined, busy: boolean) {
         return
       const moves = positionLegalMoves(active)
       if (moves.length === 1) {
+        // The only legal move needs no model; played at once it's easy to miss.
+        setState({ phase: "choosing" })
+        await pause(FORCED_MOVE_PAUSE_MS, controller.signal)
+        if (controller.signal.aborted) return
         await commitMove(
           expected.sessionId,
           expected.history.length,
@@ -76,19 +107,20 @@ export function useAiTurn(game: Game | undefined, busy: boolean) {
       const ai = await import("./ai")
       if (controller.signal.aborted) return
       const loadingStore = ai.loadingStoreFor(expectedOpponent)
+      // The moves are analyzed first; the model loads (if it isn't) after.
+      let analyzed = false
       const syncProgress = () => {
-        if (controller.signal.aborted) return
+        if (controller.signal.aborted || !analyzed) return
         const loading = loadingStore.get()
         if (loading.state === "loading")
           setState({
             phase: "loading",
-            progress: Math.floor(loading.progress * 100) / 100,
-            downloading: loading.downloading
+            downloading: loading.downloading,
+            // Only a download is measured.
+            ...(loading.downloading && { progress: Math.floor(loading.progress * 100) / 100 })
           })
-        else if (loading.state === "ready") setState({ phase: "processing" })
       }
       unsubscribe = loadingStore.subscribe(syncProgress)
-      syncProgress()
       const move = await ai.chooseAiMove(
         expected,
         controller,
@@ -111,6 +143,12 @@ export function useAiTurn(game: Game | undefined, busy: boolean) {
             runKey: key,
             text: (previous?.runKey === key ? previous.text : "") + delta
           }))
+        },
+        {
+          onInput: () => {
+            analyzed = true
+            syncProgress()
+          }
         }
       )
       if (!controller.signal.aborted)
@@ -142,6 +180,7 @@ export function useAiTurn(game: Game | undefined, busy: boolean) {
         })
     })
     return () => {
+      clearTimeout(waiting)
       controller.abort()
       unsubscribe?.()
     }
@@ -154,7 +193,7 @@ export function useAiTurn(game: Game | undefined, busy: boolean) {
       ? IDLE
       : result?.key === key
         ? result.state
-        : { phase: "loading" as const, progress: 0 }
+        : ANALYZING
   return {
     state,
     thoughts: thoughts && thoughts.sessionId === sessionId ? thoughts.text : "",

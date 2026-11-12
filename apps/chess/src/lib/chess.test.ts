@@ -1,5 +1,6 @@
 import assert from "node:assert/strict"
 import { test } from "node:test"
+import { Chess } from "chess.js"
 import {
   applyMove,
   fromFen,
@@ -269,4 +270,25 @@ test("current-position enumeration respects terminal history draws while adjudic
     assert.deepEqual(positionLegalMoves(game), [])
   }
   assert.throws(() => applyMove(repeated, "e2e4"), /already over/)
+})
+
+test("legal moves match chess.js's own verbose list, move for move", () => {
+  // Pseudo-random games: captures, checks, castling, en passant and promotions all occur.
+  let compared = 0
+  for (let game = 1; game <= 6; game++) {
+    let seed = game
+    const random = () => (seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff
+    let current = newGame("white")
+    while (current.status === "playing" && current.history.length < 200) {
+      const listed = legalMoves(current)
+      const own = new Chess(current.fen).moves({ verbose: true })
+      assert.deepEqual(
+        listed.map((move) => [move.id, move.notation, move.promotion]),
+        own.map((move) => [move.lan, move.san, move.promotion])
+      )
+      compared += listed.length
+      current = applyMove(current, listed[Math.floor(random() * listed.length)].id)
+    }
+  }
+  assert.ok(compared > 10_000)
 })

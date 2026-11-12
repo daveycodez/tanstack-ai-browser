@@ -430,7 +430,7 @@ export function GameView({
                         <span>
                           {ai.downloading
                             ? "Downloading opponent"
-                            : "Preparing opponent"}
+                            : "Loading opponent into memory"}
                         </span>
                         <span>
                           {progress === undefined
@@ -448,7 +448,11 @@ export function GameView({
                       >
                         <span style={{ width: `${progress ?? 35}%` }} />
                       </div>
-                      <p>First game? Your model may take a moment to arrive.</p>
+                      <p>
+                        {ai.downloading
+                          ? "First game? Your model may take a moment to arrive."
+                          : "Already downloaded. It thinks once it's loaded."}
+                      </p>
                     </>
                   ) : (
                     <div className="thinking-row">
@@ -458,9 +462,13 @@ export function GameView({
                         <i />
                       </span>
                       <span>
-                        {ai.phase === "processing"
-                          ? "Reading the position…"
-                          : "Considering the next move…"}
+                        {ai.phase === "waiting"
+                          ? "Waiting for a turn in another tab…"
+                          : ai.phase === "analyzing"
+                            ? "Working out the legal moves…"
+                            : ai.phase === "processing"
+                              ? "Opponent loaded. Reading the position…"
+                              : "Considering the next move…"}
                       </span>
                       {opponent.thinking && ai.phase === "choosing" && (
                         <button

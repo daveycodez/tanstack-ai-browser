@@ -1,4 +1,4 @@
-import { Chess, DEFAULT_POSITION } from "chess.js"
+import { Chess, DEFAULT_POSITION, Move as VerboseMove } from "chess.js"
 import type { Move as ChessMove, Square } from "chess.js"
 import type { OpponentSettings } from "./opponents.ts"
 
@@ -263,6 +263,110 @@ function describe(move: ChessMove): Move {
   }
 }
 
+/** chess.js's generated move, before it's described. */
+type InternalMove = {
+  color: "w" | "b"
+  from: number
+  to: number
+  piece: PieceType
+  captured?: PieceType
+  promotion?: PieceType
+  flags: number
+}
+/** The chess.js methods behind its public `moves`, `move` and `undo`. */
+type EngineInternals = {
+  _moves: (options?: { legal?: boolean }) => InternalMove[]
+  _moveToSan: (move: InternalMove, moves: InternalMove[]) => string
+  _makeMove: (move: InternalMove) => void
+  _undoMove: () => unknown
+  _incPositionCount: () => void
+  _decPositionCount: (hash: bigint) => void
+  _hash: bigint
+}
+const INTERNALS = ["_moves", "_moveToSan", "_makeMove", "_undoMove", "_incPositionCount", "_decPositionCount"] as const
+let internalsChecked: boolean | undefined
+/** The engine's internals, or undefined where this chess.js doesn't have them (its public methods are used). */
+function internalsOf(engine: Chess): EngineInternals | undefined {
+  const internals = engine as unknown as EngineInternals
+  internalsChecked ??= INTERNALS.every((name) => typeof internals[name] === "function") && typeof internals._hash === "bigint"
+  return internalsChecked ? internals : undefined
+}
+/** Each listed move's generated form, to play it without finding it again. */
+const generatedMoves = new WeakMap<ChessMove, InternalMove>()
+/** The move lists of one analysis by FEN, which decides a position's legal moves: positions recur within it. */
+let listedMoves: Map<string, ChessMove[]> | undefined
+/** chess.js's flag letters, in the order its `Move` writes them. */
+const FLAG_LETTERS: [number, string][] = [[1, "n"], [2, "c"], [4, "b"], [8, "e"], [16, "p"], [32, "k"], [64, "q"], [128, "-"]]
+/** A 0x88 square's name, as chess.js numbers them. */
+const squareOf0x88 = (square: number) => "abcdefgh"[square & 15] + "87654321"[square >> 4]
+/** A listed move's `after`, read rarely: worked out from `before` when asked for. */
+const listedMove: object = Object.create(VerboseMove.prototype, {
+  after: {
+    enumerable: true,
+    get(this: ChessMove) {
+      const engine = new Chess(this.before)
+      engine.move({ from: this.from, to: this.to, ...(this.promotion ? { promotion: this.promotion } : {}) })
+      return engine.fen()
+    }
+  }
+})
+
+/** `engine.moves({ verbose: true })`, with the same moves and fields, from one
+ * legal-move generation. chess.js generates every legal move again for each
+ * move it describes (to disambiguate its SAN) and writes each move's `after`
+ * FEN: most of the analysis's time at 30 to 40 moves a position.
+ */
+function verboseMoves(engine: Chess): ChessMove[] {
+  const internals = internalsOf(engine)
+  if (!internals) return engine.moves({ verbose: true })
+  const before = engine.fen()
+  const known = listedMoves?.get(before)
+  if (known) return known
+  const generated = internals._moves({ legal: true })
+  const moves = generated.map((move) => {
+    const from = squareOf0x88(move.from), to = squareOf0x88(move.to)
+    const listed = Object.create(listedMove) as Record<string, unknown>
+    listed.color = move.color
+    listed.from = from
+    listed.to = to
+    listed.piece = move.piece
+    if (move.captured) listed.captured = move.captured
+    if (move.promotion) listed.promotion = move.promotion
+    listed.flags = FLAG_LETTERS.map(([bit, letter]) => (move.flags & bit ? letter : "")).join("")
+    listed.san = internals._moveToSan(move, generated)
+    listed.lan = from + to + (move.promotion ?? "")
+    listed.before = before
+    generatedMoves.set(listed as unknown as ChessMove, move)
+    return listed as unknown as ChessMove
+  })
+  listedMoves?.set(before, moves)
+  return moves
+}
+
+/** `engine.move(move)` for a move listed at this position, without chess.js describing it again. */
+function advance(engine: Chess, move: ChessMove) {
+  const internals = internalsOf(engine)
+  const generated = generatedMoves.get(move)
+  if (!internals || !generated) {
+    engine.move(move)
+    return
+  }
+  internals._makeMove(generated)
+  internals._incPositionCount()
+}
+
+/** `engine.undo()`, likewise. */
+function retreat(engine: Chess) {
+  const internals = internalsOf(engine)
+  if (!internals) {
+    engine.undo()
+    return
+  }
+  const hash = internals._hash
+  internals._undoMove()
+  internals._decPositionCount(hash)
+}
+
 function play(engine: Chess, id: string): ChessMove {
   if (!/^[a-h][1-8][a-h][1-8][qrbn]?$/.test(id)) {
     throw new Error(`Illegal move: ${id}`)
@@ -294,9 +398,12 @@ function positionKey(engine: Chess): string {
 function positionStatus(engine: Chess, humanColor: PieceColor = "white"): Pick<Game, "status" | "drawReason"> {
   let status: Game["status"] = "playing"
   let drawReason: string | undefined
-  if (engine.isCheckmate()) {
+  // (Within an analysis the position's listed moves say whether any is legal.)
+  const inCheck = engine.isCheck()
+  const stuck = listedMoves ? verboseMoves(engine).length === 0 : inCheck ? engine.isCheckmate() : engine.isStalemate()
+  if (stuck && inCheck) {
     status = sideOf(engine.turn(), humanColor) === "human" ? "ai-won" : "human-won"
-  } else if (engine.isStalemate()) {
+  } else if (stuck) {
     drawReason = "Stalemate"
   } else if (engine.isThreefoldRepetition()) {
     drawReason = "Threefold repetition"
@@ -348,7 +455,7 @@ export function newGame(humanColor: PieceColor = randomHumanColor()): Game {
 /** Only moves that leave the current mover’s king safe are exposed. */
 export function legalMoves(game: Game): Move[] {
   if (game.status !== "playing") return []
-  return restore(game).moves({ verbose: true }).map(describe)
+  return verboseMoves(restore(game)).map(describe)
 }
 
 /** Read-only moves for the current snapshot, without replaying history.
@@ -357,7 +464,7 @@ export function legalMoves(game: Game): Move[] {
  */
 export function positionLegalMoves(game: Game): Move[] {
   if (game.status !== "playing") return []
-  return new Chess(game.fen).moves({ verbose: true }).map(describe)
+  return verboseMoves(new Chess(game.fen)).map(describe)
 }
 
 /** Empty adjacent destinations attacked after the current king vacates its square.
@@ -478,7 +585,7 @@ export function currentThreats(
   const engine = restore(game)
   const opponent = engine.turn() === "w" ? "b" : "w"
   const captures = captureMapFromMoves(
-    hypotheticalEngine(engine, opponent).moves({ verbose: true })
+    verboseMoves(hypotheticalEngine(engine, opponent))
   )
   return [...captures].map(([square, threat]) => ({
     target: { piece: threat.piece, square },
@@ -553,12 +660,12 @@ function replyAnalyzer(engine: Chess): AnalyzeReply {
   return (reply) => {
     const cached = cache.get(reply)
     if (cached) return cached
-    engine.move(reply)
+    advance(engine, reply)
     try {
       const state = positionStatus(engine)
       const result = {
         recaptures: state.status === "playing"
-          ? engine.moves({ verbose: true }).filter(move =>
+          ? verboseMoves(engine).filter(move =>
               describe(move).captures.includes(indexOf(reply.to)))
           : [],
         check: engine.isCheck(),
@@ -567,7 +674,7 @@ function replyAnalyzer(engine: Chess): AnalyzeReply {
       cache.set(reply, result)
       return result
     } finally {
-      engine.undo()
+      retreat(engine)
     }
   }
 }
@@ -968,16 +1075,16 @@ function settledRecaptureGain(engine: Chess, reply: ChessMove, requireFirstCaptu
   function visit(sign: 1 | -1, knownLegal?: ChessMove[], requireCapture = false, target: Square = reply.to, extraAvailable = followupCapture): { gain: number; line: string[] } {
     if (--nodes < 0) throw limit
     if (positionStatus(engine).status !== "playing") return { gain: 0, line: [] }
-    const legal = knownLegal ?? engine.moves({ verbose: true })
+    const legal = knownLegal ?? verboseMoves(engine)
     const onTarget = (move: ChessMove) => describe(move).captures.includes(indexOf(target))
     const captures = legal.filter(move => move.captured && (onTarget(move) || (extraAvailable && sign === -1)))
     // Any actual legal move outside this local exchange can end the preview.
     let best = !requireCapture && legal.some(move => !captures.includes(move)) ? { gain: 0, line: [] as string[] } : undefined
     for (const capture of captures) {
-      engine.move(capture)
+      advance(engine, capture)
       try {
         // A material return that loses the game next turn is not compensation.
-        const nextLegal = engine.moves({ verbose: true })
+        const nextLegal = verboseMoves(engine)
         if (nextLegal.some(move => move.san.endsWith("#"))) continue
         // Do not turn a draw-ending branch into a certified material-loss forecast.
         if (followupCapture && engine.isDraw()) throw limit
@@ -985,15 +1092,15 @@ function settledRecaptureGain(engine: Chess, reply: ChessMove, requireFirstCaptu
         const tail = visit(sign === 1 ? -1 : 1, nextLegal, false, followLandingSquare || followupCapture || outside ? capture.to : target, extraAvailable && !outside)
         const gain = sign * (value(capture.captured ?? "p") + (capture.promotion ? value(capture.promotion) - value("p") : 0)) + tail.gain
         if (!best || (sign === 1 ? gain > best.gain : gain < best.gain)) best = { gain, line: [capture.san, ...tail.line] }
-      } finally { engine.undo() }
+      } finally { retreat(engine) }
     }
     // No usable recapture is a zero material return, not a claim of survival.
     return best ?? { gain: 0, line: [] }
   }
-  engine.move(reply)
+  advance(engine, reply)
   try { return visit(1, undefined, requireFirstCapture) }
   catch (error) { if (error === limit) return undefined; throw error }
-  finally { engine.undo() }
+  finally { retreat(engine) }
 }
 
 /** Check every immediate defense, not just captures of the forking piece.
@@ -1004,25 +1111,25 @@ function checkedForkResponses(engine: Chess, reply: ChessMove, riskFloor?: numbe
   let nodes = 512
   const limit = Symbol("fork response limit")
   const tick = () => { if (--nodes < 0) throw limit }
-  engine.move(reply)
+  advance(engine, reply)
   try {
     if (positionStatus(engine).status !== "playing") return { net: 0, line: [] }
     let best = -Infinity, bestLine: string[] = []
-    for (const defense of engine.moves({ verbose: true })) {
-      tick(); engine.move(defense)
+    for (const defense of verboseMoves(engine)) {
+      tick(); advance(engine, defense)
       try {
         if (positionStatus(engine).status !== "playing") return { net: 0, line: [defense.san] }
-        const replies = engine.moves({ verbose: true })
+        const replies = verboseMoves(engine)
         // Never rate a defense allowing mate as better than a material loss.
         if (replies.some(move => move.san.endsWith("#"))) continue
         let worst = 0, witness: string[] = []
         const analyze = replyAnalyzer(engine)
         for (const capture of replies.filter(move => move.captured && move.captured !== "k")) {
-          tick(); engine.move(capture)
+          tick(); advance(engine, capture)
           let credible = false
           try {
-            credible = positionStatus(engine).status === "playing" && !engine.moves().some(san => san.endsWith("#"))
-          } finally { engine.undo() }
+            credible = positionStatus(engine).status === "playing" && !verboseMoves(engine).some(move => move.san.endsWith("#"))
+          } finally { retreat(engine) }
           if (!credible) continue
           const settlement = settledRecaptureGain(engine, capture, false, true)
           if (!settlement) throw limit
@@ -1034,11 +1141,11 @@ function checkedForkResponses(engine: Chess, reply: ChessMove, riskFloor?: numbe
         if (worst >= 0) return { net: 0, line: [defense.san] }
         if (riskFloor !== undefined && worst >= riskFloor) return undefined
         if (worst > best) { best = worst; bestLine = [defense.san, ...witness] }
-      } finally { engine.undo() }
+      } finally { retreat(engine) }
     }
     return Number.isFinite(best) ? { net: best, line: bestLine } : undefined
   } catch (error) { if (error === limit) return undefined; throw error }
-  finally { engine.undo() }
+  finally { retreat(engine) }
 }
 
 /** A legal quiet reply may create a fork before capturing anything. These are
@@ -1056,16 +1163,16 @@ function quietForkAfterReply(engine: Chess, reply: ChessMove, checkResponses = f
   })
   if (potential.length < 2) return undefined
   let targets: PieceRef[], captures: ChessMove[]
-  engine.move(reply)
+  advance(engine, reply)
   try {
     if (positionStatus(engine).status !== "playing") return undefined
     // Reject geometric targets which the moved piece cannot legally capture.
-    const future = hypotheticalEngine(engine, reply.color).moves({ verbose: true })
+    const future = verboseMoves(hypotheticalEngine(engine, reply.color))
       .filter(move => move.from === reply.to && move.captured && move.captured !== "k")
     targets = potential.filter(target => target.piece === "k" || future.some(move => move.to === squareName(target.square)))
     if (targets.length < 2) return undefined
-    captures = engine.moves({ verbose: true }).filter(move => describe(move).captures.includes(indexOf(reply.to)))
-  } finally { engine.undo() }
+    captures = verboseMoves(engine).filter(move => describe(move).captures.includes(indexOf(reply.to)))
+  } finally { retreat(engine) }
   if (checkResponses) {
     const response = checkedForkResponses(engine, reply, riskFloor)
     if (!response || response.net >= 0) return undefined
@@ -1131,15 +1238,13 @@ export function annotatedLegalMoves(
 ): AnnotatedMove[] {
   if (game.status !== "playing") return []
   const engine = restore(game)
-  const candidates = engine.moves({ verbose: true })
+  const candidates = verboseMoves(engine)
   const beforeOwn = options.relationships
     ? captureMapFromMoves(candidates)
     : undefined
   const beforeOtherMoves =
     options.relationships || options.castling || options.support || options.kingMobility
-      ? hypotheticalEngine(engine, engine.turn() === "w" ? "b" : "w").moves({
-          verbose: true
-        })
+      ? verboseMoves(hypotheticalEngine(engine, engine.turn() === "w" ? "b" : "w"))
       : []
   const beforeEnemy =
     options.relationships || options.support
@@ -1157,7 +1262,9 @@ export function annotatedLegalMoves(
     : undefined
   return candidates.map((candidate): AnnotatedMove => {
     const move = describe(candidate)
-    engine.move(candidate)
+    // One candidate's searches meet the same positions again and again.
+    listedMoves = new Map()
+    advance(engine, candidate)
     try {
       const state = positionStatus(engine, game.humanColor)
       const analyzeReply = replyAnalyzer(engine)
@@ -1176,7 +1283,7 @@ export function annotatedLegalMoves(
         { piece: PieceType; value: number | null; square: number }
       >()
       if (state.status === "playing") {
-        replies = engine.moves({ verbose: true })
+        replies = verboseMoves(engine)
         for (const reply of replies) {
           if (reply.san.endsWith("#")) allowsMateInOne = true
           if (quietForkThreats && !options.pruneDominatedForks) { const fork = quietForkAfterReply(engine, reply, options.checkForkResponses); if (fork) quietForkThreats.push(fork) }
@@ -1220,7 +1327,7 @@ export function annotatedLegalMoves(
       const ownAfterMoves =
         state.status === "playing" &&
         (options.relationships || options.mobility || options.castling)
-          ? hypotheticalEngine(engine, candidate.color).moves({ verbose: true })
+          ? verboseMoves(hypotheticalEngine(engine, candidate.color))
           : []
       const lowest = [...defenders.values()].sort(
         (left, right) =>
@@ -1303,7 +1410,8 @@ export function annotatedLegalMoves(
         }
       }
     } finally {
-      engine.undo()
+      retreat(engine)
+      listedMoves = undefined
     }
   })
 }

@@ -91,6 +91,8 @@ export type AiMoveOptions = {
 }
 
 export const MODEL = "LiquidAI/LFM3-1.7B-GGUF" as const
+/** The longest a position's move analysis may take, before the model sees it. */
+const ANALYSIS_TIMEOUT_MS = 60_000
 let activeWebGlModel: WebGllmChatModel | undefined
 
 /** Unloads the WebGL model the last turn used, if any (its adapter's destroy). */
@@ -171,12 +173,22 @@ export async function chooseAiMove(
     throw new Error("There is no AI turn to play.")
   }
   const opponent = resolveOpponent(game.opponent)
+  // The analysis ends too if it runs on: its worker is stopped, and the turn can be retried.
+  const analysis = new AbortController()
+  const cancelAnalysis = () => analysis.abort(signal.reason)
+  signal.addEventListener("abort", cancelAnalysis, { once: true })
+  const analysisDeadline = setTimeout(() => {
+    analysis.abort(new Error("Analyzing the position took too long. Retry the turn."))
+  }, ANALYSIS_TIMEOUT_MS)
   const { prompt, choices, systemPrompt } = await analyzeMovePrompt({
     game,
     ...(options?.promptVersion !== undefined && { promptVersion: options.promptVersion }),
     moveOrder: options?.moveOrder,
     moveOrderSeed: options?.moveOrderSeed
-  }, signal)
+  }, analysis.signal).finally(() => {
+    clearTimeout(analysisDeadline)
+    signal.removeEventListener("abort", cancelAnalysis)
+  })
   signal.throwIfAborted()
   options?.onInput?.({ choices, prompt, systemPrompt })
   if (choices.length === 1) {

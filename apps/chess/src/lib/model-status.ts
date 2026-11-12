@@ -84,9 +84,8 @@ export function loadWithStatus(key: string, adapter: LoadableAdapter): Promise<v
       }
     }
     await adapter.create({
-      onDownloadProgress: (progress) => {
-        if (progress < 1) status.set({ state: "loading", progress, downloading: true })
-      }
+      // (Downloaded in full, its files still load into memory.)
+      onDownloadProgress: (progress) => status.set({ state: "loading", progress, downloading: progress < 1 })
     })
     status.set({ state: "ready" })
   })()
