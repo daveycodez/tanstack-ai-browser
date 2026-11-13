@@ -437,7 +437,7 @@ function ReadAloudAction({ text }: { text: string }) {
   }
   return (
     <Action
-      label={speaking ? "Stop" : "Read"}
+      label={speaking ? "Stop" : "Read aloud"}
       onPress={() => {
         window.speechSynthesis.cancel()
         if (speaking) {

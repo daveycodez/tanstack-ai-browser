@@ -61,7 +61,7 @@ export function TimeAgo({ date }: { date: Date }) {
     <Tooltip delay={300}>
       {/* A flex box, so the text centers with the buttons beside it. */}
       <Tooltip.Trigger aria-label={full} className="flex cursor-default items-center">
-        <span className="px-1 text-xs text-muted tabular-nums">
+        <span className="ps-2 pe-1 text-xs text-muted tabular-nums">
           {timeAgo(date, Math.max(at, date.getTime()))}
         </span>
       </Tooltip.Trigger>
