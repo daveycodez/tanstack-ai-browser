@@ -53,15 +53,19 @@ const written = new Intl.DateTimeFormat("en-US", {
   minute: "2-digit"
 })
 
-/** How long ago `date` was, with the date written out on hover. */
-export function TimeAgo({ date }: { date: Date }) {
+/**
+ * How long ago `date` was, with the date written out on hover. It sits after
+ * a row of buttons, or `before` it (a user's message, whose row ends at the
+ * right): its wider padding is on the buttons' side.
+ */
+export function TimeAgo({ date, before = false }: { date: Date; before?: boolean }) {
   const at = useSyncExternalStore(subscribe, getNow, getNow)
   const full = written.format(date)
   return (
     <Tooltip delay={300}>
       {/* A flex box, so the text centers with the buttons beside it. */}
       <Tooltip.Trigger aria-label={full} className="flex cursor-default items-center">
-        <span className="ps-2 pe-1 text-xs text-muted tabular-nums">
+        <span className={`${before ? "ps-1 pe-2" : "ps-2 pe-1"} text-xs text-muted tabular-nums`}>
           {timeAgo(date, Math.max(at, date.getTime()))}
         </span>
       </Tooltip.Trigger>

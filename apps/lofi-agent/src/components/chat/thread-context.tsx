@@ -84,9 +84,13 @@ export type ReplyState = {
    * answer), the wait for the next step included.
    */
   liveThinking?: string
+  /** The message's id, and its thinking parts' text in order: which block a thinking part is. */
+  messageId?: string
+  thinking: ReadonlyArray<string>
 }
 
 export const ReplyContext = createContext<ReplyState>({
   isRunning: false,
-  hasAnswer: false
+  hasAnswer: false,
+  thinking: []
 })

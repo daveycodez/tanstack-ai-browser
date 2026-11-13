@@ -1,33 +1,43 @@
 import { Disclosure } from "@heroui/react"
-import { createContext, useContext } from "react"
+import { createContext, useContext, useMemo } from "react"
 import type { ReactNode } from "react"
 
+import { formatThoughtTime } from "#/chat/thought-times"
 import { Markdown } from "#/components/ai/markdown"
 
-const StreamingContext = createContext(false)
+const ReasoningContext = createContext<{ isStreaming: boolean; durationMs?: number }>({ isStreaming: false })
 
 /**
- * A model's thinking under a "Thoughts" toggle, collapsed until opened.
- * While it thinks, the toggle reads "Thinking…".
+ * A model's thinking under a toggle, collapsed until opened. The toggle
+ * reads "Thinking…" while it thinks, then how long it thought ("Thought for
+ * 4 seconds"), or "Thoughts" where that wasn't timed.
  */
 export function Reasoning({
   isStreaming = false,
+  durationMs,
   children
 }: {
   isStreaming?: boolean
+  /** How long it thought, once it's done. */
+  durationMs?: number
   children: ReactNode
 }) {
+  const value = useMemo(() => ({ isStreaming, durationMs }), [isStreaming, durationMs])
   return (
-    <StreamingContext.Provider value={isStreaming}>
+    <ReasoningContext.Provider value={value}>
       <Disclosure>{children}</Disclosure>
-    </StreamingContext.Provider>
+    </ReasoningContext.Provider>
   )
 }
 
-/** "Thinking…" with a shimmer while it thinks, then "Thoughts". */
+/** "Thinking…" with a shimmer while it thinks, then "Thought for 4 seconds" (or "Thoughts"). */
 export function ReasoningTrigger() {
-  const isStreaming = useContext(StreamingContext)
-  const label = isStreaming ? "Thinking…" : "Thoughts"
+  const { isStreaming, durationMs } = useContext(ReasoningContext)
+  const label = isStreaming
+    ? "Thinking…"
+    : durationMs !== undefined
+      ? `Thought for ${formatThoughtTime(durationMs)}`
+      : "Thoughts"
   return (
     <Disclosure.Heading>
       {/* Only as wide as its label and chevron, and only the text color

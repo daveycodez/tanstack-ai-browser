@@ -111,6 +111,7 @@ function UserMessage({ message }: { message: UIMessage }) {
       )}
       {text && <MessageContent>{text}</MessageContent>}
       <Actions>
+        {message.createdAt && <TimeAgo date={new Date(message.createdAt)} before />}
         <CopyAction text={text} />
         <Action
           label="Regenerate"
@@ -216,6 +217,9 @@ export const awaitsNextStep = (message: UIMessage) => {
   return last?.type === "tool-result" || (last?.type === "tool-call" && last.output !== undefined)
 }
 
+/** Between a message's thinking parts' text, joined: a character no model writes. */
+const THOUGHT_BREAK = "\u0000"
+
 function AssistantMessage({ message }: { message: UIMessage }) {
   const { messages, isLoading, error, reload } = useChatContext()
   const { remove } = useThread()
@@ -238,9 +242,19 @@ function AssistantMessage({ message }: { message: UIMessage }) {
 
   const liveThinking =
     isWriting && last?.type === "thinking" ? last.content : undefined
+  // Its thinking parts' text, read on every render (a streaming part grows
+  // in place) and joined, so the context only changes when the text does.
+  const thoughts = message.parts.flatMap((p) => (p.type === "thinking" ? [p.content] : [])).join(THOUGHT_BREAK)
   const reply = useMemo(
-    () => ({ sources, isRunning, hasAnswer, liveThinking }),
-    [sources, isRunning, hasAnswer, liveThinking]
+    () => ({
+      sources,
+      isRunning,
+      hasAnswer,
+      liveThinking,
+      messageId: message.id,
+      thinking: thoughts ? thoughts.split(THOUGHT_BREAK) : []
+    }),
+    [sources, isRunning, hasAnswer, liveThinking, message.id, thoughts]
   )
 
   return (

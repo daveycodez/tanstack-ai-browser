@@ -5,6 +5,7 @@
 import type { ChatPersistedState, ChatStorageAdapter } from "@tanstack/ai-react"
 
 import { chats, deleteIfPresent, openDb } from "#/lib/db"
+import { addThoughtTimes } from "./thought-times"
 
 /**
  * Sessions deleted since the page loaded. The open session's chat client
@@ -33,6 +34,8 @@ export const chatPersistence: ChatStorageAdapter<ChatPersistedState> = {
   async setItem(id, value) {
     if (deletedThreads.has(id)) return
     const state = structuredClone(value)
+    // How long each thinking block took, timed as it streamed, on the block.
+    addThoughtTimes(id, state.messages)
     await openDb()
     const collection = chats()
     const tx = collection.has(id)
@@ -47,6 +50,20 @@ export const chatPersistence: ChatStorageAdapter<ChatPersistedState> = {
     const collection = chats()
     if (collection.has(id)) await collection.delete(id).when("settled")
   }
+}
+
+/**
+ * Saves a thread's thinking times recorded since its last write: a reply
+ * that stops while thinking is written before its time is known.
+ */
+export function saveThoughtTimes(id: string) {
+  if (deletedThreads.has(id)) return
+  const collection = chats()
+  const row = collection.get(id)
+  if (!row || !addThoughtTimes(id, structuredClone(row.state.messages))) return
+  collection.update(id, (draft) => {
+    addThoughtTimes(id, draft.state.messages)
+  })
 }
 
 /** Deletes a thread's messages for good, late writes included. */
