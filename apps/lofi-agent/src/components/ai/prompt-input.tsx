@@ -47,7 +47,9 @@ export function PromptInputTextarea({
     <InputGroup.TextArea
       className="min-h-0 w-full flex-none resize-none px-3.5 py-0"
       {...props}
-      render={({ style: _style, ...textarea }) => <TextareaAutosize {...textarea} minRows={1} maxRows={maxRows} />}
+      // One row until the autosize has measured it: a textarea's own default is two, which shows
+      // for a moment on a page that renders before it hydrates.
+      render={({ style: _style, ...textarea }) => <TextareaAutosize {...textarea} rows={1} minRows={1} maxRows={maxRows} />}
     />
   )
 }
