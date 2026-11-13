@@ -513,3 +513,59 @@ test("the model is optional: promptApiText() and promptApiText(config) are the b
   assert.equal(promptApiText({ languages: ["en"] }).model, "text")
   assert.equal(promptApiText("text", {}).model, "text")
 })
+
+/** The fake session's count of an input: `measureContextUsage`. */
+const measured = (input: unknown) => JSON.stringify(input).length
+const usageOf = (chunk: Chunk | undefined) =>
+  (chunk as { usage?: { promptTokens: number; completionTokens: number; totalTokens: number; promptTokensDetails?: { cachedTokens?: number } } } | undefined)?.usage
+
+test("a reply reports its tokens: what the session held, and the prompt and the reply as the session measures them", async () => {
+  const adapter = promptApiText("text")
+  const step = async (messages: Array<Record<string, unknown>>) => {
+    const chunks: Array<Chunk> = []
+    for await (const chunk of adapter.chatStream(chatOptions({ messages }))) chunks.push(chunk as Chunk)
+    return usageOf(chunks.at(-1))
+  }
+  const first = [{ role: "user", content: "Weather in Paris?" }]
+  const prompt = 120 + measured(first)
+  // Less an empty message's count: the turn markers a session counts around any message.
+  const reply = measured("Hello there") - measured("")
+  // A new session read what it holds in this step: nothing cached.
+  assert.deepEqual(await step(first), { promptTokens: prompt, completionTokens: reply, totalTokens: prompt + reply })
+
+  // The thread's kept session doesn't read what it holds again: only the new message.
+  Object.assign(control.sessions[0], { contextUsage: 300 })
+  const next = [...first, { role: "assistant", content: "Hello there" }, { role: "user", content: "And tomorrow?" }]
+  const usage = await step(next)
+  assert.equal(control.creates.length, 1, "the same session")
+  assert.equal(usage?.promptTokens, 300 + measured([{ role: "user", content: "And tomorrow?" }]))
+  assert.deepEqual(usage?.promptTokensDetails, { cachedTokens: 300 })
+})
+
+test("a step stopped at a tool call counts everything the model wrote, the call included", async () => {
+  control.pieces = ["Checking. ", '```tool_call\n{"name":"get_weather","arguments":{"city":"Paris"}}\n```']
+  const chunks = await run({ tools: [weather] })
+  assert.equal(chunks.at(-1)?.finishReason, "tool_calls")
+  assert.equal(usageOf(chunks.at(-1))?.completionTokens, measured(control.pieces.join("")) - measured(""))
+})
+
+test("structured output reports its tokens too", async () => {
+  const result = await promptApiText("text").structuredOutput(structured())
+  assert.equal(result.usage?.completionTokens, measured('{"city":"Tokyo"}') - measured(""))
+  assert.equal(result.usage?.promptTokens, 120 + measured([{ role: "user", content: "Weather in Paris?" }]))
+})
+
+test("a browser that can't measure reports no usage, and the reply still ends", async () => {
+  const measure = FakeSession.prototype.measureContextUsage
+  FakeSession.prototype.measureContextUsage = async () => {
+    throw new Error("measureContextUsage isn't supported")
+  }
+  try {
+    const chunks = await run()
+    assert.equal(chunks.at(-1)?.type, "RUN_FINISHED")
+    assert.equal(usageOf(chunks.at(-1)), undefined)
+    assert.equal(textIn(chunks), "Hello there")
+  } finally {
+    FakeSession.prototype.measureContextUsage = measure
+  }
+})

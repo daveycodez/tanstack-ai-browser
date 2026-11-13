@@ -12,8 +12,8 @@
  * structured output prompts the thread's session under the Prompt API's own
  * `responseConstraint`.
  */
-import { EventType, normalizeSystemPrompts } from "@tanstack/ai"
-import type { AdapterYieldChunk, ModelMessage, TextOptions, Tool } from "@tanstack/ai"
+import { buildBaseUsage, EventType, normalizeSystemPrompts } from "@tanstack/ai"
+import type { AdapterYieldChunk, ModelMessage, TextOptions, TokenUsage, Tool } from "@tanstack/ai"
 import { BaseTextAdapter } from "@tanstack/ai/adapters"
 import type { StructuredOutputOptions, StructuredOutputResult } from "@tanstack/ai/adapters"
 
@@ -22,7 +22,7 @@ import { baseOptions, createSession, DEFAULT_LANGUAGES, MEDIA_INPUTS, promptApiA
 import type { Availability, MediaInput } from "./model.js"
 import type { PromptApiChatModel } from "./model-meta.js"
 import { toolCallReader, toolSystemPrompt } from "./tools.js"
-import type { DownloadProgressCallback, LanguageModelSession, SamplingMode } from "./types.js"
+import type { DownloadProgressCallback, LanguageModelInput, LanguageModelSession, SamplingMode } from "./types.js"
 
 export type PromptApiConfig = {
   /**
@@ -305,7 +305,7 @@ export class PromptApiTextAdapter extends BaseTextAdapter<
     try {
       const session = await pending
       const input = await toLanguageModelMessages(options.messages, goesOn ? held.seen.length : 0)
-      return { key, session, kept, keys, input, tools }
+      return { key, session, kept, keys, input, tools, goesOn }
     } catch (error) {
       // A session that goes on still holds the thread; a new one is dropped.
       this.end(key, pending, kept, !goesOn)
@@ -318,6 +318,41 @@ export class PromptApiTextAdapter extends BaseTextAdapter<
     if (!kept) return close(session)
     kept.busy = false
     if (failed && this.kept.get(key) === kept) this.drop(key)
+  }
+
+  /**
+   * A step's token counts, which the Prompt API doesn't report, from the
+   * session's own: the tokens it held before the prompt, the prompt as the
+   * session measures it, and the reply measured the same way, less an empty
+   * message's tokens (the turn markers the session counts around any
+   * message). What a kept session held is cached: it isn't read again. A
+   * new session read what it holds (the system prompt) in this step.
+   * Nothing where the browser can't measure.
+   */
+  private async usage(
+    session: LanguageModelSession,
+    held: number,
+    goesOn: boolean,
+    input: LanguageModelInput,
+    reply: string
+  ): Promise<TokenUsage | undefined> {
+    try {
+      const [read, written, markers] = await Promise.all([
+        session.measureContextUsage(input),
+        session.measureContextUsage(reply),
+        session.measureContextUsage("")
+      ])
+      const counts = [held, read, written, markers]
+      if (!counts.every((count) => Number.isFinite(count))) return undefined
+      const promptTokens = held + read
+      const completionTokens = Math.max(0, written - markers)
+      return {
+        ...buildBaseUsage({ promptTokens, completionTokens, totalTokens: promptTokens + completionTokens }),
+        ...(goesOn && { promptTokensDetails: { cachedTokens: held } })
+      }
+    } catch {
+      return undefined
+    }
   }
 
   async *chatStream(options: TextOptions<PromptApiTextModelOptions>): AsyncIterable<AdapterYieldChunk> {
@@ -342,7 +377,7 @@ export class PromptApiTextAdapter extends BaseTextAdapter<
     const stop = new AbortController()
     try {
       step = await this.begin(options, signal)
-      const { session, kept, keys, input, tools } = step
+      const { session, kept, keys, input, tools, goesOn } = step
       // Without tools to offer, the reply is all text.
       const reader = tools.length > 0 ? toolCallReader(tools.map((tool) => tool.name)) : undefined
       let text = ""
@@ -353,8 +388,12 @@ export class PromptApiTextAdapter extends BaseTextAdapter<
         yield { type: EventType.TEXT_MESSAGE_CONTENT, messageId, delta, content: text, model, timestamp: timestamp() }
       }
       const generation = signal ? AbortSignal.any([signal, stop.signal]) : stop.signal
+      // What the session holds before this prompt, and all the model writes (a tool call's text too).
+      const held = session.contextUsage
+      let written = ""
       try {
         for await (const piece of session.promptStreaming(input, { signal: generation })) {
+          written += piece
           yield* textEvents(reader ? reader.push(piece) : piece)
           if (reader?.call) {
             stop.abort()
@@ -397,13 +436,15 @@ export class PromptApiTextAdapter extends BaseTextAdapter<
           timestamp: timestamp()
         }
       }
+      const usage = await this.usage(session, held, goesOn, input, written)
       yield {
         type: EventType.RUN_FINISHED,
         runId,
         threadId,
         model,
         timestamp: timestamp(),
-        finishReason: call ? "tool_calls" : "stop"
+        finishReason: call ? "tool_calls" : "stop",
+        ...(usage && { usage })
       }
     } catch (error) {
       // An abort keeps the thread's session: Chrome drops the stopped turn.
@@ -439,11 +480,13 @@ export class PromptApiTextAdapter extends BaseTextAdapter<
     let failed = false
     try {
       step = await this.begin(chatOptions, signal)
-      const { session, kept, keys, input } = step
+      const { session, kept, keys, input, goesOn } = step
+      const held = session.contextUsage
       const rawText = await session.prompt(input, { responseConstraint: outputSchema, signal })
       if (kept) kept.seen = [...keys, messageKey({ role: "assistant", content: rawText })]
       const data = JSON.parse(rawText) as unknown
-      return { data, rawText, model: this.model }
+      const usage = await this.usage(session, held, goesOn, input, rawText)
+      return { data, rawText, model: this.model, ...(usage && { usage }) }
     } catch (error) {
       failed = true
       throw error

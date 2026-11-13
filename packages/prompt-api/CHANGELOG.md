@@ -2,6 +2,7 @@
 
 ### Features
 
+- Token usage: a reply's end and a structured answer carry `usage` (prompt, completion and total tokens, and the tokens a kept session already held as cached), derived from the session's `contextUsage` and `measureContextUsage`. The Prompt API reports none itself.
 - `adapter.availableInputModalities()`: the kinds of input (`"text"`, `"image"`, `"audio"`) the browser's model takes on this device, each asked of `LanguageModel.availability()` with its own `expectedInputs`, so an app offers only the attachments the device can read.
 
 ### ⚠️ Breaking Changes
