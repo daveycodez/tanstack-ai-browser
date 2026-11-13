@@ -207,6 +207,15 @@ function EditMessage({
   )
 }
 
+/**
+ * Whether a reply's last step ended in a tool's result: the model reads it
+ * and goes on in a new message, so this one is complete.
+ */
+export const awaitsNextStep = (message: UIMessage) => {
+  const last = message.parts.at(-1)
+  return last?.type === "tool-result" || (last?.type === "tool-call" && last.output !== undefined)
+}
+
 function AssistantMessage({ message }: { message: UIMessage }) {
   const { messages, isLoading, error, reload } = useChatContext()
   const { remove } = useThread()
@@ -220,15 +229,15 @@ function AssistantMessage({ message }: { message: UIMessage }) {
     (p) => p.type === "thinking" && p.content.trim()
   )
   const hasAnswer = !!text || hasTools
-  // After a tool's result the model reads it before it writes again.
+  // After a tool's result the model reads it and writes on in a new message
+  // (the layout shows what it's doing there), so this one is laid out as
+  // finished: nothing in it moves when the next one starts.
   const last = message.parts.at(-1)
-  const afterTool =
-    last?.type === "tool-result" ||
-    (last?.type === "tool-call" && last.output !== undefined)
+  const isWriting = isRunning && !awaitsNextStep(message)
   const shownError = isLast && !isLoading ? error : undefined
 
   const liveThinking =
-    isRunning && last?.type === "thinking" ? last.content : undefined
+    isWriting && last?.type === "thinking" ? last.content : undefined
   const reply = useMemo(
     () => ({ sources, isRunning, hasAnswer, liveThinking }),
     [sources, isRunning, hasAnswer, liveThinking]
@@ -239,17 +248,15 @@ function AssistantMessage({ message }: { message: UIMessage }) {
       <ReplyContext.Provider value={reply}>
         <MessageParts message={message} />
       </ReplyContext.Provider>
-      {isRunning && ((!hasAnswer && !hasThinking) || afterTool) && (
-        <Working />
-      )}
+      {isWriting && !hasAnswer && !hasThinking && <Working />}
       {text && sources && sources.all.length > 0 && (
         <SourceList sources={sources.all} />
       )}
       {shownError && <ErrorAlert error={shownError} />}
-      {!isRunning && (text || shownError) && (
+      {!isWriting && (text || shownError) && (
         <ReplyActions
           text={text}
-          canRegenerate={isLast}
+          canRegenerate={isLast && !isRunning}
           createdAt={message.createdAt}
           onReload={() => void reload()}
           onDelete={() => remove(message.id)}
@@ -301,8 +308,8 @@ function MessageParts({ message }: { message: UIMessage }) {
 }
 
 /**
- * The reply to the last user message before its first token arrives, or
- * after its run failed.
+ * The reply before its first token arrives: to the last user message, or
+ * the next step of one that just used a tool. After a failed run, the error.
  */
 export function PendingReply() {
   const { isLoading, error, reload } = useChatContext()
@@ -336,11 +343,14 @@ function Working() {
     : loading
       ? "Loading…"
       : "Processing…"
-  // A row as tall as the Thoughts toggle, centered as its label is, so
-  // nothing moves when the reply takes its place.
+  // The reply's own text box (and the Thoughts toggle's line), so the label
+  // sits exactly where the reply's first line will and nothing moves when
+  // the reply takes its place.
   return (
-    <div className="flex min-h-8 w-fit items-center py-1 text-sm text-muted">
-      <span className="text-shimmer">{label}</span>
+    <div className="markdown markdown-muted prose prose-sm max-w-none">
+      <p>
+        <span className="text-shimmer">{label}</span>
+      </p>
     </div>
   )
 }

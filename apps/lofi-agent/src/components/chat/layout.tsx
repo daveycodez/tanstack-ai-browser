@@ -21,7 +21,7 @@ import {
 import { Suggestion, Suggestions } from "#/components/ai/suggestions"
 import { sourcesByReply } from "#/lib/reply-sources"
 import { PromptInputSkeleton } from "./input"
-import { PendingReply } from "./message"
+import { awaitsNextStep, PendingReply } from "./message"
 import { ReplyStatsLine } from "./reply-stats"
 import { TranscriptContext, useThread } from "./thread-context"
 import { useChatContext } from "./ui-components"
@@ -120,8 +120,12 @@ function Transcript({
           scrolled up. */}
       <div className="flex flex-col gap-y-8">
         <Messages />
-        {/* The reply before its first token, or a run that failed. */}
-        {last?.role === "user" && (isLoading || error) && <PendingReply />}
+        {/* The reply before its first token (after a message, or after a
+            tool's result, where the reply goes on in a new message), or a
+            run that failed. */}
+        {(last?.role === "user"
+          ? isLoading || error
+          : isLoading && last?.role === "assistant" && awaitsNextStep(last)) && <PendingReply />}
         {/* Approvals and other pauses waiting for an answer, 8px under the
             reply they belong to, as a part of it would be. */}
         <div className="-mt-6 flex flex-col gap-2 empty:hidden">
@@ -221,15 +225,15 @@ export function ThreadSkeleton({
   )
 }
 
+/** A saved chat while it loads, laid out as HeroUI Pro's ChatLoader skeleton: an avatar, then three lines. */
 function TranscriptSkeleton() {
   return (
-    <div role="status" className="flex flex-col gap-y-6">
-      <span className="sr-only">Loading conversation</span>
-      <Skeleton className="ml-auto h-9 w-2/5 rounded-2xl" />
-      <div className="flex flex-col gap-y-2">
-        <Skeleton className="h-4 w-11/12 rounded-md" />
-        <Skeleton className="h-4 w-4/5 rounded-md" />
-        <Skeleton className="h-4 w-3/5 rounded-md" />
+    <div role="status" aria-busy="true" aria-label="Loading conversation" className="flex w-full items-start gap-3">
+      <Skeleton className="size-8 shrink-0 rounded-full" />
+      <div className="flex min-w-0 flex-1 flex-col gap-2">
+        <Skeleton className="h-3 w-full rounded-md" />
+        <Skeleton className="h-3 w-[85%] rounded-md" />
+        <Skeleton className="h-3 w-[65%] rounded-md" />
       </div>
     </div>
   )

@@ -30,9 +30,12 @@ export function ReasoningTrigger() {
   const label = isStreaming ? "Thinking…" : "Thoughts"
   return (
     <Disclosure.Heading>
-      {/* The sources toggle's design at text-sm: only as wide as its label
-          and chevron, and only the text color changes on hover. */}
-      <Disclosure.Trigger className="flex min-h-8 w-fit items-center gap-2 py-1 text-sm text-muted transition-colors hover:text-foreground">
+      {/* Only as wide as its label and chevron, and only the text color
+          changes on hover. Its line is the reply text's (14px at 1.625), so
+          the label sits where "Processing…" was and where a reply's first
+          line would be; the padding its negative margin takes back keeps it
+          easy to press. */}
+      <Disclosure.Trigger className="-my-1 flex w-fit items-center gap-2 py-1 text-sm/[1.625] text-muted transition-colors hover:text-foreground">
         <span className={isStreaming ? "text-shimmer" : undefined}>
           {label}
         </span>
