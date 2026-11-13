@@ -22,7 +22,7 @@ import { useSelectedModel } from "#/chat/model"
 import { modelInfo, useModelStatus } from "#/chat/models"
 import type { chatOptions } from "#/chat/options"
 import { Action, Actions } from "#/components/ai/actions"
-import { AttachmentThumbnail } from "#/components/ai/attachments"
+import { AttachmentChip } from "#/components/ai/attachments"
 import { Message, MessageContent } from "#/components/ai/message"
 import { ToolGroup } from "#/components/ai/tool"
 import {
@@ -94,7 +94,7 @@ function UserMessage({ message }: { message: UIMessage }) {
             if (part.type !== "image" && part.type !== "audio") return null
             const src = mediaSrc(part.source as { type: string; value: string; mimeType?: string })
             const name = `${part.type === "image" ? "Image" : "Audio"} ${index + 1}`
-            return src ? <AttachmentThumbnail key={index} kind={part.type} src={src} name={name} /> : null
+            return src ? <AttachmentChip key={index} kind={part.type} src={src} name={name} /> : null
           })}
         </div>
       )}

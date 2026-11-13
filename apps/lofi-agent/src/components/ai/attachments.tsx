@@ -1,9 +1,9 @@
 /**
  * Image and audio attachments, laid out as in assistant-ui's composer (MIT,
- * github.com/assistant-ui/assistant-ui): a paperclip button in the toolbar, square
- * tiles above the text with a remove button each, and a full-size preview
- * (or a player, for audio) on click. A sent message shows its attachments as
- * the same tiles.
+ * github.com/assistant-ui/assistant-ui): a paperclip button in the toolbar, a
+ * chip for each attachment above the text (thumbnail, file name and a remove
+ * button), and a modal with the image (or a player, for audio) on click. A
+ * sent message shows its attachments as the same chips.
  */
 import MusicNote from "@gravity-ui/icons/MusicNote"
 import Paperclip from "@gravity-ui/icons/Paperclip"
@@ -16,11 +16,11 @@ import type { Attachment, AttachmentKind } from "#/chat/attachments"
 export type { Attachment, AttachmentKind }
 
 /**
- * A square tile: an image's thumbnail, or a note icon for audio. It opens the
- * image full size, or a player for audio; with `onRemove`, a remove button
- * at its corner.
+ * An attachment as a chip: an image's thumbnail (a note icon for audio) and
+ * its file name. It opens the image in a modal titled with the name, or a
+ * player for audio; with `onRemove`, a remove button at its end.
  */
-export function AttachmentThumbnail({
+export function AttachmentChip({
   kind = "image",
   src,
   name,
@@ -33,41 +33,39 @@ export function AttachmentThumbnail({
 }) {
   const [isOpen, setIsOpen] = useState(false)
   return (
-    <div className="relative flex size-14 shrink-0">
-      <Tooltip delay={300}>
-        <Button
-          variant="ghost"
-          aria-label={`Open ${name}`}
-          className="size-14 min-w-0 overflow-hidden rounded-2xl border border-separator p-0"
-          onPress={() => setIsOpen(true)}
-        >
-          {kind === "image" ? (
-            <img alt="" src={src} className="size-full object-cover" />
-          ) : (
-            <MusicNote className="size-5 text-muted" />
-          )}
-        </Button>
-        <Tooltip.Content>{name}</Tooltip.Content>
-      </Tooltip>
+    <div className="flex h-10 max-w-64 min-w-0 shrink-0 items-center gap-1 rounded-lg border border-border bg-default/60 px-1.5 pr-2 text-foreground">
+      <Button
+        variant="ghost"
+        aria-label={`Open ${name}`}
+        className="h-full min-w-0 flex-1 justify-start gap-2 rounded-md p-0 font-normal hover:bg-transparent"
+        onPress={() => setIsOpen(true)}
+      >
+        {kind === "image" ? (
+          <img alt="" src={src} className="size-7 shrink-0 rounded-md object-cover" />
+        ) : (
+          <span className="flex size-7 shrink-0 items-center justify-center rounded-md bg-default">
+            <MusicNote className="size-4 text-muted" />
+          </span>
+        )}
+        <span className="min-w-0 flex-1 truncate text-start text-sm">{name}</span>
+      </Button>
       {onRemove && (
-        <CloseButton
-          aria-label={`Remove ${name}`}
-          className="absolute -end-1.5 -top-1.5 size-5 min-w-0 rounded-full border border-separator bg-background shadow-sm"
-          onPress={onRemove}
-        />
+        <CloseButton aria-label={`Remove ${name}`} className="size-5 min-w-0 shrink-0" onPress={onRemove} />
       )}
       <Modal.Backdrop isOpen={isOpen} onOpenChange={setIsOpen}>
         <Modal.Container size="lg">
-          <Modal.Dialog aria-label={name} className="p-2">
+          <Modal.Dialog>
             <Modal.CloseTrigger />
-            {kind === "image" ? (
-              <img alt={name} src={src} className="max-h-[80vh] w-full rounded-xl object-contain" />
-            ) : (
-              <div className="flex flex-col gap-3 p-4 pt-8">
-                <p className="truncate text-sm font-medium">{name}</p>
+            <Modal.Header>
+              <Modal.Heading className="truncate pe-8">{name}</Modal.Heading>
+            </Modal.Header>
+            <Modal.Body>
+              {kind === "image" ? (
+                <img alt={name} src={src} className="max-h-[70vh] w-full rounded-xl object-contain" />
+              ) : (
                 <audio controls autoPlay src={src} className="w-full" />
-              </div>
-            )}
+              )}
+            </Modal.Body>
           </Modal.Dialog>
         </Modal.Container>
       </Modal.Backdrop>
@@ -85,10 +83,9 @@ export function PromptInputAttachments({
 }) {
   if (attachments.length === 0) return null
   return (
-    // Room above and after for each remove button, which a scrolling row would clip.
-    <div className="flex w-full shrink-0 gap-3 overflow-x-auto px-3.5 pt-1.5 pe-5">
+    <div className="flex w-full shrink-0 gap-2 overflow-x-auto px-3.5">
       {attachments.map((attachment) => (
-        <AttachmentThumbnail
+        <AttachmentChip
           key={attachment.id}
           kind={attachment.kind}
           src={attachmentUrl(attachment)}
