@@ -43,7 +43,7 @@ Original raw v1 reports remain intact; the audit explains the corrected grading.
 ## Shared production path
 
 The runner calls `chooseAiMove`, exactly as the game does, with instrumentation callbacks.
-The original baseline (`baseline-v1`) is preserved unchanged. The current `shared-v20`
+The original baseline (`baseline-v1`) is preserved unchanged. The current `shared-v21`
 contract uses descriptive actions such as `Jump king d2 over c3 to b4`. Every legal action
 remains in the enum; neither card order nor a hidden fallback selects a move for the model.
 
@@ -70,7 +70,7 @@ tactical results and counterbalanced serial timing. No recommendations are reint
 
 An immediate win or draw and a verified forced win are always listed, at least one action
 always remains, and the line is omitted when no action is worse. The system prompt gains
-one constant line, `Choose from SOUND CHOICES when listed; the other actions lose more.`
+one constant line, `Choose from SOUND CHOICES when listed; the other actions do worse.`
 The list comes last because LFM3 ignored a mark on the card alone. The guard stops there: unlike the
 `shared-v17` recommendations it applies none of the tie-breaks (exposure, next-turn
 captures, crowning material, draw avoidance), so several actions usually remain and the
@@ -98,6 +98,35 @@ Measured on LFM3-1.7B-GGUF, 2026-11-12, thinking off, model-default sampling:
 All three of `shared-v17`, `shared-v19` and `shared-v20` lose their games to Cake at
 depth 3, so game results do not separate them; whole games were not replayed on the
 final form.
+
+`shared-v21` narrows that guard to the blunders a casual player sees coming, because
+`shared-v20` played too tightly to beat: it never chose an action below the best checked
+net, so a player could draw it but not win material from it. An action now stays listed
+when it is exactly one point below the best and no immediate Human capture collects that
+point. What stays open is a trap Human has to find (a quiet reply that wins a piece) or a
+gain not taken; hanging a piece to a capture, a loss of two points or more, and a loss of
+the game stay off the list as in `shared-v20`. The system prompt and everything else are
+those of `shared-v20`.
+
+Measured on LFM3-1.7B-GGUF, 2026-11-12, thinking off, model-default sampling, with
+[difficulty-study.ts](difficulty-study.ts): 12 whole games per version against the same
+stand-in for a casual player (the best move of a two-ply material search 85% of the time,
+any legal move otherwise), same seeds and card order for every version, versions
+alternated game by game.
+
+| Version | AI wins | Draws | AI losses | Final material, summed | Hidden one-point slips | Blunders |
+| --- | --- | --- | --- | --- | --- | --- |
+| `shared-v19` | 4 | 5 | 3 | +12 | 20 of 526 decisions | 15 |
+| `shared-v20` | 6 | 6 | 0 | +47 | 0 of 556 | 0 |
+| `shared-v21` | 5 | 5 | 2 | +22 | 31 of 630 | 2 |
+
+A blunder here is an action `shared-v21` leaves off its list. Both of `shared-v21`'s were
+choices outside a listed `SOUND CHOICES` line. A replay showed one such choice, in a king
+endgame where every listed action was a retreat and the list was the one `shared-v20`
+gives, so the narrower guard is not what caused it. A guard on
+size alone (every one-point loss left to the model) was rejected: the model hung a piece
+to a plain capture 13 times in 12 games. The stand-in is not a calibrated player, so
+these numbers order the versions; they do not predict a result against a person.
 
 Move outcomes enumerate the candidate, every legal Red reply (including complete
 multi-jumps), and each immediate Black response. Man=1 and king=2 are transparent rough

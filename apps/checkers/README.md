@@ -86,7 +86,9 @@ the model chooses the label and the rules validate its exact existing move ID.
 The current prompt provides the per-move analysis without recommended-action tags,
 a preferred-move shortlist, or an instruction to follow one. When an action loses the game, or has a lower checked net
 than another listed action, a final `SOUND CHOICES` line lists the other actions and the model
-is told to choose from it; nothing ranks the listed actions, so that choice is the model's. The prior prompt remains available in the benchmark for comparison; lookahead
+is told to choose from it; nothing ranks the listed actions, so that choice is the model's. An action one
+point below the best stays listed unless the opponent can collect that point with an immediate capture, so the
+AI does not hang pieces or lose the game outright but can still walk into a trap the player has to find. The prior prompt remains available in the benchmark for comparison; lookahead
 and legal choices are unchanged.
 Move cards include captures, safe crowning, complete opponent jump chains, terminal
 wins/draws, and a bounded reply/response material check (man 1, king 2). Quiet king cards
