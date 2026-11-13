@@ -1,3 +1,70 @@
+## 0.2.0 (2026-11-13)
+
+### 🚀 Features
+
+- **wllama, lofi-agent:** Liquid's audio models read attached audio: LFM3-Omni, LFM3-Audio and LFM2.5-Audio ([3593d43](https://github.com/daveycodez/tanstack-ai-browser/commit/3593d43))
+- **transformers-js, wllama, lofi-agent:** Liquid's vision models ([edb2e19](https://github.com/daveycodez/tanstack-ai-browser/commit/edb2e19))
+- **wllama:** LFM3's GGUF, on wllama 3.13 ([2277858](https://github.com/daveycodez/tanstack-ai-browser/commit/2277858))
+- ⚠️  the catalogs are exported from each package's root ([4c55445](https://github.com/daveycodez/tanstack-ai-browser/commit/4c55445))
+- **wllama, webgllm, transformers-js:** any model as well as the catalog's ([95edab0](https://github.com/daveycodez/tanstack-ai-browser/commit/95edab0))
+- cancel model loads with createSessionWithProgress's signal ([0853f35](https://github.com/daveycodez/tanstack-ai-browser/commit/0853f35))
+- ⚠️  align the adapters' exports with @tanstack/ai-openrouter ([535e6c2](https://github.com/daveycodez/tanstack-ai-browser/commit/535e6c2))
+- **wllama:** stop listing LFM3's GGUFs ([582d297](https://github.com/daveycodez/tanstack-ai-browser/commit/582d297))
+- **wllama:** remove the relaxedSimdWasmUrl, speculative and gpuTopK options ([9b8db66](https://github.com/daveycodez/tanstack-ai-browser/commit/9b8db66))
+- **wllama:** run the official @wllama/wllama package ([691d644](https://github.com/daveycodez/tanstack-ai-browser/commit/691d644))
+- parallelToolCalls on every adapter and an output cap for the Prompt API ([dcc40cd](https://github.com/daveycodez/tanstack-ai-browser/commit/dcc40cd))
+- enforce structured output across browser adapters ([59adac3](https://github.com/daveycodez/tanstack-ai-browser/commit/59adac3))
+- runtimes share a memory budget: loading a model unloads other runtimes' least recently used models until it fits ([bacaeaa](https://github.com/daveycodez/tanstack-ai-browser/commit/bacaeaa))
+- **wllama:** GPU top-k sampling and cost-based drafting on PowerVR WebGPU ([4a69337](https://github.com/daveycodez/tanstack-ai-browser/commit/4a69337))
+- **lofi-agent:** the picker shows each runtime's backend (WebGPU or Wasm), and LFM3-1.7B-ONNX on WebGL is the default model ([d2075fa](https://github.com/daveycodez/tanstack-ai-browser/commit/d2075fa))
+- models download their latest version (main), and resume only from the same version ([8cceeff](https://github.com/daveycodez/tanstack-ai-browser/commit/8cceeff))
+- every adapter defaults to the model's own context window, read from the model; contextLength on all three ([e1cee74](https://github.com/daveycodez/tanstack-ai-browser/commit/e1cee74))
+- **wllama:** write 33% faster on PowerVR WebGPU ([3f27c4f](https://github.com/daveycodez/tanstack-ai-browser/commit/3f27c4f))
+- **wllama:** speculative decoding and faster writing on PowerVR WebGPU ([839cc56](https://github.com/daveycodez/tanstack-ai-browser/commit/839cc56))
+- **wllama:** read prompts 4x faster on PowerVR WebGPU ([1af3215](https://github.com/daveycodez/tanstack-ai-browser/commit/1af3215))
+- **wllama:** fast WebGPU on Imagination PowerVR GPUs ([b9b8534](https://github.com/daveycodez/tanstack-ai-browser/commit/b9b8534))
+- **wllama:** run on WebGPU where the browser has it ([9f3a3e7](https://github.com/daveycodez/tanstack-ai-browser/commit/9f3a3e7))
+- **wllama:** add LFM3 1.7B Web GGUF ([c422782](https://github.com/daveycodez/tanstack-ai-browser/commit/c422782))
+- **wllama:** save the read prompt across reloads ([681b7ed](https://github.com/daveycodez/tanstack-ai-browser/commit/681b7ed))
+- **wllama:** work in Vite and Next.js with no config ([8c3f2d5](https://github.com/daveycodez/tanstack-ai-browser/commit/8c3f2d5))
+- **wllama:** LFM3 1.7B, x86-safe relaxed kernels and faster loading ([1a58203](https://github.com/daveycodez/tanstack-ai-browser/commit/1a58203))
+- **wllama:** a faster wllama build for browsers with relaxed SIMD ([f123d67](https://github.com/daveycodez/tanstack-ai-browser/commit/f123d67))
+- **lofi-agent:** cross-origin isolate with require-corp, so Firefox and Safari get threads ([95fc39c](https://github.com/daveycodez/tanstack-ai-browser/commit/95fc39c))
+- **wllama:** add the wllama adapter, GGUF models on the CPU ([9394191](https://github.com/daveycodez/tanstack-ai-browser/commit/9394191))
+
+### 🩹 Fixes
+
+- **wllama, mediapipe:** concurrent loads and destroy ([c8d2a8a](https://github.com/daveycodez/tanstack-ai-browser/commit/c8d2a8a))
+- **wllama, transformers-js:** Qwen3.5's card sampling, with and without thinking ([75bf0e7](https://github.com/daveycodez/tanstack-ai-browser/commit/75bf0e7))
+- keep canceled loads from claiming memory, and key and record loads fully ([43a541a](https://github.com/daveycodez/tanstack-ai-browser/commit/43a541a))
+- tell downloaded models apart in availability(), without constructor side effects ([eb8c2d5](https://github.com/daveycodez/tanstack-ai-browser/commit/eb8c2d5))
+- report 1 to every createSessionWithProgress call on a ready model ([556a8b9](https://github.com/daveycodez/tanstack-ai-browser/commit/556a8b9))
+- let callers leave loadModel's promise without an unhandled rejection ([3fa8353](https://github.com/daveycodez/tanstack-ai-browser/commit/3fa8353))
+- report isSupported false where the runtime's browser APIs are missing ([148fb75](https://github.com/daveycodez/tanstack-ai-browser/commit/148fb75))
+- **wllama:** report failed loads, bound startup, and claim measured memory ([eb9aa6f](https://github.com/daveycodez/tanstack-ai-browser/commit/eb9aa6f))
+- **transformers-js:** fold in structured-output and take the JSON models write ([0cf26bf](https://github.com/daveycodez/tanstack-ai-browser/commit/0cf26bf))
+- honor structured-output cancellation across local adapters ([3747dc5](https://github.com/daveycodez/tanstack-ai-browser/commit/3747dc5))
+- **wllama:** PowerVR review fixes, LFM3's fused short conv ([d32dbed](https://github.com/daveycodez/tanstack-ai-browser/commit/d32dbed))
+- **wllama:** Qwen3.5-2B takes 0.45 GB of page memory loaded instead of 1.94, and CPU loads that don't fit fall back to a smaller context ([571add9](https://github.com/daveycodez/tanstack-ai-browser/commit/571add9))
+- ask to keep storage only on a first download, and never in Firefox ([23769d7](https://github.com/daveycodez/tanstack-ai-browser/commit/23769d7))
+- drop a stray </think> from replies when thinking is off ([0e2da11](https://github.com/daveycodez/tanstack-ai-browser/commit/0e2da11))
+- **wllama:** keep the full sliding-window cache so LFM3 reuses its prompt ([10215bc](https://github.com/daveycodez/tanstack-ai-browser/commit/10215bc))
+- **wllama:** use the relaxed-SIMD build only where its dot products are signed ([56e57f9](https://github.com/daveycodez/tanstack-ai-browser/commit/56e57f9))
+- **wllama:** run the compat build in Safari, which can't compile the main one ([6338bb4](https://github.com/daveycodez/tanstack-ai-browser/commit/6338bb4))
+
+### ⚠️  Breaking Changes
+
+- the catalogs are exported from each package's root  ([4c55445](https://github.com/daveycodez/tanstack-ai-browser/commit/4c55445))
+  import the catalogs from the package root, not from
+  its ./model-meta subpath.
+- align the adapters' exports with @tanstack/ai-openrouter  ([535e6c2](https://github.com/daveycodez/tanstack-ai-browser/commit/535e6c2))
+  exported names changed in all five packages; each
+  CHANGELOG lists the old and new names.
+
+### ❤️ Thank You
+
+- daveycodez
+
 ## Unreleased
 
 ### ⚠️ Breaking Changes

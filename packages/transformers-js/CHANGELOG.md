@@ -1,3 +1,84 @@
+## 0.2.0 (2026-11-13)
+
+### 🚀 Features
+
+- **transformers-js, wllama, lofi-agent:** Liquid's vision models ([edb2e19](https://github.com/daveycodez/tanstack-ai-browser/commit/edb2e19))
+- ⚠️  **transformers-js, lofi-agent:** the Web builds are no longer listed ([98c8233](https://github.com/daveycodez/tanstack-ai-browser/commit/98c8233))
+- ⚠️  the catalogs are exported from each package's root ([4c55445](https://github.com/daveycodez/tanstack-ai-browser/commit/4c55445))
+- **transformers-js:** a worker of your own, servers, any vision model, embedding maxTokens and usage ([d441eca](https://github.com/daveycodez/tanstack-ai-browser/commit/d441eca))
+- **transformers-js:** embeddings, transcription and image input ([286eafe](https://github.com/daveycodez/tanstack-ai-browser/commit/286eafe))
+- **wllama, webgllm, transformers-js:** any model as well as the catalog's ([95edab0](https://github.com/daveycodez/tanstack-ai-browser/commit/95edab0))
+- **transformers-js:** thinking as reasoning events, and Qwen3.5's XML tool calls ([8388277](https://github.com/daveycodez/tanstack-ai-browser/commit/8388277))
+- cancel model loads with createSessionWithProgress's signal ([0853f35](https://github.com/daveycodez/tanstack-ai-browser/commit/0853f35))
+- ⚠️  align the adapters' exports with @tanstack/ai-openrouter ([535e6c2](https://github.com/daveycodez/tanstack-ai-browser/commit/535e6c2))
+- **transformers-js:** drop the last runtime tweaks ([3bf7a6d](https://github.com/daveycodez/tanstack-ai-browser/commit/3bf7a6d))
+- **transformers-js:** run the official @huggingface/transformers package ([ed6209c](https://github.com/daveycodez/tanstack-ai-browser/commit/ed6209c))
+- parallelToolCalls on every adapter and an output cap for the Prompt API ([dcc40cd](https://github.com/daveycodez/tanstack-ai-browser/commit/dcc40cd))
+- enforce structured output across browser adapters ([59adac3](https://github.com/daveycodez/tanstack-ai-browser/commit/59adac3))
+- Qwen3.5-2B on Transformers.js and wllama ([5baa5f5](https://github.com/daveycodez/tanstack-ai-browser/commit/5baa5f5))
+- runtimes share a memory budget: loading a model unloads other runtimes' least recently used models until it fits ([bacaeaa](https://github.com/daveycodez/tanstack-ai-browser/commit/bacaeaa))
+- models download their latest version (main), and resume only from the same version ([8cceeff](https://github.com/daveycodez/tanstack-ai-browser/commit/8cceeff))
+- every adapter defaults to the model's own context window, read from the model; contextLength on all three ([e1cee74](https://github.com/daveycodez/tanstack-ai-browser/commit/e1cee74))
+- **transformers-js:** every model defaults to its whole context window; rotary tables cut to the context loaded ([fa42bd5](https://github.com/daveycodez/tanstack-ai-browser/commit/fa42bd5))
+- **transformers-js:** list LFM2.5 350M ([5a050a3](https://github.com/daveycodez/tanstack-ai-browser/commit/5a050a3))
+- **transformers-js:** use every core for models on the CPU ([347f68b](https://github.com/daveycodez/tanstack-ai-browser/commit/347f68b))
+- **transformers-js:** CPU weights for the LFM Web builds ([129da5a](https://github.com/daveycodez/tanstack-ai-browser/commit/129da5a))
+- **transformers-js:** run on the CPU without WebGPU, and list LFM2 1.2B Tool ([982ab97](https://github.com/daveycodez/tanstack-ai-browser/commit/982ab97))
+- **transformers-js:** report downloaded and total bytes while a model downloads ([e2dae22](https://github.com/daveycodez/tanstack-ai-browser/commit/e2dae22))
+
+### 🩹 Fixes
+
+- **transformers-js:** vision models read every role as parts; a cancelled transcription doesn't run ([20c1d49](https://github.com/daveycodez/tanstack-ai-browser/commit/20c1d49))
+- **transformers-js:** tool choice, JSON-first tool calls, one model per generation ([c753cec](https://github.com/daveycodez/tanstack-ai-browser/commit/c753cec))
+- **wllama, transformers-js:** Qwen3.5's card sampling, with and without thinking ([75bf0e7](https://github.com/daveycodez/tanstack-ai-browser/commit/75bf0e7))
+- **transformers-js:** each model's card sampling, and no text after a tool call ([eaa9509](https://github.com/daveycodez/tanstack-ai-browser/commit/eaa9509))
+- keep canceled loads from claiming memory, and key and record loads fully ([43a541a](https://github.com/daveycodez/tanstack-ai-browser/commit/43a541a))
+- tell downloaded models apart in availability(), without constructor side effects ([eb8c2d5](https://github.com/daveycodez/tanstack-ai-browser/commit/eb8c2d5))
+- report 1 to every createSessionWithProgress call on a ready model ([556a8b9](https://github.com/daveycodez/tanstack-ai-browser/commit/556a8b9))
+- **transformers-js:** answer availability() from Cache Storage, without a worker ([d2d8890](https://github.com/daveycodez/tanstack-ai-browser/commit/d2d8890))
+- **transformers-js:** load again for other weights, and match the worker's replies to their load ([91bd981](https://github.com/daveycodez/tanstack-ai-browser/commit/91bd981))
+- **transformers-js:** look up a listed model pinned to a revision as that model ([2f77a44](https://github.com/daveycodez/tanstack-ai-browser/commit/2f77a44))
+- report isSupported false where the runtime's browser APIs are missing ([148fb75](https://github.com/daveycodez/tanstack-ai-browser/commit/148fb75))
+- **transformers-js:** address the PR review ([eb51cd7](https://github.com/daveycodez/tanstack-ai-browser/commit/eb51cd7))
+- address the PR review: WebGL load lifecycle, shared memory, schema closing, output caps ([109e58c](https://github.com/daveycodez/tanstack-ai-browser/commit/109e58c))
+- **transformers-js:** fold in structured-output and take the JSON models write ([0cf26bf](https://github.com/daveycodez/tanstack-ai-browser/commit/0cf26bf))
+- honor structured-output cancellation across local adapters ([3747dc5](https://github.com/daveycodez/tanstack-ai-browser/commit/3747dc5))
+- **transformers-js:** prompt steps take 1.5 s again: at 0.75 s an iPhone read prompts 25-30% slower ([e2af928](https://github.com/daveycodez/tanstack-ai-browser/commit/e2af928))
+- **transformers-js:** Qwen3.5 reads prompts 17% faster with its prompt peak back at main's: Scan bodies multiply vectors by matrices as MatMuls, and prompt steps take 0.75 s ([2b0e3c0](https://github.com/daveycodez/tanstack-ai-browser/commit/2b0e3c0))
+- **transformers-js:** Qwen3.5's prompts peak 63-67 MB lower: the float32 work around its linear-attention loop runs on the CPU ([e12bf71](https://github.com/daveycodez/tanstack-ai-browser/commit/e12bf71))
+- **transformers-js:** long prompts peak 77-216 MB lower and leave 61-257 MB less GPU memory: a prompt step's spare buffers go when the next step has another size ([c46f127](https://github.com/daveycodez/tanstack-ai-browser/commit/c46f127))
+- **transformers-js:** Qwen3.5 reads prompts 13x faster on WebGPU: its Scan loop bodies run on the CPU ([1eea8df](https://github.com/daveycodez/tanstack-ai-browser/commit/1eea8df))
+- **transformers-js:** Qwen3.5's kept checkpoints take 64 MB at most, not up to 370 ([d1a01f9](https://github.com/daveycodez/tanstack-ai-browser/commit/d1a01f9))
+- **transformers-js:** loading takes no GPU memory past the weights and 80 MB less page memory: weights uploaded in 8 MB pieces ([8cfcb26](https://github.com/daveycodez/tanstack-ai-browser/commit/8cfcb26))
+- **transformers-js:** a long reply holds 150-330 MB less GPU memory and writes faster: ONNX Runtime's buffers pooled by rounded size ([02b4e6d](https://github.com/daveycodez/tanstack-ai-browser/commit/02b4e6d))
+- **transformers-js:** Qwen3.5 takes 700 MB less memory: embedding rows read from disk, scores for the last token only ([bc59a5e](https://github.com/daveycodez/tanstack-ai-browser/commit/bc59a5e))
+- **transformers-js:** a download survives iPhone Safari deleting the site's storage ([0cfef34](https://github.com/daveycodez/tanstack-ai-browser/commit/0cfef34))
+- **transformers-js:** LFM3 fits an iPhone tab on the CPU: large 4-bit multiplies split before loading ([ea74221](https://github.com/daveycodez/tanstack-ai-browser/commit/ea74221))
+- **transformers-js:** remove other weights before downloading, not alongside; bench: memory logs and storage use on the compare page ([873b287](https://github.com/daveycodez/tanstack-ai-browser/commit/873b287))
+- **transformers-js:** LFM3 fits an iPhone tab on WebGPU: no constant folding, which copied the tied embedding into WebAssembly memory and onto the GPU twice ([a66af54](https://github.com/daveycodez/tanstack-ai-browser/commit/a66af54))
+- downloads resume after a dropped connection or a file Safari closed ([e029502](https://github.com/daveycodez/tanstack-ai-browser/commit/e029502))
+- ask to keep storage only on a first download, and never in Firefox ([23769d7](https://github.com/daveycodez/tanstack-ai-browser/commit/23769d7))
+- drop a stray </think> from replies when thinking is off ([0e2da11](https://github.com/daveycodez/tanstack-ai-browser/commit/0e2da11))
+
+### 🔥 Performance
+
+- **transformers-js:** no constant folding in ONNX Runtime's session ([6dcf2a6](https://github.com/daveycodez/tanstack-ai-browser/commit/6dcf2a6))
+- **transformers-js:** half the cores on the CPU, as wllama ([806ecfe](https://github.com/daveycodez/tanstack-ai-browser/commit/806ecfe))
+
+### ⚠️  Breaking Changes
+
+- **transformers-js, lofi-agent:** the Web builds are no longer listed  ([98c8233](https://github.com/daveycodez/tanstack-ai-browser/commit/98c8233))
+- the catalogs are exported from each package's root  ([4c55445](https://github.com/daveycodez/tanstack-ai-browser/commit/4c55445))
+  import the catalogs from the package root, not from
+  its ./model-meta subpath.
+- align the adapters' exports with @tanstack/ai-openrouter  ([535e6c2](https://github.com/daveycodez/tanstack-ai-browser/commit/535e6c2))
+  exported names changed in all five packages; each
+  CHANGELOG lists the old and new names.
+
+### ❤️ Thank You
+
+- daveycodez
+
 ## Unreleased
 
 ### ⚠️ Breaking Changes

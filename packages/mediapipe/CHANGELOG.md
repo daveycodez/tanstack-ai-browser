@@ -1,3 +1,27 @@
+## 0.2.0 (2026-11-13)
+
+### 🚀 Features
+
+- ⚠️  the catalogs are exported from each package's root ([4c55445](https://github.com/daveycodez/tanstack-ai-browser/commit/4c55445))
+- cancel model loads with createSessionWithProgress's signal ([0853f35](https://github.com/daveycodez/tanstack-ai-browser/commit/0853f35))
+- **mediapipe:** add an embedding adapter for MediaPipe's TextEmbedder ([34e9e4c](https://github.com/daveycodez/tanstack-ai-browser/commit/34e9e4c))
+
+### 🩹 Fixes
+
+- **wllama, mediapipe:** concurrent loads and destroy ([c8d2a8a](https://github.com/daveycodez/tanstack-ai-browser/commit/c8d2a8a))
+- tell downloaded models apart in availability(), without constructor side effects ([eb8c2d5](https://github.com/daveycodez/tanstack-ai-browser/commit/eb8c2d5))
+- **mediapipe:** cache files only once they load, and keep requests through a worker switch ([122017e](https://github.com/daveycodez/tanstack-ai-browser/commit/122017e))
+
+### ⚠️  Breaking Changes
+
+- the catalogs are exported from each package's root  ([4c55445](https://github.com/daveycodez/tanstack-ai-browser/commit/4c55445))
+  import the catalogs from the package root, not from
+  its ./model-meta subpath.
+
+### ❤️ Thank You
+
+- daveycodez
+
 ## Unreleased
 
 ### 🚀 Features

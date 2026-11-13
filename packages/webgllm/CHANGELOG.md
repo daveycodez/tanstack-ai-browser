@@ -1,3 +1,49 @@
+## 0.2.0 (2026-11-13)
+
+### 🚀 Features
+
+- **webgllm, lofi-agent:** Liquid's vision models, with webgllm 0.3.3 ([a2131b9](https://github.com/daveycodez/tanstack-ai-browser/commit/a2131b9))
+- ⚠️  the catalogs are exported from each package's root ([4c55445](https://github.com/daveycodez/tanstack-ai-browser/commit/4c55445))
+- **webgllm:** webgllm 0.3.0, a worker of your own ([8348272](https://github.com/daveycodez/tanstack-ai-browser/commit/8348272))
+- **webgllm:** worker, a function that starts the models' workers ([ec021f8](https://github.com/daveycodez/tanstack-ai-browser/commit/ec021f8))
+- **webgllm:** image input, with webgllm 0.2.3 ([72e2e6f](https://github.com/daveycodez/tanstack-ai-browser/commit/72e2e6f))
+- **webgllm:** webgllm 0.2.2, models by URL ([de5f06d](https://github.com/daveycodez/tanstack-ai-browser/commit/de5f06d))
+- **wllama, webgllm, transformers-js:** any model as well as the catalog's ([95edab0](https://github.com/daveycodez/tanstack-ai-browser/commit/95edab0))
+- **transformers-js:** thinking as reasoning events, and Qwen3.5's XML tool calls ([8388277](https://github.com/daveycodez/tanstack-ai-browser/commit/8388277))
+- **webgllm:** webgllm 0.2.1, a thinking budget as reasoning.max_tokens ([c3c8d00](https://github.com/daveycodez/tanstack-ai-browser/commit/c3c8d00))
+- **lofi-agent:** webgllm 0.1.9 and LFM2 1.2B Tool models; Apple's and the browser's models don't reason ([4b111d1](https://github.com/daveycodez/tanstack-ai-browser/commit/4b111d1))
+- cancel model loads with createSessionWithProgress's signal ([0853f35](https://github.com/daveycodez/tanstack-ai-browser/commit/0853f35))
+- ⚠️  align the adapters' exports with @tanstack/ai-openrouter ([535e6c2](https://github.com/daveycodez/tanstack-ai-browser/commit/535e6c2))
+- **webgllm:** use webgllm 0.1.1 events and exact catalog types ([5e5e794](https://github.com/daveycodez/tanstack-ai-browser/commit/5e5e794))
+
+### 🩹 Fixes
+
+- **webgllm:** webgllm 0.3.1, a failed worker rejects ([3eb6af6](https://github.com/daveycodez/tanstack-ai-browser/commit/3eb6af6))
+- tell downloaded models apart in availability(), without constructor side effects ([eb8c2d5](https://github.com/daveycodez/tanstack-ai-browser/commit/eb8c2d5))
+- **webgllm:** key availability on context length, check the engine once, keep shared callbacks ([7b8da43](https://github.com/daveycodez/tanstack-ai-browser/commit/7b8da43))
+- keep isSupported synchronous in webgllm and wllama ([351f280](https://github.com/daveycodez/tanstack-ai-browser/commit/351f280))
+- **transformers-js:** address the PR review ([eb51cd7](https://github.com/daveycodez/tanstack-ai-browser/commit/eb51cd7))
+- **bench:** send thinkingClose with compare.html's Transformers.js runs ([d33342c](https://github.com/daveycodez/tanstack-ai-browser/commit/d33342c))
+- address the PR review: WebGL load lifecycle, shared memory, schema closing, output caps ([109e58c](https://github.com/daveycodez/tanstack-ai-browser/commit/109e58c))
+- **transformers-js:** fold in structured-output and take the JSON models write ([0cf26bf](https://github.com/daveycodez/tanstack-ai-browser/commit/0cf26bf))
+
+### 🔥 Performance
+
+- **webgllm:** webgllm 0.3.2, a prompt's waits sleep instead of polling ([d2788c8](https://github.com/daveycodez/tanstack-ai-browser/commit/d2788c8))
+
+### ⚠️  Breaking Changes
+
+- the catalogs are exported from each package's root  ([4c55445](https://github.com/daveycodez/tanstack-ai-browser/commit/4c55445))
+  import the catalogs from the package root, not from
+  its ./model-meta subpath.
+- align the adapters' exports with @tanstack/ai-openrouter  ([535e6c2](https://github.com/daveycodez/tanstack-ai-browser/commit/535e6c2))
+  exported names changed in all five packages; each
+  CHANGELOG lists the old and new names.
+
+### ❤️ Thank You
+
+- daveycodez
+
 ## Unreleased
 
 ### ⚠️ Breaking Changes
