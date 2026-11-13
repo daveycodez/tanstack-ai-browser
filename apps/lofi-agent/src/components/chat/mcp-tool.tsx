@@ -1,6 +1,7 @@
 import type { ToolCallPart, ToolResultPart } from "@tanstack/ai"
+import type { ToolApprovalInterrupt } from "@tanstack/ai-client"
 import type { InterruptProps, ToolProps } from "@tanstack/ai-react/ui"
-import { useContext } from "react"
+import { useContext, useMemo } from "react"
 import type { ComponentType } from "react"
 
 import type { chatOptions } from "#/chat/options"
@@ -42,9 +43,56 @@ export function statusOf(
   return isRunning ? "running" : "stopped"
 }
 
-/** Any MCP server's tool: its name and status, its arguments and result inside. */
+/** An approval's status while it still asks: not answered yet, or answered and not gone through. */
+const isAsking = (status: string) => status === "pending" || status === "error"
+
+/**
+ * The chat's tool approvals, among its interrupts. The tools that ask first
+ * are only known at runtime (thread.tsx gives useChat their definitions),
+ * so the chat's options name none and its interrupts' type has no
+ * approvals.
+ */
+function useToolApprovals(): ReadonlyArray<ToolApprovalInterrupt> {
+  const { interrupts } = useChatContext()
+  return (interrupts as ReadonlyArray<{ kind: string }>).filter(
+    (interrupt): interrupt is ToolApprovalInterrupt => interrupt.kind === "tool-approval"
+  )
+}
+
+/**
+ * The ids of the tool calls that wait for an answer: each call's own card
+ * asks (see McpTool).
+ */
+export function useCallsAsking(): ReadonlySet<string> {
+  const ids = useToolApprovals()
+    .filter((approval) => isAsking(approval.status))
+    .map((approval) => approval.toolCallId)
+  // The same set while the ids are the same, for the hooks that depend on it.
+  const key = ids.join("\n")
+  return useMemo(() => new Set(key ? key.split("\n") : []), [key])
+}
+
+/**
+ * Any MCP server's tool: its name and status, its arguments and result
+ * inside. While its call waits for approval (src/lib/mcp.ts decides which
+ * do), the card is the question, with Reject and Approve, as in HeroUI
+ * Pro's chat: one box where the call is, not a second one under the reply.
+ */
 export function McpTool({ part, result }: ToolProps<typeof chatOptions>) {
   const { isRunning } = useContext(ReplyContext)
+  const { resuming } = useChatContext()
+  const approval = useToolApprovals().find((interrupt) => interrupt.toolCallId === part.id)
+  if (approval && isAsking(approval.status)) {
+    return (
+      <ToolApproval
+        name={part.name}
+        input={approval.originalArgs}
+        isDisabled={!approval.canResolve || resuming}
+        onApprove={() => approval.resolveInterrupt(true)}
+        onDeny={() => approval.resolveInterrupt(false)}
+      />
+    )
+  }
   const errorText = errorOf(part, result)
   const output =
     part.output ?? (typeof result?.content === "string" ? result.content : undefined)
@@ -60,25 +108,12 @@ export function McpTool({ part, result }: ToolProps<typeof chatOptions>) {
 }
 
 /**
- * Asks before an MCP tool runs (src/lib/mcp.ts decides which do). It shows
- * in the layout's `Interrupts` list, as in TanStack's example; the tool's
- * card above shows the call waiting.
+ * A tool approval in the layout's `Interrupts` list: nothing, as the call's
+ * own card asks (McpTool). The kit wants a widget for every interrupt it
+ * lists, and warns without one.
  */
-export function McpToolApproval({
-  interrupt
-}: InterruptProps<typeof chatOptions>) {
-  const { resuming } = useChatContext()
-  if (interrupt.kind !== "tool-approval") return null
-  return (
-    <ToolApproval
-      name={interrupt.toolName}
-      input={interrupt.originalArgs}
-      status={interrupt.status}
-      isDisabled={!interrupt.canResolve || resuming}
-      onApprove={() => interrupt.resolveInterrupt(true)}
-      onDeny={() => interrupt.resolveInterrupt(false)}
-    />
-  )
+export function McpToolApproval(_props: InterruptProps<typeof chatOptions>) {
+  return null
 }
 
 /** Keys that tooling probes on any object; they must not look like tools. */
@@ -90,8 +125,8 @@ const NOT_TOOLS = new Set(["then", "toJSON", "constructor", "$$typeof"])
  * chat kit renders a tool call only through a widget registered under its
  * exact name, with no fallback (TanStack/ai#1953), and MCP tools are only
  * known at runtime. The kit reads this map by name when it renders and
- * lists no keys of it, so tool approvals are not placed inline (this app
- * has none).
+ * lists no keys of it, so it places no tool approval inline itself: the
+ * tool's widget shows its own (McpTool).
  */
 export function everyTool<TProps>(
   widget: ComponentType<TProps>,

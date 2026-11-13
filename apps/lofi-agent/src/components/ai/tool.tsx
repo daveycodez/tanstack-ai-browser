@@ -230,27 +230,24 @@ export function ToolOutput({
 }
 
 /**
- * Asks before a tool runs: a tool box with a warning border, open on the
- * arguments, with Reject and Approve. Once answered, only its status shows.
+ * Asks before a tool runs, as HeroUI Pro's ChatTool does while a call waits
+ * for approval: the call's own box with a warning border, open on the
+ * arguments, with Reject and Approve. It stands in for the call's card
+ * until it's answered.
  */
 export function ToolApproval({
   name,
   input,
-  status,
   isDisabled,
   onApprove,
   onDeny
 }: {
   name: string
   input: unknown
-  status: "pending" | "validating" | "staged" | "submitting" | "error"
   isDisabled: boolean
   onApprove: () => void
   onDeny: () => void
 }) {
-  if (status !== "pending") {
-    return <p className="text-xs text-muted">{status}</p>
-  }
   return (
     <ToolBox tone="warning" defaultExpanded>
       <ToolTrigger>

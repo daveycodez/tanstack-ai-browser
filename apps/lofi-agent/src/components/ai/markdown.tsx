@@ -1,9 +1,17 @@
 /**
  * Renders model output with TanStack Markdown, set up like TanStack AI's
- * `TextPart`: the streaming extension (unfinished syntax renders cleanly
- * while text arrives), no frontmatter or heading ids, and raw HTML shown as
- * text. Math comes from tanstack-markdown-math (KaTeX) and code highlighting
- * from @tanstack/highlight with the GitHub themes.
+ * `TextPart` and as its markdown guide says
+ * (tanstack.com/ai/latest/docs/ui/markdown): the streaming extension
+ * (unfinished syntax renders cleanly while text arrives), no frontmatter or
+ * heading ids, and raw HTML shown as text. Math comes from
+ * tanstack-markdown-math (KaTeX) and code highlighting from
+ * @tanstack/highlight's own Markdown highlighter, which escapes the source,
+ * with the GitHub themes.
+ *
+ * `TextPart` itself isn't used yet: the published @tanstack/ai-react
+ * (1.0.2) renders it with TanStack Markdown 0.0.13, and the math extension
+ * needs 1.x. TanStack AI's main branch has moved to 1.2, so a later release
+ * can take over here, with math as one of its `extensions`.
  */
 import "katex/dist/katex.min.css"
 import Check from "@gravity-ui/icons/Check"

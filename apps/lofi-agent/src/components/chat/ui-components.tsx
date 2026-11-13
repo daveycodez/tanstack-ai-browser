@@ -64,8 +64,8 @@ export const ChatUI = createChatUI(chatOptions, {
     [LOCATION_TOOL]: LocationTool
   }),
   interruptsComponents: {
-    // Approvals show in the layout's `Interrupts` list, as in TanStack's
-    // example, one widget for every tool that asks first.
+    // A tool's approval shows in its call's own card (McpTool), so the
+    // layout's `Interrupts` list shows nothing for one.
     tools: everyTool(McpToolApproval),
     // The app's own pauses, by their definition's id: asking before a
     // model downloads (chat/download-interrupt.ts).

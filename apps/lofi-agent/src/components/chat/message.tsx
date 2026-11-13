@@ -38,6 +38,7 @@ import {
 import { SourceList } from "#/components/ai/sources"
 import { TimeAgo } from "#/components/ai/time-ago"
 import { messageText } from "#/lib/reply-sources"
+import { useCallsAsking } from "./mcp-tool"
 import { ReplyContext, TranscriptContext, useThread } from "./thread-context"
 import { ChatUI, useChatContext } from "./ui-components"
 
@@ -284,12 +285,23 @@ type SelectedPart = Parameters<typeof ChatUI.Part>[0]["part"] & {
   key: string
 }
 
+/** A tool call part's id; nothing for another part. */
+const callId = (part: SelectedPart) =>
+  part.key === "toolCall" ? (part as { part?: { id?: string } }).part?.id : undefined
+
 /**
  * An assistant message's parts, as the kit renders them, with each run of
  * two or more tool calls gathered under one "N tool calls" accordion. A tool result
  * that belongs to a call shows in the call, as the kit's own `Parts` does.
+ * A call that waits for approval stands on its own, so its question shows:
+ * a group opens collapsed.
  */
 function MessageParts({ message }: { message: UIMessage }) {
+  const asking = useCallsAsking()
+  const asks = (part: SelectedPart | undefined) => {
+    const id = part && callId(part)
+    return id !== undefined && asking.has(id)
+  }
   return (
     <ChatUI.Message message={message}>
       {(parts) => {
@@ -299,7 +311,7 @@ function MessageParts({ message }: { message: UIMessage }) {
         const groups: Array<Array<SelectedPart>> = []
         for (const part of shown) {
           const last = groups.at(-1)
-          if (part.key === "toolCall" && last?.[0]?.key === "toolCall") {
+          if (part.key === "toolCall" && last?.[0]?.key === "toolCall" && !asks(part) && !asks(last[0])) {
             last.push(part)
           } else {
             groups.push([part])
