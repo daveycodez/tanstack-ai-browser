@@ -1,6 +1,6 @@
 # @tanstack-ai-browser/webgllm
 
-A [TanStack AI](https://tanstack.com/ai) adapter for [webgllm](https://webgllm.dev): LFM3 1.7B, LFM2.5 and Qwen3.5 2B running in the browser on WebGL 2, in a Web Worker on an OffscreenCanvas. It runs with or without WebGPU; where there's no WebGPU (Firefox on Android, older iPhones) it still reads prompts on the GPU.
+A [TanStack AI](https://tanstack.com/ai) adapter for [webgllm](https://webgllm.dev): LFM3 1.7B, LFM2.5, Liquid's vision models (LFM3-VL and LFM2.5-VL) and Qwen3.5 2B running in the browser on WebGL 2, in a Web Worker on an OffscreenCanvas. It runs with or without WebGPU; where there's no WebGPU (Firefox on Android, older iPhones) it still reads prompts on the GPU.
 
 ```sh
 npm install @tanstack-ai-browser/webgllm @tanstack/ai
@@ -94,7 +94,7 @@ A failure is a `RUN_ERROR`, as in a chat. Aborting stops the generation and ends
 
 ## Images
 
-Models with a vision encoder read images (webgllm 0.2.3 and later): Qwen3.5 2B's ONNX build, `onnx-community/Qwen3.5-2B-ONNX`, in the catalog. The adapter's `inputModalities` is `["text", "image"]` for them, from the catalog's `supports.input`; `undefined` for a model the catalog doesn't list. Send image parts in a user message, as data (base64) or URLs: they go to webgllm as OpenAI's `image_url`, with `detail` (`auto` by default) setting how many pixels it reads. webgllm loads the vision encoder only for a request with an image and frees it after, so text chats cost nothing more. An image to a model without one throws webgllm's `unsupported-parameter` error.
+Models with a vision encoder read images: Qwen3.5 2B (its ONNX build since webgllm 0.2.3, its GGUF build with its projector since 0.3.3), and Liquid's vision models, LFM3-VL 2B and LFM2.5-VL 3B, 1.6B and 450M, each in Liquid's GGUF and ONNX builds (webgllm 0.3.3 and later). The adapter's `inputModalities` is `["text", "image"]` for them, from the catalog's `supports.input`; `undefined` for a model the catalog doesn't list. Send image parts in a user message, as data (base64) or URLs: they go to webgllm as OpenAI's `image_url`, with `detail` (`auto` by default) setting how many pixels it reads. webgllm loads the vision encoder only for a request with an image and frees it after, so text chats cost nothing more. An image to a model without one throws webgllm's `unsupported-parameter` error.
 
 ## Models and loading
 

@@ -13,3 +13,7 @@
   - `WEBGL_TEXT_MODELS` → `WEBGLLM_CHAT_MODELS`, `WEBGL_MODEL_META` → `WEBGLLM_MODEL_META`, `WEBGL_MODEL_REASONING` → `WEBGLLM_MODEL_REASONING`, in `/model-meta`
   - `WebGlTextModel` → `WebGllmChatModel`, `WebGlModelMeta` → `WebGllmModelMeta`, `WebGlModelReasoningByName` → `WebGllmModelReasoningByName`, in `/model-meta`
   - Removed: `setKeepLoaded` (use the adapter's `keepLoaded` option) and `webgllm`, the shared `WebGLLM` instance
+
+### 🚀 Features
+
+- Liquid's vision models, with webgllm 0.3.3: LFM3-VL 2B and LFM2.5-VL 3B, 1.6B and 450M, each in Liquid's GGUF and ONNX builds, are in the catalog and read images.

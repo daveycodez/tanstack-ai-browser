@@ -57,7 +57,7 @@
   },
   "dependencies": {
     "@tanstack/openai-base": "^1.0.4",
-    "webgllm": "^0.3.2"
+    "webgllm": "^0.3.3"
   },
   "devDependencies": {
     "@huggingface/transformers": "4.3.2",

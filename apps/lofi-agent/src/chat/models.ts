@@ -44,6 +44,14 @@ export type ModelId =
   | "qwen3.5-2b-gguf"
   | "lfm3-webgl"
   | "lfm3-onnx-webgl"
+  | "lfm3-vl-gguf-webgl"
+  | "lfm3-vl-onnx-webgl"
+  | "lfm2.5-vl-1.6b-gguf-webgl"
+  | "lfm2.5-vl-1.6b-onnx-webgl"
+  | "lfm2.5-vl-3b-gguf-webgl"
+  | "lfm2.5-vl-3b-onnx-webgl"
+  | "lfm2.5-vl-450m-gguf-webgl"
+  | "lfm2.5-vl-450m-onnx-webgl"
   | "lfm2.5-webgl"
   | "lfm2.5-thinking-webgl"
   | "lfm2.5-350m-webgl"
@@ -279,6 +287,14 @@ export const MODELS = [
   gguf("qwen3.5-2b-gguf", "unsloth/Qwen3.5-2B-GGUF"),
   webgl("lfm3-onnx-webgl", "onnx-community/LFM3-1.7B-ONNX"),
   webgl("lfm3-webgl", "LiquidAI/LFM3-1.7B-GGUF"),
+  webgl("lfm3-vl-gguf-webgl", "LiquidAI/LFM3-VL-2B-GGUF"),
+  webgl("lfm3-vl-onnx-webgl", "LiquidAI/LFM3-VL-2B-ONNX"),
+  webgl("lfm2.5-vl-1.6b-gguf-webgl", "LiquidAI/LFM2.5-VL-1.6B-GGUF"),
+  webgl("lfm2.5-vl-1.6b-onnx-webgl", "LiquidAI/LFM2.5-VL-1.6B-ONNX"),
+  webgl("lfm2.5-vl-3b-gguf-webgl", "LiquidAI/LFM2.5-VL-3B-GGUF"),
+  webgl("lfm2.5-vl-3b-onnx-webgl", "LiquidAI/LFM2.5-VL-3B-ONNX"),
+  webgl("lfm2.5-vl-450m-gguf-webgl", "LiquidAI/LFM2.5-VL-450M-GGUF"),
+  webgl("lfm2.5-vl-450m-onnx-webgl", "LiquidAI/LFM2.5-VL-450M-ONNX"),
   webgl("lfm2.5-webgl", "LiquidAI/LFM2.5-1.2B-Instruct-ONNX"),
   webgl("lfm2.5-gguf-webgl", "LiquidAI/LFM2.5-1.2B-Instruct-GGUF"),
   webgl("lfm2.5-thinking-webgl", "LiquidAI/LFM2.5-1.2B-Thinking-ONNX"),

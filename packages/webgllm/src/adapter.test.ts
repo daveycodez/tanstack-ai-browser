@@ -83,6 +83,8 @@ exact<Equal<Thinkers,
   | "onnx-community/LFM3-1.7B-ONNX"
   | "LiquidAI/LFM2.5-1.2B-Thinking-ONNX"
   | "LiquidAI/LFM2.5-1.2B-Thinking-GGUF"
+  | "LiquidAI/LFM3-VL-2B-GGUF"
+  | "LiquidAI/LFM3-VL-2B-ONNX"
   | "unsloth/Qwen3.5-2B-GGUF"
   | "onnx-community/Qwen3.5-2B-ONNX">>(true)
 

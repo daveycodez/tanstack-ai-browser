@@ -113,10 +113,14 @@ test("the caller's signal reaches webgllm, which stops the generation", async ()
   assert.equal(fake.requests[0]?.options.signal, controller.signal)
 })
 
-test("images: Qwen3.5's ONNX build reads them, sent as OpenAI image_url parts; the GGUF builds don't", async () => {
+test("images: a model with a vision encoder reads them, sent as OpenAI image_url parts; a text model doesn't", async () => {
   const qwen = "onnx-community/Qwen3.5-2B-ONNX"
   assert.deepEqual(webgllmText(qwen).inputModalities, ["text", "image"])
-  assert.deepEqual(webgllmText("unsloth/Qwen3.5-2B-GGUF").inputModalities, ["text"])
+  // webgllm 0.3.3: Liquid's vision models, in GGUF and ONNX, and Qwen3.5's GGUF with its projector.
+  for (const vision of ["LiquidAI/LFM3-VL-2B-GGUF", "LiquidAI/LFM2.5-VL-450M-ONNX", "unsloth/Qwen3.5-2B-GGUF"] as const) {
+    assert.deepEqual(webgllmText(vision).inputModalities, ["text", "image"], vision)
+  }
+  assert.deepEqual(webgllmText("LiquidAI/LFM3-1.7B-GGUF").inputModalities, ["text"])
   assert.equal(webgllmText("someone/Unlisted-ONNX").inputModalities, undefined)
   const image = { type: "image", source: { type: "data", value: "AAAA", mimeType: "image/png" } }
   await collect(
