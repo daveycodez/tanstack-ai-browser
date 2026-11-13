@@ -39,10 +39,12 @@ export function ConversationContent({
       className="size-full"
       style={{ scrollbarGutter: "stable both-edges" }}
     >
-      {/* HeroUI Pro's ChatConversation.Content padding. */}
+      {/* The padding of HeroUI Pro's chat template: with the composer
+          area's own 12px above the input, a chat's last message ends 36px
+          above the input. */}
       <div
         ref={contentRef}
-        className={`mx-auto flex w-full max-w-[714px] flex-col px-4 pt-8 pb-8 ${className}`}
+        className={`mx-auto flex w-full max-w-[714px] flex-col px-4 pt-10 pb-6 ${className}`}
       >
         {children}
       </div>
@@ -106,7 +108,7 @@ export function ConversationScrollButton({
   const { isAtBottom, scrollToBottom } = useStickToBottomContext()
   return (
     <div
-      className={`absolute -top-12 self-center ${isAtBottom ? "invisible" : ""}`}
+      className={`absolute -top-9 self-center ${isAtBottom ? "invisible" : ""}`}
     >
       <Action
         label="Scroll to bottom"
