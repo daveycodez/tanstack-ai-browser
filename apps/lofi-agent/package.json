@@ -1,10 +1,13 @@
 {
   "name": "@tanstack-ai-browser/lofi-agent",
+  "version": "0.1.0",
+  "description": "Chat with language models that run on your device.",
   "private": true,
   "type": "module",
   "imports": {
     "#/*": "./src/*"
   },
+  "main": "dist/electron/main.js",
   "scripts": {
     "dev": "vite dev --port 3000",
     "generate-routes": "tsr generate",
@@ -12,9 +15,18 @@
     "preview": "vite preview",
     "test": "node --experimental-strip-types --test src/chat/*.test.ts src/lib/*.test.ts",
     "deploy": "wrangler deploy",
-    "build-cities": "node scripts/build-cities.mjs"
+    "build-cities": "node scripts/build-cities.mjs",
+    "electron:main": "esbuild electron/main.ts --bundle --platform=node --format=esm --packages=external --outfile=dist/electron/main.js",
+    "electron:dev": "vite build && pnpm electron:main && electron .",
+    "electron:package": "vite build && pnpm electron:main && electron-builder --mac --dir",
+    "ios:sync": "vite build && cap sync ios",
+    "ios:dev": "pnpm ios:sync && cap run ios",
+    "ios:open": "cap open ios"
   },
   "dependencies": {
+    "@capacitor/core": "^8.6.2",
+    "@capacitor/ios": "^8.6.2",
+    "@capacitor/status-bar": "^8.0.4",
     "@gravity-ui/icons": "2.23.1",
     "@heroui/react": "^3.2.7",
     "@heroui/styles": "^3.2.7",
@@ -48,6 +60,7 @@
     "zod": "^4.6.7"
   },
   "devDependencies": {
+    "@capacitor/cli": "^8.6.2",
     "@cloudflare/vite-plugin": "^1.69.0",
     "@tailwindcss/typography": "^0.5.20",
     "@tanstack/devtools-vite": "0.8.6",
@@ -58,6 +71,8 @@
     "@types/react-dom": "^19.3.0",
     "@typescript/native": "npm:typescript@^7.0.2",
     "@vitejs/plugin-react": "^6.3.0",
+    "electron": "^45.3.1",
+    "electron-builder": "^26.18.0",
     "esbuild": "0.28.2",
     "typescript": "npm:@typescript/typescript6@^6.0.2",
     "vite": "^8.3.8",

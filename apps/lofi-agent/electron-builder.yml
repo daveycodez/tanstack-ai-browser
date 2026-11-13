@@ -1,0 +1,17 @@
+# Packages the Electron app: `pnpm electron:package` writes
+# dist/electron-app/mac-arm64/lofi-agent.app.
+# The app is the prerendered site (dist/client) plus the main process
+# (dist/electron, built from electron/main.ts). Vite has already bundled
+# every dependency into the site, so no node_modules go in.
+appId: dev.lofiagent.app
+productName: lofi-agent
+directories:
+  output: dist/electron-app
+files:
+  - package.json
+  - dist/client/**
+  - dist/electron/**
+  - "!**/node_modules/**"
+npmRebuild: false
+mac:
+  category: public.app-category.productivity

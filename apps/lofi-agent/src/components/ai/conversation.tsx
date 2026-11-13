@@ -44,7 +44,7 @@ export function ConversationContent({
           above the input. */}
       <div
         ref={contentRef}
-        className={`mx-auto flex w-full max-w-[714px] flex-col px-4 pt-10 pb-6 ${className}`}
+        className={`mx-auto flex w-full max-w-[714px] flex-col px-safe-or-4 pt-10 pb-6 ${className}`}
       >
         {children}
       </div>
@@ -71,7 +71,7 @@ export function ConversationEmptyState({
 }) {
   return (
     <div className="flex h-full flex-col">
-      <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-2 px-6">
+      <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-2 px-safe-or-6">
         <Avatar size="lg" className="mb-2">
           <Avatar.Fallback>{icon}</Avatar.Fallback>
         </Avatar>

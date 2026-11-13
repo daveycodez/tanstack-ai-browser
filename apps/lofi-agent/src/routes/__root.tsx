@@ -4,6 +4,8 @@ import { HeadContent, Scripts, createRootRoute } from "@tanstack/react-router"
 import { TanStackRouterDevtoolsPanel } from "@tanstack/react-router-devtools"
 import { ThemeProvider } from "next-themes"
 
+import { NativeStatusBar } from "#/components/status-bar"
+
 import appCss from "../styles.css?url"
 
 /**
@@ -37,7 +39,10 @@ export const Route = createRootRoute({
       },
       {
         name: "viewport",
-        content: "width=device-width, initial-scale=1"
+        // The page covers the whole screen, under the status bar and home
+        // indicator; the layout pads itself clear of them (pt-safe and the like,
+        // in src/styles.css).
+        content: "width=device-width, initial-scale=1, viewport-fit=cover"
       },
       {
         title: "lofi-agent"
@@ -87,6 +92,7 @@ function RootDocument({ children }: { children: React.ReactNode }) {
           enableSystem
           disableTransitionOnChange
         >
+          <NativeStatusBar />
           {children}
         </ThemeProvider>
         {/* TanStack devtools, in development only (the Vite plugin removes

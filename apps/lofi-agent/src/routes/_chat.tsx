@@ -126,7 +126,10 @@ function Assistant() {
   }
 
   return (
-    <div className="flex h-dvh w-full bg-background">
+    <div
+      data-sidebar-open={sidebarOpen || undefined}
+      className="group/layout flex h-dvh w-full bg-background"
+    >
       {/* Desktop: collapsible sidebar. */}
       <aside
         aria-label="Sessions"
@@ -161,7 +164,7 @@ function Assistant() {
       />
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="flex h-12 shrink-0 items-center gap-2 border-b border-separator px-4">
+        <header className="flex h-[calc(--spacing(12)+env(safe-area-inset-top))] shrink-0 items-center gap-2 border-b border-separator pt-safe pr-safe-or-4 pl-safe-or-4 md:group-data-sidebar-open/layout:pl-4">
           <Tooltip delay={300}>
             <Button
               isIconOnly

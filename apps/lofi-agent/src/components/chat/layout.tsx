@@ -35,7 +35,7 @@ const WELCOME = {
 
 /** Under the transcript, or an empty session's heading: the composer. */
 const COMPOSER_AREA =
-  "relative mx-auto flex w-full max-w-[calc(714px+2rem)] flex-col px-4 pt-3 pb-2"
+  "relative mx-auto flex w-full max-w-[calc(714px+2rem)] flex-col px-safe-or-4 pt-3 pb-safe-or-2"
 
 export function ChatLayout({
   Messages,
