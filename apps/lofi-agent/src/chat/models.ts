@@ -708,6 +708,40 @@ export async function prepareModel(
   }
 }
 
+/** How many models already on the device a download confirmation offers. */
+const ON_DEVICE_OFFERED = 3
+
+/** A model as a download confirmation shows it. */
+const shownModel = (id: ModelId) => {
+  const { name, icon } = modelInfo(id)
+  return { id, name, icon }
+}
+
+/**
+ * What a download confirmation shows for `id`, if a message to it would
+ * download it first (./download-interrupt.ts): the model, and up to three
+ * that are on the device and run here, to use instead. Nothing for a model
+ * that's on the device, is loading or downloading already, can't run here
+ * (its load says why), or doesn't download (Apple's).
+ */
+export async function pendingDownload(id: ModelId) {
+  const { status } = modelInfo(id)
+  if (!status) return undefined
+  const { state } = status.get()
+  if (state === "ready" || state === "loading") return undefined
+  if ((await checkAvailability(id)) !== "downloadable") return undefined
+  const onDevice = allModels()
+    .filter(
+      (m) =>
+        m.id !== id &&
+        availabilities.get()[m.id] === "available" &&
+        canRun(m.id, isMacOS(), hasWebGpuNow())
+    )
+    .slice(0, ON_DEVICE_OFFERED)
+    .map((m) => shownModel(m.id))
+  return { model: shownModel(id), onDevice }
+}
+
 /** Result of the last Apple model check, shown next to the picker. */
 export const afmStatus = createStore<"idle" | "checking" | "unavailable">(
   "idle"

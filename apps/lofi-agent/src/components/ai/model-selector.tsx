@@ -28,7 +28,7 @@ export type ModelSection = {
 }
 
 /** Provider logo. The SVGs are drawn in black, so invert them in dark mode. */
-function ModelLogo({ src }: { src: string }) {
+export function ModelLogo({ src }: { src: string }) {
   return (
     <img
       src={src}

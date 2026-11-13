@@ -16,6 +16,12 @@ import { weatherTool, weatherToolSetting } from "#/lib/weather"
 import { recordGeneration, startReply } from "./generation-stats"
 import { replyStatsMiddleware } from "./call-stats"
 import { ABORTED, untilAborted } from "./abortable"
+import {
+  confirmDownload,
+  confirmDownloadMiddleware,
+  downloadAnswer
+} from "./download-interrupt"
+import type { DownloadAnswer } from "./download-interrupt"
 import { isReasoningLevel, selectedModel } from "./model"
 import { messagesFor } from "./media"
 import {
@@ -23,11 +29,22 @@ import {
   inputModalities,
   isModelId,
   modelInfo,
+  pendingDownload,
   prepareModel
 } from "./models"
 
-/** The model a session forwarded with this run, if it's one we have. */
-function readModel(forwarded: Record<string, unknown> | undefined) {
+/**
+ * The model a run answers with: the one picked in a download confirmation
+ * this run continues from, else the one its session forwarded, if it's one
+ * we have.
+ */
+function readModel(
+  forwarded: Record<string, unknown> | undefined,
+  answer: DownloadAnswer | undefined
+) {
+  if (answer?.status === "resolved" && isModelId(answer.model)) {
+    return answer.model
+  }
   const model = forwarded?.model
   return isModelId(model) ? model : selectedModel()
 }
@@ -44,7 +61,9 @@ type RunAgentInput = Parameters<Parameters<typeof stream>[0]>[3]
 /**
  * One reply: `chat()` with the forwarded model's adapter. It calls the
  * model, runs the tools it asks for (pausing for approval where a tool
- * needs it), and calls it again with their results until it answers.
+ * needs it), and calls it again with their results until it answers. A
+ * model that isn't on the device pauses the run first, to ask before it
+ * downloads (./download-interrupt.ts).
  */
 async function* reply(
   input: RunAgentInput,
@@ -52,7 +71,9 @@ async function* reply(
 ): AsyncIterable<StreamChunk> {
   const params = await chatParamsFromRequestBody(input)
   if (params.messages.at(-1)?.role === "user") startReply(params.threadId)
-  const model = readModel(params.forwardedProps)
+  // A continuation of a download confirmation carries its answer.
+  const answer = downloadAnswer(params.resume)
+  const model = readModel(params.forwardedProps, answer)
   const reasoning = effortFor(model, readEffort(params.forwardedProps))
   // Media the model can't read: refused in the message being answered (a
   // queued or regenerated one), left out of earlier ones for this model
@@ -67,14 +88,23 @@ async function* reply(
   signal?.addEventListener("abort", () => abortController.abort(), {
     once: true
   })
-  // The model first, with its download's progress. stop() returns at
-  // once, and cancels the download unless another run still waits on it.
-  const failed = await untilAborted(
-    prepareModel(model, abortController.signal),
-    abortController.signal
-  )
-  if (failed === ABORTED || abortController.signal.aborted) return
-  if (failed) throw failed
+  // A new run to a model that would download first asks before it does:
+  // `chat()` pauses on the confirmation before its first model call, so
+  // nothing loads. Its continuation carries the answer.
+  const download = params.parentRunId ? undefined : await pendingDownload(model)
+  if (abortController.signal.aborted) return
+  // The model first, with its download's progress, unless the run is about
+  // to ask, or the answer was no (the run then ends with no model call).
+  // stop() returns at once, and cancels the download unless another run
+  // still waits on it.
+  if (!download && answer?.status !== "cancelled") {
+    const failed = await untilAborted(
+      prepareModel(model, abortController.signal),
+      abortController.signal
+    )
+    if (failed === ABORTED || abortController.signal.aborted) return
+    if (failed) throw failed
+  }
   yield* chat({
     adapter: modelInfo(model).adapter,
     messages,
@@ -102,9 +132,13 @@ async function* reply(
     // reason get none. The type is the levels these adapters declare;
     // effortFor already picked one this model has.
     ...(reasoning && { reasoning: reasoning as "off" | "high" }),
-    // Each call's usage and its timings measured from the stream, to the
-    // stats line, for this reply only.
-    middleware: [replyStatsMiddleware(recordGeneration)],
+    interrupts: [confirmDownload],
+    // The download confirmation, then each call's usage and its timings
+    // measured from the stream, to the stats line, for this reply only.
+    middleware: [
+      confirmDownloadMiddleware(download),
+      replyStatsMiddleware(recordGeneration)
+    ],
     abortController
   })
 }

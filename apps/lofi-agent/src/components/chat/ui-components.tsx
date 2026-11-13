@@ -2,6 +2,7 @@ import { createChatUI } from "@tanstack/ai-react/ui"
 
 import { chatOptions } from "#/chat/options"
 import { chatContext, interruptContext, partContext } from "#/chat/ui-context"
+import { ConfirmDownload } from "./download-confirmation"
 import { FallbackInterrupt } from "./fallback-interrupt"
 import { FallbackPart } from "./fallback-part"
 import { ChatPromptInput } from "./input"
@@ -66,7 +67,9 @@ export const ChatUI = createChatUI(chatOptions, {
     // Approvals show in the layout's `Interrupts` list, as in TanStack's
     // example, one widget for every tool that asks first.
     tools: everyTool(McpToolApproval),
-    generic: { fallback: FallbackInterrupt }
+    // The app's own pauses, by their definition's id: asking before a
+    // model downloads (chat/download-interrupt.ts).
+    generic: { confirmDownload: ConfirmDownload, fallback: FallbackInterrupt }
   }
 })
 

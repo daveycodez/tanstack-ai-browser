@@ -51,13 +51,14 @@ Models download their repository's latest version (main). Models whose thinking 
 - Location, built in: models can ask for your current location (the browser asks you first), to about a kilometer, so "the weather where I am" works and the card names your city. The place is named offline from GeoNames' list of cities over 15,000 people, and the town for the weather lookup comes from OpenStreetMap's reverse geocoding (Nominatim), which gets the rounded coordinates; where it names none, the nearest listed city stands in. The weather lookup sends that city's name to Open-Meteo. Settings turns it off.
 - MCP servers: add any Streamable HTTP server by URL, with optional HTTP headers for its key (for example `Authorization: Bearer …` or `x-api-key`). The browser connects directly, so the server must allow this site (CORS).
 - Tool approval: every MCP tool asks before it runs, with Approve and Reject, except the built-in server's read-only ones (Exa's search). A session left waiting for an answer still asks after a reload.
+- Download confirmation: a message to a model that isn't on the device asks before it downloads, with Download, Cancel, and up to three models already on the device to answer with instead (the one picked becomes the picked model). It is a TanStack AI generic interrupt: middleware pauses the run before the first model call, since no tool could ask before the model is loaded. A session left waiting still asks after a reload.
 - Sessions, settings and MCP servers saved in IndexedDB as TanStack DB collections, kept in step across open tabs. Each session has its own URL, `/sessions/<id>`.
 - Sidebar with search, pinned sessions and date groups; rename, pin, archive and delete sessions. A session's title shimmers while it writes a reply.
 - Send another message while the model replies and it waits in a queue
 - Edit a sent message and resend it, even while the model is still replying
 - Per reply: copy, regenerate, read aloud, export as Markdown, delete
 - Copy a whole session as plain text, including thinking, tool calls and their results
-- A model downloads when the first message is sent to it, and the reply shows its progress: "Downloading LFM3-1.7B-GGUF… 412 MB of 1.05 GB"
+- A model downloads when the first message is sent to it, once you confirm, and the reply shows its progress: "Downloading LFM3-1.7B-GGUF… 412 MB of 1.05 GB"
 - A stats line under the composer for the latest reply: tokens in, cached, out and total, prompt reading and generation speed, and time to first token
 - Voice input through the browser's speech recognition, where available
 - The browser's built-in model (the Prompt API section: Gemini Nano in Chrome, Phi-4-mini in Edge), through the Prompt API, where the browser has it and the device can run it. The browser downloads it once for every site, with its progress shown in the reply; follow-ups and tool steps reuse its session, and web search works through guided generation
@@ -114,12 +115,13 @@ apps/lofi-agent/           the app (Nx project "lofi-agent")
   src/routes/              pages: the chat layout (_chat.tsx) around
                            / and /sessions/$sessionId
   src/chat/                TanStack AI setup: chat options, the connection
-                           running chat() in the page, models, persistence,
-                           reply stats
+                           running chat() in the page, models, the download
+                           confirmation, persistence, reply stats
   src/components/ai/       HeroUI building blocks: conversation, messages,
                            prompt input, model picker, tools, sources
   src/components/chat/     the chat kit's widgets (layout, message, input,
-                           parts, tools, approvals), thread, sidebar,
+                           parts, tools, approvals, the download
+                           confirmation), thread, sidebar,
                            Apple setup
   src/components/mcp/      MCP servers dialog
   src/components/settings/ settings dialog
@@ -132,7 +134,7 @@ apps/lofi-agent/           the app (Nx project "lofi-agent")
 ## Tech stack
 
 - [TanStack Start](https://tanstack.com/start) and TanStack Router with React 19, on Vite
-- [TanStack AI](https://tanstack.com/ai): `chat()` in the browser with the adapters from this repo, the headless chat kit (`@tanstack/ai-react/ui`) with `useChat`, and the MCP client
+- [TanStack AI](https://tanstack.com/ai): `chat()` in the browser with the adapters from this repo, the headless chat kit (`@tanstack/ai-react/ui`) with `useChat`, the MCP client, and a generic interrupt (its schemas are Zod's)
 - [TanStack DB](https://tanstack.com/db): IndexedDB collections for everything the app saves, chat persistence included
 - [`@tanstack-ai-browser/transformers-js`](../../packages/transformers-js): Transformers.js 4.3.2 and onnxruntime-web on WebGPU, loaded from jsDelivr at runtime
 - [`@tanstack-ai-browser/wllama`](../../packages/wllama): the official wllama 3.13.0 (llama.cpp in WebAssembly), for the GGUF models, on WebGPU or the CPU
