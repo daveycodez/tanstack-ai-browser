@@ -20,8 +20,12 @@ import { useChatContext } from "./ui-components"
 const asText = (value: unknown) =>
   typeof value === "string" ? value : JSON.stringify(value, null, 2)
 
-/** Why a call failed, if it did. */
+/** Whether the user rejected the call when it asked: it's recorded as failed, with why. */
+const wasRejected = (part: ToolCallPart) => part.approval?.approved === false
+
+/** Why a call failed, if it did. A rejected call didn't fail: it didn't run. */
 export function errorOf(part: ToolCallPart, result?: ToolResultPart) {
+  if (wasRejected(part)) return undefined
   if (result && (result.error || result.state === "error")) {
     return result.error ?? asText(result.content)
   }
@@ -34,6 +38,7 @@ export function statusOf(
   result: ToolResultPart | undefined,
   isRunning: boolean
 ): ToolStatus {
+  if (wasRejected(part)) return "rejected"
   if (errorOf(part, result)) return "error"
   if (part.state === "approval-requested") return "approval"
   if (part.output !== undefined || result) return "done"
@@ -93,12 +98,16 @@ export function McpTool({ part, result }: ToolProps<typeof chatOptions>) {
       />
     )
   }
+  const status = statusOf(part, result, isRunning)
   const errorText = errorOf(part, result)
+  // A rejected call has nothing to show but its arguments: it didn't run.
   const output =
-    part.output ?? (typeof result?.content === "string" ? result.content : undefined)
+    status === "rejected"
+      ? undefined
+      : (part.output ?? (typeof result?.content === "string" ? result.content : undefined))
   return (
-    <Tool>
-      <ToolHeader name={part.name} status={statusOf(part, result, isRunning)} />
+    <Tool isFailed={status === "error" || status === "rejected"}>
+      <ToolHeader name={part.name} status={status} />
       <ToolContent>
         <ToolInput input={part.input ?? part.arguments} />
         <ToolOutput output={output} errorText={errorText} />

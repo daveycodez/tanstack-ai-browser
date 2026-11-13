@@ -13,22 +13,29 @@ import type { ReactNode } from "react"
 
 import { highlightJson, highlightThemeCss } from "#/lib/highlight"
 
+/** A tool box's border: the warning color while it asks, the danger color once it failed or was rejected. */
+type ToolTone = "default" | "warning" | "danger"
+
+const TONE_BORDERS: Record<ToolTone, string> = {
+  default: "border-default",
+  warning: "border-warning/40",
+  danger: "border-danger/40"
+}
+
 /** The bordered, collapsible box every tool piece sits in. */
 function ToolBox({
   tone = "default",
   defaultExpanded,
   children
 }: {
-  tone?: "default" | "warning"
+  tone?: ToolTone
   defaultExpanded?: boolean
   children: ReactNode
 }) {
   return (
     <Disclosure
       defaultExpanded={defaultExpanded}
-      className={`overflow-hidden rounded-xl border ${
-        tone === "warning" ? "border-warning/40" : "border-default"
-      }`}
+      className={`overflow-hidden rounded-xl border ${TONE_BORDERS[tone]}`}
     >
       {children}
     </Disclosure>
@@ -82,20 +89,28 @@ export function ToolGroup({
   )
 }
 
-/** One tool call, collapsed under its status and name. */
-export function Tool({ children }: { children: ReactNode }) {
-  return <ToolBox>{children}</ToolBox>
+/** One tool call, collapsed under its status and name; one that failed or was rejected has a danger border. */
+export function Tool({
+  isFailed = false,
+  children
+}: {
+  isFailed?: boolean
+  children: ReactNode
+}) {
+  return <ToolBox tone={isFailed ? "danger" : "default"}>{children}</ToolBox>
 }
 
 /**
  * Where a call is: `preparing` while the model writes its arguments,
  * `running` while the tool runs, `approval` while it waits for the user,
- * `stopped` when the reply ended before it did.
+ * `rejected` when the user said no, `stopped` when the reply ended before
+ * it did.
  */
 export type ToolStatus =
   | "preparing"
   | "running"
   | "approval"
+  | "rejected"
   | "error"
   | "done"
   | "stopped"
@@ -104,6 +119,7 @@ const STATUS_LABELS: Record<ToolStatus, string> = {
   preparing: "Using tool:",
   running: "Using tool:",
   approval: "Waiting to use:",
+  rejected: "Rejected:",
   error: "Tool failed:",
   done: "Used tool:",
   stopped: "Didn't use:"
@@ -116,6 +132,7 @@ function StatusIcon({ status }: { status: ToolStatus }) {
   }
   if (status === "approval") return <Hand className={`${icon} text-warning`} />
   if (status === "error") return <CircleXmark className={`${icon} text-danger`} />
+  if (status === "rejected") return <CircleXmark className={`${icon} text-danger`} />
   if (status === "stopped") {
     return <CircleDashed className={`${icon} text-muted`} />
   }
