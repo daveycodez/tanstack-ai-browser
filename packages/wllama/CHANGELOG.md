@@ -17,6 +17,7 @@
 
 ### 🚀 Features
 
+- Image input, and Liquid's vision models: `LiquidAI/LFM3-VL-2B-GGUF`, `LiquidAI/LFM2.5-VL-3B-GGUF`, `LiquidAI/LFM2.5-VL-1.6B-GGUF` and `LiquidAI/LFM2.5-VL-450M-GGUF` are listed, each loading with its vision projector. A user message's image parts reach wllama as the images' bytes.
 - LFM3's GGUF (`LiquidAI/LFM3-1.7B-GGUF`) runs on the official package: wllama 3.13's llama.cpp is the first published with the `lfm3` architecture ([ngxson/wllama#310](https://github.com/ngxson/wllama/issues/310)).
 - The adapter runs the official `@wllama/wllama` npm package (3.13.0), now a dependency, unmodified and through its public API, with its own WebAssembly build. It no longer ships its own build of wllama and llama.cpp: the build script and its 19 patches (`scripts/`), the built WebAssembly files (`wasm/`) and the patched wllama JavaScript (`vendor/`) are gone. wllama's WebAssembly file loads from jsDelivr at the installed version, and Safari's compat build from jsDelivr too, wllama's default; `wasmUrl` and `compat` serve them from your site instead. Removed with it, each until an official wllama release brings it:
   - llama.cpp's WebAssembly SIMD kernels (Emscripten reported the CPU as `x86`, so llama.cpp builds its generic C kernels), and the relaxed-SIMD build with relaxed dot products (after llama.cpp PR #19590). Prompts read on the CPU about half as fast. The `relaxedSimdWasmUrl` option is removed ([ngxson/wllama#299](https://github.com/ngxson/wllama/issues/299)).

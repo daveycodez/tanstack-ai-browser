@@ -13,6 +13,14 @@ export type Device = "webgpu" | "wasm"
 export type Dtype = "q4f16" | "q4" | "fp16" | "fp32" | "q8" | "int8" | "uint8" | "bnb4"
 
 /**
+ * The weights of each of a model's ONNX files, by the file's name
+ * (`{ decoder_model_merged: "q4", vision_encoder: "fp16" }`), for a repo
+ * that doesn't have every file in one set of weights. Transformers.js's own
+ * per-file `dtype`.
+ */
+export type DtypeByFile = Readonly<Record<string, Dtype>>
+
+/**
  * The model to load, and how. Left out, the handler picks the device and
  * weights. `vision` loads it with its vision encoder and processor
  * (Transformers.js's `AutoModelForImageTextToText`), for images.
@@ -22,7 +30,7 @@ export type Dtype = "q4f16" | "q4" | "fp16" | "fp32" | "q8" | "int8" | "uint8" |
 export type LoadSettings = {
   model: string
   device?: Device
-  dtype?: Dtype
+  dtype?: Dtype | DtypeByFile
   vision?: boolean
   localModelPath?: string
   cacheDir?: string

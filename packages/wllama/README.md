@@ -62,13 +62,17 @@ The package is shaped like `@tanstack/ai-openai`'s text adapter:
 
 Any other GGUF works too: name its file, as `"owner/repo/file.gguf"` on Hugging Face (its latest version) or as a URL. An unlisted model gets llama.cpp's default sampling and the chat template's `enable_thinking` switch for `chat({ reasoning })`.
 
-| Model                                | Reasoning                       | File            |
-| ------------------------------------ | ------------------------------- | --------------- |
-| `LiquidAI/LFM3-1.7B-GGUF`            | on or off (`"high"` or `"off"`) | Q4_K_M, 1.10 GB |
-| `LiquidAI/LFM2.5-1.2B-Instruct-GGUF` | none                            | Q4_K_M, 731 MB  |
-| `LiquidAI/LFM2.5-1.2B-Thinking-GGUF` | always (`"high"`)               | Q4_K_M, 731 MB  |
-| `LiquidAI/LFM2.5-350M-GGUF`          | none                            | Q4_K_M, 229 MB  |
-| `unsloth/Qwen3.5-2B-GGUF`            | on or off (`"high"` or `"off"`) | Q4_K_M, 1.28 GB |
+| Model                                | Reasoning                       | File                                    |
+| ------------------------------------ | ------------------------------- | --------------------------------------- |
+| `LiquidAI/LFM3-1.7B-GGUF`            | on or off (`"high"` or `"off"`) | Q4_K_M, 1.10 GB                         |
+| `LiquidAI/LFM3-VL-2B-GGUF`           | on or off (`"high"` or `"off"`) | Q4_K_M, 1.10 GB, and a 203 MB projector |
+| `LiquidAI/LFM2.5-VL-3B-GGUF`         | none                            | Q4_K_M, 1.67 GB, and a 583 MB projector |
+| `LiquidAI/LFM2.5-VL-1.6B-GGUF`       | none                            | Q4_K_M, 731 MB, and a 583 MB projector  |
+| `LiquidAI/LFM2.5-VL-450M-GGUF`       | none                            | Q4_K_M, 229 MB, and a 103 MB projector  |
+| `LiquidAI/LFM2.5-1.2B-Instruct-GGUF` | none                            | Q4_K_M, 731 MB                          |
+| `LiquidAI/LFM2.5-1.2B-Thinking-GGUF` | always (`"high"`)               | Q4_K_M, 731 MB                          |
+| `LiquidAI/LFM2.5-350M-GGUF`          | none                            | Q4_K_M, 229 MB                          |
+| `unsloth/Qwen3.5-2B-GGUF`            | on or off (`"high"` or `"off"`) | Q4_K_M, 1.28 GB                         |
 
 Liquid's models are Q4_K_M: on a Pixel 10 Pro in Firefox, LFM2.5 350M read prompts at 55 tokens/s in Q4_K_M, 40 in Q8_0 and 15 in Q4_0 with wllama's own build. In Chrome on an M3 Ultra, Qwen3.5 2B on WebGPU read about 850 prompt tokens/s and wrote about 60 tokens/s (with other work on the machine).
 
@@ -77,6 +81,8 @@ wllama answers llama.cpp's OpenAI-compatible Chat Completions API in the page, s
 **Tools** work as with any adapter: pass them to `chat({ tools })`, MCP tools included. llama.cpp writes them into the prompt with the model's chat template and parses the model's calls back.
 
 LFM3 needs wllama 3.13 or later: its llama.cpp is the first published with LFM3's architecture.
+
+**Images:** Liquid's vision models (LFM3-VL 2B and LFM2.5-VL 3B, 1.6B and 450M) read images: send image parts in a user message, as data (base64) or URLs the page can fetch. Each loads with its vision projector, a second GGUF file in the same repository (the Q8_0 one), and the adapter's `inputModalities` has images for them. Another GGUF loads as text only.
 
 **Reasoning:** thinking (llama.cpp's `reasoning_content`) streams as reasoning events. LFM3 thinks by default; `chat({ reasoning: "off" })` turns it off, through its chat template's `enable_thinking` (llama.cpp's `chat_template_kwargs`). Qwen3.5 2B doesn't think unless asked; `chat({ reasoning: "high" })` turns it on the same way. LFM2.5 1.2B Thinking always thinks. `chat({ reasoning })` is a type error for the models that don't reason.
 

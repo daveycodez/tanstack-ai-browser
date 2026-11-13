@@ -8,6 +8,8 @@
 import type { ModelReasoning } from "@tanstack/ai"
 import type { ModelReasoningCapability } from "@tanstack/ai/adapter-internals"
 
+import type { DtypeByFile } from "./protocol.js"
+
 export type TransformersJsModelMeta = {
   /** The Hugging Face model id. */
   name: string
@@ -26,6 +28,15 @@ export type TransformersJsModelMeta = {
    * through WebAssembly where there's no WebGPU.
    */
   cpu?: boolean
+  /**
+   * A vision-language model: Transformers.js loads it only with its
+   * processor and vision encoder, so the adapter does from the start.
+   * (Qwen3.5 loads as a text model too, and takes its vision encoder once a
+   * chat sends an image.)
+   */
+  vision?: boolean
+  /** The weights of each of the repo's files on WebGPU, for a repo without a q4f16 set. */
+  dtype?: DtypeByFile
   /**
    * The model card's recommended sampling, for a repo whose
    * `generation_config.json` doesn't carry it (Transformers.js applies that
@@ -60,6 +71,8 @@ const LFM2_5_THINKING_SAMPLING = { do_sample: true, temperature: 0.05, top_k: 50
 const QWEN_3_5_SAMPLING = { do_sample: true, temperature: 1, top_k: 20, top_p: 1, repetition_penalty: 1 } as const satisfies Sampling
 /** Qwen3.5's card, text tasks with thinking. */
 const QWEN_3_5_THINKING_SAMPLING = { ...QWEN_3_5_SAMPLING, top_p: 0.95 } as const satisfies Sampling
+/** LFM2.5-VL 450M's card. Its `min_p=0.15` isn't in Transformers.js. */
+const LFM2_5_VL_SAMPLING = { do_sample: true, temperature: 0.1, repetition_penalty: 1.05 } as const satisfies Sampling
 /** LFM2 1.2B Tool's card: greedy decoding. */
 const LFM2_TOOL_SAMPLING = { do_sample: false } as const satisfies Sampling
 
@@ -70,7 +83,9 @@ const ALWAYS_THINKS = { levels: { high: "true" }, budget: false } as const
 
 const TOOLS_AND_THINKING = { input: ["text"], output: ["text"], capabilities: ["tools", "thinking"] } as const
 const TOOLS = { input: ["text"], output: ["text"], capabilities: ["tools"] } as const
-/** Qwen3.5: images too (its repos have a vision encoder), tools and thinking. */
+/** LFM2.5-VL: images and tools. */
+const IMAGES_AND_TOOLS = { input: ["text", "image"], output: ["text"], capabilities: ["tools"] } as const
+/** Qwen3.5 and LFM3-VL: images too (their repos have a vision encoder), tools and thinking. */
 const IMAGES_TOOLS_AND_THINKING = { input: ["text", "image"], output: ["text"], capabilities: ["tools", "thinking"] } as const
 
 const LFM3_1_7B = {
@@ -94,6 +109,45 @@ const LFM2_5_1_2B_THINKING = {
   size: "1.2b",
   reasoning: ALWAYS_THINKS,
   sampling: LFM2_5_THINKING_SAMPLING
+} as const satisfies TransformersJsModelMeta
+
+/**
+ * LFM3-VL 2B: LFM3 with a vision encoder, thinking unless turned off.
+ * Liquid's own ONNX repo isn't in Transformers.js's layout (it has no
+ * `preprocessor_config.json`), so this is onnx-community's export of it: 1.3
+ * GB in q4f16. Its `generation_config.json` carries the card's sampling.
+ */
+const LFM3_VL_2B = {
+  name: "onnx-community/LFM3-VL-2B-ONNX",
+  supports: IMAGES_TOOLS_AND_THINKING,
+  size: "2b",
+  reasoning: THINKING_SWITCH,
+  vision: true
+} as const satisfies TransformersJsModelMeta
+
+/** Liquid's files for LFM2.5-VL: a q4 decoder, with the embedding and the vision encoder in fp16. */
+const LFM2_5_VL_DTYPE = { decoder_model_merged: "q4", embed_tokens: "fp16", vision_encoder: "fp16" } as const
+
+/**
+ * LFM2.5-VL 3B, from Liquid's ONNX repository: 4 GB of files. Its
+ * `generation_config.json` carries the card's sampling.
+ */
+const LFM2_5_VL_3B = {
+  name: "LiquidAI/LFM2.5-VL-3B-ONNX",
+  supports: IMAGES_AND_TOOLS,
+  size: "3b",
+  vision: true,
+  dtype: LFM2_5_VL_DTYPE
+} as const satisfies TransformersJsModelMeta
+
+/** LFM2.5-VL 450M, from Liquid's ONNX repository: 0.8 GB of files. */
+const LFM2_5_VL_450M = {
+  name: "LiquidAI/LFM2.5-VL-450M-ONNX",
+  supports: IMAGES_AND_TOOLS,
+  size: "450m",
+  vision: true,
+  dtype: LFM2_5_VL_DTYPE,
+  sampling: LFM2_5_VL_SAMPLING
 } as const satisfies TransformersJsModelMeta
 
 /** LFM2 1.2B Tool: short, precise tool calls without thinking. */
@@ -139,6 +193,9 @@ const QWEN_3_5_0_8B = {
 
 const MODELS = [
   LFM3_1_7B,
+  LFM3_VL_2B,
+  LFM2_5_VL_3B,
+  LFM2_5_VL_450M,
   LFM2_5_1_2B,
   LFM2_5_1_2B_THINKING,
   LFM2_1_2B_TOOL,
@@ -157,6 +214,9 @@ export type TransformersJsChatModel = Listed["name"]
 /** Each listed model's metadata, by name. */
 export const TRANSFORMERS_JS_MODEL_META: Readonly<Record<TransformersJsChatModel, TransformersJsModelMeta>> = {
   [LFM3_1_7B.name]: LFM3_1_7B,
+  [LFM3_VL_2B.name]: LFM3_VL_2B,
+  [LFM2_5_VL_3B.name]: LFM2_5_VL_3B,
+  [LFM2_5_VL_450M.name]: LFM2_5_VL_450M,
   [LFM2_5_1_2B.name]: LFM2_5_1_2B,
   [LFM2_5_1_2B_THINKING.name]: LFM2_5_1_2B_THINKING,
   [LFM2_1_2B_TOOL.name]: LFM2_1_2B_TOOL,

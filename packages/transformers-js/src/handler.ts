@@ -17,6 +17,8 @@ import {
   AutoTokenizer,
   env,
   InterruptableStoppingCriteria,
+  Lfm2VlProcessor,
+  Lfm3VlProcessor,
   RawImage,
   StoppingCriteriaList,
   TextStreamer
@@ -61,7 +63,8 @@ const startsWith = (tokens: Array<number>, prefix: Array<number>) =>
  * The prompt's inputs: the chat template's tokens, or for a conversation
  * with images, the processor's (tokens and the images' pixels). The
  * processor is called as `processor(text, images)`, as Qwen's and
- * SmolVLM's are.
+ * SmolVLM's are; LFM's take the images first, and tokenize without adding
+ * the start token the chat template already wrote.
  */
 async function promptInputs(
   { messages, tools, enableThinking, images }: GenerateRequest,
@@ -73,7 +76,9 @@ async function promptInputs(
   }
   if (!processor) throw new Error("The model was loaded without its vision encoder.")
   const text = tokenizer.apply_chat_template(messages as never, { ...template, tokenize: false }) as string
-  return (await processor(text, await Promise.all(images.map((url) => RawImage.read(url))))) as never
+  const pixels = await Promise.all(images.map((url) => RawImage.read(url)))
+  const imagesFirst = processor instanceof Lfm2VlProcessor || processor instanceof Lfm3VlProcessor
+  return (await (imagesFirst ? processor(pixels, text, { add_special_tokens: false }) : processor(text, pixels))) as never
 }
 
 export class TransformersJsWorkerHandler {

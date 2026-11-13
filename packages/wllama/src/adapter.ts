@@ -150,6 +150,28 @@ function cardSampling(request: ReasoningRequest | undefined, model: WllamaModel)
 }
 
 /**
+ * A request's messages with each image as its bytes: wllama reads an image
+ * part as `{ type: "image", data }`, where Chat Completions has an
+ * `image_url` (a data URL here, or one the page can fetch).
+ */
+async function withImageBytes(messages: unknown, signal?: AbortSignal): Promise<unknown> {
+  if (!Array.isArray(messages)) return messages
+  return Promise.all(
+    messages.map(async (message: { content?: unknown }) => {
+      if (!Array.isArray(message.content)) return message
+      const content = await Promise.all(
+        message.content.map(async (part: { type?: string; image_url?: { url: string } }) =>
+          part.type === "image_url" && part.image_url
+            ? { type: "image", data: await (await fetch(part.image_url.url, { ...(signal && { signal }) })).arrayBuffer() }
+            : part
+        )
+      )
+      return { ...message, content }
+    })
+  )
+}
+
+/**
  * The model as an OpenAI client: each request loads it with the adapter's
  * settings (at once when it's loaded with them) and goes to wllama's
  * `createChatCompletion`.
@@ -158,7 +180,8 @@ function clientFor(model: WllamaModel, settings: LoadSettings, onDownloadProgres
   const create = async (body: Record<string, unknown>, options?: { signal?: AbortSignal | null }) => {
     const signal = options?.signal ?? undefined
     const wllama = await loadModel(model, settings, { ...(onDownloadProgress && { onDownloadProgress }), ...(signal && { signal }) })
-    return wllama.createChatCompletion({ ...body, ...(signal && { abortSignal: signal }) } as never)
+    const messages = await withImageBytes(body.messages, signal)
+    return wllama.createChatCompletion({ ...body, messages, ...(signal && { abortSignal: signal }) } as never)
   }
   return { baseURL: "wllama:", chat: { completions: { create } } } as unknown as OpenAIClientLike
 }
@@ -176,14 +199,15 @@ const loadSettings = ({ contextLength, wasmUrl, compat, threads, gpu, debug }: W
 export class WllamaTextAdapter<TModel extends WllamaModel> extends OpenAIBaseChatCompletionsTextAdapter<
   TModel,
   WllamaTextModelOptions,
-  readonly ["text"],
+  ReadonlyArray<"text" | "image">,
   MetadataByModality,
   ReadonlyArray<string>,
   ResolveReasoning<TModel>
 > {
   override readonly name = "wllama"
   override readonly api = "wllama"
-  override readonly inputModalities = ["text"] as const
+  /** Text, and images for a listed model with a vision projector. */
+  override readonly inputModalities: ReadonlyArray<"text" | "image">
 
   private readonly settings: LoadSettings
   private readonly onDownloadProgress: DownloadProgressCallback | undefined
@@ -193,6 +217,7 @@ export class WllamaTextAdapter<TModel extends WllamaModel> extends OpenAIBaseCha
     super(model, "wllama", clientFor(model, settings, config.onDownloadProgress), { strictFallbackWarning: false })
     this.settings = settings
     this.onDownloadProgress = config.onDownloadProgress
+    this.inputModalities = listed(model) ? modelMeta(model).supports.input : ["text"]
   }
 
   /**

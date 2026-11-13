@@ -12,7 +12,8 @@ import type { ModelReasoningCapability } from "@tanstack/ai/adapter-internals"
  */
 export type Sampling = {
   temperature: number
-  top_k: number
+  /** Left out where the card names none: llama.cpp's default. */
+  top_k?: number
   /** llama.cpp's repetition penalty (`--repeat-penalty`). */
   repeat_penalty: number
   /** Nucleus sampling: the likeliest tokens up to this probability. */
@@ -28,8 +29,11 @@ export type WllamaModelMeta = {
   name: string
   /** The GGUF file in the repository. */
   file: string
+  /** The vision projector's GGUF file in the repository, for a model that reads images. */
+  mmproj?: string
   supports: {
-    input: ReadonlyArray<"text">
+    /** Text, and images for a model with a vision projector. */
+    input: ReadonlyArray<"text" | "image">
     output: ReadonlyArray<"text">
     capabilities: ReadonlyArray<"tools" | "thinking">
   }
@@ -63,6 +67,16 @@ const TOOLS = {
   output: ["text"],
   capabilities: ["tools"]
 } as const
+const IMAGES_AND_TOOLS = {
+  input: ["text", "image"],
+  output: ["text"],
+  capabilities: ["tools"]
+} as const
+const IMAGES_TOOLS_AND_THINKING = {
+  input: ["text", "image"],
+  output: ["text"],
+  capabilities: ["tools", "thinking"]
+} as const
 
 /** LFM3's card: `--temp 0.1 --top-k 50 --repeat-penalty 1.1`. */
 const LFM3_SAMPLING = {
@@ -75,6 +89,18 @@ const LFM2_5_SAMPLING = {
   temperature: 0.1,
   top_k: 50,
   repeat_penalty: 1.05
+} as const satisfies Sampling
+/** LFM2.5-VL 450M's and 1.6B's cards: `--temp 0.1 --min-p 0.15 --repeat-penalty 1.05`. */
+const LFM2_5_VL_SAMPLING = {
+  temperature: 0.1,
+  min_p: 0.15,
+  repeat_penalty: 1.05
+} as const satisfies Sampling
+/** LFM2.5-VL 3B's card: `--temp 0.2 --top-k 50 --repeat-penalty 1.0`. */
+const LFM2_5_VL_3B_SAMPLING = {
+  temperature: 0.2,
+  top_k: 50,
+  repeat_penalty: 1
 } as const satisfies Sampling
 /** LFM2.5 Thinking's card: `--temp 0.05 --top-k 50 --repeat-penalty 1.05`. */
 const LFM2_5_THINKING_SAMPLING = {
@@ -114,6 +140,53 @@ const LFM3_1_7B = {
   size: "1.7b",
   reasoning: THINKING_SWITCH,
   sampling: LFM3_SAMPLING
+} as const satisfies WllamaModelMeta
+
+// The vision models load with their projector in Q8_0, the smallest Liquid
+// publishes: it reads an image as the F16 one does in a third to half the size.
+
+/**
+ * LFM3-VL 2B: LFM3 with a vision encoder, from Liquid's GGUF repository.
+ * Thinks by default, as LFM3 does. 1.10 GB, and a 203 MB projector.
+ */
+const LFM3_VL_2B = {
+  name: "LiquidAI/LFM3-VL-2B-GGUF",
+  file: "LFM3-VL-2B-Q4_K_M.gguf",
+  mmproj: "mmproj-LFM3-VL-2B-Q8_0.gguf",
+  supports: IMAGES_TOOLS_AND_THINKING,
+  size: "2b",
+  reasoning: THINKING_SWITCH,
+  sampling: LFM3_SAMPLING
+} as const satisfies WllamaModelMeta
+
+/** LFM2.5-VL 3B, from Liquid's GGUF repository: 1.67 GB, and a 583 MB projector. */
+const LFM2_5_VL_3B = {
+  name: "LiquidAI/LFM2.5-VL-3B-GGUF",
+  file: "LFM2.5-VL-3B-Q4_K_M.gguf",
+  mmproj: "mmproj-LFM2.5-VL-3B-Q8_0.gguf",
+  supports: IMAGES_AND_TOOLS,
+  size: "3b",
+  sampling: LFM2_5_VL_3B_SAMPLING
+} as const satisfies WllamaModelMeta
+
+/** LFM2.5-VL 1.6B, from Liquid's GGUF repository: 731 MB, and a 583 MB projector. */
+const LFM2_5_VL_1_6B = {
+  name: "LiquidAI/LFM2.5-VL-1.6B-GGUF",
+  file: "LFM2.5-VL-1.6B-Q4_K_M.gguf",
+  mmproj: "mmproj-LFM2.5-VL-1.6b-Q8_0.gguf",
+  supports: IMAGES_AND_TOOLS,
+  size: "1.6b",
+  sampling: LFM2_5_VL_SAMPLING
+} as const satisfies WllamaModelMeta
+
+/** LFM2.5-VL 450M, from Liquid's GGUF repository: 229 MB, and a 103 MB projector. */
+const LFM2_5_VL_450M = {
+  name: "LiquidAI/LFM2.5-VL-450M-GGUF",
+  file: "LFM2.5-VL-450M-Q4_K_M.gguf",
+  mmproj: "mmproj-LFM2.5-VL-450m-Q8_0.gguf",
+  supports: IMAGES_AND_TOOLS,
+  size: "450m",
+  sampling: LFM2_5_VL_SAMPLING
 } as const satisfies WllamaModelMeta
 
 /** Liquid AI's LFM2.5 1.2B Instruct, from its official GGUF repository. */
@@ -165,6 +238,10 @@ const QWEN_3_5_2B = {
 
 export const WLLAMA_CHAT_MODELS = [
   LFM3_1_7B.name,
+  LFM3_VL_2B.name,
+  LFM2_5_VL_3B.name,
+  LFM2_5_VL_1_6B.name,
+  LFM2_5_VL_450M.name,
   LFM2_5_1_2B.name,
   LFM2_5_1_2B_THINKING.name,
   LFM2_5_350M.name,
@@ -179,6 +256,10 @@ export const WLLAMA_MODEL_META: Readonly<
   Record<WllamaChatModel, WllamaModelMeta>
 > = {
   [LFM3_1_7B.name]: LFM3_1_7B,
+  [LFM3_VL_2B.name]: LFM3_VL_2B,
+  [LFM2_5_VL_3B.name]: LFM2_5_VL_3B,
+  [LFM2_5_VL_1_6B.name]: LFM2_5_VL_1_6B,
+  [LFM2_5_VL_450M.name]: LFM2_5_VL_450M,
   [LFM2_5_1_2B.name]: LFM2_5_1_2B,
   [LFM2_5_1_2B_THINKING.name]: LFM2_5_1_2B_THINKING,
   [LFM2_5_350M.name]: LFM2_5_350M,
@@ -187,6 +268,7 @@ export const WLLAMA_MODEL_META: Readonly<
 
 const WLLAMA_REASONING = {
   [LFM3_1_7B.name]: LFM3_1_7B.reasoning,
+  [LFM3_VL_2B.name]: LFM3_VL_2B.reasoning,
   [LFM2_5_1_2B_THINKING.name]: LFM2_5_1_2B_THINKING.reasoning,
   [QWEN_3_5_2B.name]: QWEN_3_5_2B.reasoning
 } as const
@@ -215,6 +297,13 @@ export type WllamaModel = WllamaChatModel | (string & {})
 /** Whether the catalog lists `model`. */
 export const listed = (model: string): model is WllamaChatModel =>
   Object.prototype.hasOwnProperty.call(WLLAMA_MODEL_META, model)
+
+/** Where a listed vision model's projector downloads from; none for a model that reads text only. */
+export const mmprojUrl = (model: WllamaModel) => {
+  if (!listed(model)) return undefined
+  const { name, mmproj } = modelMeta(model)
+  return mmproj && `https://huggingface.co/${name}/resolve/main/${mmproj}`
+}
 
 /**
  * Where a model's GGUF file downloads from: a listed model's file, or the

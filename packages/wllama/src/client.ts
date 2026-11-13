@@ -11,7 +11,7 @@
 import { LoggerWithoutDebug, ModelManager, Wllama } from "@wllama/wllama/esm/index.js"
 import type { WllamaCompat } from "@wllama/wllama/esm/index.js"
 
-import { modelUrl } from "./catalog.js"
+import { mmprojUrl, modelUrl } from "./catalog.js"
 import type { WllamaModel } from "./catalog.js"
 
 /**
@@ -105,6 +105,7 @@ export async function loadModel(
   signal?.throwIfAborted()
   // A name that isn't a model throws here, before anything is unloaded.
   const url = modelUrl(model)
+  const projector = mmprojUrl(model)
   const key = JSON.stringify(settings)
   if (loaded?.model !== model || loaded.key !== key) {
     // Published at once, so a call meanwhile shares this load.
@@ -120,7 +121,7 @@ export async function loadModel(
     const promise = teardown
       .then(() => {
         abort.signal.throwIfAborted()
-        return wllama.loadModelFromUrl(url, {
+        return wllama.loadModelFromUrl(projector ? { url, mmprojUrl: projector } : url, {
           signal: abort.signal,
           progressCallback: ({ loaded: bytes, total }) => {
             // A model in storage reports its whole size once, without downloading.

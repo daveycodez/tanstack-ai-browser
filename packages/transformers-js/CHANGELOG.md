@@ -18,6 +18,8 @@
 
 ### 🚀 Features
 
+- Liquid's vision models: `onnx-community/LFM3-VL-2B-ONNX`, `LiquidAI/LFM2.5-VL-3B-ONNX` and `LiquidAI/LFM2.5-VL-450M-ONNX` are listed and read images. They load with their vision encoder from the start, and LFM2.5-VL's with a set of weights per file.
+- `dtype` takes Transformers.js's per-file form too (`{ decoder_model_merged: "q4", vision_encoder: "fp16" }`), for a repo that doesn't have every file in one set of weights.
 - The worker runs the official `@huggingface/transformers` 4.3.2 npm package, now a dependency, unmodified and through its public API, on the ONNX Runtime it ships (onnxruntime-web 1.31.0-dev.20260914). It no longer downloads Transformers.js from a CDN, swaps in onnxruntime-web 1.31.1, or edits models or browser APIs. Removed with it:
   - ONNX model rewrites before each session: rotary tables cut to the context length, scores for the last token only, CPU MatMulNBits chunking, Scan transpose folding, Scan bodies' vector-matrix products as MatMuls, and Scan loops (with the float32 work around them) kept on the CPU.
   - The 4-bit embedding read from disk a row at a time instead of held in memory.

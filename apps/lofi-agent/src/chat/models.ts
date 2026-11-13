@@ -24,6 +24,9 @@ import { createStore } from "#/lib/store"
 export type ModelId =
   | "apple-fm"
   | "lfm3"
+  | "lfm3-vl"
+  | "lfm2.5-vl-3b"
+  | "lfm2.5-vl-450m"
   | "lfm2.5"
   | "lfm2.5-thinking"
   | "lfm2-tool"
@@ -31,6 +34,10 @@ export type ModelId =
   | "qwen3.5-2b"
   | "qwen3.5-0.8b"
   | "lfm3-gguf"
+  | "lfm3-vl-gguf"
+  | "lfm2.5-vl-3b-gguf"
+  | "lfm2.5-vl-1.6b-gguf"
+  | "lfm2.5-vl-450m-gguf"
   | "lfm2.5-gguf"
   | "lfm2.5-thinking-gguf"
   | "lfm2.5-350m-gguf"
@@ -252,6 +259,9 @@ export const MODELS = [
     reasoning: undefined
   },
   local("lfm3", "onnx-community/LFM3-1.7B-ONNX"),
+  local("lfm3-vl", "onnx-community/LFM3-VL-2B-ONNX"),
+  local("lfm2.5-vl-3b", "LiquidAI/LFM2.5-VL-3B-ONNX"),
+  local("lfm2.5-vl-450m", "LiquidAI/LFM2.5-VL-450M-ONNX"),
   local("lfm2.5", "LiquidAI/LFM2.5-1.2B-Instruct-ONNX"),
   local("lfm2.5-thinking", "LiquidAI/LFM2.5-1.2B-Thinking-ONNX"),
   local("lfm2-tool", "onnx-community/LFM2-1.2B-Tool-ONNX"),
@@ -259,6 +269,10 @@ export const MODELS = [
   local("qwen3.5-2b", "onnx-community/Qwen3.5-2B-ONNX"),
   local("qwen3.5-0.8b", "onnx-community/Qwen3.5-0.8B-ONNX"),
   gguf("lfm3-gguf", "LiquidAI/LFM3-1.7B-GGUF"),
+  gguf("lfm3-vl-gguf", "LiquidAI/LFM3-VL-2B-GGUF"),
+  gguf("lfm2.5-vl-3b-gguf", "LiquidAI/LFM2.5-VL-3B-GGUF"),
+  gguf("lfm2.5-vl-1.6b-gguf", "LiquidAI/LFM2.5-VL-1.6B-GGUF"),
+  gguf("lfm2.5-vl-450m-gguf", "LiquidAI/LFM2.5-VL-450M-GGUF"),
   gguf("lfm2.5-gguf", "LiquidAI/LFM2.5-1.2B-Instruct-GGUF"),
   gguf("lfm2.5-thinking-gguf", "LiquidAI/LFM2.5-1.2B-Thinking-GGUF"),
   gguf("lfm2.5-350m-gguf", "LiquidAI/LFM2.5-350M-GGUF"),

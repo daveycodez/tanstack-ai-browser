@@ -30,6 +30,9 @@ const stream = chat({
 | Model                                | Reasoning         | Without WebGPU |
 | ------------------------------------ | ----------------- | -------------- |
 | `onnx-community/LFM3-1.7B-ONNX`      | on/off            | no             |
+| `onnx-community/LFM3-VL-2B-ONNX`     | on/off            | no             |
+| `LiquidAI/LFM2.5-VL-3B-ONNX`         | none              | no             |
+| `LiquidAI/LFM2.5-VL-450M-ONNX`       | none              | no             |
 | `LiquidAI/LFM2.5-1.2B-Instruct-ONNX` | none              | no             |
 | `LiquidAI/LFM2.5-1.2B-Thinking-ONNX` | always (`"high"`) | no             |
 | `onnx-community/LFM2-1.2B-Tool-ONNX` | none              | yes            |
@@ -40,6 +43,8 @@ const stream = chat({
 ## Images
 
 The Qwen3.5 models read images too (`supports.input` in their catalog entry, and the adapter's `inputModalities`): send image parts in a user message, as data (base64) or URLs. A model loads without its vision encoder, and loads again with it (Transformers.js's `AutoProcessor` and `AutoModelForImageTextToText`) once a chat sends its first image; it then stays loaded with it. Each image goes to the chat template in its place in the conversation, and the processor reads the images as `processor(text, images)`, as Qwen's processors take them (LFM2-VL's take them the other way round, so it isn't supported). A conversation with images doesn't reuse the previous generation's cache. Another model's `inputModalities` is `undefined`: the package doesn't know whether it reads images.
+
+Liquid's vision models read images as well: LFM3-VL 2B, LFM2.5-VL 3B and LFM2.5-VL 450M. Transformers.js loads them only with their vision encoder, so they load with it from the start. LFM2.5-VL's are Liquid's own ONNX repositories, with a q4 decoder and the embedding and vision encoder in fp16 (the weights they publish). LFM3-VL's is onnx-community's export, because Liquid's ONNX repository for it isn't in Transformers.js's layout; for the same reason LFM2.5-VL 1.6B isn't listed.
 
 For a vision model the package doesn't list, say so: `transformersJsText("HuggingFaceTB/SmolVLM-256M-Instruct", { vision: true, dtype: "fp32" })`. It loads with its processor and vision encoder from the start (a model like SmolVLM has no text-only form), its `inputModalities` has images, and every message (the system prompt and earlier replies too) goes to the chat template as parts, as such templates read them. The weights are the package's default unless you set `dtype`; SmolVLM's `q4f16` build writes nonsense about images on WebGPU, and its `fp32` build reads them. Processors called the other way round (`processor(images, text)`: LFM2-VL, LLaVA, PaliGemma) still aren't supported.
 

@@ -21,7 +21,7 @@ import type { Availability, Client, DownloadProgressCallback } from "./client.js
 import { toTemplateMessages, toTemplateTools } from "./messages.js"
 import { TRANSFORMERS_JS_MODEL_META, TRANSFORMERS_JS_MODEL_REASONING } from "./model-meta.js"
 import type { Sampling, TransformersJsChatModel, TransformersJsModelReasoningByName } from "./model-meta.js"
-import type { Device, Dtype, GenerationOptions, GenerationSettings, LoadSettings } from "./protocol.js"
+import type { Device, Dtype, DtypeByFile, GenerationOptions, GenerationSettings, LoadSettings } from "./protocol.js"
 import { thinkingSplitter } from "./thinking.js"
 import type { Piece } from "./thinking.js"
 import { toolCallReader } from "./tool-calls.js"
@@ -33,8 +33,13 @@ export type TransformersJsConfig = {
    * there.
    */
   device?: Device
-  /** The ONNX weights to load: "q4f16" on WebGPU and "q4" on the CPU by default. */
-  dtype?: Dtype
+  /**
+   * The ONNX weights to load: "q4f16" on WebGPU and "q4" on the CPU by
+   * default, or a listed model's own where its repo has no such set. One
+   * name for every file, or one per file (Transformers.js's per-file
+   * `dtype`).
+   */
+  dtype?: Dtype | DtypeByFile
   /**
    * Whether the model reads images, for a model the package doesn't list
    * (SmolVLM, say): it loads with its processor and vision encoder
@@ -134,17 +139,20 @@ export class TransformersJsTextAdapter<TModel extends string> extends BaseTextAd
 
   constructor(config: TransformersJsConfig, model: TModel) {
     super({}, model)
+    const meta = listed(model)
+    const dtype = config.dtype ?? meta?.dtype
     this.settings = {
       model,
       ...(config.device && { device: config.device }),
-      ...(config.dtype && { dtype: config.dtype }),
-      ...(config.vision && { vision: true }),
+      ...(dtype && { dtype }),
+      // A vision-language model loads no other way.
+      ...((config.vision || meta?.vision) && { vision: true }),
       ...(config.localModelPath !== undefined && { localModelPath: config.localModelPath }),
       ...(config.cacheDir !== undefined && { cacheDir: config.cacheDir })
     }
     this.onDownloadProgress = config.onDownloadProgress
     this.client = clientFor(config.worker)
-    this.inputModalities = config.vision ? ["text", "image"] : listed(model)?.supports.input
+    this.inputModalities = config.vision ? ["text", "image"] : meta?.supports.input
   }
 
   /**
