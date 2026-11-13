@@ -6,7 +6,7 @@ import {
   TRANSFORMERS_JS_MODEL_REASONING
 } from "@tanstack-ai-browser/transformers-js"
 import type { TransformersJsChatModel } from "@tanstack-ai-browser/transformers-js"
-import { wllamaText, WLLAMA_MODEL_REASONING } from "@tanstack-ai-browser/wllama"
+import { wllamaText, WLLAMA_MODEL_META, WLLAMA_MODEL_REASONING } from "@tanstack-ai-browser/wllama"
 import type { WllamaChatModel } from "@tanstack-ai-browser/wllama"
 import { webgllmText, WEBGLLM_MODEL_REASONING } from "@tanstack-ai-browser/webgllm"
 import type { WebGllmChatModel } from "@tanstack-ai-browser/webgllm"
@@ -38,6 +38,9 @@ export type ModelId =
   | "lfm2.5-vl-3b-gguf"
   | "lfm2.5-vl-1.6b-gguf"
   | "lfm2.5-vl-450m-gguf"
+  | "lfm3-omni-gguf"
+  | "lfm3-audio-gguf"
+  | "lfm2.5-audio-gguf"
   | "lfm2.5-gguf"
   | "lfm2.5-thinking-gguf"
   | "lfm2.5-350m-gguf"
@@ -104,6 +107,11 @@ type ModelEntry = {
   status: ModelStatusStore | null
   needsWebGpu: boolean
   reasoning: ModelReasoning | undefined
+  /**
+   * Whether the model calls tools. One that doesn't is sent none: told of
+   * tools, LFM2.5-Audio answers that none of them can hear a recording.
+   */
+  callsTools: boolean
 }
 
 /**
@@ -169,7 +177,8 @@ const local = (id: ModelId, model: TransformersJsChatModel) => {
   /** No CPU weights: it can't run where there's no WebGPU. */
   needsWebGpu: !(TRANSFORMERS_JS_MODEL_META[model].cpu ?? false),
   reasoning: TRANSFORMERS_JS_MODEL_REASONING[model] as
-    ModelReasoning | undefined
+    ModelReasoning | undefined,
+  callsTools: true
   }
 }
 
@@ -186,7 +195,8 @@ const gguf = (id: ModelId, model: WllamaChatModel) => {
     adapter: wllamaText(model, { onDownloadProgress, ...iosContext() }),
     status: status as ModelStatusStore | null,
     needsWebGpu: false,
-    reasoning: WLLAMA_MODEL_REASONING[model] as ModelReasoning | undefined
+    reasoning: WLLAMA_MODEL_REASONING[model] as ModelReasoning | undefined,
+    callsTools: WLLAMA_MODEL_META[model].supports.capabilities.includes("tools")
   }
 }
 
@@ -204,7 +214,8 @@ const webgl = (id: ModelId, model: WebGllmChatModel) => {
     adapter: webgllmText(model, { onDownloadProgress, ...iosContext() }),
     status: status as ModelStatusStore | null,
     needsWebGpu: false,
-    reasoning: WEBGLLM_MODEL_REASONING[model] as ModelReasoning | undefined
+    reasoning: WEBGLLM_MODEL_REASONING[model] as ModelReasoning | undefined,
+    callsTools: true
   }
 }
 
@@ -229,7 +240,8 @@ const webLlm = (
     status,
     needsWebGpu: true,
     /** Thinking on and off where its chat template has the switch (Qwen3). */
-    reasoning
+    reasoning,
+    callsTools: true
   }
 }
 
@@ -247,7 +259,8 @@ export const MODELS = [
     status: null,
     needsWebGpu: false,
     /** Apple's model doesn't reason. */
-    reasoning: undefined
+    reasoning: undefined,
+    callsTools: true
   },
   {
     id: "built-in",
@@ -264,7 +277,8 @@ export const MODELS = [
     status: builtInStatus.status as ModelStatusStore | null,
     needsWebGpu: false,
     /** The browser's model doesn't reason. */
-    reasoning: undefined
+    reasoning: undefined,
+    callsTools: true
   },
   local("lfm3", "onnx-community/LFM3-1.7B-ONNX"),
   local("lfm3-vl", "onnx-community/LFM3-VL-2B-ONNX"),
@@ -281,6 +295,9 @@ export const MODELS = [
   gguf("lfm2.5-vl-3b-gguf", "LiquidAI/LFM2.5-VL-3B-GGUF"),
   gguf("lfm2.5-vl-1.6b-gguf", "LiquidAI/LFM2.5-VL-1.6B-GGUF"),
   gguf("lfm2.5-vl-450m-gguf", "LiquidAI/LFM2.5-VL-450M-GGUF"),
+  gguf("lfm3-omni-gguf", "LiquidAI/LFM3-Omni-2B-GGUF"),
+  gguf("lfm3-audio-gguf", "LiquidAI/LFM3-Audio-2B-GGUF"),
+  gguf("lfm2.5-audio-gguf", "LiquidAI/LFM2.5-Audio-1.5B-GGUF"),
   gguf("lfm2.5-gguf", "LiquidAI/LFM2.5-1.2B-Instruct-GGUF"),
   gguf("lfm2.5-thinking-gguf", "LiquidAI/LFM2.5-1.2B-Thinking-GGUF"),
   gguf("lfm2.5-350m-gguf", "LiquidAI/LFM2.5-350M-GGUF"),

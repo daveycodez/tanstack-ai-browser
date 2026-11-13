@@ -144,3 +144,30 @@ test("structured output sends the schema as given; the caller's signal reaches w
   assert.deepEqual((sent.request.response_format as { json_schema: { schema: unknown } }).json_schema.schema, schema)
   assert.equal(sent.signal, controller.signal)
 })
+
+test("an audio clip and an image reach llama.cpp as their bytes, in their places", async () => {
+  // A WAV file's first bytes, and three of an image.
+  const wav = Uint8Array.from([..."RIFF", 0, 0, 0, 0, ..."WAVE", 7, 8, 9].map((v) => (typeof v === "string" ? v.charCodeAt(0) : v)))
+  const data = (bytes: Uint8Array) => Buffer.from(bytes).toString("base64")
+  const content = [
+    { type: "audio", source: { type: "data", value: data(wav), mimeType: "audio/wav" } },
+    { type: "text", content: "What is said here, and what is in the picture?" },
+    { type: "image", source: { type: "data", value: data(Uint8Array.from([1, 2, 3])), mimeType: "image/png" } }
+  ]
+  const { request } = await run({ messages: [{ role: "user", content }] })
+  const messages = request.messages as Array<{ content: Array<{ type: string; data?: ArrayBuffer }> }>
+  const parts = messages.at(-1)?.content ?? []
+  assert.deepEqual(parts.map((part) => part.type), ["audio", "text", "image"])
+  const [audio, , image] = parts
+  assert.deepEqual(new Uint8Array(audio?.data ?? new ArrayBuffer(0)), wav)
+  assert.deepEqual([...new Uint8Array(image?.data ?? new ArrayBuffer(0))], [1, 2, 3])
+})
+
+test("audio kept as an uploaded file is refused: wllama reads bytes", async () => {
+  const content = [{ type: "audio", source: { type: "file", value: "file-123" } }]
+  const events: Array<Chunk> = []
+  for await (const event of wllamaText(MODEL).chatStream(options({ messages: [{ role: "user", content }] }))) events.push(event)
+  const failure = events.find((event) => event.type === "RUN_ERROR")
+  assert.match(JSON.stringify(failure), /not as uploaded files/)
+  assert.equal(control.requests.length, 0)
+})

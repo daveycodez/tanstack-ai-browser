@@ -30,6 +30,9 @@ What does leave your device: calls to MCP servers (Exa's web search, if it's on,
 | LFM2.5-VL 3B GGUF         | Liquid AI's GGUF build of LFM2.5-VL 3B (1.67 GB, and a 583 MB projector): reads images.                                                                                                     |
 | LFM2.5-VL 1.6B GGUF       | Liquid AI's GGUF build of LFM2.5-VL 1.6B (731 MB, and a 583 MB projector): reads images.                                                                                                    |
 | LFM2.5-VL 450M GGUF       | Liquid AI's GGUF build of LFM2.5-VL 450M (229 MB, and a 103 MB projector): reads images.                                                                                                    |
+| LFM3-Omni 2B GGUF         | Liquid AI's GGUF build of LFM3-Omni (1.10 GB, and a 507 MB projector): reads images and audio. It doesn't reason.                                                                           |
+| LFM3-Audio 2B GGUF        | Liquid AI's GGUF build of LFM3-Audio (1.10 GB, and a 304 MB projector): reads audio, and reasons when it chooses to.                                                                        |
+| LFM2.5-Audio 1.5B GGUF    | Liquid AI's GGUF build of LFM2.5-Audio (Q4_0, 696 MB, and a 220 MB projector): reads audio, in English. It calls no tools.                                                                  |
 | LFM2.5 1.2B GGUF          | Liquid AI's GGUF build of LFM2.5 Instruct (Q4_K_M, 731 MB), run by llama.cpp through `@tanstack-ai-browser/wllama`.                                                                         |
 | LFM2.5 1.2B Thinking GGUF | LFM2.5 Thinking's GGUF build, on the CPU the same way: always reasons before answering.                                                                                                     |
 | LFM2.5 350M GGUF          | LFM2.5 350M's GGUF build (229 MB): on the CPU, the quickest of all.                                                                                                                         |
@@ -60,6 +63,7 @@ Models download their repository's latest version (main). Models whose thinking 
 - Copy a whole session as plain text, including thinking, tool calls and their results
 - A model downloads when the first message is sent to it, once you confirm, and the reply shows its progress: "Downloading LFM3-1.7B-GGUF… 412 MB of 1.05 GB"
 - A stats line under the composer for the latest reply: tokens in, cached, out and total, prompt reading and generation speed, and time to first token
+- Attachments, for models that read them: images, and audio for the browser's built-in model and the wllama audio models (LFM3-Omni, LFM3-Audio and LFM2.5-Audio), which transcribe a recording or answer questions about it. Each shows as a chip that opens the image, or a player for audio. Audio that llama.cpp can't decode (what phones and browsers record) is decoded in the page first.
 - Voice input through the browser's speech recognition, where available
 - The browser's built-in model (the Prompt API section: Gemini Nano in Chrome, Phi-4-mini in Edge), through the Prompt API, where the browser has it and the device can run it. The browser downloads it once for every site, with its progress shown in the reply; follow-ups and tool steps reuse its session, and web search works through guided generation
 - Settings: a system prompt sent with every session (before the current date), the weather tool on or off, and deleting every session

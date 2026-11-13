@@ -7,7 +7,8 @@
  * TanStack's, and llama.cpp writes the prompt with the model's chat template
  * and reads its thinking and tool calls back. This file adds what's wllama's
  * own: loading the model with the adapter's settings, the chat template's
- * thinking switch, the model card's sampling.
+ * thinking switch, the model card's sampling, and audio parts for the
+ * models that read them.
  */
 import type { ReasoningRequest, TextOptions } from "@tanstack/ai"
 import { resolveReasoning } from "@tanstack/ai/adapter-internals"
@@ -15,6 +16,7 @@ import { OpenAIBaseChatCompletionsTextAdapter } from "@tanstack/openai-base"
 import type { OpenAIClientLike } from "@tanstack/openai-base"
 import type { WllamaCompat } from "@wllama/wllama/esm/index.js"
 
+import { llamaAudio } from "./audio.js"
 import { availability, loadModel, unloadModel } from "./client.js"
 import type { Availability, DownloadProgressCallback, LoadSettings } from "./client.js"
 import { listed, modelMeta } from "./catalog.js"
@@ -113,6 +115,9 @@ const reasoningOf = (model: WllamaModel) => (listed(model) ? modelMeta(model).re
 
 type MetadataByModality = { text: unknown; image: unknown; audio: unknown; video: unknown; document: unknown }
 
+/** The base adapter's conversion of a message part to a Chat Completions one. */
+type ConvertContentPart = OpenAIBaseChatCompletionsTextAdapter<string>["convertContentPart"]
+
 /** A Chat Completions request, as the base adapter writes it. */
 type CreateParams = Parameters<OpenAIClientLike["chat"]["completions"]["create"]>[0]
 
@@ -149,22 +154,33 @@ function cardSampling(request: ReasoningRequest | undefined, model: WllamaModel)
   return (thinking && meta.thinkingSampling) || meta.sampling
 }
 
+/** What a URL holds: a data URL's bytes, or those the page fetches. */
+const bytesAt = async (url: string, signal?: AbortSignal) => (await fetch(url, { ...(signal && { signal }) })).arrayBuffer()
+
+/** A Chat Completions part that names its media by URL. */
+type MediaPart = { type?: string; image_url?: { url: string }; audio_url?: { url: string } }
+
 /**
- * A request's messages with each image as its bytes: wllama reads an image
- * part as `{ type: "image", data }`, where Chat Completions has an
- * `image_url` (a data URL here, or one the page can fetch).
+ * A request's messages with each image and audio clip as its bytes: wllama
+ * reads them as `{ type: "image", data }` and `{ type: "audio", data }`,
+ * where the request has an `image_url` or an `audio_url` (a data URL here,
+ * or one the page can fetch). Audio llama.cpp can't decode goes as WAV.
  */
-async function withImageBytes(messages: unknown, signal?: AbortSignal): Promise<unknown> {
+async function withMediaBytes(messages: unknown, signal?: AbortSignal): Promise<unknown> {
   if (!Array.isArray(messages)) return messages
   return Promise.all(
     messages.map(async (message: { content?: unknown }) => {
       if (!Array.isArray(message.content)) return message
       const content = await Promise.all(
-        message.content.map(async (part: { type?: string; image_url?: { url: string } }) =>
-          part.type === "image_url" && part.image_url
-            ? { type: "image", data: await (await fetch(part.image_url.url, { ...(signal && { signal }) })).arrayBuffer() }
-            : part
-        )
+        message.content.map(async (part: MediaPart) => {
+          if (part.type === "image_url" && part.image_url) {
+            return { type: "image", data: await bytesAt(part.image_url.url, signal) }
+          }
+          if (part.type === "audio_url" && part.audio_url) {
+            return { type: "audio", data: await llamaAudio(await bytesAt(part.audio_url.url, signal)) }
+          }
+          return part
+        })
       )
       return { ...message, content }
     })
@@ -180,7 +196,7 @@ function clientFor(model: WllamaModel, settings: LoadSettings, onDownloadProgres
   const create = async (body: Record<string, unknown>, options?: { signal?: AbortSignal | null }) => {
     const signal = options?.signal ?? undefined
     const wllama = await loadModel(model, settings, { ...(onDownloadProgress && { onDownloadProgress }), ...(signal && { signal }) })
-    const messages = await withImageBytes(body.messages, signal)
+    const messages = await withMediaBytes(body.messages, signal)
     return wllama.createChatCompletion({ ...body, messages, ...(signal && { abortSignal: signal }) } as never)
   }
   return { baseURL: "wllama:", chat: { completions: { create } } } as unknown as OpenAIClientLike
@@ -199,15 +215,15 @@ const loadSettings = ({ contextLength, wasmUrl, compat, threads, gpu, debug }: W
 export class WllamaTextAdapter<TModel extends WllamaModel> extends OpenAIBaseChatCompletionsTextAdapter<
   TModel,
   WllamaTextModelOptions,
-  ReadonlyArray<"text" | "image">,
+  ReadonlyArray<"text" | "image" | "audio">,
   MetadataByModality,
   ReadonlyArray<string>,
   ResolveReasoning<TModel>
 > {
   override readonly name = "wllama"
   override readonly api = "wllama"
-  /** Text, and images for a listed model with a vision projector. */
-  override readonly inputModalities: ReadonlyArray<"text" | "image">
+  /** Text, and images or audio for a listed model whose projector reads them. */
+  override readonly inputModalities: ReadonlyArray<"text" | "image" | "audio">
 
   private readonly settings: LoadSettings
   private readonly onDownloadProgress: DownloadProgressCallback | undefined
@@ -271,6 +287,24 @@ export class WllamaTextAdapter<TModel extends WllamaModel> extends OpenAIBaseCha
   protected override extractReasoning(chunk: unknown) {
     const text = (chunk as { choices?: Array<{ delta?: { reasoning_content?: string } }> }).choices?.[0]?.delta?.reasoning_content
     return text ? { text } : undefined
+  }
+
+  /**
+   * An audio part by its URL, as an image goes: Chat Completions takes
+   * audio only as base64 in two formats, and the client reads the bytes of
+   * either kind from a URL (a data URL for base64).
+   */
+  protected override convertContentPart(part: Parameters<ConvertContentPart>[0]): ReturnType<ConvertContentPart> {
+    if (part.type !== "audio") return super.convertContentPart(part)
+    const { source } = part
+    if (source.type === "file") {
+      throw new Error("wllama takes audio as data or URLs, not as uploaded files.")
+    }
+    const url =
+      source.type === "data" && !source.value.startsWith("data:")
+        ? `data:${source.mimeType || "application/octet-stream"};base64,${source.value}`
+        : source.value
+    return { type: "audio_url", audio_url: { url } } as unknown as ReturnType<ConvertContentPart>
   }
 
   /** Schemas as given: llama.cpp's grammar takes any JSON Schema, without OpenAI's strict-mode rewrite. */

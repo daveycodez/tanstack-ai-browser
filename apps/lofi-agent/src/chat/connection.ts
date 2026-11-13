@@ -114,20 +114,23 @@ async function* reply(
     ...(params.resume && { resume: params.resume }),
     // The user's system prompt from Settings, then the date.
     systemPrompts: [currentSystemPrompt()],
-    // The built-in tools, unless turned off in Settings. The location tool
-    // is a client tool: only its definition here, so the run pauses for
-    // useChat to run its browser part (components/chat/thread.tsx).
-    tools: [
-      ...(weatherToolSetting.get() ? [weatherTool] : []),
-      ...(locationToolSetting.get() ? [locationToolDefinition] : [])
-    ],
-    // The MCP servers' tools, Exa's web search first. The clients stay open
-    // between runs; a server that fails to list its tools is left out.
-    mcp: {
-      clients: getMcpClients(),
-      connection: "keep-alive",
-      onDiscoveryError: reportMcpDiscoveryError
-    },
+    // Tools, for a model that calls them (LFM2.5-Audio doesn't, and gets
+    // none). The built-in ones, unless turned off in Settings: the location
+    // tool is a client tool, only its definition here, so the run pauses
+    // for useChat to run its browser part (components/chat/thread.tsx).
+    // Then the MCP servers' tools, Exa's web search first: the clients stay
+    // open between runs; a server that fails to list its tools is left out.
+    ...(modelInfo(model).callsTools && {
+      tools: [
+        ...(weatherToolSetting.get() ? [weatherTool] : []),
+        ...(locationToolSetting.get() ? [locationToolDefinition] : [])
+      ],
+      mcp: {
+        clients: getMcpClients(),
+        connection: "keep-alive" as const,
+        onDiscoveryError: reportMcpDiscoveryError
+      }
+    }),
     // The effort picked, clamped to the model's levels. Models that don't
     // reason get none. The type is the levels these adapters declare;
     // effortFor already picked one this model has.

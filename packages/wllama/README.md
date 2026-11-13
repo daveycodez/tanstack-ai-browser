@@ -69,6 +69,9 @@ Any other GGUF works too: name its file, as `"owner/repo/file.gguf"` on Hugging 
 | `LiquidAI/LFM2.5-VL-3B-GGUF`         | none                            | Q4_K_M, 1.67 GB, and a 583 MB projector |
 | `LiquidAI/LFM2.5-VL-1.6B-GGUF`       | none                            | Q4_K_M, 731 MB, and a 583 MB projector  |
 | `LiquidAI/LFM2.5-VL-450M-GGUF`       | none                            | Q4_K_M, 229 MB, and a 103 MB projector  |
+| `LiquidAI/LFM3-Omni-2B-GGUF`         | none                            | Q4_K_M, 1.10 GB, and a 507 MB projector |
+| `LiquidAI/LFM3-Audio-2B-GGUF`        | none                            | Q4_K_M, 1.10 GB, and a 304 MB projector |
+| `LiquidAI/LFM2.5-Audio-1.5B-GGUF`    | none                            | Q4_0, 696 MB, and a 220 MB projector    |
 | `LiquidAI/LFM2.5-1.2B-Instruct-GGUF` | none                            | Q4_K_M, 731 MB                          |
 | `LiquidAI/LFM2.5-1.2B-Thinking-GGUF` | always (`"high"`)               | Q4_K_M, 731 MB                          |
 | `LiquidAI/LFM2.5-350M-GGUF`          | none                            | Q4_K_M, 229 MB                          |
@@ -83,6 +86,8 @@ wllama answers llama.cpp's OpenAI-compatible Chat Completions API in the page, s
 LFM3 needs wllama 3.13 or later: its llama.cpp is the first published with LFM3's architecture.
 
 **Images:** Liquid's vision models (LFM3-VL 2B and LFM2.5-VL 3B, 1.6B and 450M) read images: send image parts in a user message, as data (base64) or URLs the page can fetch. Each loads with its vision projector, a second GGUF file in the same repository (the Q8_0 one), and the adapter's `inputModalities` has images for them. Another GGUF loads as text only.
+
+**Audio:** LFM3-Omni 2B (which reads images too), LFM3-Audio 2B and LFM2.5-Audio 1.5B read audio: send audio parts in a user message, as data (base64) or URLs the page can fetch, and the adapter's `inputModalities` has audio for them. They transcribe a recording (when asked, or with the system prompt `Perform ASR.`) and answer questions about it, in text: their speech output isn't used. llama.cpp decodes WAV, MP3 and FLAC itself; other audio (Opus in WebM or Ogg, AAC in MP4) is decoded in the page with Web Audio and goes as WAV, so it needs a browser. Each loads with its projector, the audio encoder (Q8_0, or Q4_0 for LFM2.5-Audio, whose repository has no Q4_K_M model either). The LFM3 ones call tools; LFM2.5-Audio doesn't, and told of tools it answers that none can hear a recording, so send it none. LFM3-Audio reasons when it chooses to: its chat template has no switch.
 
 **Reasoning:** thinking (llama.cpp's `reasoning_content`) streams as reasoning events. LFM3 thinks by default; `chat({ reasoning: "off" })` turns it off, through its chat template's `enable_thinking` (llama.cpp's `chat_template_kwargs`). Qwen3.5 2B doesn't think unless asked; `chat({ reasoning: "high" })` turns it on the same way. LFM2.5 1.2B Thinking always thinks. `chat({ reasoning })` is a type error for the models that don't reason.
 

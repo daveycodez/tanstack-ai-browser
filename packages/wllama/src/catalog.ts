@@ -29,11 +29,11 @@ export type WllamaModelMeta = {
   name: string
   /** The GGUF file in the repository. */
   file: string
-  /** The vision projector's GGUF file in the repository, for a model that reads images. */
+  /** The projector's GGUF file in the repository, for a model that reads images or audio. */
   mmproj?: string
   supports: {
-    /** Text, and images for a model with a vision projector. */
-    input: ReadonlyArray<"text" | "image">
+    /** Text, and images or audio for a model whose projector reads them. */
+    input: ReadonlyArray<"text" | "image" | "audio">
     output: ReadonlyArray<"text">
     capabilities: ReadonlyArray<"tools" | "thinking">
   }
@@ -77,6 +77,21 @@ const IMAGES_TOOLS_AND_THINKING = {
   output: ["text"],
   capabilities: ["tools", "thinking"]
 } as const
+const AUDIO_AND_TOOLS = {
+  input: ["text", "audio"],
+  output: ["text"],
+  capabilities: ["tools"]
+} as const
+const IMAGES_AUDIO_AND_TOOLS = {
+  input: ["text", "image", "audio"],
+  output: ["text"],
+  capabilities: ["tools"]
+} as const
+const AUDIO = {
+  input: ["text", "audio"],
+  output: ["text"],
+  capabilities: []
+} as const
 
 /** LFM3's card: `--temp 0.1 --top-k 50 --repeat-penalty 1.1`. */
 const LFM3_SAMPLING = {
@@ -107,6 +122,12 @@ const LFM2_5_THINKING_SAMPLING = {
   temperature: 0.05,
   top_k: 50,
   repeat_penalty: 1.05
+} as const satisfies Sampling
+
+/** The audio models' cards: greedy decoding (`--temp 0`) for text. */
+const GREEDY_SAMPLING = {
+  temperature: 0,
+  repeat_penalty: 1
 } as const satisfies Sampling
 
 /** Qwen3.5's card, text tasks without thinking (its default). */
@@ -189,6 +210,55 @@ const LFM2_5_VL_450M = {
   sampling: LFM2_5_VL_SAMPLING
 } as const satisfies WllamaModelMeta
 
+// The audio models answer in text here: their speech output needs
+// llama.cpp's speech APIs, which this adapter doesn't call. Their projector
+// is the audio encoder (and, for LFM3-Omni, the vision encoder too), in
+// Q8_0, as their cards pair it with the Q4_K_M model.
+
+/**
+ * LFM3-Omni 2B: reads images and audio (speech, or other sound) in one
+ * model, from Liquid's GGUF repository. It doesn't reason: every answer
+ * opens with an empty thinking block. 1.10 GB, and a 507 MB projector.
+ */
+const LFM3_OMNI_2B = {
+  name: "LiquidAI/LFM3-Omni-2B-GGUF",
+  file: "LFM3-Omni-2B-Q4_K_M.gguf",
+  mmproj: "mmproj-LFM3-Omni-2B-Q8_0.gguf",
+  supports: IMAGES_AUDIO_AND_TOOLS,
+  size: "2b",
+  sampling: GREEDY_SAMPLING
+} as const satisfies WllamaModelMeta
+
+/**
+ * LFM3-Audio 2B: reads audio (transcribes and translates speech in 18
+ * languages, answers questions about a recording, calls tools from a
+ * spoken request), from Liquid's GGUF repository. 1.10 GB, and a 304 MB
+ * projector.
+ */
+const LFM3_AUDIO_2B = {
+  name: "LiquidAI/LFM3-Audio-2B-GGUF",
+  file: "LFM3-Audio-2B-Q4_K_M.gguf",
+  mmproj: "mmproj-LFM3-Audio-2B-Q8_0.gguf",
+  supports: AUDIO_AND_TOOLS,
+  size: "2b",
+  sampling: GREEDY_SAMPLING
+} as const satisfies WllamaModelMeta
+
+/**
+ * LFM2.5-Audio 1.5B: reads audio, in English, from Liquid's GGUF
+ * repository, which has no Q4_K_M: Q4_0, 696 MB, and a 220 MB projector.
+ * It calls no tools: told of tools, it answers that none of them can hear
+ * a recording, so it's best sent none.
+ */
+const LFM2_5_AUDIO_1_5B = {
+  name: "LiquidAI/LFM2.5-Audio-1.5B-GGUF",
+  file: "LFM2.5-Audio-1.5B-Q4_0.gguf",
+  mmproj: "mmproj-LFM2.5-Audio-1.5B-Q4_0.gguf",
+  supports: AUDIO,
+  size: "1.5b",
+  sampling: GREEDY_SAMPLING
+} as const satisfies WllamaModelMeta
+
 /** Liquid AI's LFM2.5 1.2B Instruct, from its official GGUF repository. */
 const LFM2_5_1_2B = {
   name: "LiquidAI/LFM2.5-1.2B-Instruct-GGUF",
@@ -242,6 +312,9 @@ export const WLLAMA_CHAT_MODELS = [
   LFM2_5_VL_3B.name,
   LFM2_5_VL_1_6B.name,
   LFM2_5_VL_450M.name,
+  LFM3_OMNI_2B.name,
+  LFM3_AUDIO_2B.name,
+  LFM2_5_AUDIO_1_5B.name,
   LFM2_5_1_2B.name,
   LFM2_5_1_2B_THINKING.name,
   LFM2_5_350M.name,
@@ -260,6 +333,9 @@ export const WLLAMA_MODEL_META: Readonly<
   [LFM2_5_VL_3B.name]: LFM2_5_VL_3B,
   [LFM2_5_VL_1_6B.name]: LFM2_5_VL_1_6B,
   [LFM2_5_VL_450M.name]: LFM2_5_VL_450M,
+  [LFM3_OMNI_2B.name]: LFM3_OMNI_2B,
+  [LFM3_AUDIO_2B.name]: LFM3_AUDIO_2B,
+  [LFM2_5_AUDIO_1_5B.name]: LFM2_5_AUDIO_1_5B,
   [LFM2_5_1_2B.name]: LFM2_5_1_2B,
   [LFM2_5_1_2B_THINKING.name]: LFM2_5_1_2B_THINKING,
   [LFM2_5_350M.name]: LFM2_5_350M,
@@ -298,7 +374,7 @@ export type WllamaModel = WllamaChatModel | (string & {})
 export const listed = (model: string): model is WllamaChatModel =>
   Object.prototype.hasOwnProperty.call(WLLAMA_MODEL_META, model)
 
-/** Where a listed vision model's projector downloads from; none for a model that reads text only. */
+/** Where a listed model's projector downloads from; none for a model that reads text only. */
 export const mmprojUrl = (model: WllamaModel) => {
   if (!listed(model)) return undefined
   const { name, mmproj } = modelMeta(model)
