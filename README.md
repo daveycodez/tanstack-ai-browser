@@ -23,7 +23,7 @@ import { chat } from "@tanstack/ai"
 import { stream, useChat } from "@tanstack/ai-react"
 import { transformersJsText } from "@tanstack-ai-browser/transformers-js"
 
-const adapter = transformersJsText("daveycodez/LFM3-1.7B-Web-ONNX")
+const adapter = transformersJsText("onnx-community/LFM3-1.7B-ONNX")
 
 // chat() runs in the page; useChat reads its stream directly.
 const chatState = useChat({

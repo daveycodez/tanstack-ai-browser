@@ -27,18 +27,15 @@ const stream = chat({
 
 `TRANSFORMERS_JS_CHAT_MODELS` lists the models this package knows; `TRANSFORMERS_JS_MODEL_META` has each one's size, capabilities, reasoning levels and whether it has CPU weights (`cpu`). Any other Hugging Face ONNX model works too: `transformersJsText("owner/model")`. Models load with `AutoModelForCausalLM` and their repo's latest version.
 
-| Model                                      | Reasoning         | Without WebGPU |
-| ------------------------------------------ | ----------------- | -------------- |
-| `daveycodez/LFM3-1.7B-Web-ONNX`            | on/off            | yes            |
-| `onnx-community/LFM3-1.7B-ONNX`            | on/off            | no             |
-| `daveycodez/LFM2.5-1.2B-Web-ONNX`          | none              | yes            |
-| `daveycodez/LFM2.5-1.2B-Thinking-Web-ONNX` | always (`"high"`) | yes            |
-| `LiquidAI/LFM2.5-1.2B-Instruct-ONNX`       | none              | no             |
-| `LiquidAI/LFM2.5-1.2B-Thinking-ONNX`       | always (`"high"`) | no             |
-| `onnx-community/LFM2-1.2B-Tool-ONNX`       | none              | yes            |
-| `LiquidAI/LFM2.5-350M-ONNX`                | none              | no             |
-| `onnx-community/Qwen3.5-2B-ONNX`           | on/off            | no             |
-| `onnx-community/Qwen3.5-0.8B-ONNX`         | on/off            | yes            |
+| Model                                | Reasoning         | Without WebGPU |
+| ------------------------------------ | ----------------- | -------------- |
+| `onnx-community/LFM3-1.7B-ONNX`      | on/off            | no             |
+| `LiquidAI/LFM2.5-1.2B-Instruct-ONNX` | none              | no             |
+| `LiquidAI/LFM2.5-1.2B-Thinking-ONNX` | always (`"high"`) | no             |
+| `onnx-community/LFM2-1.2B-Tool-ONNX` | none              | yes            |
+| `LiquidAI/LFM2.5-350M-ONNX`          | none              | no             |
+| `onnx-community/Qwen3.5-2B-ONNX`     | on/off            | no             |
+| `onnx-community/Qwen3.5-0.8B-ONNX`   | on/off            | yes            |
 
 ## Images
 

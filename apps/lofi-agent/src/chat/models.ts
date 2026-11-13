@@ -24,11 +24,8 @@ import { createStore } from "#/lib/store"
 export type ModelId =
   | "apple-fm"
   | "lfm3"
-  | "lfm3-web"
   | "lfm2.5"
   | "lfm2.5-thinking"
-  | "lfm2.5-web"
-  | "lfm2.5-thinking-web"
   | "lfm2-tool"
   | "lfm2.5-350m"
   | "qwen3.5-2b"
@@ -255,11 +252,8 @@ export const MODELS = [
     reasoning: undefined
   },
   local("lfm3", "onnx-community/LFM3-1.7B-ONNX"),
-  local("lfm3-web", "daveycodez/LFM3-1.7B-Web-ONNX"),
   local("lfm2.5", "LiquidAI/LFM2.5-1.2B-Instruct-ONNX"),
   local("lfm2.5-thinking", "LiquidAI/LFM2.5-1.2B-Thinking-ONNX"),
-  local("lfm2.5-web", "daveycodez/LFM2.5-1.2B-Web-ONNX"),
-  local("lfm2.5-thinking-web", "daveycodez/LFM2.5-1.2B-Thinking-Web-ONNX"),
   local("lfm2-tool", "onnx-community/LFM2-1.2B-Tool-ONNX"),
   local("lfm2.5-350m", "LiquidAI/LFM2.5-350M-ONNX"),
   local("qwen3.5-2b", "onnx-community/Qwen3.5-2B-ONNX"),
@@ -387,7 +381,7 @@ export function effortButtonLabel(id: ModelId, level: ReasoningLevel) {
 export const DEFAULT_MODEL: ModelId = "lfm3-webgl"
 
 /** The model to start with where the WebGL engine can't run but WebGPU can. */
-export const DEFAULT_GPU_MODEL: ModelId = "lfm3-web"
+export const DEFAULT_GPU_MODEL: ModelId = "lfm3"
 
 /**
  * The model to start with where neither the WebGL engine nor WebGPU can run,
@@ -593,7 +587,7 @@ const canRun = (id: ModelId, isMac: boolean, hasGpu: boolean) =>
 
 /**
  * The pick, if this device can run it, else the default: LFM3's GGUF on
- * WebGL, else LFM3 Web on WebGPU, else LFM2 1.2B Tool on the CPU. A WebLLM
+ * WebGL, else LFM3's ONNX on WebGPU, else LFM2 1.2B Tool on the CPU. A WebLLM
  * pick is offered once WebLLM's models have loaded, which this starts.
  */
 export const offered = (

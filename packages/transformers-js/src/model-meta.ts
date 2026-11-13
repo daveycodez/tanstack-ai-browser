@@ -73,16 +73,6 @@ const TOOLS = { input: ["text"], output: ["text"], capabilities: ["tools"] } as 
 /** Qwen3.5: images too (its repos have a vision encoder), tools and thinking. */
 const IMAGES_TOOLS_AND_THINKING = { input: ["text", "image"], output: ["text"], capabilities: ["tools", "thinking"] } as const
 
-/** LFM3 built for the web: GPTQ 4-bit, a 48k vocabulary, flash attention in its sliding-window layers. */
-const LFM3_1_7B_WEB = {
-  name: "daveycodez/LFM3-1.7B-Web-ONNX",
-  supports: TOOLS_AND_THINKING,
-  size: "1.7b",
-  reasoning: THINKING_SWITCH,
-  cpu: true,
-  sampling: LFM3_SAMPLING
-} as const satisfies TransformersJsModelMeta
-
 const LFM3_1_7B = {
   name: "onnx-community/LFM3-1.7B-ONNX",
   supports: TOOLS_AND_THINKING,
@@ -103,24 +93,6 @@ const LFM2_5_1_2B_THINKING = {
   supports: TOOLS_AND_THINKING,
   size: "1.2b",
   reasoning: ALWAYS_THINKS,
-  sampling: LFM2_5_THINKING_SAMPLING
-} as const satisfies TransformersJsModelMeta
-
-/** LFM2.5 re-exported to compute logits for a prompt's last token only. */
-const LFM2_5_1_2B_WEB = {
-  name: "daveycodez/LFM2.5-1.2B-Web-ONNX",
-  supports: TOOLS,
-  size: "1.2b",
-  cpu: true,
-  sampling: LFM2_5_SAMPLING
-} as const satisfies TransformersJsModelMeta
-
-const LFM2_5_1_2B_THINKING_WEB = {
-  name: "daveycodez/LFM2.5-1.2B-Thinking-Web-ONNX",
-  supports: TOOLS_AND_THINKING,
-  size: "1.2b",
-  reasoning: ALWAYS_THINKS,
-  cpu: true,
   sampling: LFM2_5_THINKING_SAMPLING
 } as const satisfies TransformersJsModelMeta
 
@@ -166,10 +138,7 @@ const QWEN_3_5_0_8B = {
 } as const satisfies TransformersJsModelMeta
 
 const MODELS = [
-  LFM3_1_7B_WEB,
   LFM3_1_7B,
-  LFM2_5_1_2B_WEB,
-  LFM2_5_1_2B_THINKING_WEB,
   LFM2_5_1_2B,
   LFM2_5_1_2B_THINKING,
   LFM2_1_2B_TOOL,
@@ -187,10 +156,7 @@ export type TransformersJsChatModel = Listed["name"]
 
 /** Each listed model's metadata, by name. */
 export const TRANSFORMERS_JS_MODEL_META: Readonly<Record<TransformersJsChatModel, TransformersJsModelMeta>> = {
-  [LFM3_1_7B_WEB.name]: LFM3_1_7B_WEB,
   [LFM3_1_7B.name]: LFM3_1_7B,
-  [LFM2_5_1_2B_WEB.name]: LFM2_5_1_2B_WEB,
-  [LFM2_5_1_2B_THINKING_WEB.name]: LFM2_5_1_2B_THINKING_WEB,
   [LFM2_5_1_2B.name]: LFM2_5_1_2B,
   [LFM2_5_1_2B_THINKING.name]: LFM2_5_1_2B_THINKING,
   [LFM2_1_2B_TOOL.name]: LFM2_1_2B_TOOL,

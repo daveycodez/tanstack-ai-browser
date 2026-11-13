@@ -54,8 +54,8 @@ blocked audio never prevents playing.
 
 ## Local opponent
 
-The opponent label opens a model picker. It lists the WebGL models, excluding `-Web`
-variants, and puts Prompt API first when the browser reports support. The selected model
+The opponent label opens a model picker. It lists the WebGL models
+and puts Prompt API first when the browser reports support. The selected model
 and thinking setting are saved with the current game and carried into a new game.
 Changing either cancels a pending turn and starts a reply with the new settings.
 
