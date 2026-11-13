@@ -1,12 +1,12 @@
 /**
  * Image and audio attachments, laid out as in assistant-ui's composer (MIT,
- * github.com/assistant-ui/assistant-ui): a plus button in the toolbar, square
+ * github.com/assistant-ui/assistant-ui): a paperclip button in the toolbar, square
  * tiles above the text with a remove button each, and a full-size preview
  * (or a player, for audio) on click. A sent message shows its attachments as
  * the same tiles.
  */
 import MusicNote from "@gravity-ui/icons/MusicNote"
-import Plus from "@gravity-ui/icons/Plus"
+import Paperclip from "@gravity-ui/icons/Paperclip"
 import { Button, CloseButton, Modal, Tooltip } from "@heroui/react"
 import { useRef, useState } from "react"
 
@@ -100,7 +100,7 @@ export function PromptInputAttachments({
   )
 }
 
-/** The plus button: picks files of the kinds given to attach. */
+/** The paperclip button: picks files of the kinds given to attach. */
 export function PromptInputAddAttachment({
   kinds,
   onAdd
@@ -127,12 +127,13 @@ export function PromptInputAddAttachment({
         <Button
           isIconOnly
           size="sm"
-          variant="ghost"
+          variant="tertiary"
           aria-label={label}
-          className="text-muted"
+          // The input group's suffix mutes its text, which a tertiary button inherits.
+          className="text-foreground"
           onPress={() => input.current?.click()}
         >
-          <Plus />
+          <Paperclip />
         </Button>
         <Tooltip.Content>{label}</Tooltip.Content>
       </Tooltip>
