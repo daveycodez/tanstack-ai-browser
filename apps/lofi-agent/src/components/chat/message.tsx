@@ -18,11 +18,16 @@ import type { ContentPart, UIMessage } from "@tanstack/ai"
 import type { MessageProps } from "@tanstack/ai-react/ui"
 import { useContext, useEffect, useMemo, useState } from "react"
 
+import { attachmentPart, toAttachments } from "#/chat/attachments"
 import { useSelectedModel } from "#/chat/model"
-import { modelInfo, useModelStatus } from "#/chat/models"
+import { modelInfo, useAttachableKinds, useModelStatus } from "#/chat/models"
 import type { chatOptions } from "#/chat/options"
 import { Action, Actions } from "#/components/ai/actions"
-import { AttachmentChip } from "#/components/ai/attachments"
+import {
+  AttachmentChip,
+  PromptInputAddAttachment,
+  PromptInputAttachments
+} from "#/components/ai/attachments"
 import { Message, MessageContent } from "#/components/ai/message"
 import { ToolGroup } from "#/components/ai/tool"
 import {
@@ -56,26 +61,33 @@ const mediaParts = (message: UIMessage): Array<ContentPart> =>
 const mediaSrc = (source: { type: string; value: string; mimeType?: string }) =>
   source.type === "file" ? undefined : source.type === "data" ? `data:${source.mimeType ?? "application/octet-stream"};base64,${source.value}` : source.value
 
+/** A media part's file name, as the composer saved it; a part without one is numbered. */
+const mediaName = (part: ContentPart, index: number) => {
+  const saved = (part.metadata as { name?: unknown } | undefined)?.name
+  return typeof saved === "string" && saved ? saved : `${part.type === "image" ? "Image" : "Audio"} ${index + 1}`
+}
+
 function UserMessage({ message }: { message: UIMessage }) {
   const { messages } = useChatContext()
   const { resend, remove } = useThread()
   const [isEditing, setIsEditing] = useState(false)
   const text = messageText(message)
   const media = mediaParts(message)
-  // Its images and audio go again with the text, edited or not.
-  const content = (next: string) =>
-    media.length ? [...media, ...(next ? [{ type: "text" as const, content: next }] : [])] : next
+  // The images and audio left after editing go again with the text.
+  const content = (next: string, parts: Array<ContentPart>) =>
+    parts.length ? [...parts, ...(next ? [{ type: "text" as const, content: next }] : [])] : next
 
   if (isEditing) {
     return (
       <EditMessage
         initial={text}
+        media={media}
         onCancel={() => setIsEditing(false)}
-        onUpdate={(next) => {
+        onUpdate={(next, parts) => {
           setIsEditing(false)
           resend(
             messages.findIndex((m) => m.id === message.id),
-            content(next)
+            content(next, parts)
           )
         }}
         onDelete={() => {
@@ -93,10 +105,7 @@ function UserMessage({ message }: { message: UIMessage }) {
           {media.map((part, index) => {
             if (part.type !== "image" && part.type !== "audio") return null
             const src = mediaSrc(part.source as { type: string; value: string; mimeType?: string })
-            // The file's name, as the composer saved it; a part without one is numbered.
-            const saved = (part.metadata as { name?: unknown } | undefined)?.name
-            const name = typeof saved === "string" && saved ? saved : `${part.type === "image" ? "Image" : "Audio"} ${index + 1}`
-            return src ? <AttachmentChip key={index} kind={part.type} src={src} name={name} /> : null
+            return src ? <AttachmentChip key={index} kind={part.type} src={src} name={mediaName(part, index)} /> : null
           })}
         </div>
       )}
@@ -108,7 +117,7 @@ function UserMessage({ message }: { message: UIMessage }) {
           onPress={() =>
             resend(
               messages.findIndex((m) => m.id === message.id),
-              content(text)
+              content(text, media)
             )
           }
         >
@@ -125,28 +134,56 @@ function UserMessage({ message }: { message: UIMessage }) {
 /** A user message being edited, in a prompt input of its own. */
 function EditMessage({
   initial,
+  media,
   onCancel,
   onUpdate,
   onDelete
 }: {
   initial: string
+  media: ReadonlyArray<ContentPart>
   onCancel: () => void
-  onUpdate: (text: string) => void
+  onUpdate: (text: string, media: Array<ContentPart>) => void
   onDelete: () => void
 }) {
   const [value, setValue] = useState(initial)
+  // The message's images and audio, each with a key: removed here, or added to.
+  const [parts, setParts] = useState<Array<{ id: string; part: ContentPart }>>(() =>
+    media.map((part) => ({ id: crypto.randomUUID(), part }))
+  )
+  // What the picked model reads, as in the message input.
+  const kinds = useAttachableKinds(useSelectedModel())
+  const attach = (files: Iterable<File>) => {
+    void toAttachments(files, kinds).then(({ attachments }) =>
+      setParts((current) => [...current, ...attachments.map((attachment) => ({ id: attachment.id, part: attachmentPart(attachment) }))])
+    )
+  }
   return (
     <PromptInput label="Edit message" className="ms-auto w-full max-w-[85%]">
+      <PromptInputAttachments
+        attachments={parts.flatMap(({ id, part }, index) => {
+          if (part.type !== "image" && part.type !== "audio") return []
+          const src = mediaSrc(part.source as { type: string; value: string; mimeType?: string })
+          return src ? [{ id, kind: part.type, name: mediaName(part, index), src }] : []
+        })}
+        onRemove={(id) => setParts((current) => current.filter((item) => item.id !== id))}
+      />
       <PromptInputTextarea
         value={value}
         maxRows={13}
         autoFocus
         onChange={(e) => setValue(e.target.value)}
+        onPaste={(e) => {
+          const files = [...e.clipboardData.files].filter((file) => kinds.some((kind) => file.type.startsWith(`${kind}/`)))
+          if (files.length === 0) return
+          e.preventDefault()
+          attach(files)
+        }}
         onKeyDown={(e) => {
           if (e.key === "Escape") onCancel()
         }}
       />
       <PromptInputToolbar>
+        {kinds.length > 0 && <PromptInputAddAttachment kinds={kinds} onAdd={attach} />}
         <Button size="sm" variant="danger" onPress={onDelete}>
           Delete
         </Button>
@@ -160,8 +197,8 @@ function EditMessage({
         </Button>
         <Button
           size="sm"
-          isDisabled={!value.trim()}
-          onPress={() => onUpdate(value.trim())}
+          isDisabled={!value.trim() && parts.length === 0}
+          onPress={() => onUpdate(value.trim(), parts.map((item) => item.part))}
         >
           Update
         </Button>

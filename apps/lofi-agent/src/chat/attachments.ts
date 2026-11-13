@@ -2,6 +2,8 @@
  * Files as attachments: images and audio, as the content parts a message
  * sends, with their data as base64.
  */
+import type { ContentPart } from "@tanstack/ai"
+
 /** What an attachment is: the content part it's sent as. */
 export type AttachmentKind = "image" | "audio"
 
@@ -11,6 +13,13 @@ export type Attachment = { id: string; kind: AttachmentKind; name: string; mimeT
 /** The kind of attachment a file makes, or nothing for another file. */
 const kindOf = (file: File): AttachmentKind | undefined =>
   file.type.startsWith("image/") ? "image" : file.type.startsWith("audio/") ? "audio" : undefined
+
+/** The content part an attachment is sent as, with its file's name for the chat log (models don't read it). */
+export const attachmentPart = (attachment: Attachment): ContentPart => ({
+  type: attachment.kind,
+  source: { type: "data", value: attachment.data, mimeType: attachment.mimeType },
+  metadata: { name: attachment.name }
+})
 
 /** An attachment's data as a URL. */
 export const attachmentUrl = (attachment: Pick<Attachment, "mimeType" | "data">) =>

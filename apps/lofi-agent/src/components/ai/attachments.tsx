@@ -10,7 +10,6 @@ import Paperclip from "@gravity-ui/icons/Paperclip"
 import { Button, CloseButton, Modal, Tooltip } from "@heroui/react"
 import { useRef, useState } from "react"
 
-import { attachmentUrl } from "#/chat/attachments"
 import type { Attachment, AttachmentKind } from "#/chat/attachments"
 
 export type { Attachment, AttachmentKind }
@@ -73,12 +72,15 @@ export function AttachmentChip({
   )
 }
 
-/** The composer's attachments, in a row above its text; nothing when there are none. */
+/**
+ * A prompt input's attachments, in a row above its text, each with a remove
+ * button; nothing when there are none.
+ */
 export function PromptInputAttachments({
   attachments,
   onRemove
 }: {
-  attachments: ReadonlyArray<Attachment>
+  attachments: ReadonlyArray<{ id: string; kind: AttachmentKind; name: string; src: string }>
   onRemove: (id: string) => void
 }) {
   if (attachments.length === 0) return null
@@ -88,7 +90,7 @@ export function PromptInputAttachments({
         <AttachmentChip
           key={attachment.id}
           kind={attachment.kind}
-          src={attachmentUrl(attachment)}
+          src={attachment.src}
           name={attachment.name}
           onRemove={() => onRemove(attachment.id)}
         />

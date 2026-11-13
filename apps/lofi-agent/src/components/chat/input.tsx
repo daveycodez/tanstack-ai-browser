@@ -5,7 +5,7 @@
  */
 import Microphone from "@gravity-ui/icons/Microphone"
 import { Alert, CloseButton, Skeleton } from "@heroui/react"
-import type { ContentPart, ReasoningLevel } from "@tanstack/ai"
+import type { ReasoningLevel } from "@tanstack/ai"
 import { useRef, useState } from "react"
 
 import {
@@ -14,7 +14,7 @@ import {
   useEffort,
   useSelectedModel
 } from "#/chat/model"
-import { toAttachments } from "#/chat/attachments"
+import { attachmentPart, attachmentUrl, toAttachments } from "#/chat/attachments"
 import { cantRead, unreadableKinds } from "#/chat/media"
 import {
   afmStatus,
@@ -93,12 +93,7 @@ export function ChatPromptInput() {
     dictation.cancel()
     const text = value.trim()
     // Attachments first, then the text, as a model reads a picture or clip and its question.
-    const media: Array<ContentPart> = attachments.map((attachment) => ({
-      type: attachment.kind,
-      source: { type: "data", value: attachment.data, mimeType: attachment.mimeType },
-      // The file's name, for the chat log: models don't read it.
-      metadata: { name: attachment.name }
-    }))
+    const media = attachments.map(attachmentPart)
     send(media.length ? [...media, ...(text ? [{ type: "text" as const, content: text }] : [])] : text)
     setValue("")
     setAttachments(() => [])
@@ -131,7 +126,7 @@ export function ChatPromptInput() {
       )}
       <PromptInput label="Message input" name="message">
         <PromptInputAttachments
-          attachments={attachments}
+          attachments={attachments.map((attachment) => ({ ...attachment, src: attachmentUrl(attachment) }))}
           onRemove={(id) => setAttachments((current) => current.filter((a) => a.id !== id))}
         />
         <PromptInputTextarea
