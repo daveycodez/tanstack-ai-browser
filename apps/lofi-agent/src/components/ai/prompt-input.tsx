@@ -24,7 +24,7 @@ export function PromptInput({
     <TextField fullWidth aria-label={label} name={name} className={className}>
       <InputGroup
         fullWidth
-        className="flex flex-col gap-3 rounded-3xl pt-3.5 pb-2"
+        className="flex flex-col gap-4 rounded-3xl pt-3.5 pb-2"
       >
         {children}
       </InputGroup>
@@ -70,7 +70,7 @@ export function PromptInputTools({
 }) {
   return (
     <div
-      className={`flex items-center gap-1 ${end ? "ms-auto shrink-0" : "min-w-0"}`}
+      className={`flex items-center gap-2 ${end ? "ms-auto shrink-0" : "min-w-0"}`}
     >
       {children}
     </div>
