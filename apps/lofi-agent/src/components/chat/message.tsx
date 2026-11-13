@@ -93,7 +93,9 @@ function UserMessage({ message }: { message: UIMessage }) {
           {media.map((part, index) => {
             if (part.type !== "image" && part.type !== "audio") return null
             const src = mediaSrc(part.source as { type: string; value: string; mimeType?: string })
-            const name = `${part.type === "image" ? "Image" : "Audio"} ${index + 1}`
+            // The file's name, as the composer saved it; a part without one is numbered.
+            const saved = (part.metadata as { name?: unknown } | undefined)?.name
+            const name = typeof saved === "string" && saved ? saved : `${part.type === "image" ? "Image" : "Audio"} ${index + 1}`
             return src ? <AttachmentChip key={index} kind={part.type} src={src} name={name} /> : null
           })}
         </div>

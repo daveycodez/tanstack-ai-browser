@@ -95,7 +95,9 @@ export function ChatPromptInput() {
     // Attachments first, then the text, as a model reads a picture or clip and its question.
     const media: Array<ContentPart> = attachments.map((attachment) => ({
       type: attachment.kind,
-      source: { type: "data", value: attachment.data, mimeType: attachment.mimeType }
+      source: { type: "data", value: attachment.data, mimeType: attachment.mimeType },
+      // The file's name, for the chat log: models don't read it.
+      metadata: { name: attachment.name }
     }))
     send(media.length ? [...media, ...(text ? [{ type: "text" as const, content: text }] : [])] : text)
     setValue("")
