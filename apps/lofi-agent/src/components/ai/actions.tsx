@@ -12,7 +12,7 @@ export function Actions({
 }: ComponentProps<"div">) {
   return (
     <div
-      className={`-mt-1 flex items-center gap-1 opacity-50 transition-opacity group-hover/message:opacity-100 focus-within:opacity-100 has-aria-expanded:opacity-100 ${className}`}
+      className={`flex items-center gap-1 opacity-50 transition-opacity group-hover/message:opacity-100 focus-within:opacity-100 has-aria-expanded:opacity-100 ${className}`}
       {...props}
     />
   )
