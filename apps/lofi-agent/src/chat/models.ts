@@ -543,14 +543,15 @@ const useWllamaOnWebGpu = () =>
 /**
  * Which backend a provider's models run on here, for the picker: WebGPU or
  * Wasm (the CPU, in WebAssembly) for Transformers.js and wllama, WebGPU for
- * WebLLM (its only one); nothing for the others (WebGL says so itself; apfel
- * and the Prompt API aren't ours).
+ * WebLLM and WebGL 2 for WebGLLM (their only ones); nothing for the others
+ * (apfel and the Prompt API aren't ours).
  */
 export function useBackends(): Partial<Record<string, string>> {
   const webGpu = useHasWebGpu()
   const wllama = useWllamaOnWebGpu()
   return {
     "transformers-js": webGpu ? "WebGPU" : "Wasm",
+    webgllm: "WebGL 2",
     "web-llm": "WebGPU",
     ...(wllama !== null && { wllama: wllama ? "WebGPU" : "Wasm" })
   }
