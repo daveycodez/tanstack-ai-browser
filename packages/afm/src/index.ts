@@ -11,6 +11,7 @@ export { Afm } from "./native.js"
 export { serveAfm } from "./electron.js"
 export type { ServeAfmOptions } from "./electron.js"
 export type {
+  AfmGuardrails,
   AfmNative,
   NativeAvailability,
   NativeEvent,

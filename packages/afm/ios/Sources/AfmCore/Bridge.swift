@@ -15,9 +15,11 @@ import FoundationModels
 /// Events, each with the `sessionId` and the `turn` of the `respond` call:
 /// - `{ type: "delta", text }`: more of the response.
 /// - `{ type: "toolCalls", calls: [{ id, name, arguments }] }`: `arguments` in JSON.
-/// - `{ type: "done", text, usage }`: the response, and its tokens (iOS/macOS 27):
+/// - `{ type: "done", text, usage, asText }`: the response, and its tokens (iOS/macOS 27):
 ///   `inputTokens` and `outputTokens` over every pass of the model (a tool call's
 ///   too), and `cachedTokens` only for a session without tools (see `usage()`).
+///   `asText` when a schema's answer was written as text (a permissive session's
+///   fallback, see `run`): not held to the schema, so the caller checks it.
 /// - `{ type: "error", code, message }`.
 @available(iOS 26.0, macOS 26.0, *)
 public final class AfmBridge: @unchecked Sendable {
@@ -31,9 +33,20 @@ public final class AfmBridge: @unchecked Sendable {
         self.emit = emit
     }
 
-    /// Whether the model can run here, why not, and the tokens a session holds.
-    public static func availability() -> [String: Any] {
-        let model = SystemLanguageModel.default
+    /// The model with the guardrails `options` names: "permissiveContentTransformations",
+    /// or the default ones. Apple's default guardrails can block ordinary text that
+    /// sounds unsafe out of context (a card game's "Searing Blood", "Play with Fire").
+    static func model(_ options: [String: Any]) -> SystemLanguageModel {
+        switch options["guardrails"] as? String {
+        case "permissiveContentTransformations": return SystemLanguageModel(guardrails: .permissiveContentTransformations)
+        default: return .default
+        }
+    }
+
+    /// Whether the model can run here, why not, and the tokens a session holds:
+    /// the model with the guardrails `options` names.
+    public static func availability(_ options: [String: Any] = [:]) -> [String: Any] {
+        let model = model(options)
         var result: [String: Any]
         switch model.availability {
         case .available:
@@ -55,8 +68,9 @@ public final class AfmBridge: @unchecked Sendable {
     }
 
     /// Starts a session: `sessionId`, `instructions`, `tools` ([{ name, description,
-    /// parameters }]) and `messages`, the conversation it starts from. A session with
-    /// the same id is ended first.
+    /// parameters }]), `messages`, the conversation it starts from, and `guardrails`
+    /// ("default" or "permissiveContentTransformations"). A session with the same id
+    /// is ended first.
     public func createSession(_ options: [String: Any]) throws {
         let id = try Self.string(options, "sessionId")
         deleteSession(id)
@@ -75,8 +89,9 @@ public final class AfmBridge: @unchecked Sendable {
             tools: tools.map { Transcript.ToolDefinition(tool: $0) },
             messages: options["messages"] as? [Any] ?? []
         )
-        state.session = LanguageModelSession(model: .default, tools: tools, transcript: transcript)
+        state.session = LanguageModelSession(model: Self.model(options), tools: tools, transcript: transcript)
         state.hasTools = !tools.isEmpty
+        state.permissive = (options["guardrails"] as? String) == "permissiveContentTransformations"
         lock.withLock { sessions[id] = state }
     }
 
@@ -143,6 +158,8 @@ final class BridgeSession: @unchecked Sendable {
     let id: String
     var session: LanguageModelSession!
     var hasTools = false
+    /// Permissive guardrails: structured answers come as text (see `AfmBridge.respond`).
+    var permissive = false
 
     private let emit: AfmBridge.Emit
     private let lock = NSLock()
@@ -173,12 +190,30 @@ final class BridgeSession: @unchecked Sendable {
         }
     }
 
+    /// What a prompt adds to ask for a schema's answer as text: a JSON value (an object,
+    /// an array or a primitive, as the schema says) that matches it.
+    static func asJSON(_ schema: GenerationSchema) -> String {
+        let json = (try? JSONEncoder().encode(schema)).flatMap { String(data: $0, encoding: .utf8) } ?? ""
+        return "\n\nAnswer with only a JSON value, and no other text, that matches this JSON Schema:\n\(json)"
+    }
+
     private func run(_ prompt: String, _ options: GenerationOptions, _ schema: GenerationSchema?) async {
         let before = usage()
         var text = ""
+        var asText = false
         do {
             if let schema {
-                text = try await session.respond(to: prompt, schema: schema, options: options).content.jsonString
+                do {
+                    text = try await session.respond(to: prompt, schema: schema, options: options).content.jsonString
+                } catch where permissive && Self.code(error) == "guardrailViolation" {
+                    // Permissive guardrails cover String responses only: Apple documents that
+                    // any other response (a schema's) gets the default guardrails, which block
+                    // text such as "add 2 Searing Blood". So a blocked answer is asked for again
+                    // as text, a JSON value to the schema in JSON Schema. `done` says so
+                    // (`asText`): the framework didn't hold it to the schema, the caller checks it.
+                    text = try await session.respond(to: prompt + Self.asJSON(schema), options: options).content
+                    asText = true
+                }
             } else {
                 for try await snapshot in session.streamResponse(to: prompt, options: options) {
                     let content = snapshot.content
@@ -190,6 +225,7 @@ final class BridgeSession: @unchecked Sendable {
             // A stopped response's stream may just end.
             try Task.checkCancellation()
             var done: [String: Any] = ["type": "done", "text": text]
+            if asText { done["asText"] = true }
             if let before, let after = usage() {
                 var usage: [String: Any] = [
                     "inputTokens": after.input - before.input,
@@ -293,6 +329,9 @@ final class BridgeSession: @unchecked Sendable {
 
     /// An error's case name (`exceededContextWindowSize`, `guardrailViolation`, …).
     static func code(_ error: Error) -> String {
+        // An enum error's case: LanguageModelError (iOS/macOS 27) describes itself with its
+        // message ("Response may contain sensitive or unsafe content"), not its case.
+        if let label = Mirror(reflecting: error).children.first?.label { return label }
         let text = String(describing: error)
         return String(text.prefix { $0 != "(" && $0 != ":" && $0 != " " })
     }

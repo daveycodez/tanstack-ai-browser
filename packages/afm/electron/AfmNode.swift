@@ -52,7 +52,7 @@ public func afm_call(_ method: UnsafePointer<CChar>, _ options: UnsafePointer<CC
     if #available(macOS 26.0, *) {
         do {
             switch name {
-            case "availability": reply = ["result": AfmBridge.availability()]
+            case "availability": reply = ["result": AfmBridge.availability(object)]
             case "createSession": try bridge().createSession(object); reply = ["result": NSNull()]
             case "prewarm": try bridge().prewarm(object); reply = ["result": NSNull()]
             case "respond": try bridge().respond(object); reply = ["result": NSNull()]
