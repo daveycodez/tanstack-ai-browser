@@ -112,7 +112,8 @@ test("a reply streams as text from a new session holding the instructions and to
   // With tools, the framework's cached count is wrong, and the bridge sends none.
   assert.equal((chunks.at(-1)?.usage as Record<string, unknown>).promptTokensDetails, undefined)
   const [session] = native.named("createSession")
-  assert.equal(session.instructions, "Be brief.")
+  // The system prompt, then when to call tools (the session has one).
+  assert.match(session.instructions as string, /^Be brief\.\n\nMost requests need no tool/)
   assert.deepEqual(session.messages, [])
   assert.deepEqual(session.tools, [
     {
@@ -322,4 +323,16 @@ test("an edited tool call in the conversation starts a new session", async () =>
   native.replies = [[{ type: "done", text: "Yes." }]]
   await run(adapter, { tools: [weather], messages: [...afterCall("Tokyo"), { role: "assistant", content: "It's sunny." }, user("Sure?"), { role: "assistant", content: "Yes." }, user("Thanks")] })
   assert.equal(native.named("createSession").length, 2)
+})
+
+test("a session without tools gets the system prompt alone; tool choice sets the framework's tool-calling mode", async () => {
+  const adapter = afmText({ native })
+  await run(adapter, { systemPrompts: ["Be brief."], threadId: "no-tools" })
+  assert.equal(native.named("createSession").at(-1)?.instructions, "Be brief.")
+  const respondOptions = () => (native.named("respond").at(-1)?.options ?? {}) as Record<string, unknown>
+  assert.equal(respondOptions().toolCallingMode, undefined)
+  await run(adapter, { tools: [weather], toolChoice: "required", threadId: "required" })
+  assert.equal(respondOptions().toolCallingMode, "required")
+  await run(adapter, { tools: [weather], threadId: "auto" })
+  assert.equal(respondOptions().toolCallingMode, undefined)
 })

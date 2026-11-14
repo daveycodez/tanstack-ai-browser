@@ -110,12 +110,40 @@ type Forecast = {
   }
 }
 
+/**
+ * How long Open-Meteo has to answer a request. It usually answers in well
+ * under a second, but a server can take the connection and never answer
+ * (its North American API server did, for hours): fetch() alone would wait
+ * forever.
+ */
+const TIMEOUT_MS = 10_000
+
 async function getJson<T>(url: string, signal?: AbortSignal): Promise<T> {
-  const response = await fetch(url, { signal })
-  if (!response.ok) {
-    throw new Error(`Open-Meteo answered ${response.status}.`)
+  // One controller, aborted by a timer or by the run's signal. Not
+  // AbortSignal.any() with AbortSignal.timeout(): in iOS 27.2's WebKit on a
+  // device, that combination never aborts (0 of 12 fetches to an address that
+  // doesn't answer, where either signal alone aborted all 12 on time).
+  const controller = new AbortController()
+  let timedOut = false
+  const timer = setTimeout(() => {
+    timedOut = true
+    controller.abort()
+  }, TIMEOUT_MS)
+  const stop = () => controller.abort(signal?.reason)
+  if (signal?.aborted) stop()
+  else signal?.addEventListener("abort", stop, { once: true })
+  try {
+    const response = await fetch(url, { signal: controller.signal })
+    if (!response.ok) throw new Error(`Open-Meteo answered ${response.status}.`)
+    return (await response.json()) as T
+  } catch (error) {
+    // A timeout, not a stopped reply or another failure: in words the model can pass on.
+    if (timedOut) throw new Error(`Open-Meteo didn't answer within ${TIMEOUT_MS / 1000} seconds.`)
+    throw error
+  } finally {
+    clearTimeout(timer)
+    signal?.removeEventListener("abort", stop)
   }
-  return (await response.json()) as T
 }
 
 /** A city's coordinates and its name, such as "Kyoto, Japan". */

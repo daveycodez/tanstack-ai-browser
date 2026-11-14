@@ -2,7 +2,7 @@
 
 A [TanStack AI](https://tanstack.com/ai) adapter for Apple's on-device Foundation Model (AFM), the model behind Apple Intelligence, through Apple's Foundation Models framework itself. It ships as a Capacitor plugin for iOS and as `serveAfm()` for Electron on macOS; any other host (Tauri, say) can stand in.
 
-Tool calling is the framework's own. The model's arguments always fit each tool's schema, and it can call several tools at once. When it calls a tool, the native response waits; `chat()` runs the tool (approvals included) and the adapter hands the result back to the same response, without the model reading the conversation again.
+Tool calling is the framework's own. The model's arguments always fit each tool's schema, and it can call several tools at once. A session with tools gets a sentence in its instructions on when to call them: without one, Apple's model on an iPhone calls a tool for every prompt, greetings included. `toolChoice: "required"` (or a named tool) makes the model call one. When it calls a tool, the native response waits; `chat()` runs the tool (approvals included) and the adapter hands the result back to the same response, without the model reading the conversation again.
 
 ## Requirements
 

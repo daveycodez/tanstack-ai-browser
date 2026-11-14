@@ -115,9 +115,24 @@ function offeredTools(options: TextOptions<AfmTextModelOptions>): ReadonlyArray<
   return tools
 }
 
-const instructionsOf = (options: TextOptions<AfmTextModelOptions>) =>
-  normalizeSystemPrompts(options.systemPrompts)
-    .map((p) => p.content)
+/**
+ * When to call tools, added to the instructions of a session that has some.
+ * Given tools and no word on when to use them, Apple's model on an iPhone
+ * (iOS 27.2) calls one for every prompt, "Hi" and "What is 2 + 2?" included;
+ * on a Mac it doesn't. With this, the iPhone's answered greetings, small talk,
+ * math, explanations and writing itself, and called the weather, location and
+ * web search tools for the weather, "here", current facts and the news. Told
+ * only to answer such requests "directly", it refused to write poems ("I
+ * cannot write a haiku"); naming poems, stories and emails as its own work
+ * keeps it writing.
+ */
+const TOOL_USE =
+  "Most requests need no tool: greetings and small talk, math, writing (poems, stories, emails), explanations and general knowledge. Answer those yourself, without calling a tool. Call a tool only for what you can't do yourself: information that changes or that you don't have, or something only a tool can do."
+
+/** The system prompts, and when to call tools if the session has some. */
+const instructionsOf = (options: TextOptions<AfmTextModelOptions>, tools: ReadonlyArray<Tool>) =>
+  [...normalizeSystemPrompts(options.systemPrompts).map((p) => p.content), ...(tools.length > 0 ? [TOOL_USE] : [])]
+    .filter(Boolean)
     .join("\n\n")
 
 const AVAILABILITY: Record<UnavailableReason, Availability> = {
@@ -261,7 +276,7 @@ export class AfmTextAdapter extends BaseTextAdapter<
       waiting: new Set(),
       busy: true
     }
-    const instructions = instructionsOf(options)
+    const instructions = instructionsOf(options, tools)
     await this.native.createSession({
       sessionId: thread.sessionId,
       ...(instructions && { instructions }),
@@ -287,7 +302,7 @@ export class AfmTextAdapter extends BaseTextAdapter<
     const tools = offeredTools(options)
     const { temperature, maximumResponseTokens } = options.modelOptions ?? {}
     const settings = JSON.stringify([
-      instructionsOf(options),
+      instructionsOf(options, tools),
       tools.map((tool) => [tool.name, tool.description, tool.inputSchema]),
       temperature,
       maximumResponseTokens
@@ -367,7 +382,9 @@ export class AfmTextAdapter extends BaseTextAdapter<
           prompt: step.prompt ?? "",
           options: {
             ...(temperature !== undefined && { temperature }),
-            ...(maximumResponseTokens !== undefined && { maximumResponseTokens })
+            ...(maximumResponseTokens !== undefined && { maximumResponseTokens }),
+            // A tool the model must call: "required", or the one tool named (the only one offered).
+            ...((options.toolChoice === "required" || typeof options.toolChoice === "object") && { toolCallingMode: "required" as const })
           }
         })
       }

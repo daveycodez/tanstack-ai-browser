@@ -78,7 +78,12 @@ export interface AfmNative {
     sessionId: string
     turn: number
     prompt: string
-    options?: { temperature?: number; maximumResponseTokens?: number }
+    options?: {
+      temperature?: number
+      maximumResponseTokens?: number
+      /** Whether the model may call the session's tools, must, or mustn't (iOS/macOS 27). Left out, the framework decides. */
+      toolCallingMode?: "allowed" | "required" | "disallowed"
+    }
     schema?: NativeGenerationSchema
   }): Promise<void>
   /** A tool's result: the session's waiting call returns it, and the response goes on. */

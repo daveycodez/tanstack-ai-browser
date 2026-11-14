@@ -91,10 +91,19 @@ public final class AfmBridge: @unchecked Sendable {
     public func respond(_ options: [String: Any]) throws {
         let state = try session(options)
         let settings = options["options"] as? [String: Any] ?? [:]
-        let generation = GenerationOptions(
+        var generation = GenerationOptions(
             temperature: (settings["temperature"] as? NSNumber)?.doubleValue,
             maximumResponseTokens: (settings["maximumResponseTokens"] as? NSNumber)?.intValue
         )
+        // Whether the model may call tools ("allowed"), must ("required") or
+        // mustn't ("disallowed"): iOS/macOS 27. Left out, the framework decides.
+        if #available(iOS 27.0, macOS 27.0, *), let mode = settings["toolCallingMode"] as? String {
+            switch mode {
+            case "required": generation.toolCallingMode = .required
+            case "disallowed": generation.toolCallingMode = .disallowed
+            default: generation.toolCallingMode = .allowed
+            }
+        }
         let schema = try options["schema"].map(Schema.generationSchema)
         try state.respond(prompt: options["prompt"] as? String ?? "", turn: options["turn"] as? Int ?? 0, options: generation, schema: schema)
     }
