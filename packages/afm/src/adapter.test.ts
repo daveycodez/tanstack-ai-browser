@@ -1,6 +1,7 @@
 import assert from "node:assert/strict"
 import { beforeEach, test } from "node:test"
 
+import { chat } from "@tanstack/ai"
 import type { TextOptions } from "@tanstack/ai"
 
 import { afmText } from "./adapter.js"
@@ -399,4 +400,29 @@ test("a thread whose guardrails change starts a new session: a session's guardra
   await run(adapter, { messages: [user("Hi")] })
   await run(adapter, { messages: [user("Hi"), { role: "assistant", content: "Hi." }, user("Again")], modelOptions: { guardrails: "permissiveContentTransformations" } })
   assert.equal(native.named("createSession").length, 2)
+})
+
+test("a thread moving between inherited guardrails and an explicit default starts a new session, both ways", async () => {
+  for (const [first, second] of [[undefined, "default"], ["default", undefined]] as const) {
+    native = new FakeNative()
+    const adapter = afmText({ native })
+    native.replies = [[{ type: "done", text: "Hi." }], [{ type: "done", text: "Hi again." }]]
+    await run(adapter, { messages: [user("Hi")], ...(first && { modelOptions: { guardrails: first } }) })
+    await run(adapter, { messages: [user("Hi"), { role: "assistant", content: "Hi." }, user("Again")], ...(second && { modelOptions: { guardrails: second } }) })
+    assert.equal(native.named("createSession").length, 2, `${first ?? "inherited"} then ${second ?? "inherited"}`)
+  }
+})
+
+test("a structured answer written as text (asText) must fit the schema: chat() alone doesn't check plain JSON Schema", async () => {
+  const outputSchema = { type: "object", properties: { city: { type: "string" }, unit: { type: "string", enum: ["c", "f"] } }, required: ["city", "unit"] }
+  const ask = (text: string) => {
+    native = new FakeNative()
+    native.replies = [[{ type: "done", text, asText: true }]]
+    return chat({ adapter: afmText({ native }), threadId: "structured", messages: [user("Weather?")], outputSchema, stream: false } as never) as unknown as Promise<unknown>
+  }
+  assert.deepEqual(await ask('```json\n{"city":"Paris","unit":"c"}\n```'), { city: "Paris", unit: "c" })
+  await assert.rejects(ask('{"city":123,"unit":"c"}'), /\/city: should be string, not number/)
+  await assert.rejects(ask('{"unit":"c"}'), /\/city: missing/)
+  await assert.rejects(ask('{"city":"Paris","unit":"kelvin"}'), /\/unit: "kelvin" is not one of "c", "f"/)
+  await assert.rejects(ask("Sorry, I can't help with that."), /wrote no JSON for the schema/)
 })

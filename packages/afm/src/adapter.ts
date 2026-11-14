@@ -26,6 +26,8 @@ import type { AfmChatModel } from "./model-meta.js"
 import { Afm } from "./native.js"
 import type { AfmGuardrails, AfmNative, NativeEvent, NativeMessage, NativeUsage, UnavailableReason } from "./native.js"
 import { toNativeSchema } from "./schema.js"
+import { parseJsonValue } from "./json-value.js"
+import { schemaErrors } from "./validate.js"
 
 export type AfmConfig = {
   /**
@@ -174,6 +176,26 @@ const nextId = (prefix: string) => `${prefix}_${Date.now().toString(36)}_${(ids+
 
 const signalOf = (options: TextOptions<AfmTextModelOptions>) =>
   options.abortController?.signal ?? (options.request as RequestInit | undefined)?.signal ?? undefined
+
+/**
+ * A structured answer the model wrote as text (permissive guardrails' fallback,
+ * which the framework didn't hold to the schema): its JSON value, if it fits the
+ * schema. chat() validates only schemas with a Standard Schema validator, not
+ * plain JSON Schema, so the adapter checks it here.
+ */
+function checkedAnswer(text: string, schema: unknown): unknown {
+  let data: unknown
+  try {
+    data = parseJsonValue(text)
+  } catch (error) {
+    throw Object.assign(new Error(`Apple's model wrote no JSON for the schema (its answer, written as text past its guardrails, was ${JSON.stringify(text.slice(0, 120))})`, { cause: error }), { code: "invalidJson" })
+  }
+  const problems = schemaErrors(schema, data)
+  if (problems.length > 0) {
+    throw Object.assign(new Error(`Apple's model's answer, written as text past its guardrails, doesn't fit the schema: ${problems.slice(0, 5).join("; ")}`), { code: "schemaMismatch" })
+  }
+  return data
+}
 
 const parse = (json: string): unknown => {
   try {
@@ -338,7 +360,8 @@ export class AfmTextAdapter extends BaseTextAdapter<
       // (required, then auto) can't resume it, and starts a new session.
       toolCallingModeOf(options),
       // A session's guardrails are its model's: other guardrails, another session.
-      this.guardrailsOf(options) ?? "default"
+      // None named isn't "default": the host's (serveAfm's) may be permissive.
+      this.guardrailsOf(options) ?? "inherited"
     ])
     const keys = options.messages.map(messageKey)
     // A kept session, or one whose response waits for tool results.
@@ -558,7 +581,7 @@ export class AfmTextAdapter extends BaseTextAdapter<
         const event = await thread.queue.next(signal)
         if (event.type === "done") {
           const usage = usageOf(event.usage)
-          return { data: JSON.parse(event.text) as unknown, rawText: event.text, model: this.model, ...(usage && { usage }) }
+          return { data: event.asText ? checkedAnswer(event.text, outputSchema) : (JSON.parse(event.text) as unknown), rawText: event.text, model: this.model, ...(usage && { usage }) }
         }
         if (event.type === "error") throw Object.assign(new Error(event.message), { code: event.code })
       }

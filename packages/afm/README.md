@@ -43,7 +43,7 @@ const adapter = afmText({ guardrails: "permissiveContentTransformations" })
 
 A request's `modelOptions.guardrails` overrides the adapter's, and in Electron `serveAfm({ guardrails })` sets them for every page that names none. `"default"` is the default.
 
-Apple's permissive guardrails cover text responses only: anything else, such as structured output (`chat({ outputSchema })`), gets the default guardrails. So when a permissive session's structured answer is blocked, the adapter asks for it again as text, JSON to the schema, which `chat()` then validates: the framework no longer holds that answer to the schema while it's written. Tool calls' arguments keep the default guardrails. A guardrail violation that still happens is reported with the code `guardrailViolation`.
+Apple's permissive guardrails cover text responses only: anything else, such as structured output (`chat({ outputSchema })`), gets the default guardrails. So when a permissive session's structured answer is blocked, the adapter asks for it again as text: a JSON value to the schema. The framework doesn't hold that answer to the schema while it's written, so the adapter parses the whole answer (or everything inside a code fence) and checks it against the schema before returning it; one that doesn't fit fails with the code `schemaMismatch`, and one that isn't JSON with `invalidJson`. (`chat()` itself validates only schemas that come with a Standard Schema validator, not plain JSON Schema.) Tool calls' arguments keep the default guardrails. A guardrail violation that still happens is reported with the code `guardrailViolation`.
 
 ### Electron (macOS)
 

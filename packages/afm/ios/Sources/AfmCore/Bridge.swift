@@ -15,9 +15,11 @@ import FoundationModels
 /// Events, each with the `sessionId` and the `turn` of the `respond` call:
 /// - `{ type: "delta", text }`: more of the response.
 /// - `{ type: "toolCalls", calls: [{ id, name, arguments }] }`: `arguments` in JSON.
-/// - `{ type: "done", text, usage }`: the response, and its tokens (iOS/macOS 27):
+/// - `{ type: "done", text, usage, asText }`: the response, and its tokens (iOS/macOS 27):
 ///   `inputTokens` and `outputTokens` over every pass of the model (a tool call's
 ///   too), and `cachedTokens` only for a session without tools (see `usage()`).
+///   `asText` when a schema's answer was written as text (a permissive session's
+///   fallback, see `run`): not held to the schema, so the caller checks it.
 /// - `{ type: "error", code, message }`.
 @available(iOS 26.0, macOS 26.0, *)
 public final class AfmBridge: @unchecked Sendable {
@@ -188,22 +190,17 @@ final class BridgeSession: @unchecked Sendable {
         }
     }
 
-    /// What a prompt adds to ask for a schema's answer as text: JSON to the schema.
+    /// What a prompt adds to ask for a schema's answer as text: a JSON value (an object,
+    /// an array or a primitive, as the schema says) that matches it.
     static func asJSON(_ schema: GenerationSchema) -> String {
         let json = (try? JSONEncoder().encode(schema)).flatMap { String(data: $0, encoding: .utf8) } ?? ""
-        return "\n\nAnswer with only a JSON object, and no other text, that matches this JSON Schema:\n\(json)"
-    }
-
-    /// The JSON object in a text answer: from its first `{` to its last `}` (a model may
-    /// wrap it in a code fence), or the text itself.
-    static func jsonObject(in text: String) -> String {
-        guard let start = text.firstIndex(of: "{"), let end = text.lastIndex(of: "}"), start < end else { return text }
-        return String(text[start...end])
+        return "\n\nAnswer with only a JSON value, and no other text, that matches this JSON Schema:\n\(json)"
     }
 
     private func run(_ prompt: String, _ options: GenerationOptions, _ schema: GenerationSchema?) async {
         let before = usage()
         var text = ""
+        var asText = false
         do {
             if let schema {
                 do {
@@ -212,8 +209,10 @@ final class BridgeSession: @unchecked Sendable {
                     // Permissive guardrails cover String responses only: Apple documents that
                     // any other response (a schema's) gets the default guardrails, which block
                     // text such as "add 2 Searing Blood". So a blocked answer is asked for again
-                    // as text, JSON to the schema in JSON Schema; the caller validates it.
-                    text = Self.jsonObject(in: try await session.respond(to: prompt + Self.asJSON(schema), options: options).content)
+                    // as text, a JSON value to the schema in JSON Schema. `done` says so
+                    // (`asText`): the framework didn't hold it to the schema, the caller checks it.
+                    text = try await session.respond(to: prompt + Self.asJSON(schema), options: options).content
+                    asText = true
                 }
             } else {
                 for try await snapshot in session.streamResponse(to: prompt, options: options) {
@@ -226,6 +225,7 @@ final class BridgeSession: @unchecked Sendable {
             // A stopped response's stream may just end.
             try Task.checkCancellation()
             var done: [String: Any] = ["type": "done", "text": text]
+            if asText { done["asText"] = true }
             if let before, let after = usage() {
                 var usage: [String: Any] = [
                     "inputTokens": after.input - before.input,

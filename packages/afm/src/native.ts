@@ -60,7 +60,8 @@ export type NativeUsage = { inputTokens: number; cachedTokens?: number; outputTo
 export type NativeEvent = { sessionId: string; turn: number } & (
   | { type: "delta"; text: string }
   | { type: "toolCalls"; calls: Array<{ id: string; name: string; arguments: string }> }
-  | { type: "done"; text: string; usage?: NativeUsage }
+  /** `asText`: a schema's answer written as text (permissive guardrails' fallback), not held to the schema. */
+  | { type: "done"; text: string; usage?: NativeUsage; asText?: boolean }
   | { type: "error"; code: string; message: string }
 )
 
