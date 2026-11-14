@@ -54,7 +54,7 @@ app.whenReady().then(() => new BrowserWindow().loadFile("index.html"))
 
 Each frame's sessions are its own: a frame's calls reach only the sessions it created, their events go to that frame only (while `allow()` still allows its page), and they end when the frame navigates or closes.
 
-To build `electron/afm.node` yourself (needs Xcode): `node electron/build.mjs`.
+`electron/afm.node` is committed, so the package builds and publishes without Xcode. After changing the Swift or C it's built from, rebuild it on a Mac with Xcode (`node electron/build.mjs`) and commit it with `electron/afm.node.sha256`: a test fails while the committed addon is older than its sources.
 
 ### Another host
 

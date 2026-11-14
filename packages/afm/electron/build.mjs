@@ -6,7 +6,7 @@
 //
 //   node electron/build.mjs
 import { execFileSync } from "node:child_process"
-import { readdirSync } from "node:fs"
+import { readdirSync, writeFileSync } from "node:fs"
 import { createRequire } from "node:module"
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
@@ -48,4 +48,7 @@ run("swiftc", [
   "FoundationModels"
 ])
 execFileSync("rm", ["-f", object])
+// Which sources this addon is from: committed with it, and checked by a test.
+const { hashFile, sourcesHash } = await import("./sources-hash.mjs")
+writeFileSync(hashFile, `${sourcesHash()}\n`)
 console.log(`Built ${join(here, "afm.node")}`)

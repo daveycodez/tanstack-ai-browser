@@ -51,6 +51,8 @@
     "electron/afm.c",
     "electron/AfmNode.swift",
     "electron/build.mjs",
+    "electron/sources-hash.mjs",
+    "electron/afm.node.sha256",
     "!**/*.tsbuildinfo"
   ],
   "capacitor": {
