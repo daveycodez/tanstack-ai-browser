@@ -426,3 +426,15 @@ test("a structured answer written as text (asText) must fit the schema: chat() a
   await assert.rejects(ask('{"city":"Paris","unit":"kelvin"}'), /\/unit: "kelvin" is not one of "c", "f"/)
   await assert.rejects(ask("Sorry, I can't help with that."), /wrote no JSON for the schema/)
 })
+
+test("a run's error keeps its code through chat(): on the thrown error, and on the stream's RUN_ERROR", async () => {
+  native.replies = [[{ type: "error", code: "guardrailViolation", message: "May contain unsafe content" }]]
+  const thrown = (await (chat({ adapter: afmText({ native }), stream: false, threadId: "errors", messages: [user("Searing Blood")] } as never) as unknown as Promise<unknown>).catch((e: unknown) => e)) as Error & { code?: string }
+  assert.equal(thrown.message, "May contain unsafe content")
+  assert.equal(thrown.code, "guardrailViolation")
+  native.replies = [[{ type: "error", code: "guardrailViolation", message: "May contain unsafe content" }]]
+  const chunks = await run(afmText({ native }), { threadId: "errors-stream" })
+  const error = chunks.find((c) => c.type === "RUN_ERROR")
+  assert.equal(error?.code, "guardrailViolation")
+  assert.deepEqual(error?.error, { message: "May contain unsafe content", code: "guardrailViolation" })
+})
