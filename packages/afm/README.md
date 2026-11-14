@@ -33,6 +33,18 @@ if ((await adapter.availability()) === "available") {
 
 Each thread (`threadId`) keeps a native session, so a follow-up message only sends that message. Structured output (`chat({ outputSchema })`) is held to the schema by the framework.
 
+### Guardrails
+
+Apple's default guardrails can block ordinary text that sounds unsafe out of context, such as a card game's card names ("add 2 Searing Blood", "swap the Shocks for Play with Fire"), with a `guardrailViolation` error. `guardrails: "permissiveContentTransformations"` relaxes them:
+
+```ts
+const adapter = afmText({ guardrails: "permissiveContentTransformations" })
+```
+
+A request's `modelOptions.guardrails` overrides the adapter's, and in Electron `serveAfm({ guardrails })` sets them for every page that names none. `"default"` is the default.
+
+Apple's permissive guardrails cover text responses only: anything else, such as structured output (`chat({ outputSchema })`), gets the default guardrails. So when a permissive session's structured answer is blocked, the adapter asks for it again as text, JSON to the schema, which `chat()` then validates: the framework no longer holds that answer to the schema while it's written. Tool calls' arguments keep the default guardrails. A guardrail violation that still happens is reported with the code `guardrailViolation`.
+
 ### Electron (macOS)
 
 The page is the same as on iOS: `afmText()`. The main process runs the model, with one call before opening windows:

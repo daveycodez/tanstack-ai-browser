@@ -15,6 +15,8 @@
  */
 import type { App, IpcMain, Session, WebContents, WebFrameMain } from "electron"
 
+import type { AfmGuardrails } from "./native.js"
+
 const PACKAGE = "@tanstack-ai-browser/afm"
 const CALL = "afm:call"
 const EVENT = "afm:event"
@@ -57,6 +59,12 @@ export type ServeAfmOptions = {
    * but an http(s) one on another host than localhost.
    */
   allow?: (url: string) => boolean
+  /**
+   * Apple's guardrails for every page's sessions that don't name their own
+   * (`afmText({ guardrails })` or a request's `modelOptions.guardrails`):
+   * "default" (the default), or "permissiveContentTransformations".
+   */
+  guardrails?: AfmGuardrails
 }
 
 const appPages = (url: string) => {
@@ -79,6 +87,7 @@ let served = false
  * macOS 26, or elsewhere, the pages hear the model is unavailable.
  */
 export function serveAfm(options: ServeAfmOptions = {}): void {
+  const appGuardrails = options.guardrails
   if (served) return
   served = true
   const node = (globalThis as unknown as { process: NodeProcess }).process
@@ -140,6 +149,10 @@ export function serveAfm(options: ServeAfmOptions = {}): void {
       throw new Error("Apple's on-device model needs macOS 26 on a Mac with Apple silicon")
     }
     const options = { ...(typeof args === "object" && args !== null ? args : {}) } as Record<string, unknown>
+    // The app's guardrails, where the page names none.
+    if ((method === "createSession" || method === "availability") && options.guardrails === undefined && appGuardrails) {
+      options.guardrails = appGuardrails
+    }
     // The frame's own session: another frame's can't be reached.
     if (typeof options.sessionId === "string") {
       const frameId = frameIdOf(frame)

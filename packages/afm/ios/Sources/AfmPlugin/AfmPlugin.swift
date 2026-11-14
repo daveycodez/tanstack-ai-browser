@@ -36,7 +36,7 @@ public class AfmPlugin: CAPPlugin, CAPBridgedPlugin {
             call.resolve(["available": false, "reason": "unsupportedOS"])
             return
         }
-        call.resolve(AfmBridge.availability())
+        call.resolve(AfmBridge.availability(call.options as? [String: Any] ?? [:]))
     }
 
     @objc func createSession(_ call: CAPPluginCall) {

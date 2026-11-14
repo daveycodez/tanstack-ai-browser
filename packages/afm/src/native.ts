@@ -64,13 +64,21 @@ export type NativeEvent = { sessionId: string; turn: number } & (
   | { type: "error"; code: string; message: string }
 )
 
+/**
+ * Apple's guardrails for the model: "default", or "permissiveContentTransformations",
+ * which lets through text the default ones can block out of context (a card game's
+ * "Searing Blood" or "Play with Fire").
+ */
+export type AfmGuardrails = "default" | "permissiveContentTransformations"
+
 export interface AfmNative {
-  availability(): Promise<NativeAvailability>
+  availability(options?: { guardrails?: AfmGuardrails }): Promise<NativeAvailability>
   createSession(options: {
     sessionId: string
     instructions?: string
     tools: Array<NativeTool>
     messages: Array<NativeMessage>
+    guardrails?: AfmGuardrails
   }): Promise<void>
   prewarm(options: { sessionId: string }): Promise<void>
   /** Prompts a session; the response comes as events. A `schema` holds the answer to it (JSON in `done`). */
@@ -108,7 +116,7 @@ const capacitor = () =>
  * its calls reject: Capacitor has no web version of it.
  */
 export const Afm: AfmNative = {
-  availability: async () => (await capacitor()).plugin.availability(),
+  availability: async (options) => (await capacitor()).plugin.availability(options),
   createSession: async (options) => (await capacitor()).plugin.createSession(options),
   prewarm: async (options) => (await capacitor()).plugin.prewarm(options),
   respond: async (options) => (await capacitor()).plugin.respond(options),

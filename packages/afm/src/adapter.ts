@@ -24,7 +24,7 @@ import type { StructuredOutputOptions, StructuredOutputResult } from "@tanstack/
 import { contentText, toNativeMessages } from "./messages.js"
 import type { AfmChatModel } from "./model-meta.js"
 import { Afm } from "./native.js"
-import type { AfmNative, NativeEvent, NativeMessage, NativeUsage, UnavailableReason } from "./native.js"
+import type { AfmGuardrails, AfmNative, NativeEvent, NativeMessage, NativeUsage, UnavailableReason } from "./native.js"
 import { toNativeSchema } from "./schema.js"
 
 export type AfmConfig = {
@@ -34,13 +34,21 @@ export type AfmConfig = {
    * plugin (`Afm`).
    */
   native?: AfmNative
+  /**
+   * Apple's guardrails: "default" (the default), or "permissiveContentTransformations",
+   * for text the default ones block out of context, such as a card game's card
+   * names. A request's `modelOptions.guardrails` overrides it.
+   */
+  guardrails?: AfmGuardrails
 }
 
-/** Per-call `modelOptions`: the response's sampling and length. */
+/** Per-call `modelOptions`: the response's sampling and length, and the guardrails. */
 export type AfmTextModelOptions = {
   temperature?: number
   /** Most tokens to generate. */
   maximumResponseTokens?: number
+  /** Apple's guardrails for this request's session, over the adapter's `guardrails`. */
+  guardrails?: AfmGuardrails
 }
 
 export type Availability = "unavailable" | "downloadable" | "downloading" | "available"
@@ -199,12 +207,20 @@ export class AfmTextAdapter extends BaseTextAdapter<
   constructor(config: AfmConfig, model: AfmChatModel) {
     super({}, model)
     this.native = config.native ?? (globalThis as { afm?: AfmNative }).afm ?? Afm
+    this.guardrails = config.guardrails
+  }
+
+  private readonly guardrails: AfmGuardrails | undefined
+
+  /** A request's guardrails: its own, else the adapter's (left out: the host's, else Apple's default). */
+  private guardrailsOf(options: TextOptions<AfmTextModelOptions>) {
+    return options.modelOptions?.guardrails ?? this.guardrails
   }
 
   /** Whether Apple's model can run here: "downloading" while Apple Intelligence gets it. */
   async availability(): Promise<Availability> {
     try {
-      const answer = await this.native.availability()
+      const answer = await this.native.availability(this.guardrails ? { guardrails: this.guardrails } : undefined)
       return answer.available ? "available" : AVAILABILITY[answer.reason ?? "unavailable"]
     } catch {
       return "unavailable"
@@ -214,7 +230,7 @@ export class AfmTextAdapter extends BaseTextAdapter<
   /** Tokens a session holds, where the OS says (26.4 and later). */
   async contextSize(): Promise<number | undefined> {
     try {
-      return (await this.native.availability()).contextSize
+      return (await this.native.availability(this.guardrails ? { guardrails: this.guardrails } : undefined)).contextSize
     } catch {
       return undefined
     }
@@ -296,7 +312,8 @@ export class AfmTextAdapter extends BaseTextAdapter<
         description: tool.description ?? "",
         parameters: toNativeSchema(tool.inputSchema ?? { type: "object", properties: {} }, tool.name)
       })),
-      messages
+      messages,
+      ...(this.guardrailsOf(options) && { guardrails: this.guardrailsOf(options) })
     })
     return thread
   }
@@ -319,7 +336,9 @@ export class AfmTextAdapter extends BaseTextAdapter<
       maximumResponseTokens,
       // A response keeps the mode it started with: a step with another mode
       // (required, then auto) can't resume it, and starts a new session.
-      toolCallingModeOf(options)
+      toolCallingModeOf(options),
+      // A session's guardrails are its model's: other guardrails, another session.
+      this.guardrailsOf(options) ?? "default"
     ])
     const keys = options.messages.map(messageKey)
     // A kept session, or one whose response waits for tool results.

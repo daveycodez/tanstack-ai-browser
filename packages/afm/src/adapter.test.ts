@@ -24,7 +24,8 @@ class FakeNative implements AfmNative {
   private turns = new Map<string, number>()
   private waiting = new Map<string, Set<string>>()
 
-  async availability() {
+  async availability(options?: Record<string, unknown>) {
+    this.calls.push(["availability", options ?? {}])
     return this.answer
   }
   async addListener(_name: "event", listener: (event: NativeEvent) => void) {
@@ -377,4 +378,25 @@ test("a request already stopped starts no native work, even when the bridge woul
   assert.equal(native.named("createSession").length, 0)
   assert.equal(native.named("respond").length, 0)
   assert.equal(textIn(chunks), "")
+})
+
+test("guardrails reach the native side: the adapter's for every session and the availability check, a request's over it", async () => {
+  const adapter = afmText({ native, guardrails: "permissiveContentTransformations" })
+  assert.equal(await adapter.availability(), "available")
+  assert.deepEqual(native.named("availability").at(-1), { guardrails: "permissiveContentTransformations" })
+  await run(adapter, { threadId: "permissive" })
+  assert.equal(native.named("createSession").at(-1)?.guardrails, "permissiveContentTransformations")
+  await run(adapter, { threadId: "own", modelOptions: { guardrails: "default" } })
+  assert.equal(native.named("createSession").at(-1)?.guardrails, "default")
+  // None named: none sent, so the host's (serveAfm's) or Apple's default applies.
+  await run(afmText({ native }), { threadId: "none" })
+  assert.equal("guardrails" in (native.named("createSession").at(-1) ?? {}), false)
+})
+
+test("a thread whose guardrails change starts a new session: a session's guardrails are its model's", async () => {
+  const adapter = afmText({ native })
+  native.replies = [[{ type: "done", text: "Hi." }], [{ type: "done", text: "Hi again." }]]
+  await run(adapter, { messages: [user("Hi")] })
+  await run(adapter, { messages: [user("Hi"), { role: "assistant", content: "Hi." }, user("Again")], modelOptions: { guardrails: "permissiveContentTransformations" } })
+  assert.equal(native.named("createSession").length, 2)
 })
