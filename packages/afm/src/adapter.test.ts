@@ -336,3 +336,45 @@ test("a session without tools gets the system prompt alone; tool choice sets the
   await run(adapter, { tools: [weather], threadId: "auto" })
   assert.equal(respondOptions().toolCallingMode, undefined)
 })
+
+test("destroy() ends responses streaming in sessions no thread keeps, and structured output", async () => {
+  const adapter = afmText({ native })
+  native.replies = [[], []] // responses that don't answer on their own
+  const stream = adapter.chatStream(chatOptions({ promptCache: { retention: "none" } }))[Symbol.asyncIterator]()
+  await stream.next()
+  const next = stream.next()
+  const structured = adapter
+    .structuredOutput({ chatOptions: chatOptions({ threadId: "structured" }), outputSchema: { type: "object", properties: { a: { type: "string" } } } } as never)
+    .then(() => "resolved", (e: Error) => `rejected: ${e.message}`)
+  await new Promise((resolve) => setTimeout(resolve, 10))
+  const sessions = native.named("createSession").map((o) => o.sessionId)
+  assert.equal(sessions.length, 2)
+  await adapter.destroy()
+  assert.equal(((await next).value as Chunk).type, "RUN_ERROR")
+  assert.match(await structured, /^rejected: The session was closed/)
+  for (const id of sessions) assert.ok(native.named("deleteSession").some((o) => o.sessionId === id))
+})
+
+test("a step whose tool choice differs from its paused response's starts a new session instead of resuming it", async () => {
+  const adapter = afmText({ native })
+  native.replies = [pausedCall, [{ type: "done", text: "Sunny." }]]
+  await run(adapter, { tools: [weather], toolChoice: "required" })
+  await run(adapter, { tools: [weather], toolChoice: "auto", messages: afterCall() })
+  assert.equal(native.named("createSession").length, 2)
+  assert.equal(native.named("submitToolResult").length, 0)
+  const [first, second] = native.named("respond").map((o) => (o.options as Record<string, unknown>).toolCallingMode)
+  assert.equal(first, "required")
+  assert.equal(second, undefined)
+})
+
+test("a request already stopped starts no native work, even when the bridge would answer at once", async () => {
+  const adapter = afmText({ native })
+  native.replies = [[{ type: "done", text: "Finished anyway." }]]
+  const stopped = new AbortController()
+  stopped.abort()
+  const chunks = await run(adapter, { abortController: stopped })
+  assert.equal(chunks.at(-1)?.type, "RUN_ERROR")
+  assert.equal(native.named("createSession").length, 0)
+  assert.equal(native.named("respond").length, 0)
+  assert.equal(textIn(chunks), "")
+})

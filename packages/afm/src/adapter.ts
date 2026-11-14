@@ -65,6 +65,8 @@ class EventQueue {
   }
 
   async next(signal: AbortSignal | undefined): Promise<NativeEvent> {
+    // Stopped: not even an event already here (a buffered done) goes out.
+    signal?.throwIfAborted()
     while (this.events.length === 0) {
       signal?.throwIfAborted()
       await new Promise<void>((resolve, reject) => {
@@ -128,6 +130,10 @@ function offeredTools(options: TextOptions<AfmTextModelOptions>): ReadonlyArray<
  */
 const TOOL_USE =
   "Most requests need no tool: greetings and small talk, math, writing (poems, stories, emails), explanations and general knowledge. Answer those yourself, without calling a tool. Call a tool only for what you can't do yourself: information that changes or that you don't have, or something only a tool can do."
+
+/** The framework's tool-calling mode for a step: "required" when a tool must be called ("required", or the one tool named). */
+const toolCallingModeOf = (options: TextOptions<AfmTextModelOptions>) =>
+  options.toolChoice === "required" || typeof options.toolChoice === "object" ? ("required" as const) : undefined
 
 /** The system prompts, and when to call tools if the session has some. */
 const instructionsOf = (options: TextOptions<AfmTextModelOptions>, tools: ReadonlyArray<Tool>) =>
@@ -223,9 +229,14 @@ export class AfmTextAdapter extends BaseTextAdapter<
     return this
   }
 
-  /** Ends every thread's session, and every response waiting for tool results. */
+  /**
+   * Ends every session: the threads', responses waiting for tool results, and
+   * responses streaming now (structured output's, and those of sessions no
+   * thread keeps), each once.
+   */
   async destroy(): Promise<void> {
-    for (const thread of [...this.threads.values(), ...this.paused.values()]) this.close(thread)
+    const all = new Set([...this.threads.values(), ...this.paused.values(), ...this.queues.values()])
+    for (const thread of all) this.close(thread)
     this.threads.clear()
     this.paused.clear()
   }
@@ -305,7 +316,10 @@ export class AfmTextAdapter extends BaseTextAdapter<
       instructionsOf(options, tools),
       tools.map((tool) => [tool.name, tool.description, tool.inputSchema]),
       temperature,
-      maximumResponseTokens
+      maximumResponseTokens,
+      // A response keeps the mode it started with: a step with another mode
+      // (required, then auto) can't resume it, and starts a new session.
+      toolCallingModeOf(options)
     ])
     const keys = options.messages.map(messageKey)
     // A kept session, or one whose response waits for tool results.
@@ -362,7 +376,10 @@ export class AfmTextAdapter extends BaseTextAdapter<
     let step: Awaited<ReturnType<typeof this.begin>> | undefined
     let paused = false
     try {
+      // A stopped request starts no native work (and one stopped meanwhile ends here).
+      signal?.throwIfAborted()
       step = await this.begin(options)
+      signal?.throwIfAborted()
       const { thread, keys } = step
       if (step.results) {
         for (const result of step.results) {
@@ -383,8 +400,7 @@ export class AfmTextAdapter extends BaseTextAdapter<
           options: {
             ...(temperature !== undefined && { temperature }),
             ...(maximumResponseTokens !== undefined && { maximumResponseTokens }),
-            // A tool the model must call: "required", or the one tool named (the only one offered).
-            ...((options.toolChoice === "required" || typeof options.toolChoice === "object") && { toolCallingMode: "required" as const })
+            ...(toolCallingModeOf(options) && { toolCallingMode: toolCallingModeOf(options) })
           }
         })
       }
@@ -498,6 +514,7 @@ export class AfmTextAdapter extends BaseTextAdapter<
   ): Promise<StructuredOutputResult<unknown>> {
     const { chatOptions, outputSchema } = options
     const signal = signalOf(chatOptions)
+    signal?.throwIfAborted()
     await this.listen()
     const last = chatOptions.messages.at(-1)
     const prompted = last?.role === "user"

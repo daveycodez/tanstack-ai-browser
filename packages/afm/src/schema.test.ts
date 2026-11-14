@@ -102,27 +102,45 @@ test("$refs to object definitions are references; to plain values, written in pl
   ])
 })
 
-test("enums keep their members' type: strings are choices, numbers keep their range, and the description lists them", () => {
+test("enums hold to their exact members: strings as choices, integers (with strings) as a choice of exact values; what the framework can't hold is refused", () => {
   const { root } = toNativeSchema(
     {
       type: "object",
       properties: {
         unit: { type: "string", enum: ["c", "f"] },
-        stars: { type: "integer", enum: [1, 2, 3], description: "A rating." },
-        ratio: { type: "number", enum: [0.5, 1.5] },
-        on: { type: "boolean", enum: [true] }
+        stars: { type: "integer", enum: [1, 10], description: "A rating." },
+        size: { enum: ["auto", 8] },
+        on: { type: "boolean", enum: [true, false] }
       },
-      required: ["unit", "stars", "ratio", "on"]
+      required: ["unit", "stars", "size", "on"]
     },
     "t"
   )
   assert.equal(root.kind, "object")
   const property = (name: string) => (root.kind === "object" ? root.properties.find((p) => p.name === name) : undefined)
   assert.deepEqual(property("unit")?.schema, { kind: "string", choices: ["c", "f"] })
-  assert.equal(property("unit")?.description, undefined)
-  assert.deepEqual(property("stars")?.schema, { kind: "integer", minimum: 1, maximum: 3 })
-  assert.equal(property("stars")?.description, "A rating. One of 1, 2, 3.")
-  assert.deepEqual(property("ratio")?.schema, { kind: "number", minimum: 0.5, maximum: 1.5 })
+  assert.deepEqual(property("stars")?.schema, {
+    kind: "anyOf",
+    name: "t_stars",
+    description: "A rating.",
+    choices: [
+      { kind: "integer", minimum: 1, maximum: 1 },
+      { kind: "integer", minimum: 10, maximum: 10 }
+    ]
+  })
+  assert.equal(property("stars")?.description, "A rating.")
+  assert.deepEqual(property("size")?.schema, {
+    kind: "anyOf",
+    name: "t_size",
+    choices: [
+      { kind: "string", constant: "auto" },
+      { kind: "integer", minimum: 8, maximum: 8 }
+    ]
+  })
   assert.deepEqual(property("on")?.schema, { kind: "boolean" })
-  assert.equal(property("on")?.description, "One of true.")
+  // One integer is that integer.
+  assert.deepEqual(toNativeSchema({ type: "integer", enum: [3] }, "n").root, { kind: "integer", minimum: 3, maximum: 3 })
+  assert.throws(() => toNativeSchema({ type: "boolean", enum: [true] }, "flag"), /enum of only true isn't supported/)
+  assert.throws(() => toNativeSchema({ type: "number", enum: [0.5, 1.5] }, "ratio"), /decimal numbers isn't supported/)
+  assert.throws(() => toNativeSchema({ enum: ["a", true] }, "mixed"), /mixing string and boolean/)
 })

@@ -30,18 +30,6 @@ function nullable(schema: unknown): boolean {
   return Array.isArray(variants) && variants.some(isNull)
 }
 
-/**
- * A property's description, with the values its enum allows where the
- * framework can't hold the property to them: members that aren't strings.
- */
-function describe(property: unknown): string | undefined {
-  if (!isObject(property)) return undefined
-  const own = typeof property.description === "string" ? property.description : undefined
-  const members = Array.isArray(property.enum) ? property.enum.filter((v) => v !== null) : []
-  const allowed = members.some((v) => typeof v !== "string") ? `One of ${members.map((v) => JSON.stringify(v)).join(", ")}.` : undefined
-  return [own, allowed].filter(Boolean).join(" ") || undefined
-}
-
 const number = (value: unknown) => (typeof value === "number" && Number.isFinite(value) ? value : undefined)
 
 /** A schema's name for the framework: letters, digits and underscores. */
@@ -72,17 +60,25 @@ export function toNativeSchema(schema: unknown, name: string): NativeGenerationS
       if (members.every((v) => typeof v === "string")) {
         return members.length > 0 ? { kind: "string", choices: members } : { kind: "string" }
       }
-      // The framework has choices for strings only: other members keep their
-      // type, numbers held to the members' range, and the property's
-      // description lists them (see allowedValues).
-      if (members.every((v): v is number => typeof v === "number" && Number.isFinite(v))) {
-        return {
-          kind: members.every(Number.isInteger) ? "integer" : "number",
-          minimum: Math.min(...members),
-          maximum: Math.max(...members)
-        }
+      // true and false both: any boolean. One alone, the framework can't hold it to.
+      if (members.every((v) => typeof v === "boolean")) {
+        if (new Set(members).size === 2) return { kind: "boolean" }
+        throw new Error(`${path}: an enum of only ${String(members[0])} isn't supported (Apple's framework can't hold a boolean to one value)`)
       }
-      if (members.every((v) => typeof v === "boolean")) return { kind: "boolean" }
+      // Integers (and strings among them): a choice of exact values, each integer
+      // a range of itself, which the framework holds the model to. A decimal
+      // can't be: a range of one decimal fails in Apple's generator.
+      if (members.some((v) => typeof v === "number" && !Number.isInteger(v))) {
+        throw new Error(`${path}: an enum of decimal numbers isn't supported (Apple's framework can't hold a decimal to exact values)`)
+      }
+      if (members.every((v) => typeof v === "string" || Number.isInteger(v))) {
+        const choices: Array<NativeSchema> = members.map((v) =>
+          typeof v === "string" ? { kind: "string", constant: v } : { kind: "integer", minimum: v as number, maximum: v as number }
+        )
+        if (choices.length === 1) return choices[0]
+        return defined({ kind: "anyOf" as const, name: typeName(path), description: typeof value.description === "string" ? value.description : undefined, choices })
+      }
+      throw new Error(`${path}: an enum mixing ${[...new Set(members.map((v) => typeof v))].join(" and ")} values isn't supported by Apple's framework`)
     }
     const variants = value.anyOf ?? value.oneOf
     if (Array.isArray(variants)) {
@@ -105,7 +101,7 @@ export function toNativeSchema(schema: unknown, name: string): NativeGenerationS
         const properties = Object.entries(isObject(value.properties) ? value.properties : {}).map(([key, property]) =>
           defined({
             name: key,
-            description: describe(property),
+            description: isObject(property) && typeof property.description === "string" ? property.description : undefined,
             optional: !required.includes(key) || nullable(property),
             schema: convert(property, `${path}_${key}`)
           })

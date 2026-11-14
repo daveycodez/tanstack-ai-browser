@@ -138,7 +138,7 @@ async function getJson<T>(url: string, signal?: AbortSignal): Promise<T> {
     return (await response.json()) as T
   } catch (error) {
     // A timeout, not a stopped reply or another failure: in words the model can pass on.
-    if (timedOut) throw new Error(`Open-Meteo didn't answer within ${TIMEOUT_MS / 1000} seconds.`)
+    if (timedOut) throw new Error(`Open-Meteo didn't answer within ${TIMEOUT_MS / 1000} seconds.`, { cause: error })
     throw error
   } finally {
     clearTimeout(timer)
