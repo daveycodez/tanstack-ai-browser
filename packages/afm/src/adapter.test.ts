@@ -438,3 +438,20 @@ test("a run's error keeps its code through chat(): on the thrown error, and on t
   assert.equal(error?.code, "guardrailViolation")
   assert.deepEqual(error?.error, { message: "May contain unsafe content", code: "guardrailViolation" })
 })
+
+test("structured output keeps the error's code through chat(): on the thrown error, and on the stream's RUN_ERROR", async () => {
+  const outputSchema = { type: "object", properties: { city: { type: "string" } }, required: ["city"] }
+  const blocked = [{ type: "error", code: "guardrailViolation", message: "May contain unsafe content" }] as Array<Event>
+  native.replies = [blocked]
+  const thrown = (await (chat({ adapter: afmText({ native }), threadId: "structured-errors", messages: [user("Searing Blood")], outputSchema, stream: false } as never) as unknown as Promise<unknown>).catch((e: unknown) => e)) as Error & { code?: string }
+  assert.equal(thrown.message, "May contain unsafe content")
+  assert.equal(thrown.code, "guardrailViolation")
+  native.replies = [blocked]
+  const chunks: Array<Chunk> = []
+  for await (const chunk of chat({ adapter: afmText({ native }), threadId: "structured-errors-stream", messages: [user("Searing Blood")], outputSchema, stream: true } as never) as unknown as AsyncIterable<Chunk>) chunks.push(chunk)
+  assert.equal(chunks.find((c) => c.type === "RUN_ERROR")?.code, "guardrailViolation")
+  // An answer that isn't JSON still has TanStack's parse-failure code.
+  native.replies = [[{ type: "done", text: "not json" }]]
+  const parse = (await (chat({ adapter: afmText({ native }), threadId: "structured-parse", messages: [user("Paris")], outputSchema, stream: false } as never) as unknown as Promise<unknown>).catch((e: unknown) => e)) as Error & { code?: string }
+  assert.equal(parse.code, "structured-output-parse-failed")
+})

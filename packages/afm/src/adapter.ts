@@ -549,9 +549,65 @@ export class AfmTextAdapter extends BaseTextAdapter<
   }
 
   /**
+   * Structured output as events, for `chat({ outputSchema })`, streaming or not:
+   * the events chat() would make around `structuredOutput()` itself, but with the
+   * error's code. chat() keeps a run error's code only from its RUN_ERROR event,
+   * and its own wrapper keeps only a parse failure's ("structured-output-parse-failed"),
+   * so without this a guardrail violation lost its code.
+   */
+  async *structuredOutputStream(options: StructuredOutputOptions<AfmTextModelOptions>): AsyncIterable<AdapterYieldChunk> {
+    const { chatOptions } = options
+    const runId = chatOptions.runId ?? nextId("run")
+    const { threadId } = chatOptions
+    const messageId = nextId("msg")
+    const model = this.model
+    yield { type: EventType.RUN_STARTED, runId, threadId, model, timestamp: Date.now() }
+    let result: StructuredOutputResult<unknown>
+    try {
+      result = await this.structuredOutput(options)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      const own = (error as { code?: unknown } | undefined)?.code
+      const parseFailed = error instanceof SyntaxError || (error instanceof Error && error.cause instanceof SyntaxError)
+      const code = typeof own === "string" ? own : parseFailed ? "structured-output-parse-failed" : undefined
+      yield {
+        type: EventType.RUN_ERROR,
+        runId,
+        threadId,
+        model,
+        timestamp: Date.now(),
+        message,
+        ...(code && { code }),
+        error: { message, ...(code && { code }) }
+      }
+      return
+    }
+    yield { type: EventType.TEXT_MESSAGE_START, messageId, role: "assistant", model, timestamp: Date.now() }
+    yield { type: EventType.TEXT_MESSAGE_CONTENT, messageId, delta: result.rawText, model, timestamp: Date.now() }
+    yield { type: EventType.TEXT_MESSAGE_END, messageId, model, timestamp: Date.now() }
+    yield {
+      type: EventType.CUSTOM,
+      name: "structured-output.complete",
+      value: { object: result.data, raw: result.rawText },
+      model,
+      timestamp: Date.now()
+    }
+    yield {
+      type: EventType.RUN_FINISHED,
+      runId,
+      threadId,
+      model: result.model ?? model,
+      timestamp: Date.now(),
+      finishReason: "stop",
+      ...(result.usage && { usage: result.usage })
+    }
+  }
+
+  /**
    * A JSON answer for `chat({ outputSchema })`: a session holding the
    * conversation answers its last message, held to the schema by the
-   * framework. `chat()` validates the result.
+   * framework (an answer written as text, past permissive guardrails, is
+   * checked here instead).
    */
   async structuredOutput(
     options: StructuredOutputOptions<AfmTextModelOptions>
