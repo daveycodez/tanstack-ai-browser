@@ -1,6 +1,6 @@
 {
   "name": "@tanstack-ai-browser/prompt-api",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "TanStack AI adapter for the browser's built-in language model (the Prompt API: Gemini Nano in Chrome, Phi-4-mini in Edge)",
   "license": "MIT",
   "author": "daveycodez",

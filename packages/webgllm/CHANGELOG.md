@@ -1,3 +1,13 @@
+## 0.2.1 (2026-11-14)
+
+### 🩹 Fixes
+
+- **lofi-agent, adapters:** cached prompt tokens as each engine really reuses them, and prompt speed only where they're known ([b4be8a5](https://github.com/daveycodez/tanstack-ai-browser/commit/b4be8a5))
+
+### ❤️ Thank You
+
+- daveycodez
+
 ## 0.2.0 (2026-11-13)
 
 ### 🚀 Features
