@@ -246,3 +246,13 @@ test("availability: available, downloading while the model isn't ready, else una
   }
   assert.equal(await adapter.availability(), "unavailable")
 })
+
+test("without a native side given, window.afm (an Electron preload's) is used", async () => {
+  native.answer = { available: true, contextSize: 2048 }
+  ;(globalThis as { afm?: unknown }).afm = native
+  try {
+    assert.equal(await afmText().contextSize(), 2048)
+  } finally {
+    delete (globalThis as { afm?: unknown }).afm
+  }
+})

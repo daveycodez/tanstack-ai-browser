@@ -1,0 +1,84 @@
+{
+  "name": "@tanstack-ai-browser/afm-electron",
+  "version": "0.1.0",
+  "description": "Apple's on-device Foundation Model (AFM) in Electron on macOS, for @tanstack-ai-browser/afm: serveAfm() in the main process, exposeAfm() in the preload",
+  "license": "MIT",
+  "author": "daveycodez",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/daveycodez/tanstack-ai-browser.git",
+    "directory": "packages/afm-electron"
+  },
+  "homepage": "https://github.com/daveycodez/tanstack-ai-browser/tree/main/packages/afm-electron#readme",
+  "bugs": "https://github.com/daveycodez/tanstack-ai-browser/issues",
+  "keywords": [
+    "tanstack-ai",
+    "ai",
+    "llm",
+    "apple",
+    "afm",
+    "foundation-models",
+    "apple-intelligence",
+    "electron",
+    "on-device",
+    "local-ai"
+  ],
+  "type": "module",
+  "sideEffects": false,
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    "./package.json": "./package.json",
+    ".": {
+      "@tanstack-ai-browser/source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "README.md",
+    "src",
+    "dist",
+    "native/afm.node",
+    "native/afm.c",
+    "native/AfmNode.swift",
+    "native/build.mjs",
+    "!**/*.tsbuildinfo"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "nx": {
+    "name": "afm-electron",
+    "targets": {
+      "build-native": {
+        "command": "node native/build.mjs",
+        "options": {
+          "cwd": "{projectRoot}"
+        },
+        "cache": true,
+        "inputs": [
+          "{projectRoot}/native/afm.c",
+          "{projectRoot}/native/AfmNode.swift",
+          "{projectRoot}/native/build.mjs",
+          "{workspaceRoot}/packages/afm/ios/Sources/AfmCore/**/*"
+        ],
+        "outputs": [
+          "{projectRoot}/native/afm.node"
+        ]
+      }
+    }
+  },
+  "dependencies": {
+    "@tanstack-ai-browser/afm": "workspace:*",
+    "node-api-headers": "1.9.0"
+  },
+  "peerDependencies": {
+    "electron": ">=32"
+  },
+  "devDependencies": {
+    "electron": "^45.3.1"
+  }
+}

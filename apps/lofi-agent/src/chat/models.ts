@@ -15,7 +15,6 @@ import type { webLlmText, WebLlmChatModel } from "@tanstack-ai-browser/web-llm"
 import type { webLlmModel as WebLlmModel } from "./web-llm-models.ts"
 import { apfelText } from "@tanstack-ai-browser/apfel"
 import { afmText } from "@tanstack-ai-browser/afm"
-import type { AfmNative } from "@tanstack-ai-browser/afm"
 import { PromptApiTextAdapter, promptApiText } from "@tanstack-ai-browser/prompt-api"
 import type { Availability } from "@tanstack-ai-browser/prompt-api"
 import { browserModel } from "./browser-model.ts"
@@ -129,16 +128,6 @@ function statusStore() {
   }
   return { status, onDownloadProgress }
 }
-
-declare global {
-  interface Window {
-    /** Apple's on-device model in the Mac app, from its preload (electron/preload.ts). */
-    afm?: AfmNative
-  }
-}
-
-/** The Mac app's Apple model (electron/preload.ts), if this is the Mac app. */
-const electronAfm = () => (typeof window === "undefined" ? undefined : window.afm)
 
 /** iPhone and iPad (iPadOS reports itself as a Mac, with a touch screen). */
 const isIos = () =>
@@ -286,7 +275,7 @@ export const MODELS = [
      * calling: in the iOS app (the Capacitor plugin), and in the Mac app
      * (window.afm, from its preload). Offered where it says the model can run.
      */
-    adapter: afmText(electronAfm() ? { native: electronAfm() } : {}),
+    adapter: afmText(),
     /** The OS keeps the model: nothing to download. */
     status: null,
     needsWebGpu: false,

@@ -16,13 +16,13 @@
     "test": "node --experimental-strip-types --test src/chat/*.test.ts src/lib/*.test.ts",
     "deploy": "wrangler deploy",
     "build-cities": "node scripts/build-cities.mjs",
-    "electron:main": "esbuild electron/main.ts --bundle --platform=node --format=esm --packages=external --outfile=dist/electron/main.js && esbuild electron/preload.ts --bundle --platform=node --format=cjs --external:electron --outfile=dist/electron/preload.cjs && pnpm electron:afm",
+    "electron:main": "esbuild electron/main.ts --bundle --platform=node --format=esm --external:electron --outfile=dist/electron/main.js && esbuild electron/preload.ts --bundle --platform=node --format=cjs --external:electron --outfile=dist/electron/preload.cjs && pnpm electron:afm",
     "electron:dev": "vite build && pnpm electron:main && electron .",
     "electron:package": "vite build && pnpm electron:main && electron-builder --mac --dir",
     "ios:sync": "vite build && cap sync ios",
     "ios:dev": "pnpm ios:sync && cap run ios",
     "ios:open": "cap open ios",
-    "electron:afm": "node node_modules/@tanstack-ai-browser/afm/node/build.mjs && cp node_modules/@tanstack-ai-browser/afm/node/build/afm.node dist/electron/afm.node"
+    "electron:afm": "node node_modules/@tanstack-ai-browser/afm-electron/native/build.mjs && cp node_modules/@tanstack-ai-browser/afm-electron/native/afm.node dist/electron/afm.node"
   },
   "dependencies": {
     "@capacitor/core": "^8.6.2",
@@ -33,6 +33,7 @@
     "@heroui/styles": "^3.2.7",
     "@tailwindcss/vite": "^4.3.5",
     "@tanstack-ai-browser/afm": "workspace:*",
+    "@tanstack-ai-browser/afm-electron": "workspace:*",
     "@tanstack-ai-browser/apfel": "workspace:*",
     "@tanstack-ai-browser/prompt-api": "workspace:*",
     "@tanstack-ai-browser/transformers-js": "workspace:*",

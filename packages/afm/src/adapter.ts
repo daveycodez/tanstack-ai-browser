@@ -29,8 +29,9 @@ import { toNativeSchema } from "./schema.js"
 
 export type AfmConfig = {
   /**
-   * The native side: the Capacitor plugin (`Afm`) by default.
-   * Another host (an Electron preload) passes its own.
+   * The native side. By default `window.afm` where a host put it there (an
+   * Electron preload, with @tanstack-ai-browser/afm-electron's `exposeAfm()`),
+   * else the Capacitor plugin (`Afm`).
    */
   native?: AfmNative
 }
@@ -165,7 +166,7 @@ export class AfmTextAdapter extends BaseTextAdapter<
 
   constructor(config: AfmConfig, model: AfmChatModel) {
     super({}, model)
-    this.native = config.native ?? Afm
+    this.native = config.native ?? (globalThis as { afm?: AfmNative }).afm ?? Afm
   }
 
   /** Whether Apple's model can run here: "downloading" while Apple Intelligence gets it. */

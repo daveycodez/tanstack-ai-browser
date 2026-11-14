@@ -14,9 +14,9 @@
  *   public/_headers gives the hosted site (see src/start.ts), so models on
  *   the CPU get SharedArrayBuffer and several threads.
  */
-import { app, BrowserWindow, ipcMain, net, protocol, shell } from "electron"
+import { serveAfm } from "@tanstack-ai-browser/afm-electron"
+import { app, BrowserWindow, net, protocol, shell } from "electron"
 import { readdir, stat } from "node:fs/promises"
-import { createRequire } from "node:module"
 import path from "node:path"
 import { pathToFileURL } from "node:url"
 
@@ -166,7 +166,7 @@ function createWindow() {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
-      // window.afm: Apple's on-device model, through this process.
+      // window.afm: Apple's on-device model, through this process (serveAfm).
       preload: path.join(app.getAppPath(), "dist", "electron", "preload.cjs")
     }
   })
@@ -187,53 +187,16 @@ function createWindow() {
   void window.loadURL(`${ORIGIN}/`)
 }
 
-/**
- * Apple's on-device model (@tanstack-ai-browser/afm), in this process: its
- * Node-API addon, built from the package's Swift (`electron:afm`). The page
- * reaches it through the preload's `window.afm` and IPC. This process is the
- * app's own, with its window, so the model treats it as a foreground app.
- */
-type AfmAddon = {
-  call(method: string, options: string): string
-  setListener(listener: ((json: string) => void) | null): void
-}
-
-function loadAfm(): AfmAddon | undefined {
-  if (process.platform !== "darwin") return undefined
-  // Packaged, the addon is unpacked beside the app's archive: native code can't load from it.
-  const file = path.join(app.getAppPath(), "dist", "electron", "afm.node").replace(/app\.asar(?=[\\/])/, "app.asar.unpacked")
-  try {
-    return createRequire(import.meta.url)(file) as AfmAddon
-  } catch (error) {
-    console.error("Apple's on-device model is unavailable: its addon didn't load", error)
-    return undefined
-  }
-}
-
-function serveAfm() {
-  const afm = loadAfm()
-  ipcMain.handle("afm:call", (event, method: string, options: unknown) => {
-    // Only the app's own pages.
-    if (!event.senderFrame?.url.startsWith(`${ORIGIN}/`)) throw new Error("Not allowed")
-    if (!afm) {
-      if (method === "availability") return { available: false, reason: "unsupportedOS" }
-      throw new Error("Apple's on-device model needs macOS 26 on a Mac with Apple silicon")
-    }
-    const reply = JSON.parse(afm.call(method, JSON.stringify(options ?? {}))) as { result?: unknown; error?: string }
-    if (reply.error) throw new Error(reply.error)
-    return reply.result ?? null
-  })
-  afm?.setListener((json) => {
-    const event: unknown = JSON.parse(json)
-    for (const window of BrowserWindow.getAllWindows()) window.webContents.send("afm:event", event)
-  })
-}
-
 void app.whenReady().then(() => {
   // A second launch: it's quitting, and the open window has the focus.
   if (!hasLock) return
   protocol.handle(SCHEME, serve)
-  serveAfm()
+  // Apple's on-device model, for the app's pages (their preload's window.afm).
+  // The packaged app has no node_modules: its build copies the addon in.
+  serveAfm({
+    addon: path.join(app.getAppPath(), "dist", "electron", "afm.node"),
+    allow: (url) => url.startsWith(`${ORIGIN}/`)
+  })
   createWindow()
 
   // macOS: clicking the Dock icon with no windows open opens one.
