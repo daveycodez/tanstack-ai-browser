@@ -37,6 +37,7 @@ import { copyText, formatChatLog } from "#/lib/chat-log"
 import { openDb, threadsCollection, useDb } from "#/lib/db"
 import { setting } from "#/lib/settings"
 import { threadMessages } from "#/chat/persistence"
+import { safeAreaBoundary } from "#/lib/safe-area"
 import { archiveThread, deleteThread } from "#/lib/threads"
 
 /**
@@ -164,7 +165,7 @@ function Assistant() {
       />
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="flex h-[calc(--spacing(12)+env(safe-area-inset-top))] shrink-0 items-center gap-2 border-b border-separator pt-safe pr-safe-or-4 pl-safe-or-4 md:group-data-sidebar-open/layout:pl-4">
+        <header className="flex h-[calc(--spacing(12)+env(safe-area-inset-top))] shrink-0 items-center gap-2 border-b border-separator pt-safe pr-safe-or-4 pl-titlebar-or-4 drag-region md:group-data-sidebar-open/layout:pl-4">
           <Tooltip delay={300}>
             <Button
               isIconOnly
@@ -266,7 +267,7 @@ function HeaderMenu({
         </Button>
         <Tooltip.Content placement="bottom">More actions</Tooltip.Content>
       </Tooltip>
-      <Dropdown.Popover placement="bottom end" className="min-w-48">
+      <Dropdown.Popover placement="bottom end" className="min-w-48" boundaryElement={safeAreaBoundary()}>
         <Dropdown.Menu
           disabledKeys={threadId ? [] : ["copy", "archive", "delete"]}
           selectionMode="single"

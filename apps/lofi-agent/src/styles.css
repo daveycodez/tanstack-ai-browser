@@ -12,6 +12,12 @@
  *   larger (max(env(safe-area-inset-top), 1rem)). Also px- and py-.
  * The safe area is 0 on screens without such areas.
  */
+/*
+ * Short screens (a phone in landscape, a short window): the empty session's
+ * welcome drops its icon and the starter prompts keep to one row.
+ */
+@custom-variant short (@media (max-height: 32rem));
+
 @utility pt-safe {
   padding-top: env(safe-area-inset-top);
 }
@@ -24,6 +30,28 @@
 @utility pr-safe {
   padding-right: env(safe-area-inset-right);
 }
+/*
+ * A top bar's left edge: clear of the safe area and, in the macOS Electron
+ * app, of the window's close, minimize and full-screen buttons, which the
+ * Window Controls Overlay reports as env(titlebar-area-x). Both are 0 in a
+ * browser, so it's the spacing alone.
+ */
+@utility pl-titlebar-or-* {
+  padding-left: max(env(safe-area-inset-left), env(titlebar-area-x, 0px), --spacing(--value(number)));
+}
+
+/*
+ * A bar that drags the window in the Electron app, like a native title bar
+ * (double-click zooms), while its buttons, links and fields stay clickable.
+ * Browsers ignore it.
+ */
+@utility drag-region {
+  -webkit-app-region: drag;
+  & :is(button, a, input, textarea, [role="button"]) {
+    -webkit-app-region: no-drag;
+  }
+}
+
 @utility pt-safe-or-* {
   padding-top: max(env(safe-area-inset-top), --spacing(--value(number)));
   padding-top: max(env(safe-area-inset-top), --value([length]));

@@ -36,6 +36,27 @@ const CROSS_ORIGIN_ISOLATION = {
   "Cross-Origin-Embedder-Policy": "require-corp"
 }
 
+/**
+ * The app's data (sessions, settings, downloaded models) lives in a profile
+ * folder, and only one process at a time can open a profile's IndexedDB: a
+ * second window on the same folder never gets its database, and shows its
+ * loading skeleton forever. So the packaged app and `electron .` each get a
+ * folder of their own, and can run side by side, and a second launch of
+ * either focuses its open window instead of starting another process.
+ */
+app.setPath(
+  "userData",
+  path.join(app.getPath("appData"), app.isPackaged ? "lofi-agent" : "lofi-agent-dev")
+)
+const hasLock = app.requestSingleInstanceLock()
+if (!hasLock) app.quit()
+app.on("second-instance", () => {
+  const window = BrowserWindow.getAllWindows()[0]
+  if (!window) return createWindow()
+  if (window.isMinimized()) window.restore()
+  window.focus()
+})
+
 // Must happen before the app is ready.
 protocol.registerSchemesAsPrivileged([
   {
@@ -98,6 +119,15 @@ function createWindow() {
     minHeight: 480,
     title: "lofi-agent",
     backgroundColor: "#f5f5f5",
+    // macOS: no title bar. The close, minimize and full-screen buttons sit
+    // in the app's own 48px top bar, centred in it, and the page keeps clear
+    // of them through the Window Controls Overlay's env(titlebar-area-x)
+    // (pl-titlebar-or-* in src/styles.css); its top bars drag the window.
+    ...(process.platform === "darwin" && {
+      titleBarStyle: "hidden" as const,
+      titleBarOverlay: { height: 48 },
+      trafficLightPosition: { x: 18, y: 17 }
+    }),
     webPreferences: {
       // The defaults, written out: the page gets no Node.js.
       contextIsolation: true,
@@ -112,7 +142,9 @@ function createWindow() {
     return { action: "deny" }
   })
   window.webContents.on("will-navigate", (event, url) => {
-    if (new URL(url).origin === ORIGIN) return
+    // Not `origin`: a URL on a custom scheme has the origin "null".
+    const { protocol, host } = new URL(url)
+    if (protocol === `${SCHEME}:` && host === HOST) return
     event.preventDefault()
     if (url.startsWith("https:") || url.startsWith("http:")) void shell.openExternal(url)
   })
@@ -121,6 +153,8 @@ function createWindow() {
 }
 
 void app.whenReady().then(() => {
+  // A second launch: it's quitting, and the open window has the focus.
+  if (!hasLock) return
   protocol.handle(SCHEME, serve)
   createWindow()
 

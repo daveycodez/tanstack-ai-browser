@@ -5,6 +5,7 @@ import { TanStackRouterDevtoolsPanel } from "@tanstack/react-router-devtools"
 import { ThemeProvider } from "next-themes"
 
 import { NativeStatusBar } from "#/components/status-bar"
+import { SAFE_AREA_ID } from "#/lib/safe-area"
 
 import appCss from "../styles.css?url"
 
@@ -93,6 +94,12 @@ function RootDocument({ children }: { children: React.ReactNode }) {
           disableTransitionOnChange
         >
           <NativeStatusBar />
+          {/* The safe area's box, which popovers stay inside (src/lib/safe-area.ts). */}
+          <div
+            id={SAFE_AREA_ID}
+            aria-hidden
+            className="pointer-events-none invisible fixed top-[env(safe-area-inset-top)] right-[env(safe-area-inset-right)] bottom-[env(safe-area-inset-bottom)] left-[env(safe-area-inset-left)]"
+          />
           {children}
         </ThemeProvider>
         {/* TanStack devtools, in development only (the Vite plugin removes

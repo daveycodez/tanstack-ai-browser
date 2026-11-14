@@ -8,6 +8,8 @@ import {
 } from "@heroui/react"
 import { useState } from "react"
 
+import { safeAreaBoundary } from "#/lib/safe-area"
+
 export type ModelOption = {
   id: string
   name: string
@@ -97,7 +99,7 @@ export function ModelSelector({
             <span className="shrink-0 text-muted">{effortLabel}</span>
           )}
         </Button>
-        <Popover.Content placement="bottom start">
+        <Popover.Content placement="bottom start" boundaryElement={safeAreaBoundary()}>
           {/* Within the room the popover gets: the list scrolls, the
               Reasoning row stays in view under it. */}
           <Popover.Dialog

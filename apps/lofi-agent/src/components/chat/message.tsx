@@ -38,6 +38,7 @@ import {
 import { SourceList } from "#/components/ai/sources"
 import { TimeAgo } from "#/components/ai/time-ago"
 import { messageText } from "#/lib/reply-sources"
+import { safeAreaBoundary } from "#/lib/safe-area"
 import { useCallsAsking } from "./mcp-tool"
 import { ReplyContext, TranscriptContext, useThread } from "./thread-context"
 import { ChatUI, useChatContext } from "./ui-components"
@@ -420,7 +421,7 @@ function ReplyActions({
           <Action label="More">
             <Ellipsis />
           </Action>
-          <Dropdown.Popover placement="bottom start">
+          <Dropdown.Popover placement="bottom start" boundaryElement={safeAreaBoundary()}>
             <Dropdown.Menu
               onAction={(key) => {
                 if (key === "export") downloadMarkdown(text)
