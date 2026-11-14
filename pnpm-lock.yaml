@@ -402,9 +402,6 @@ importers:
       '@tanstack-ai-browser/afm':
         specifier: workspace:*
         version: link:../../packages/afm
-      '@tanstack-ai-browser/afm-electron':
-        specifier: workspace:*
-        version: link:../../packages/afm-electron
       '@tanstack-ai-browser/apfel':
         specifier: workspace:*
         version: link:../../packages/apfel
@@ -617,19 +614,12 @@ importers:
       '@tanstack/ai':
         specifier: 1.4.0
         version: 1.4.0(zod@4.6.7)
-
-  packages/afm-electron:
-    dependencies:
-      '@tanstack-ai-browser/afm':
-        specifier: workspace:*
-        version: link:../afm
+      electron:
+        specifier: ^45.3.1
+        version: 45.3.1(supports-color@10.2.2)
       node-api-headers:
         specifier: 1.9.0
         version: 1.9.0
-    devDependencies:
-      electron:
-        specifier: ^45.3.1
-        version: 45.3.1(supports-color@7.2.0)
 
   packages/apfel:
     dependencies:
@@ -7386,6 +7376,19 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
+  '@electron/get@5.1.0(supports-color@10.2.2)':
+    dependencies:
+      debug: 4.4.3(supports-color@10.2.2)
+      env-paths: 3.0.0
+      graceful-fs: 4.2.11
+      progress: 2.0.3
+      semver: 7.8.6
+      sumchecker: 3.0.1(supports-color@10.2.2)
+    optionalDependencies:
+      undici: 7.30.1
+    transitivePeerDependencies:
+      - supports-color
+
   '@electron/get@5.1.0(supports-color@7.2.0)':
     dependencies:
       debug: 4.4.3(supports-color@7.2.0)
@@ -10080,6 +10083,12 @@ snapshots:
     optionalDependencies:
       supports-color: 7.2.0
 
+  debug@4.4.3(supports-color@10.2.2):
+    dependencies:
+      ms: 2.1.3
+    optionalDependencies:
+      supports-color: 10.2.2
+
   debug@4.4.3(supports-color@7.2.0):
     dependencies:
       ms: 2.1.3
@@ -10225,6 +10234,14 @@ snapshots:
       temp: 0.9.4
     optionalDependencies:
       '@electron/windows-sign': 1.2.2(supports-color@7.2.0)
+    transitivePeerDependencies:
+      - supports-color
+
+  electron@45.3.1(supports-color@10.2.2):
+    dependencies:
+      '@electron-internal/extract-zip': 1.0.8
+      '@electron/get': 5.1.0(supports-color@10.2.2)
+      '@types/node': 24.19.2
     transitivePeerDependencies:
       - supports-color
 
@@ -12343,6 +12360,12 @@ snapshots:
       ansi-regex: 5.0.1
 
   strip-bom@3.0.0: {}
+
+  sumchecker@3.0.1(supports-color@10.2.2):
+    dependencies:
+      debug: 4.4.3(supports-color@10.2.2)
+    transitivePeerDependencies:
+      - supports-color
 
   sumchecker@3.0.1(supports-color@7.2.0):
     dependencies:

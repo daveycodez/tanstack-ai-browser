@@ -14,7 +14,7 @@
  *   public/_headers gives the hosted site (see src/start.ts), so models on
  *   the CPU get SharedArrayBuffer and several threads.
  */
-import { serveAfm } from "@tanstack-ai-browser/afm-electron"
+import { serveAfm } from "@tanstack-ai-browser/afm"
 import { app, BrowserWindow, net, protocol, shell } from "electron"
 import { readdir, stat } from "node:fs/promises"
 import path from "node:path"
@@ -165,9 +165,7 @@ function createWindow() {
       // The defaults, written out: the page gets no Node.js.
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: true,
-      // window.afm: Apple's on-device model, through this process (serveAfm).
-      preload: path.join(app.getAppPath(), "dist", "electron", "preload.cjs")
+      sandbox: true
     }
   })
 
@@ -191,10 +189,11 @@ void app.whenReady().then(() => {
   // A second launch: it's quitting, and the open window has the focus.
   if (!hasLock) return
   protocol.handle(SCHEME, serve)
-  // Apple's on-device model, for the app's pages (their preload's window.afm).
-  // The packaged app has no node_modules: its build copies the addon in.
+  // Apple's on-device model, for the app's pages (afmText() finds it). The
+  // packaged app has no node_modules: its build copies the package's Electron
+  // files in (electron:afm).
   serveAfm({
-    addon: path.join(app.getAppPath(), "dist", "electron", "afm.node"),
+    directory: path.join(app.getAppPath(), "dist", "electron", "afm"),
     allow: (url) => url.startsWith(`${ORIGIN}/`)
   })
   createWindow()

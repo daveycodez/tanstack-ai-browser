@@ -1,5 +1,5 @@
-// AfmBridge for the Node-API addon (afm.c): plain C functions, JSON strings in and
-// out, built into one afm.node with AfmCore (build.mjs). macOS only.
+// AfmBridge for the Node-API addon (afm.c) that serveAfm() loads: plain C functions,
+// JSON strings in and out, built into one afm.node with AfmCore (build.mjs). macOS only.
 import Foundation
 
 /// The C function the addon gives for events: called with each event in JSON, from

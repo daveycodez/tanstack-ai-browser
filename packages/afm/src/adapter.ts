@@ -29,9 +29,9 @@ import { toNativeSchema } from "./schema.js"
 
 export type AfmConfig = {
   /**
-   * The native side. By default `window.afm` where a host put it there (an
-   * Electron preload, with @tanstack-ai-browser/afm-electron's `exposeAfm()`),
-   * else the Capacitor plugin (`Afm`).
+   * The native side. By default `window.afm` where a host put it there
+   * (Electron, with `serveAfm()` in the main process), else the Capacitor
+   * plugin (`Afm`).
    */
   native?: AfmNative
 }

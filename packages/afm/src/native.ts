@@ -1,9 +1,9 @@
 /**
  * The native side of the adapter: Apple's Foundation Models framework, reached
- * through the Capacitor plugin on iOS (ios/Sources). Any host can stand in for
- * it by implementing `AfmNative` (an Electron preload, a test).
+ * through the Capacitor plugin on iOS (ios/Sources), or the Electron main
+ * process (`serveAfm()`, whose preload puts it at `window.afm`). Any host can
+ * stand in for them by implementing `AfmNative`.
  */
-import { registerPlugin } from "@capacitor/core"
 import type { PluginListenerHandle } from "@capacitor/core"
 
 /** Why the model can't run: Apple's reasons, or an OS before 26. */
@@ -84,5 +84,26 @@ export interface AfmNative {
   addListener(eventName: "event", listener: (event: NativeEvent) => void): Promise<PluginListenerHandle>
 }
 
-/** The Capacitor plugin (iOS). Elsewhere its calls reject: Capacitor has no web version of it. */
-export const Afm = registerPlugin<AfmNative>("Afm")
+let loading: Promise<{ plugin: AfmNative }> | undefined
+/**
+ * The plugin, loading Capacitor on first use: pages elsewhere never load it.
+ * It's wrapped: a Capacitor plugin answers every property, `then` too, so a
+ * promise of the plugin itself would wait on it forever.
+ */
+const capacitor = () =>
+  (loading ??= import("@capacitor/core").then(({ registerPlugin }) => ({ plugin: registerPlugin<AfmNative>("Afm") })))
+
+/**
+ * The Capacitor plugin (iOS), loading Capacitor on its first call. Elsewhere
+ * its calls reject: Capacitor has no web version of it.
+ */
+export const Afm: AfmNative = {
+  availability: async () => (await capacitor()).plugin.availability(),
+  createSession: async (options) => (await capacitor()).plugin.createSession(options),
+  prewarm: async (options) => (await capacitor()).plugin.prewarm(options),
+  respond: async (options) => (await capacitor()).plugin.respond(options),
+  submitToolResult: async (options) => (await capacitor()).plugin.submitToolResult(options),
+  cancel: async (options) => (await capacitor()).plugin.cancel(options),
+  deleteSession: async (options) => (await capacitor()).plugin.deleteSession(options),
+  addListener: async (name, listener) => (await capacitor()).plugin.addListener(name, listener)
+}

@@ -1,6 +1,6 @@
 # @tanstack-ai-browser/afm
 
-A [TanStack AI](https://tanstack.com/ai) adapter for Apple's on-device Foundation Model (AFM), the model behind Apple Intelligence, through Apple's Foundation Models framework itself. It ships as a Capacitor plugin for iOS; Electron on macOS gets it from [@tanstack-ai-browser/afm-electron](../afm-electron), and any other host (Tauri, say) can stand in.
+A [TanStack AI](https://tanstack.com/ai) adapter for Apple's on-device Foundation Model (AFM), the model behind Apple Intelligence, through Apple's Foundation Models framework itself. It ships as a Capacitor plugin for iOS and as `serveAfm()` for Electron on macOS; any other host (Tauri, say) can stand in.
 
 Tool calling is the framework's own. The model's arguments always fit each tool's schema, and it can call several tools at once. When it calls a tool, the native response waits; `chat()` runs the tool (approvals included) and the adapter hands the result back to the same response, without the model reading the conversation again.
 
@@ -34,19 +34,28 @@ Each thread (`threadId`) keeps a native session, so a follow-up message only sen
 
 ### Electron (macOS)
 
-With [@tanstack-ai-browser/afm-electron](../afm-electron), the model runs in the main process and the page's `afmText()` finds it:
+The page is the same as on iOS: `afmText()`. The main process runs the model, with one call before opening windows:
 
 ```ts
-// main process
+// electron/main.js
+import { app, BrowserWindow } from "electron"
+import { serveAfm } from "@tanstack-ai-browser/afm"
+
 serveAfm()
-// preload
-exposeAfm()
-// page
-const adapter = afmText()
+app.whenReady().then(() => new BrowserWindow().loadFile("index.html"))
 ```
+
+`serveAfm()` loads the package's Node-API addon (`electron/afm.node`, built from the same Swift as the Capacitor plugin) and adds the package's preload to the app's pages, which puts the model at `window.afm`, where `afmText()` finds it. It runs in the main process, the app's own with its window, so the framework treats it as a foreground app. It needs macOS 26 on Apple silicon; elsewhere the model reports itself unavailable.
+
+`serveAfm({ directory, allow })`:
+
+- `directory`: the folder with `afm.node` and `preload.cjs`, by default the package's `electron` folder, found from the app's `node_modules`. An app that leaves `node_modules` out of its package copies the two files in and passes their folder. Keep `afm.node` out of the asar archive (electron-builder unpacks `.node` files; otherwise list it in `asarUnpack`).
+- `allow(url)`: which pages may use the model. By default the app's own: any page but an http(s) one on a host other than localhost.
+
+To build `electron/afm.node` yourself (needs Xcode): `node electron/build.mjs`.
 
 ### Another host
 
 Pass any implementation of `AfmNative` (the plugin's methods and its `event` listener) as `native`, or put it at `window.afm`.
 
-The Swift side is in `ios/Sources`: `AfmCore` (the bridge, with no Capacitor in it) and `AfmPlugin` (the Capacitor plugin).
+The Swift side is in `ios/Sources`: `AfmCore` (the bridge, with no Capacitor in it) and `AfmPlugin` (the Capacitor plugin). Electron's addon is in `electron`: `AfmNode.swift` (C functions over the bridge) and `afm.c` (Node-API).

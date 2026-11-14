@@ -47,9 +47,6 @@
     },
     {
       "path": "../../packages/afm"
-    },
-    {
-      "path": "../../packages/afm-electron"
     }
   ]
 }

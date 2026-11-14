@@ -1,7 +1,7 @@
 {
   "name": "@tanstack-ai-browser/afm",
   "version": "0.1.0",
-  "description": "TanStack AI adapter for Apple's on-device Foundation Model (AFM), through Apple's framework itself, with native tool calling: a Capacitor plugin for iOS, and Electron on macOS with @tanstack-ai-browser/afm-electron",
+  "description": "TanStack AI adapter for Apple's on-device Foundation Model (AFM), through Apple's framework itself, with native tool calling: a Capacitor plugin for iOS, and serveAfm() for Electron on macOS",
   "license": "MIT",
   "author": "daveycodez",
   "repository": {
@@ -46,6 +46,11 @@
     "dist",
     "ios/Sources",
     "Package.swift",
+    "electron/afm.node",
+    "electron/preload.cjs",
+    "electron/afm.c",
+    "electron/AfmNode.swift",
+    "electron/build.mjs",
     "!**/*.tsbuildinfo"
   ],
   "capacitor": {
@@ -57,7 +62,25 @@
     "access": "public"
   },
   "nx": {
-    "name": "afm"
+    "name": "afm",
+    "targets": {
+      "build-native": {
+        "command": "node electron/build.mjs",
+        "options": {
+          "cwd": "{projectRoot}"
+        },
+        "cache": true,
+        "inputs": [
+          "{projectRoot}/electron/afm.c",
+          "{projectRoot}/electron/AfmNode.swift",
+          "{projectRoot}/electron/build.mjs",
+          "{projectRoot}/ios/Sources/AfmCore/**/*"
+        ],
+        "outputs": [
+          "{projectRoot}/electron/afm.node"
+        ]
+      }
+    }
   },
   "scripts": {
     "test": "node --import @swc-node/register/esm-register --test \"src/**/*.test.ts\""
@@ -68,6 +91,8 @@
   },
   "devDependencies": {
     "@capacitor/core": "^8.6.2",
-    "@tanstack/ai": "1.4.0"
+    "@tanstack/ai": "1.4.0",
+    "electron": "^45.3.1",
+    "node-api-headers": "1.9.0"
   }
 }
