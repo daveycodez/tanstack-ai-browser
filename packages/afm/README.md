@@ -24,7 +24,8 @@ import { afmText } from "@tanstack-ai-browser/afm"
 
 const adapter = afmText()
 if ((await adapter.availability()) === "available") {
-  const stream = chat({ adapter, messages, tools })
+  // One threadId per conversation: its follow-ups reuse the same native session.
+  const stream = chat({ adapter, threadId, messages, tools })
 }
 ```
 
