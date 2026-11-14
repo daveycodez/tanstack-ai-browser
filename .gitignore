@@ -65,3 +65,7 @@ Thumbs.db
 **/bench/**/*.txt
 !**/bench/latest.json
 !**/bench/fixtures/**
+
+# Research notes and reports written while working on the repo: local, not history.
+/research_notes/
+/reports/
