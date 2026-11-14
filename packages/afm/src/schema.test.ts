@@ -101,3 +101,28 @@ test("$refs to object definitions are references; to plain values, written in pl
     { kind: "object", name: "Place", properties: [{ name: "city", optional: true, schema: { kind: "string" } }] }
   ])
 })
+
+test("enums keep their members' type: strings are choices, numbers keep their range, and the description lists them", () => {
+  const { root } = toNativeSchema(
+    {
+      type: "object",
+      properties: {
+        unit: { type: "string", enum: ["c", "f"] },
+        stars: { type: "integer", enum: [1, 2, 3], description: "A rating." },
+        ratio: { type: "number", enum: [0.5, 1.5] },
+        on: { type: "boolean", enum: [true] }
+      },
+      required: ["unit", "stars", "ratio", "on"]
+    },
+    "t"
+  )
+  assert.equal(root.kind, "object")
+  const property = (name: string) => (root.kind === "object" ? root.properties.find((p) => p.name === name) : undefined)
+  assert.deepEqual(property("unit")?.schema, { kind: "string", choices: ["c", "f"] })
+  assert.equal(property("unit")?.description, undefined)
+  assert.deepEqual(property("stars")?.schema, { kind: "integer", minimum: 1, maximum: 3 })
+  assert.equal(property("stars")?.description, "A rating. One of 1, 2, 3.")
+  assert.deepEqual(property("ratio")?.schema, { kind: "number", minimum: 0.5, maximum: 1.5 })
+  assert.deepEqual(property("on")?.schema, { kind: "boolean" })
+  assert.equal(property("on")?.description, "One of true.")
+})

@@ -30,6 +30,18 @@ function nullable(schema: unknown): boolean {
   return Array.isArray(variants) && variants.some(isNull)
 }
 
+/**
+ * A property's description, with the values its enum allows where the
+ * framework can't hold the property to them: members that aren't strings.
+ */
+function describe(property: unknown): string | undefined {
+  if (!isObject(property)) return undefined
+  const own = typeof property.description === "string" ? property.description : undefined
+  const members = Array.isArray(property.enum) ? property.enum.filter((v) => v !== null) : []
+  const allowed = members.some((v) => typeof v !== "string") ? `One of ${members.map((v) => JSON.stringify(v)).join(", ")}.` : undefined
+  return [own, allowed].filter(Boolean).join(" ") || undefined
+}
+
 const number = (value: unknown) => (typeof value === "number" && Number.isFinite(value) ? value : undefined)
 
 /** A schema's name for the framework: letters, digits and underscores. */
@@ -56,8 +68,21 @@ export function toNativeSchema(schema: unknown, name: string): NativeGenerationS
     }
     if ("const" in value && typeof value.const === "string") return { kind: "string", constant: value.const }
     if (Array.isArray(value.enum)) {
-      const choices = value.enum.filter((v) => v !== null).map(String)
-      return choices.length > 0 ? { kind: "string", choices } : { kind: "string" }
+      const members: Array<unknown> = value.enum.filter((v) => v !== null)
+      if (members.every((v) => typeof v === "string")) {
+        return members.length > 0 ? { kind: "string", choices: members } : { kind: "string" }
+      }
+      // The framework has choices for strings only: other members keep their
+      // type, numbers held to the members' range, and the property's
+      // description lists them (see allowedValues).
+      if (members.every((v): v is number => typeof v === "number" && Number.isFinite(v))) {
+        return {
+          kind: members.every(Number.isInteger) ? "integer" : "number",
+          minimum: Math.min(...members),
+          maximum: Math.max(...members)
+        }
+      }
+      if (members.every((v) => typeof v === "boolean")) return { kind: "boolean" }
     }
     const variants = value.anyOf ?? value.oneOf
     if (Array.isArray(variants)) {
@@ -80,7 +105,7 @@ export function toNativeSchema(schema: unknown, name: string): NativeGenerationS
         const properties = Object.entries(isObject(value.properties) ? value.properties : {}).map(([key, property]) =>
           defined({
             name: key,
-            description: isObject(property) && typeof property.description === "string" ? property.description : undefined,
+            description: describe(property),
             optional: !required.includes(key) || nullable(property),
             schema: convert(property, `${path}_${key}`)
           })

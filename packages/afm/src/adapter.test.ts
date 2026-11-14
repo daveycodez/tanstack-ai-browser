@@ -267,3 +267,59 @@ test("without a native side given, window.afm (an Electron preload's) is used", 
     delete (globalThis as { afm?: unknown }).afm
   }
 })
+
+const pausedCall = [{ type: "toolCalls", calls: [{ id: "call_1", name: "get_weather", arguments: '{"city":"Paris"}' }] }] as Array<Event>
+const afterCall = (city = "Paris") => [
+  user("Weather in Paris?"),
+  { role: "assistant", content: "", toolCalls: [{ id: "call_1", type: "function", function: { name: "get_weather", arguments: JSON.stringify({ city }) } }] },
+  { role: "tool", toolCallId: "call_1", content: "Sunny" }
+]
+
+test("with prompt cache retention none, the step with the tool's result resumes the paused response, and the session ends after", async () => {
+  const adapter = afmText({ native })
+  native.replies = [pausedCall]
+  native.resumes = [[{ type: "done", text: "Sunny." }]]
+  const first = await run(adapter, { tools: [weather], promptCache: { retention: "none" } })
+  assert.equal(first.at(-1)?.finishReason, "tool_calls")
+  const second = await run(adapter, { tools: [weather], promptCache: { retention: "none" }, messages: afterCall() })
+  assert.equal(textIn(second), "Sunny.")
+  const [session] = native.named("createSession")
+  assert.equal(native.named("createSession").length, 1)
+  assert.deepEqual(native.named("submitToolResult").map((o) => o.sessionId), [session.sessionId])
+  assert.ok(native.named("deleteSession").some((o) => o.sessionId === session.sessionId))
+})
+
+test("destroy() ends a paused response no thread keeps", async () => {
+  const adapter = afmText({ native })
+  native.replies = [pausedCall]
+  await run(adapter, { tools: [weather], promptCache: { retention: "none" } })
+  const [session] = native.named("createSession")
+  await adapter.destroy()
+  assert.ok(native.named("deleteSession").some((o) => o.sessionId === session.sessionId))
+})
+
+test("destroy() during a response ends its stream with an error", async () => {
+  const adapter = afmText({ native })
+  native.replies = [[]] // a response that doesn't answer on its own
+  const stream = adapter.chatStream(chatOptions())[Symbol.asyncIterator]()
+  await stream.next()
+  const next = stream.next()
+  await new Promise((resolve) => setTimeout(resolve, 10))
+  await adapter.destroy()
+  const chunk = (await next).value as Chunk
+  assert.equal(chunk.type, "RUN_ERROR")
+  assert.equal((chunk.error as { code?: string }).code, "closed")
+})
+
+test("an edited tool call in the conversation starts a new session", async () => {
+  const adapter = afmText({ native })
+  native.replies = [[{ type: "done", text: "It's sunny." }]]
+  await run(adapter, { tools: [weather], messages: afterCall("Paris") })
+  native.replies = [[{ type: "done", text: "Yes." }]]
+  await run(adapter, { tools: [weather], messages: [...afterCall("Tokyo"), { role: "assistant", content: "It's sunny." }, user("Sure?")] })
+  assert.equal(native.named("createSession").length, 2)
+  // The same conversation, unedited, keeps its session.
+  native.replies = [[{ type: "done", text: "Yes." }]]
+  await run(adapter, { tools: [weather], messages: [...afterCall("Tokyo"), { role: "assistant", content: "It's sunny." }, user("Sure?"), { role: "assistant", content: "Yes." }, user("Thanks")] })
+  assert.equal(native.named("createSession").length, 2)
+})

@@ -52,6 +52,8 @@ app.whenReady().then(() => new BrowserWindow().loadFile("index.html"))
 - `directory`: the folder with `afm.node` and `preload.cjs`, by default the package's `electron` folder, found from the app's `node_modules`. An app that leaves `node_modules` out of its package copies the two files in and passes their folder. Keep `afm.node` out of the asar archive (electron-builder unpacks `.node` files; otherwise list it in `asarUnpack`).
 - `allow(url)`: which pages may use the model. By default the app's own: any page but an http(s) one on a host other than localhost.
 
+Each frame's sessions are its own: a frame's calls reach only the sessions it created, their events go to that frame only (while `allow()` still allows its page), and they end when the frame navigates or closes.
+
 To build `electron/afm.node` yourself (needs Xcode): `node electron/build.mjs`.
 
 ### Another host

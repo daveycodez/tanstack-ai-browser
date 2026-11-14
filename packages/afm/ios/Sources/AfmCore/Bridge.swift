@@ -204,6 +204,12 @@ final class BridgeSession: @unchecked Sendable {
         return try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
                 lock.withLock {
+                    // Cancelled before this registers: the cancellation handler has
+                    // already run (under this lock), so it would never see this call.
+                    if Task.isCancelled {
+                        continuation.resume(throwing: CancellationError())
+                        return
+                    }
                     // The model's batch of calls, from the transcript: its ids, and its size.
                     var batch: [Transcript.ToolCall] = []
                     if case .toolCalls(let calls) = session.transcript.last { batch = Array(calls) }
@@ -289,9 +295,12 @@ struct BridgedTool: Tool {
     let name: String
     let description: String
     let parameters: GenerationSchema
-    let state: BridgeSession
+    /// Weak: the session's `LanguageModelSession` holds its tools, so a strong
+    /// reference back would keep a deleted session alive.
+    weak let state: BridgeSession?
 
     func call(arguments: GeneratedContent) async throws -> String {
-        try await state.call(name: name, arguments: arguments)
+        guard let state else { throw CancellationError() }
+        return try await state.call(name: name, arguments: arguments)
     }
 }

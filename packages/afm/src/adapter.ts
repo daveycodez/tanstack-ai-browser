@@ -98,9 +98,14 @@ type Thread = {
 
 const KEPT_SESSIONS = 4
 
+/** A message, as the session holds it: an assistant's text and its tool calls (ids, names, arguments). */
 const messageKey = (m: ModelMessage) =>
   m.role === "assistant"
-    ? JSON.stringify(["assistant", contentText(m.content).trim()])
+    ? JSON.stringify([
+        "assistant",
+        contentText(m.content).trim(),
+        (m.toolCalls ?? []).map((call) => [call.id, call.function.name, call.function.arguments])
+      ])
     : JSON.stringify([m.role, contentText(m.content), m.toolCallId ?? null])
 
 function offeredTools(options: TextOptions<AfmTextModelOptions>): ReadonlyArray<Tool> {
@@ -163,6 +168,11 @@ export class AfmTextAdapter extends BaseTextAdapter<
   private readonly native: AfmNative
   private readonly threads = new Map<string, Thread>()
   private readonly queues = new Map<string, Thread>()
+  /**
+   * Responses waiting for tool results in sessions no thread keeps (prompt
+   * cache retention "none"), by thread: the next step resumes them.
+   */
+  private readonly paused = new Map<string, Thread>()
   private listening: Promise<unknown> | undefined
 
   constructor(config: AfmConfig, model: AfmChatModel) {
@@ -198,10 +208,11 @@ export class AfmTextAdapter extends BaseTextAdapter<
     return this
   }
 
-  /** Ends every thread's session. */
+  /** Ends every thread's session, and every response waiting for tool results. */
   async destroy(): Promise<void> {
-    for (const thread of this.threads.values()) this.close(thread)
+    for (const thread of [...this.threads.values(), ...this.paused.values()]) this.close(thread)
     this.threads.clear()
+    this.paused.clear()
   }
 
   /** Routes the native events to their thread's response. Listens once. */
@@ -213,8 +224,10 @@ export class AfmTextAdapter extends BaseTextAdapter<
     return this.listening
   }
 
+  /** Ends a session. A response still streaming from it ends with an error. */
   private close(thread: Thread) {
     this.queues.delete(thread.sessionId)
+    thread.queue?.push({ type: "error", code: "closed", message: "The session was closed", sessionId: thread.sessionId, turn: thread.turn })
     thread.queue = undefined
     void this.native.deleteSession({ sessionId: thread.sessionId }).catch(() => undefined)
   }
@@ -280,7 +293,8 @@ export class AfmTextAdapter extends BaseTextAdapter<
       maximumResponseTokens
     ])
     const keys = options.messages.map(messageKey)
-    const held = retain ? this.threads.get(key) : undefined
+    // A kept session, or one whose response waits for tool results.
+    const held = (retain ? this.threads.get(key) : undefined) ?? this.paused.get(key)
     const holds = !!held && !held.busy && held.settings === settings && held.seen.every((k, i) => k === keys[i])
 
     // The results of the tool calls the session's response waits on.
@@ -290,7 +304,8 @@ export class AfmTextAdapter extends BaseTextAdapter<
         .filter((m) => m.role === "tool" && !!m.toolCallId && held.waiting.has(m.toolCallId))
       if (results.length === held.waiting.size) {
         held.busy = true
-        return { key, thread: held, kept: true, keys, results }
+        this.paused.delete(key)
+        return { key, thread: held, kept: this.threads.get(key) === held, keys, results }
       }
     }
     // A new message to the session's finished response.
@@ -302,7 +317,8 @@ export class AfmTextAdapter extends BaseTextAdapter<
     // A new session for the conversation, prompted with its last message.
     if (held && !held.busy) {
       this.close(held)
-      this.threads.delete(key)
+      if (this.threads.get(key) === held) this.threads.delete(key)
+      if (this.paused.get(key) === held) this.paused.delete(key)
     }
     const prompted = last?.role === "user"
     const before = prompted ? options.messages.slice(0, -1) : options.messages
@@ -400,6 +416,8 @@ export class AfmTextAdapter extends BaseTextAdapter<
           // The response waits for the results, which the next step sends.
           thread.seen = keys
           paused = true
+          // A session no thread keeps is still found by the step with the results.
+          if (!step.kept) this.paused.set(step.key, thread)
           yield { type: EventType.RUN_FINISHED, runId, threadId, model, timestamp: timestamp(), finishReason: "tool_calls" }
           return
         } else if (event.type === "done") {
@@ -431,6 +449,7 @@ export class AfmTextAdapter extends BaseTextAdapter<
         // A stopped or failed response leaves the session behind: the next step starts a new one.
         this.close(step.thread)
         if (this.threads.get(step.key) === step.thread) this.threads.delete(step.key)
+        if (this.paused.get(step.key) === step.thread) this.paused.delete(step.key)
       }
       options.logger.errors("afm chatStream failed", { error, source: "afm.chatStream" })
       const message = error instanceof Error ? error.message : String(error)

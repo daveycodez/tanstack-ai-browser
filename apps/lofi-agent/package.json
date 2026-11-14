@@ -16,7 +16,7 @@
     "test": "node --experimental-strip-types --test src/chat/*.test.ts src/lib/*.test.ts",
     "deploy": "wrangler deploy",
     "build-cities": "node scripts/build-cities.mjs",
-    "electron:main": "esbuild electron/main.ts --bundle --platform=node --format=esm --external:electron --outfile=dist/electron/main.js && pnpm electron:location && pnpm electron:afm",
+    "electron:main": "esbuild electron/main.ts --bundle --platform=node --format=esm --external:electron --conditions=@tanstack-ai-browser/source --outfile=dist/electron/main.js && pnpm electron:location && pnpm electron:afm",
     "electron:dev": "vite build && pnpm electron:main && electron .",
     "electron:package": "vite build && pnpm electron:main && electron-builder --mac --dir",
     "ios:sync": "vite build && cap sync ios",

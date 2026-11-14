@@ -5,10 +5,15 @@
  * adds the package's preload (electron/preload.cjs) to the app's pages, which
  * puts it at `window.afm` for `afmText()`.
  *
+ * Each frame's sessions are its own: their native ids are the frame's id and
+ * the page's, a frame's calls reach only its sessions, and their events go to
+ * that frame only, while `allow()` still allows its page. A frame's sessions
+ * end when it navigates or closes.
+ *
  * Electron is required when `serveAfm()` runs, not imported: bundlers of the
  * app's pages (web, iOS) never see it, and drop this code.
  */
-import type { App, BrowserWindow, IpcMain, Session } from "electron"
+import type { App, IpcMain, Session, WebContents, WebFrameMain } from "electron"
 
 const PACKAGE = "@tanstack-ai-browser/afm"
 const CALL = "afm:call"
@@ -22,10 +27,12 @@ type Addon = {
 
 type Electron = {
   app: App
-  BrowserWindow: typeof BrowserWindow
   ipcMain: IpcMain
   session: { defaultSession: Session }
 }
+
+/** A native session's frame, and the page's id for it. */
+type Owner = { frame: WebFrameMain; frameId: string; contentsId: number; sessionId: string }
 
 /** The bits of Node used here, typed here: this is a browser package otherwise. */
 type NodeRequire = ((id: string) => unknown) & { resolve(id: string): string }
@@ -101,21 +108,60 @@ export function serveAfm(options: ServeAfmOptions = {}): void {
     }
   }
 
+  // The native sessions, by native id: `${frame id}/${the page's id}`.
+  const owners = new Map<string, Owner>()
+  const frameIdOf = (frame: WebFrameMain) => `${frame.processId}:${frame.frameToken}`
+  const endSessions = (ended: (owner: Owner) => boolean) => {
+    for (const [id, owner] of owners) {
+      if (!ended(owner)) continue
+      owners.delete(id)
+      addon?.call("deleteSession", JSON.stringify({ sessionId: id }))
+    }
+  }
+  // A page's sessions end with its document: a navigation, or its contents closing.
+  const watched = new WeakSet<WebContents>()
+  const watch = (contents: WebContents) => {
+    if (watched.has(contents)) return
+    watched.add(contents)
+    const contentsId = contents.id
+    contents.on("did-start-navigation", ({ isSameDocument, frame }) => {
+      if (isSameDocument || !frame) return
+      const frameId = frameIdOf(frame)
+      endSessions((owner) => owner.frameId === frameId)
+    })
+    contents.once("destroyed", () => endSessions((owner) => owner.contentsId === contentsId))
+  }
+
   electron.ipcMain.handle(CALL, (event, method: string, args: unknown) => {
-    if (!allow(event.senderFrame?.url ?? "")) throw new Error("This page may not use Apple's on-device model")
+    const frame = event.senderFrame
+    if (!frame || !allow(frame.url)) throw new Error("This page may not use Apple's on-device model")
     if (!addon) {
       if (method === "availability") return { available: false, reason: "unsupportedOS" }
       throw new Error("Apple's on-device model needs macOS 26 on a Mac with Apple silicon")
     }
-    const reply = JSON.parse(addon.call(method, JSON.stringify(args ?? {}))) as { result?: unknown; error?: string }
+    const options = { ...(typeof args === "object" && args !== null ? args : {}) } as Record<string, unknown>
+    // The frame's own session: another frame's can't be reached.
+    if (typeof options.sessionId === "string") {
+      const frameId = frameIdOf(frame)
+      const id = `${frameId}/${options.sessionId}`
+      if (method === "createSession") {
+        owners.set(id, { frame, frameId, contentsId: event.sender.id, sessionId: options.sessionId })
+        watch(event.sender)
+      } else if (method === "deleteSession") {
+        owners.delete(id)
+      }
+      options.sessionId = id
+    }
+    const reply = JSON.parse(addon.call(method, JSON.stringify(options))) as { result?: unknown; error?: string }
     if (reply.error) throw new Error(reply.error)
     return reply.result ?? null
   })
+  // Each event to its session's frame only, with the page's id, while its page is allowed.
   addon?.setListener((json) => {
-    const event: unknown = JSON.parse(json)
-    for (const window of electron.BrowserWindow.getAllWindows()) {
-      if (!window.isDestroyed()) window.webContents.send(EVENT, event)
-    }
+    const event = JSON.parse(json) as { sessionId?: unknown }
+    const owner = typeof event.sessionId === "string" ? owners.get(event.sessionId) : undefined
+    if (!owner || owner.frame.isDestroyed() || owner.frame.detached || !allow(owner.frame.url)) return
+    owner.frame.send(EVENT, { ...event, sessionId: owner.sessionId })
   })
 
   // The preload, in every session's pages: window.afm.
