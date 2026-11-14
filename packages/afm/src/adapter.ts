@@ -535,6 +535,8 @@ export class AfmTextAdapter extends BaseTextAdapter<
         model,
         timestamp: timestamp(),
         message,
+        // At the top too: chat() puts only this one on the error it throws.
+        ...(typeof code === "string" && { code }),
         error: { message, ...(typeof code === "string" && { code }) }
       }
     } finally {
