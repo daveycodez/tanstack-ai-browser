@@ -101,8 +101,13 @@ export type WorkerReply =
   | { status: "unloaded" }
   /** Generated text. */
   | { status: "update"; output: string }
-  /** The generation ended (finished, interrupted or out of tokens), with its token counts. */
-  | { status: "complete"; inputTokens: number; outputTokens: number }
+  /**
+   * The generation ended (finished, interrupted or out of tokens), with its
+   * token counts: the whole prompt, the part of it the reused cache held
+   * (not read again), and the reply. `cachedTokens` is left out where the
+   * cache's length can't be told.
+   */
+  | { status: "complete"; inputTokens: number; cachedTokens?: number; outputTokens: number }
   | { status: "error"; message: string }
 
 /** The Whisper model to load, and how: Transformers.js's defaults where left out. */

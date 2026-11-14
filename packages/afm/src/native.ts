@@ -49,7 +49,12 @@ export type NativeMessage =
   | { role: "assistant"; text: string; toolCalls?: Array<{ id: string; name: string; arguments: string }> }
   | { role: "tool"; toolCallId: string; name: string; text: string }
 
-export type NativeUsage = { inputTokens: number; cachedTokens: number; outputTokens: number }
+/**
+ * A response's tokens, over every pass of the model (a tool call's too).
+ * `cachedTokens` is there only where the framework counts it right: for a
+ * session without tools.
+ */
+export type NativeUsage = { inputTokens: number; cachedTokens?: number; outputTokens: number }
 
 /** What a session sends while it responds, for the `turn` of the `respond` call. */
 export type NativeEvent = { sessionId: string; turn: number } & (

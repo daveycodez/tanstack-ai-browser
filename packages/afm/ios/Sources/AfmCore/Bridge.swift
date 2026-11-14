@@ -15,7 +15,9 @@ import FoundationModels
 /// Events, each with the `sessionId` and the `turn` of the `respond` call:
 /// - `{ type: "delta", text }`: more of the response.
 /// - `{ type: "toolCalls", calls: [{ id, name, arguments }] }`: `arguments` in JSON.
-/// - `{ type: "done", text, usage }`: the response, and its tokens (iOS/macOS 27).
+/// - `{ type: "done", text, usage }`: the response, and its tokens (iOS/macOS 27):
+///   `inputTokens` and `outputTokens` over every pass of the model (a tool call's
+///   too), and `cachedTokens` only for a session without tools (see `usage()`).
 /// - `{ type: "error", code, message }`.
 @available(iOS 26.0, macOS 26.0, *)
 public final class AfmBridge: @unchecked Sendable {
@@ -74,6 +76,7 @@ public final class AfmBridge: @unchecked Sendable {
             messages: options["messages"] as? [Any] ?? []
         )
         state.session = LanguageModelSession(model: .default, tools: tools, transcript: transcript)
+        state.hasTools = !tools.isEmpty
         lock.withLock { sessions[id] = state }
     }
 
@@ -130,6 +133,7 @@ public final class AfmBridge: @unchecked Sendable {
 final class BridgeSession: @unchecked Sendable {
     let id: String
     var session: LanguageModelSession!
+    var hasTools = false
 
     private let emit: AfmBridge.Emit
     private let lock = NSLock()
@@ -178,11 +182,12 @@ final class BridgeSession: @unchecked Sendable {
             try Task.checkCancellation()
             var done: [String: Any] = ["type": "done", "text": text]
             if let before, let after = usage() {
-                done["usage"] = [
+                var usage: [String: Any] = [
                     "inputTokens": after.input - before.input,
-                    "cachedTokens": after.cached - before.cached,
                     "outputTokens": after.output - before.output
                 ]
+                if !hasTools { usage["cachedTokens"] = after.cached - before.cached }
+                done["usage"] = usage
             }
             send(done)
         } catch is CancellationError {
@@ -256,7 +261,15 @@ final class BridgeSession: @unchecked Sendable {
         emit(event)
     }
 
-    /// The session's tokens so far (iOS/macOS 27).
+    /// The session's tokens so far (iOS/macOS 27), over every pass of the model:
+    /// `respond`'s usage is the difference, a tool call's pass included, which the
+    /// response's own usage leaves out.
+    ///
+    /// The cached count is right for a session without tools: 0 for a cold
+    /// prompt, the new message's tokens fewer for a follow-up, and 0 again once
+    /// the framework has dropped the cache (a few seconds idle). With tools, the
+    /// framework counts every token but one as cached, whether the cache was
+    /// used (TTFT 1.5 s) or had been dropped (5.9 s), so it isn't reported.
     private func usage() -> (input: Int, cached: Int, output: Int)? {
         guard #available(iOS 27.0, macOS 27.0, *) else { return nil }
         let usage = session.usage

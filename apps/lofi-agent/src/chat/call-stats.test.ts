@@ -105,3 +105,10 @@ test("a call's usage adds its token counts to the same timings, for every step o
     assert.ok(stats.streamMs! >= stats.firstTokenMs!)
   }
 })
+
+test("a cached count of 0 is kept (the whole prompt was read), and none reported stays unknown", async () => {
+  const read = await reply(new FakeAdapter({ promptTokens: 20, completionTokens: 5, totalTokens: 25, promptTokensDetails: { cachedTokens: 0 } }))
+  for (const stats of read.values()) assert.equal(stats.cachedTokens, 0)
+  const unknown = await reply(new FakeAdapter({ promptTokens: 20, completionTokens: 5, totalTokens: 25 }))
+  for (const stats of unknown.values()) assert.equal("cachedTokens" in stats, false)
+})

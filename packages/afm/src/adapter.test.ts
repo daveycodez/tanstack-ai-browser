@@ -92,14 +92,25 @@ const typesOf = (chunks: Array<Chunk>) => chunks.map((c) => c.type)
 const textIn = (chunks: Array<Chunk>) =>
   chunks.filter((c) => c.type === "TEXT_MESSAGE_CONTENT").map((c) => c.delta).join("")
 
+test("cached tokens pass through where the bridge counts them, none included", async () => {
+  const adapter = afmText({ native })
+  for (const cachedTokens of [0, 2890]) {
+    native.replies = [[{ type: "done", text: "Hi", usage: { inputTokens: 2907, cachedTokens, outputTokens: 2 } }]]
+    const chunks = await run(adapter, { threadId: `cached-${cachedTokens}` })
+    assert.deepEqual((chunks.at(-1)?.usage as Record<string, unknown>).promptTokensDetails, { cachedTokens })
+  }
+})
+
 test("a reply streams as text from a new session holding the instructions and tools", async () => {
-  native.replies = [[{ type: "delta", text: "Hello " }, { type: "delta", text: "there" }, { type: "done", text: "Hello there", usage: { inputTokens: 120, cachedTokens: 0, outputTokens: 4 } }]]
+  native.replies = [[{ type: "delta", text: "Hello " }, { type: "delta", text: "there" }, { type: "done", text: "Hello there", usage: { inputTokens: 120, outputTokens: 4 } }]]
   const adapter = afmText({ native })
   const chunks = await run(adapter, { systemPrompts: ["Be brief."], tools: [weather], modelOptions: { temperature: 0.2 } })
   assert.deepEqual(typesOf(chunks), ["RUN_STARTED", "TEXT_MESSAGE_START", "TEXT_MESSAGE_CONTENT", "TEXT_MESSAGE_CONTENT", "TEXT_MESSAGE_END", "RUN_FINISHED"])
   assert.equal(textIn(chunks), "Hello there")
   assert.equal(chunks.at(-1)?.finishReason, "stop")
   assert.deepEqual((chunks.at(-1)?.usage as Record<string, unknown>).promptTokens, 120)
+  // With tools, the framework's cached count is wrong, and the bridge sends none.
+  assert.equal((chunks.at(-1)?.usage as Record<string, unknown>).promptTokensDetails, undefined)
   const [session] = native.named("createSession")
   assert.equal(session.instructions, "Be brief.")
   assert.deepEqual(session.messages, [])

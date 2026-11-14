@@ -81,6 +81,15 @@ async function promptInputs(
   return (await (imagesFirst ? processor(pixels, text, { add_special_tokens: false }) : processor(text, pixels))) as never
 }
 
+/** A cache's length in tokens, or undefined where it can't be told (a cache with no attention layers). */
+function cacheLength(cache: DynamicCache): number | undefined {
+  try {
+    return cache.get_seq_length()
+  } catch {
+    return undefined
+  }
+}
+
 export class TransformersJsWorkerHandler {
   private loaded: Loaded | null = null
   private readonly stopping = new InterruptableStoppingCriteria()
@@ -167,6 +176,8 @@ export class TransformersJsWorkerHandler {
     const prompt = tokenIds(inputs.input_ids)
     // An image's tokens are the same placeholder whatever the image: a cache is reused for text only.
     if (this.reuse && (withImages || !startsWith(prompt, this.reuse.tokens))) await this.dropCache()
+    // The prompt tokens the reused cache holds: generate() reads only the rest.
+    let cachedTokens = this.reuse ? cacheLength(this.reuse.cache) : 0
     // A thought the chat template opened in the prompt (Qwen3.5's): the reply starts inside it.
     if (/<think>\s*$/.test(tokenizer.decode(prompt.slice(-8)))) this.post({ status: "update", output: "<think>" })
 
@@ -197,11 +208,17 @@ export class TransformersJsWorkerHandler {
       // A cache the model won't take: once more without it.
       if (!this.reuse || outputTokens > 0) throw error
       await this.dropCache()
+      cachedTokens = 0
       output = await model.generate(settings)
     }
     const { sequences, past_key_values } = output as { sequences: Tensor; past_key_values?: DynamicCache }
     if (withImages) await past_key_values?.dispose().catch(() => undefined)
     this.reuse = past_key_values && !withImages ? { cache: past_key_values, tokens: tokenIds(sequences) } : null
-    this.post({ status: "complete", inputTokens: prompt.length, outputTokens })
+    this.post({
+      status: "complete",
+      inputTokens: prompt.length,
+      ...(cachedTokens !== undefined && { cachedTokens }),
+      outputTokens
+    })
   }
 }

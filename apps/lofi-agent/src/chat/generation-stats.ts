@@ -11,7 +11,10 @@ import { deleteIfPresent, replyStats, threads } from "#/lib/db"
 export type GenerationStats = {
   /** Tokens of the prompt the model read (after earlier turns were trimmed). */
   inputTokens?: number
-  /** Input tokens served from a cache instead of being read again. */
+  /**
+   * Input tokens served from a cache instead of being read again: 0 when the
+   * whole prompt was read, left out where the adapter can't say.
+   */
   cachedTokens?: number
   /** Tokens the model generated. */
   outputTokens?: number
@@ -75,7 +78,11 @@ export type ReplyStats = {
   cachedTokens?: number
   outputTokens?: number
   totalTokens?: number
-  /** Prompt tokens read per second, those served from a cache left out. */
+  /**
+   * Prompt tokens read per second, those served from a cache left out. Only
+   * where the adapter reports its cached tokens: otherwise how many were
+   * read is unknown.
+   */
   promptTokensPerSecond?: number
   tokensPerSecond?: number
   firstTokenSeconds?: number
@@ -104,9 +111,13 @@ export function replyStatsOf(
       : undefined
   const firstTokenMs = generations[0].firstTokenMs
   // Prompt reading across the reply's runs: what each read fresh, and how
-  // long until its first token.
+  // long until its first token. Only runs that say how much of the prompt was
+  // cached: for the others, the tokens read are unknown.
   const read = generations.filter(
-    (g) => g.inputTokens !== undefined && g.promptMs !== undefined
+    (g) =>
+      g.inputTokens !== undefined &&
+      g.cachedTokens !== undefined &&
+      g.promptMs !== undefined
   )
   const readTokens = sum(
     read.map((g) => (g.inputTokens ?? 0) - (g.cachedTokens ?? 0))

@@ -131,7 +131,8 @@ const usageOf = (usage: NativeUsage | undefined): TokenUsage | undefined =>
       completionTokens: usage.outputTokens,
       totalTokens: usage.inputTokens + usage.outputTokens
     }),
-    ...(usage.cachedTokens > 0 && { promptTokensDetails: { cachedTokens: usage.cachedTokens } })
+    // 0 too: nothing was cached. Left out where the framework can't say.
+    ...(usage.cachedTokens !== undefined && { promptTokensDetails: { cachedTokens: usage.cachedTokens } })
   }
 
 let ids = 0

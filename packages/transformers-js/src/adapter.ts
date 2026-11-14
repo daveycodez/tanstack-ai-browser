@@ -273,7 +273,7 @@ export class TransformersJsTextAdapter<TModel extends string> extends BaseTextAd
           yield { type: EventType.REASONING_MESSAGE_CONTENT, messageId: reasoningId, delta, model, timestamp: timestamp() }
         }
       }
-      let counts = { inputTokens: 0, outputTokens: 0 }
+      let counts: { inputTokens: number; cachedTokens?: number; outputTokens: number } = { inputTokens: 0, outputTokens: 0 }
       const events = client.generate(
         { ...this.settings, ...(vision && { vision }) },
         {
@@ -325,11 +325,15 @@ export class TransformersJsTextAdapter<TModel extends string> extends BaseTextAd
         model,
         timestamp: timestamp(),
         finishReason: call ? "tool_calls" : counts.outputTokens >= generation.max_new_tokens ? "length" : "stop",
-        usage: buildBaseUsage({
-          promptTokens: counts.inputTokens,
-          completionTokens: counts.outputTokens,
-          totalTokens: counts.inputTokens + counts.outputTokens
-        })
+        usage: {
+          ...buildBaseUsage({
+            promptTokens: counts.inputTokens,
+            completionTokens: counts.outputTokens,
+            totalTokens: counts.inputTokens + counts.outputTokens
+          }),
+          // The prompt tokens a reused cache held, 0 included: read fresh.
+          ...(counts.cachedTokens !== undefined && { promptTokensDetails: { cachedTokens: counts.cachedTokens } })
+        }
       }
     } catch (error) {
       const aborted = !!signal?.aborted

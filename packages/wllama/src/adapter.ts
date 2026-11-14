@@ -10,7 +10,7 @@
  * thinking switch, the model card's sampling, and audio parts for the
  * models that read them.
  */
-import type { ReasoningRequest, TextOptions } from "@tanstack/ai"
+import type { ReasoningRequest, TextOptions, TokenUsage } from "@tanstack/ai"
 import { resolveReasoning } from "@tanstack/ai/adapter-internals"
 import { OpenAIBaseChatCompletionsTextAdapter } from "@tanstack/openai-base"
 import type { OpenAIClientLike } from "@tanstack/openai-base"
@@ -272,6 +272,21 @@ export class WllamaTextAdapter<TModel extends WllamaModel> extends OpenAIBaseCha
   }
 
   /** The request, with `modelOptions` as given over the model card's sampling, and the chat template's thinking switch. */
+  /**
+   * The engine's usage, as TanStack converts it, but with a cached count of 0
+   * kept, which TanStack's conversion leaves out: 0 means the whole prompt was
+   * read, where no count means the engine didn't say.
+   */
+  protected override chatCompletionsTokenUsage(
+    usage: { prompt_tokens_details?: { cached_tokens?: number } | null } | null | undefined,
+    source?: unknown
+  ): TokenUsage | undefined {
+    const result = super.chatCompletionsTokenUsage(usage as never, source)
+    const cachedTokens = usage?.prompt_tokens_details?.cached_tokens
+    if (!result || cachedTokens !== 0) return result
+    return { ...result, promptTokensDetails: { ...result.promptTokensDetails, cachedTokens } }
+  }
+
   protected override mapOptionsToRequest(options: TextOptions): CreateParams & { stream: true } {
     const modelOptions = options.modelOptions as WllamaTextModelOptions | undefined
     const settings = {
