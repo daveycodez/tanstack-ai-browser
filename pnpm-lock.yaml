@@ -399,6 +399,9 @@ importers:
       '@tailwindcss/vite':
         specifier: ^4.3.5
         version: 4.3.5(vite@8.3.8(@types/node@26.6.6)(esbuild@0.28.2)(jiti@2.7.0)(yaml@2.9.0))
+      '@tanstack-ai-browser/afm':
+        specifier: workspace:*
+        version: link:../../packages/afm
       '@tanstack-ai-browser/apfel':
         specifier: workspace:*
         version: link:../../packages/apfel
@@ -602,6 +605,15 @@ importers:
       wrangler:
         specifier: ^4.160.1
         version: 4.160.1(@types/node@26.6.6)
+
+  packages/afm:
+    devDependencies:
+      '@capacitor/core':
+        specifier: ^8.6.2
+        version: 8.6.2
+      '@tanstack/ai':
+        specifier: 1.4.0
+        version: 1.4.0(zod@4.6.7)
 
   packages/apfel:
     dependencies:

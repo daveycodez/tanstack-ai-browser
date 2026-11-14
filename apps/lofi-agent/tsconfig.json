@@ -28,22 +28,25 @@
   },
   "references": [
     {
-      "path": "../../packages/transformers-js"
-    },
-    {
-      "path": "../../packages/apfel"
-    },
-    {
       "path": "../../packages/wllama"
-    },
-    {
-      "path": "../../packages/prompt-api"
     },
     {
       "path": "../../packages/webgllm"
     },
     {
       "path": "../../packages/web-llm"
+    },
+    {
+      "path": "../../packages/transformers-js"
+    },
+    {
+      "path": "../../packages/prompt-api"
+    },
+    {
+      "path": "../../packages/apfel"
+    },
+    {
+      "path": "../../packages/afm"
     }
   ]
 }

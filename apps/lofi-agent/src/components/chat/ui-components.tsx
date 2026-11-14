@@ -32,6 +32,15 @@ import { WEATHER_TOOL } from "#/lib/weather"
  * give it the definitions of the MCP tools that ask first, which are only
  * known at runtime. `createChatHook` takes tools only in `chatOptions`.
  */
+/**
+ * The built-in tools that show their own widget (a weather card, the
+ * location): each call stands on its own, never in an "N tool calls" box.
+ */
+export const WIDGET_TOOLS = {
+  [WEATHER_TOOL]: WeatherTool,
+  [LOCATION_TOOL]: LocationTool
+}
+
 export const ChatUI = createChatUI(chatOptions, {
   context: {
     chatContext,
@@ -59,10 +68,7 @@ export const ChatUI = createChatUI(chatOptions, {
   },
   // MCP tools are only known at runtime: one widget for every tool name,
   // and their own for the built-in weather and location tools.
-  toolsComponents: everyTool(McpTool, {
-    [WEATHER_TOOL]: WeatherTool,
-    [LOCATION_TOOL]: LocationTool
-  }),
+  toolsComponents: everyTool(McpTool, WIDGET_TOOLS),
   interruptsComponents: {
     // A tool's approval shows in its call's own card (McpTool), so the
     // layout's `Interrupts` list shows nothing for one.

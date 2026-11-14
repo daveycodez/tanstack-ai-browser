@@ -17,8 +17,8 @@ import {
 import { attachmentPart, attachmentUrl, toAttachments } from "#/chat/attachments"
 import { cantRead, unreadableKinds } from "#/chat/media"
 import {
-  afmStatus,
-  checkAfm,
+  apfelStatus,
+  checkApfel,
   effortButtonLabel,
   effortFor,
   effortOptions,
@@ -217,7 +217,7 @@ function ChatModelSelector() {
   const effort = useEffort()
   const models = useModels()
   const backends = useBackends()
-  const afm = afmStatus.use()
+  const apfel = apfelStatus.use()
   // The levels the picked model has, and the one it runs at.
   const efforts = effortOptions(model)
   const level = effortFor(model, effort)
@@ -241,21 +241,21 @@ function ChatModelSelector() {
 
   const select = async (key: ModelId) => {
     const pick = ++lastPick.current
-    if (key === "apple-fm") {
+    if (key === "apple-foundationmodel") {
       // Only switch once apfel confirms Apple's model is there.
-      afmStatus.set("checking")
+      apfelStatus.set("checking")
       setPending(key)
-      const isAvailable = await checkAfm()
+      const isAvailable = await checkApfel()
       // A newer pick happened meanwhile; it owns the status now.
       if (pick !== lastPick.current) return
       setPending(null)
-      afmStatus.set(isAvailable ? "idle" : "unavailable")
+      apfelStatus.set(isAvailable ? "idle" : "unavailable")
       setSetupOpen(!isAvailable)
       if (isAvailable) setSelectedModel(key)
       return
     }
     setPending(null)
-    afmStatus.set("idle")
+    apfelStatus.set("idle")
     setSelectedModel(key)
   }
 
@@ -264,8 +264,8 @@ function ChatModelSelector() {
       <AppleSetupModal
         isOpen={setupOpen}
         onOpenChange={setSetupOpen}
-        onRetry={() => void select("apple-fm")}
-        isChecking={afm === "checking"}
+        onRetry={() => void select("apple-foundationmodel")}
+        isChecking={apfel === "checking"}
       />
       <ModelSelector
         sections={sections}

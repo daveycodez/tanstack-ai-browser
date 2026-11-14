@@ -31,6 +31,7 @@
     "@heroui/react": "^3.2.7",
     "@heroui/styles": "^3.2.7",
     "@tailwindcss/vite": "^4.3.5",
+    "@tanstack-ai-browser/afm": "workspace:*",
     "@tanstack-ai-browser/apfel": "workspace:*",
     "@tanstack-ai-browser/prompt-api": "workspace:*",
     "@tanstack-ai-browser/transformers-js": "workspace:*",
