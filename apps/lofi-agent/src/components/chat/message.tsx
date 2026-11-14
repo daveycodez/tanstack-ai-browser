@@ -38,9 +38,10 @@ import {
 import { SourceList } from "#/components/ai/sources"
 import { TimeAgo } from "#/components/ai/time-ago"
 import { messageText } from "#/lib/reply-sources"
+import { safeAreaBoundary } from "#/lib/safe-area"
 import { useCallsAsking } from "./mcp-tool"
 import { ReplyContext, TranscriptContext, useThread } from "./thread-context"
-import { ChatUI, useChatContext } from "./ui-components"
+import { ChatUI, useChatContext, WIDGET_TOOLS } from "./ui-components"
 
 /**
  * The `message` widget. An assistant message lays out its parts itself
@@ -289,12 +290,19 @@ type SelectedPart = Parameters<typeof ChatUI.Part>[0]["part"] & {
 const callId = (part: SelectedPart) =>
   part.key === "toolCall" ? (part as { part?: { id?: string } }).part?.id : undefined
 
+/** Whether a part is a call to a tool with its own widget (WIDGET_TOOLS). */
+const showsWidget = (part: SelectedPart | undefined) => {
+  const name = part?.key === "toolCall" ? (part as { part?: { name?: string } }).part?.name : undefined
+  return name !== undefined && Object.hasOwn(WIDGET_TOOLS, name)
+}
+
 /**
  * An assistant message's parts, as the kit renders them, with each run of
  * two or more tool calls gathered under one "N tool calls" accordion. A tool result
  * that belongs to a call shows in the call, as the kit's own `Parts` does.
- * A call that waits for approval stands on its own, so its question shows:
- * a group opens collapsed.
+ * A call that waits for approval stands on its own, so its question shows
+ * (a group opens collapsed), and so does a call to a tool with its own
+ * widget, such as a weather card.
  */
 function MessageParts({ message }: { message: UIMessage }) {
   const asking = useCallsAsking()
@@ -311,7 +319,8 @@ function MessageParts({ message }: { message: UIMessage }) {
         const groups: Array<Array<SelectedPart>> = []
         for (const part of shown) {
           const last = groups.at(-1)
-          if (part.key === "toolCall" && last?.[0]?.key === "toolCall" && !asks(part) && !asks(last[0])) {
+          const alone = (p: SelectedPart | undefined) => asks(p) || showsWidget(p)
+          if (part.key === "toolCall" && last?.[0]?.key === "toolCall" && !alone(part) && !alone(last[0])) {
             last.push(part)
           } else {
             groups.push([part])
@@ -420,7 +429,7 @@ function ReplyActions({
           <Action label="More">
             <Ellipsis />
           </Action>
-          <Dropdown.Popover placement="bottom start">
+          <Dropdown.Popover placement="bottom start" boundaryElement={safeAreaBoundary()}>
             <Dropdown.Menu
               onAction={(key) => {
                 if (key === "export") downloadMarkdown(text)

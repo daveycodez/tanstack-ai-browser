@@ -44,7 +44,7 @@ export function ConversationContent({
           above the input. */}
       <div
         ref={contentRef}
-        className={`mx-auto flex w-full max-w-[714px] flex-col px-4 pt-10 pb-6 ${className}`}
+        className={`mx-auto flex w-full max-w-[714px] flex-col px-safe-or-4 pt-10 pb-6 ${className}`}
       >
         {children}
       </div>
@@ -71,25 +71,30 @@ export function ConversationEmptyState({
 }) {
   return (
     <div className="flex h-full flex-col">
-      <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-2 px-6">
-        <Avatar size="lg" className="mb-2">
-          <Avatar.Fallback>{icon}</Avatar.Fallback>
-        </Avatar>
-        <Typography
-          type="h6"
-          align="center"
-          render={({ children, ...props }) => <h2 {...props}>{children}</h2>}
-        >
-          {title}
-        </Typography>
-        <Typography
-          type="body-sm"
-          color="muted"
-          align="center"
-          className="max-w-xs text-pretty"
-        >
-          {description}
-        </Typography>
+      {/* Scrolls when there's no room for it, and centers with auto margins,
+          which (unlike justify-center) never push the welcome out of the
+          top, over the header. */}
+      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-safe-or-6">
+        <div className="my-auto flex flex-col items-center gap-2 py-4">
+          <Avatar size="lg" className="mb-2 short:hidden">
+            <Avatar.Fallback>{icon}</Avatar.Fallback>
+          </Avatar>
+          <Typography
+            type="h6"
+            align="center"
+            render={({ children, ...props }) => <h2 {...props}>{children}</h2>}
+          >
+            {title}
+          </Typography>
+          <Typography
+            type="body-sm"
+            color="muted"
+            align="center"
+            className="max-w-xs text-pretty"
+          >
+            {description}
+          </Typography>
+        </div>
       </div>
       {children}
     </div>

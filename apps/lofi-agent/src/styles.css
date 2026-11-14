@@ -3,6 +3,85 @@
 @import "@heroui/styles";
 
 /*
+ * Safe-area padding. The page covers the whole screen (viewport-fit=cover in
+ * src/routes/__root.tsx), under the status bar, the home indicator and, in
+ * landscape, the camera. Each element on an edge of the screen pads that edge
+ * itself, never on top of its own padding:
+ * - pt-safe, pb-safe, pl-safe, pr-safe: the safe area alone;
+ * - pt-safe-or-4 and the like: the safe area or the spacing, whichever is
+ *   larger (max(env(safe-area-inset-top), 1rem)). Also px- and py-.
+ * The safe area is 0 on screens without such areas.
+ */
+/*
+ * Short screens (a phone in landscape, a short window): the empty session's
+ * welcome drops its icon and the starter prompts keep to one row.
+ */
+@custom-variant short (@media (max-height: 32rem));
+
+@utility pt-safe {
+  padding-top: env(safe-area-inset-top);
+}
+@utility pb-safe {
+  padding-bottom: env(safe-area-inset-bottom);
+}
+@utility pl-safe {
+  padding-left: env(safe-area-inset-left);
+}
+@utility pr-safe {
+  padding-right: env(safe-area-inset-right);
+}
+/*
+ * A top bar's left edge: clear of the safe area and, in the macOS Electron
+ * app, of the window's close, minimize and full-screen buttons, which the
+ * Window Controls Overlay reports as env(titlebar-area-x). Both are 0 in a
+ * browser, so it's the spacing alone.
+ */
+@utility pl-titlebar-or-* {
+  padding-left: max(env(safe-area-inset-left), env(titlebar-area-x, 0px), --spacing(--value(number)));
+}
+
+/*
+ * A bar that drags the window in the Electron app, like a native title bar
+ * (double-click zooms), while its buttons, links and fields stay clickable.
+ * Browsers ignore it.
+ */
+@utility drag-region {
+  -webkit-app-region: drag;
+  & :is(button, a, input, textarea, [role="button"]) {
+    -webkit-app-region: no-drag;
+  }
+}
+
+@utility pt-safe-or-* {
+  padding-top: max(env(safe-area-inset-top), --spacing(--value(number)));
+  padding-top: max(env(safe-area-inset-top), --value([length]));
+}
+@utility pb-safe-or-* {
+  padding-bottom: max(env(safe-area-inset-bottom), --spacing(--value(number)));
+  padding-bottom: max(env(safe-area-inset-bottom), --value([length]));
+}
+@utility pl-safe-or-* {
+  padding-left: max(env(safe-area-inset-left), --spacing(--value(number)));
+  padding-left: max(env(safe-area-inset-left), --value([length]));
+}
+@utility pr-safe-or-* {
+  padding-right: max(env(safe-area-inset-right), --spacing(--value(number)));
+  padding-right: max(env(safe-area-inset-right), --value([length]));
+}
+@utility px-safe-or-* {
+  padding-left: max(env(safe-area-inset-left), --spacing(--value(number)));
+  padding-left: max(env(safe-area-inset-left), --value([length]));
+  padding-right: max(env(safe-area-inset-right), --spacing(--value(number)));
+  padding-right: max(env(safe-area-inset-right), --value([length]));
+}
+@utility py-safe-or-* {
+  padding-top: max(env(safe-area-inset-top), --spacing(--value(number)));
+  padding-top: max(env(safe-area-inset-top), --value([length]));
+  padding-bottom: max(env(safe-area-inset-bottom), --spacing(--value(number)));
+  padding-bottom: max(env(safe-area-inset-bottom), --value([length]));
+}
+
+/*
  * Model replies: Tailwind Typography handles structure, colors come from the
  * HeroUI theme, and spacing is tightened for chat. Unlayered on purpose so
  * these beat the plugin's utilities.

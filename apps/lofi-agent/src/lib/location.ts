@@ -36,7 +36,7 @@ export type CurrentLocation = {
 export const locationToolDefinition = toolDefinition({
   name: LOCATION_TOOL,
   description:
-    "Get where the user is from their device: the place's name, the nearest city, latitude and longitude. Call it instead of asking the user for their location or city, such as for the weather when they name no place: pass the nearest city to get_weather. The browser asks the user first.",
+    "Get where the user is from their device: the place's name, the nearest city, latitude and longitude. Only for when the user asks about where they are without naming a place, such as \"what's the weather?\": then call this instead of asking for their city, and pass the nearest city to get_weather. When the user names a place, use that place and don't call this. The browser asks the user first.",
   inputSchema: { type: "object", properties: {} }
 })
 

@@ -8,6 +8,7 @@
  */
 import { openaiCompatibleText } from "@tanstack/ai-openai/compatible"
 import type { OpenAICompatibleChatAdapter } from "@tanstack/ai-openai/compatible"
+import type { TokenUsage } from "@tanstack/ai"
 
 import { APFEL_MODEL_META } from "./model-meta.js"
 import type { ApfelChatModel } from "./model-meta.js"
@@ -74,6 +75,19 @@ export function apfelText(modelOrConfig?: ApfelModel | ApfelConfig, maybeConfig:
     // apfel runs on the user's own machine: there's no secret key to expose.
     dangerouslyAllowBrowser: true
   }) as OpenAICompatibleChatAdapter<ApfelModel, ApfelTextModelOptions>
+
+  // apfel answers each request from a new session holding its messages, so
+  // the whole prompt is read every time, and nothing is cached (apfel reports
+  // no count): cachedTokens 0, unless apfel counts some itself.
+  type Usage = (usage: { prompt_tokens_details?: { cached_tokens?: number } | null } | null | undefined, source?: unknown) => TokenUsage | undefined
+  const hooks = adapter as unknown as { chatCompletionsTokenUsage: Usage }
+  const convert = hooks.chatCompletionsTokenUsage.bind(adapter)
+  hooks.chatCompletionsTokenUsage = (usage, source) => {
+    const result = convert(usage, source)
+    if (!result) return result
+    const cachedTokens = usage?.prompt_tokens_details?.cached_tokens ?? 0
+    return { ...result, promptTokensDetails: { ...result.promptTokensDetails, cachedTokens } }
+  }
 
   const availability = async (signal?: AbortSignal): Promise<Availability> => {
     try {

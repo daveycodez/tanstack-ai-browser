@@ -9,7 +9,7 @@
  * calls) are TanStack's. This file adds what's webgllm's own: loading the
  * model before a call, and its reasoning levels and thinking budget.
  */
-import type { AdapterYieldChunk, ModelReasoning, TextOptions } from "@tanstack/ai"
+import type { AdapterYieldChunk, ModelReasoning, TextOptions, TokenUsage } from "@tanstack/ai"
 import { resolveReasoning } from "@tanstack/ai/adapter-internals"
 import type { StructuredOutputOptions, StructuredOutputResult } from "@tanstack/ai/adapters"
 import { OpenAIBaseChatCompletionsTextAdapter } from "@tanstack/openai-base"
@@ -235,6 +235,21 @@ export class WebGllmTextAdapter<TModel extends WebGllmModel> extends OpenAIBaseC
   }
 
   /** The request, with `modelOptions` as given, the thinking budget and the prompt cache. */
+  /**
+   * The engine's usage, as TanStack converts it, but with a cached count of 0
+   * kept, which TanStack's conversion leaves out: 0 means the whole prompt was
+   * read, where no count means the engine didn't say.
+   */
+  protected override chatCompletionsTokenUsage(
+    usage: { prompt_tokens_details?: { cached_tokens?: number } | null } | null | undefined,
+    source?: unknown
+  ): TokenUsage | undefined {
+    const result = super.chatCompletionsTokenUsage(usage as never, source)
+    const cachedTokens = usage?.prompt_tokens_details?.cached_tokens
+    if (!result || cachedTokens !== 0) return result
+    return { ...result, promptTokensDetails: { ...result.promptTokensDetails, cachedTokens } }
+  }
+
   protected override mapOptionsToRequest(options: TextOptions): CreateParams & { stream: true } {
     const request = super.mapOptionsToRequest(options)
     const resolved = resolveReasoning(options.reasoning, this.modelReasoning(this.model))

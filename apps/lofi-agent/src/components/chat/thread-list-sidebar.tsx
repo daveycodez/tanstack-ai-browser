@@ -33,6 +33,7 @@ import { Fragment, useEffect, useRef, useState } from "react"
 import { useIsGenerating } from "#/chat/generating"
 import { threadsCollection } from "#/lib/db"
 import type { Thread } from "#/lib/db"
+import { safeAreaBoundary } from "#/lib/safe-area"
 import {
   archiveThread,
   deleteThread,
@@ -55,16 +56,16 @@ export function ThreadListSidebar(props: SidebarProps) {
   return (
     <div className="flex h-full w-full flex-col">
       {/* Header row, same height as the main header. */}
-      <div className="flex h-12 shrink-0 items-center gap-2 px-4">
+      <div className="flex h-[calc(--spacing(12)+env(safe-area-inset-top))] shrink-0 items-center gap-2 pt-safe pr-4 pl-titlebar-or-4 drag-region">
         <Comments className="size-4" />
         <span className="text-sm font-semibold">lofi-agent</span>
       </div>
 
-      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto p-3">
+      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto py-3 pr-3 pl-safe-or-3">
         <ThreadList {...props} />
       </div>
 
-      <div className="flex flex-col gap-0.5 border-t border-separator p-3">
+      <div className="flex flex-col gap-0.5 border-t border-separator pt-3 pr-3 pb-safe-or-3 pl-safe-or-3">
         <Button
           fullWidth
           variant="ghost"
@@ -341,7 +342,7 @@ function ThreadListItem({
         >
           <Ellipsis />
         </Button>
-        <Dropdown.Popover placement="right top">
+        <Dropdown.Popover placement="right top" boundaryElement={safeAreaBoundary()}>
           <Dropdown.Menu
             onAction={(key) => {
               if (key === "rename") {

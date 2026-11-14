@@ -171,3 +171,16 @@ test("audio kept as an uploaded file is refused: wllama reads bytes", async () =
   assert.match(JSON.stringify(failure), /not as uploaded files/)
   assert.equal(control.requests.length, 0)
 })
+
+test("usage keeps llama.cpp's cached count, 0 included (TanStack's conversion leaves a 0 out)", async () => {
+  for (const cached_tokens of [0, 352]) {
+    control.chunks = [
+      delta({ role: "assistant", content: "Hi" }),
+      { ...delta({}, "stop"), usage: { prompt_tokens: 371, completion_tokens: 2, total_tokens: 373, prompt_tokens_details: { cached_tokens } } }
+    ]
+    const { events } = await run()
+    const usage = events.find((e) => e.type === "RUN_FINISHED")?.usage as { promptTokens: number; promptTokensDetails?: unknown }
+    assert.equal(usage.promptTokens, 371)
+    assert.deepEqual(usage.promptTokensDetails, { cachedTokens: cached_tokens })
+  }
+})

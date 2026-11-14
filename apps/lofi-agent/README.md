@@ -112,6 +112,20 @@ pnpm nx deploy lofi-agent      # build, then wrangler deploy to Cloudflare Worke
 
 Deploying needs a Cloudflare account (`wrangler login`). No environment variables or API keys are required.
 
+### Desktop (Electron) and iOS (Capacitor)
+
+Both apps wrap the prerendered site that `vite build` writes to `dist/client`.
+
+```sh
+pnpm nx electron:dev lofi-agent      # build the site, open it in an Electron window
+pnpm nx electron:package lofi-agent  # unsigned macOS app in dist/electron-app/mac-arm64
+pnpm nx ios:sync lofi-agent          # build the site, copy it into the Xcode project
+pnpm nx ios:dev lofi-agent           # sync, then build and run on a simulator you pick
+pnpm nx ios:open lofi-agent          # open ios/App in Xcode
+```
+
+The Electron window loads the site from `app://lofi-agent/`, a scheme the main process (`electron/main.ts`) serves from `dist/client` with the cross-origin isolation headers, so it has WebGPU, OPFS and SharedArrayBuffer as on the web. The iOS app needs Xcode; its web view loads the site from `capacitor://localhost`, which isn't cross-origin isolated, so models on the CPU run on one thread there.
+
 ## Project structure
 
 ```
@@ -132,6 +146,10 @@ apps/lofi-agent/           the app (Nx project "lofi-agent")
   src/lib/                 TanStack DB collections, settings, sessions, MCP
                            (with the built-in Exa server), sources,
                            dictation, Markdown helpers
+  electron/main.ts         Electron main process: a window serving dist/client
+  electron-builder.yml     macOS app packaging
+  capacitor.config.ts      Capacitor config (iOS)
+  ios/                     the Xcode project Capacitor generated
   wrangler.jsonc           Cloudflare Worker config
 ```
 

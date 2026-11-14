@@ -23,6 +23,9 @@
     },
     {
       "path": "./packages/mediapipe"
+    },
+    {
+      "path": "./packages/afm"
     }
   ],
   "compilerOptions": {}

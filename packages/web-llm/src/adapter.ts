@@ -9,7 +9,7 @@
  * Schema answers, and stopping a generation with its interrupt (its
  * requests take no AbortSignal).
  */
-import type { ModelReasoning, TextOptions, Tool } from "@tanstack/ai"
+import type { ModelReasoning, TextOptions, TokenUsage, Tool } from "@tanstack/ai"
 import { resolveReasoning } from "@tanstack/ai/adapter-internals"
 import { OpenAIBaseChatCompletionsTextAdapter } from "@tanstack/openai-base"
 import type { OpenAIClientLike } from "@tanstack/openai-base"
@@ -370,6 +370,21 @@ export class WebLlmTextAdapter<TModel extends WebLlmModel> extends OpenAIBaseCha
    * `extra_body.enable_thinking`; left out when not asked, so the model
    * thinks as it would), and tools by prompt (see tools.ts).
    */
+  /**
+   * The engine's usage, as TanStack converts it, but with a cached count of 0
+   * kept, which TanStack's conversion leaves out: 0 means the whole prompt was
+   * read, where no count means the engine didn't say.
+   */
+  protected override chatCompletionsTokenUsage(
+    usage: { prompt_tokens_details?: { cached_tokens?: number } | null } | null | undefined,
+    source?: unknown
+  ): TokenUsage | undefined {
+    const result = super.chatCompletionsTokenUsage(usage as never, source)
+    const cachedTokens = usage?.prompt_tokens_details?.cached_tokens
+    if (!result || cachedTokens !== 0) return result
+    return { ...result, promptTokensDetails: { ...result.promptTokensDetails, cachedTokens } }
+  }
+
   protected override mapOptionsToRequest(options: TextOptions): CreateParams & { stream: true } {
     const modelOptions = options.modelOptions as WebLlmTextModelOptions | undefined
     const tools = options.toolChoice === "none" ? [] : (options.tools ?? [])

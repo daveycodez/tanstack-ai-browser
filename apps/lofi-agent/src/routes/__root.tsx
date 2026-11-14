@@ -4,6 +4,9 @@ import { HeadContent, Scripts, createRootRoute } from "@tanstack/react-router"
 import { TanStackRouterDevtoolsPanel } from "@tanstack/react-router-devtools"
 import { ThemeProvider } from "next-themes"
 
+import { NativeStatusBar } from "#/components/status-bar"
+import { SAFE_AREA_ID } from "#/lib/safe-area"
+
 import appCss from "../styles.css?url"
 
 /**
@@ -37,7 +40,10 @@ export const Route = createRootRoute({
       },
       {
         name: "viewport",
-        content: "width=device-width, initial-scale=1"
+        // The page covers the whole screen, under the status bar and home
+        // indicator; the layout pads itself clear of them (pt-safe and the like,
+        // in src/styles.css).
+        content: "width=device-width, initial-scale=1, viewport-fit=cover"
       },
       {
         title: "lofi-agent"
@@ -87,6 +93,13 @@ function RootDocument({ children }: { children: React.ReactNode }) {
           enableSystem
           disableTransitionOnChange
         >
+          <NativeStatusBar />
+          {/* The safe area's box, which popovers stay inside (src/lib/safe-area.ts). */}
+          <div
+            id={SAFE_AREA_ID}
+            aria-hidden
+            className="pointer-events-none invisible fixed top-[env(safe-area-inset-top)] right-[env(safe-area-inset-right)] bottom-[env(safe-area-inset-bottom)] left-[env(safe-area-inset-left)]"
+          />
           {children}
         </ThemeProvider>
         {/* TanStack devtools, in development only (the Vite plugin removes

@@ -21,7 +21,7 @@ export type DownloadProgressCallback = (progress: number) => void
 
 export type GenerationEvent =
   | { type: "text"; text: string }
-  | { type: "done"; inputTokens: number; outputTokens: number }
+  | { type: "done"; inputTokens: number; cachedTokens?: number; outputTokens: number }
 
 /** Whether this is Node.js: no Web Worker, so the handler runs in this process. */
 const onServer = () =>
@@ -231,7 +231,12 @@ function createClient(open: Open<WorkerRequest, WorkerReply>, owned: boolean) {
         if (reply.status === "update") yield { type: "text", text: reply.output }
         else if (reply.status === "error") throw new Error(reply.message)
         else if (reply.status === "complete") {
-          yield { type: "done", inputTokens: reply.inputTokens, outputTokens: reply.outputTokens }
+          yield {
+            type: "done",
+            inputTokens: reply.inputTokens,
+            ...(reply.cachedTokens !== undefined && { cachedTokens: reply.cachedTokens }),
+            outputTokens: reply.outputTokens
+          }
           return
         }
       }

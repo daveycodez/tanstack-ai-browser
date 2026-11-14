@@ -134,3 +134,13 @@ test("images: a model with a vision encoder reads them, sent as OpenAI image_url
     { type: "text", text: "What's this?" }
   ])
 })
+
+test("usage keeps webgllm's cached count, 0 included (TanStack's conversion leaves a 0 out)", async () => {
+  for (const cached of [0, 352]) {
+    fake.script = () => [chunk({ role: "assistant", content: "Hi" }), chunk({}, "stop"), usageChunk({ prompt: 371, completion: 2, cached })]
+    const events = (await collect(webgllmText(MODEL).chatStream(textOptions()))) as Array<Event>
+    const usage = events.find((e) => e.type === "RUN_FINISHED")?.usage as { promptTokens: number; promptTokensDetails?: unknown }
+    assert.equal(usage.promptTokens, 371)
+    assert.deepEqual(usage.promptTokensDetails, { cachedTokens: cached })
+  }
+})

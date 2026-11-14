@@ -3,6 +3,7 @@ packages:
   - "packages/*"
 allowBuilds:
   "@swc/core": true
+  electron-winstaller: false
   esbuild: true
   lightningcss: true
   nx: true

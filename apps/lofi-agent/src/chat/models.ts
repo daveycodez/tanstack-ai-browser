@@ -14,6 +14,7 @@ import type { WebGllmChatModel } from "@tanstack-ai-browser/webgllm"
 import type { webLlmText, WebLlmChatModel } from "@tanstack-ai-browser/web-llm"
 import type { webLlmModel as WebLlmModel } from "./web-llm-models.ts"
 import { apfelText } from "@tanstack-ai-browser/apfel"
+import { afmText } from "@tanstack-ai-browser/afm"
 import { PromptApiTextAdapter, promptApiText } from "@tanstack-ai-browser/prompt-api"
 import type { Availability } from "@tanstack-ai-browser/prompt-api"
 import { browserModel } from "./browser-model.ts"
@@ -22,7 +23,8 @@ import { useSyncExternalStore } from "react"
 import { createStore } from "#/lib/store"
 
 export type ModelId =
-  | "apple-fm"
+  | "apple-foundationmodel"
+  | "apple-foundationmodel-afm"
   | "lfm3"
   | "lfm3-vl"
   | "lfm2.5-vl-3b"
@@ -100,6 +102,7 @@ type ModelEntry = {
   adapter:
     | ReturnType<typeof transformersJsText>
     | ReturnType<typeof apfelText>
+    | ReturnType<typeof afmText>
     | ReturnType<typeof wllamaText>
     | ReturnType<typeof promptApiText>
     | ReturnType<typeof webgllmText>
@@ -250,8 +253,9 @@ const builtInStatus = statusStore()
 
 export const MODELS = [
   {
-    id: "apple-fm",
-    name: "Apple Foundation Model",
+    id: "apple-foundationmodel",
+    /** As apfel names it: Apple's API has no name for the model (SystemLanguageModel.default). */
+    name: "Apple-FoundationModel",
     /** Provider logo in /public/icons (LobeHub icons, MIT). */
     icon: "/icons/apple.svg",
     adapter: apfelText(APPLE_MODEL),
@@ -259,6 +263,22 @@ export const MODELS = [
     status: null,
     needsWebGpu: false,
     /** Apple's model doesn't reason. */
+    reasoning: undefined,
+    callsTools: true
+  },
+  {
+    id: "apple-foundationmodel-afm",
+    name: "Apple-FoundationModel",
+    icon: "/icons/apple.svg",
+    /**
+     * The same model through Apple's framework itself, with its native tool
+     * calling: in the iOS app (the Capacitor plugin), and in the Mac app
+     * (window.afm, from its preload). Offered where it says the model can run.
+     */
+    adapter: afmText(),
+    /** The OS keeps the model: nothing to download. */
+    status: null,
+    needsWebGpu: false,
     reasoning: undefined,
     callsTools: true
   },
@@ -357,6 +377,7 @@ const allModels = (): ReadonlyArray<ModelEntry> => [...MODELS, ...webLlmModels.g
  */
 export const PROVIDERS = [
   { id: "apfel", name: "apfel" },
+  { id: "afm", name: "AFM" },
   { id: "prompt-api", name: "Prompt API" },
   { id: "transformers-js", name: "Transformers.js" },
   { id: "webgllm", name: "WebGLLM" },
@@ -591,7 +612,7 @@ async function checkAvailability(id: ModelId) {
 
 if (typeof window !== "undefined") {
   for (const m of MODELS) {
-    if (m.id === "apple-fm") continue
+    if (m.id === "apple-foundationmodel") continue
     // Chromium for Testing has the Prompt API but says "downloading"
     // forever, with no model: only Chrome's and Edge's are offered.
     if (m.id === "built-in" && browserModel().id === "unknown") continue
@@ -617,7 +638,7 @@ export const useAvailabilities = () => {
 const isAvailable = (id: ModelId) => {
   const availability = availabilities.get()[id]
   if (availability === undefined) {
-    return id !== "built-in" && modelInfo(id).adapter.name !== "webgllm"
+    return id !== "built-in" && id !== "apple-foundationmodel-afm" && modelInfo(id).adapter.name !== "webgllm"
   }
   return availability !== "unavailable"
 }
@@ -628,7 +649,7 @@ const isAvailable = (id: ModelId) => {
  */
 const canRun = (id: ModelId, isMac: boolean, hasGpu: boolean) =>
   isModelId(id) &&
-  (id !== "apple-fm" || isMac) &&
+  (id !== "apple-foundationmodel" || isMac) &&
   isAvailable(id) &&
   // (Until a Transformers.js model's check is back.)
   (hasGpu || !modelInfo(id).needsWebGpu)
@@ -759,8 +780,8 @@ export async function pendingDownload(id: ModelId) {
   return { model: shownModel(id), onDevice }
 }
 
-/** Result of the last Apple model check, shown next to the picker. */
-export const afmStatus = createStore<"idle" | "checking" | "unavailable">(
+/** Result of the last apfel check, shown next to the picker. */
+export const apfelStatus = createStore<"idle" | "checking" | "unavailable">(
   "idle"
 )
 
@@ -769,5 +790,5 @@ export const afmStatus = createStore<"idle" | "checking" | "unavailable">(
  * a website makes Chrome ask for permission, so this only runs when the
  * user picks the Apple model.
  */
-export const checkAfm = async () =>
-  (await modelInfo("apple-fm").adapter.availability()) === "available"
+export const checkApfel = async () =>
+  (await modelInfo("apple-foundationmodel").adapter.availability()) === "available"

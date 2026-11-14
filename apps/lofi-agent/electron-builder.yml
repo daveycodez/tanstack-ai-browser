@@ -1,0 +1,33 @@
+# Packages the Electron app: `pnpm electron:package` writes
+# dist/electron-app/mac-arm64/lofi-agent.app.
+# The app is the prerendered site (dist/client) plus the main process
+# (dist/electron, built from electron/main.ts). Vite has already bundled
+# every dependency into the site, so no node_modules go in.
+appId: dev.lofiagent.app
+productName: lofi-agent
+directories:
+  output: dist/electron-app
+files:
+  - package.json
+  - dist/client/**
+  - dist/electron/**
+  - "!**/node_modules/**"
+# The addons are native code: they can't load from inside the app's archive.
+asarUnpack:
+  - dist/electron/afm/afm.node
+  - dist/electron/location.node
+npmRebuild: false
+mac:
+  category: public.app-category.productivity
+  # Signed ad hoc, with no certificate: unsigned, the app keeps Electron's
+  # own signature, which no longer matches it, and macOS won't give such an
+  # app permissions (location). Ad hoc signing needs the hardened runtime off,
+  # or the addons, signed by no team, wouldn't load. A release build signs
+  # with a Developer ID instead.
+  identity: "-"
+  hardenedRuntime: false
+  # Why the app asks for the Mac's location (the location tool): macOS shows
+  # no prompt, and gives the page no position, to an app that doesn't say.
+  extendInfo:
+    NSLocationUsageDescription: lofi-agent uses your location to answer questions about where you are, such as the weather.
+    NSLocationWhenInUseUsageDescription: lofi-agent uses your location to answer questions about where you are, such as the weather.

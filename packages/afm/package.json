@@ -1,0 +1,100 @@
+{
+  "name": "@tanstack-ai-browser/afm",
+  "version": "0.1.0",
+  "description": "TanStack AI adapter for Apple's on-device Foundation Model (AFM), through Apple's framework itself, with native tool calling: a Capacitor plugin for iOS, and serveAfm() for Electron on macOS",
+  "license": "MIT",
+  "author": "daveycodez",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/daveycodez/tanstack-ai-browser.git",
+    "directory": "packages/afm"
+  },
+  "homepage": "https://github.com/daveycodez/tanstack-ai-browser/tree/main/packages/afm#readme",
+  "bugs": "https://github.com/daveycodez/tanstack-ai-browser/issues",
+  "keywords": [
+    "tanstack-ai",
+    "tanstack",
+    "ai",
+    "llm",
+    "apple",
+    "afm",
+    "foundation-models",
+    "apple-intelligence",
+    "capacitor",
+    "capacitor-plugin",
+    "electron",
+    "on-device",
+    "local-ai"
+  ],
+  "type": "module",
+  "sideEffects": false,
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    "./package.json": "./package.json",
+    ".": {
+      "@tanstack-ai-browser/source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "README.md",
+    "src",
+    "dist",
+    "ios/Sources",
+    "Package.swift",
+    "electron/afm.node",
+    "electron/preload.cjs",
+    "electron/afm.c",
+    "electron/AfmNode.swift",
+    "electron/build.mjs",
+    "electron/sources-hash.mjs",
+    "electron/afm.node.sha256",
+    "!**/*.tsbuildinfo"
+  ],
+  "capacitor": {
+    "ios": {
+      "src": "ios"
+    }
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "nx": {
+    "name": "afm",
+    "targets": {
+      "build-native": {
+        "command": "node electron/build.mjs",
+        "options": {
+          "cwd": "{projectRoot}"
+        },
+        "cache": true,
+        "inputs": [
+          "{projectRoot}/electron/afm.c",
+          "{projectRoot}/electron/AfmNode.swift",
+          "{projectRoot}/electron/build.mjs",
+          "{projectRoot}/ios/Sources/AfmCore/**/*"
+        ],
+        "outputs": [
+          "{projectRoot}/electron/afm.node"
+        ]
+      }
+    }
+  },
+  "scripts": {
+    "test": "node --import @swc-node/register/esm-register --test \"src/**/*.test.ts\""
+  },
+  "peerDependencies": {
+    "@capacitor/core": "^8.0.0",
+    "@tanstack/ai": "^1.2.0"
+  },
+  "devDependencies": {
+    "@capacitor/core": "^8.6.2",
+    "@tanstack/ai": "1.4.0",
+    "electron": "^45.3.1",
+    "node-api-headers": "1.9.0"
+  }
+}
