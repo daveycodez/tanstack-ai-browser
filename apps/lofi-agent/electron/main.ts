@@ -20,6 +20,8 @@ import { readdir, stat } from "node:fs/promises"
 import path from "node:path"
 import { pathToFileURL } from "node:url"
 
+import { serveLocation } from "./location"
+
 const SCHEME = "app"
 const HOST = "lofi-agent"
 const ORIGIN = `${SCHEME}://${HOST}`
@@ -196,6 +198,8 @@ void app.whenReady().then(() => {
     directory: path.join(app.getAppPath(), "dist", "electron", "afm"),
     allow: (url) => url.startsWith(`${ORIGIN}/`)
   })
+  // The location tool: macOS decides, not Electron (see location.ts).
+  serveLocation()
   createWindow()
 
   // macOS: clicking the Dock icon with no windows open opens one.

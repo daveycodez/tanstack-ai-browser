@@ -12,9 +12,22 @@ files:
   - dist/client/**
   - dist/electron/**
   - "!**/node_modules/**"
-# The afm addon is native code: it can't load from inside the app's archive.
+# The addons are native code: they can't load from inside the app's archive.
 asarUnpack:
   - dist/electron/afm/afm.node
+  - dist/electron/location.node
 npmRebuild: false
 mac:
   category: public.app-category.productivity
+  # Signed ad hoc, with no certificate: unsigned, the app keeps Electron's
+  # own signature, which no longer matches it, and macOS won't give such an
+  # app permissions (location). Ad hoc signing needs the hardened runtime off,
+  # or the addons, signed by no team, wouldn't load. A release build signs
+  # with a Developer ID instead.
+  identity: "-"
+  hardenedRuntime: false
+  # Why the app asks for the Mac's location (the location tool): macOS shows
+  # no prompt, and gives the page no position, to an app that doesn't say.
+  extendInfo:
+    NSLocationUsageDescription: lofi-agent uses your location to answer questions about where you are, such as the weather.
+    NSLocationWhenInUseUsageDescription: lofi-agent uses your location to answer questions about where you are, such as the weather.

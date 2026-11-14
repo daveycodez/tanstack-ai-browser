@@ -16,13 +16,14 @@
     "test": "node --experimental-strip-types --test src/chat/*.test.ts src/lib/*.test.ts",
     "deploy": "wrangler deploy",
     "build-cities": "node scripts/build-cities.mjs",
-    "electron:main": "esbuild electron/main.ts --bundle --platform=node --format=esm --external:electron --outfile=dist/electron/main.js && pnpm electron:afm",
+    "electron:main": "esbuild electron/main.ts --bundle --platform=node --format=esm --external:electron --outfile=dist/electron/main.js && pnpm electron:location && pnpm electron:afm",
     "electron:dev": "vite build && pnpm electron:main && electron .",
     "electron:package": "vite build && pnpm electron:main && electron-builder --mac --dir",
     "ios:sync": "vite build && cap sync ios",
     "ios:dev": "pnpm ios:sync && cap run ios",
     "ios:open": "cap open ios",
-    "electron:afm": "node node_modules/@tanstack-ai-browser/afm/electron/build.mjs && mkdir -p dist/electron/afm && cp node_modules/@tanstack-ai-browser/afm/electron/afm.node node_modules/@tanstack-ai-browser/afm/electron/preload.cjs dist/electron/afm/"
+    "electron:afm": "node node_modules/@tanstack-ai-browser/afm/electron/build.mjs && mkdir -p dist/electron/afm && cp node_modules/@tanstack-ai-browser/afm/electron/afm.node node_modules/@tanstack-ai-browser/afm/electron/preload.cjs dist/electron/afm/",
+    "electron:location": "xcrun clang -O2 -fobjc-arc -bundle -target arm64-apple-macos13.0 -undefined dynamic_lookup -I node_modules/node-api-headers/include -framework Foundation -framework CoreLocation electron/location.m -o dist/electron/location.node"
   },
   "dependencies": {
     "@capacitor/core": "^8.6.2",
@@ -76,6 +77,7 @@
     "electron": "^45.3.1",
     "electron-builder": "^26.18.0",
     "esbuild": "0.28.2",
+    "node-api-headers": "1.9.0",
     "typescript": "npm:@typescript/typescript6@^6.0.2",
     "vite": "^8.3.8",
     "wrangler": "^4.160.1"

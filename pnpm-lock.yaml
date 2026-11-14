@@ -526,6 +526,9 @@ importers:
       esbuild:
         specifier: 0.28.2
         version: 0.28.2
+      node-api-headers:
+        specifier: 1.9.0
+        version: 1.9.0
       typescript:
         specifier: npm:@typescript/typescript6@^6.0.2
         version: '@typescript/typescript6@6.0.2'
