@@ -1,7 +1,7 @@
 {
   "name": "@tanstack-ai-browser/afm",
   "version": "0.1.0",
-  "description": "TanStack AI adapter for Apple's on-device Foundation Model (AFM), through Apple's framework itself, with native tool calling: a Capacitor plugin for iOS",
+  "description": "TanStack AI adapter for Apple's on-device Foundation Model (AFM), through Apple's framework itself, with native tool calling: a Capacitor plugin for iOS and a Node-API addon for Electron on macOS",
   "license": "MIT",
   "author": "daveycodez",
   "repository": {
@@ -22,6 +22,7 @@
     "apple-intelligence",
     "capacitor",
     "capacitor-plugin",
+    "electron",
     "on-device",
     "local-ai"
   ],
@@ -45,6 +46,9 @@
     "dist",
     "ios/Sources",
     "Package.swift",
+    "node/build.mjs",
+    "node/AfmNode.swift",
+    "node/afm.c",
     "!**/*.tsbuildinfo"
   ],
   "capacitor": {
@@ -60,6 +64,9 @@
   },
   "scripts": {
     "test": "node --import @swc-node/register/esm-register --test \"src/**/*.test.ts\""
+  },
+  "dependencies": {
+    "node-api-headers": "1.9.0"
   },
   "peerDependencies": {
     "@capacitor/core": "^8.0.0",

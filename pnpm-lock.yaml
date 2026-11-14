@@ -607,6 +607,10 @@ importers:
         version: 4.160.1(@types/node@26.6.6)
 
   packages/afm:
+    dependencies:
+      node-api-headers:
+        specifier: 1.9.0
+        version: 1.9.0
     devDependencies:
       '@capacitor/core':
         specifier: ^8.6.2
@@ -5253,6 +5257,9 @@ packages:
   node-abi@4.40.0:
     resolution: {integrity: sha512-GuvqvtrOk+AC27RidBxBsMzVNkwNl7PjHgc4NXbmdvSVLgIUjpaqcG1FjNRYnt2Yn9Ytq+Ln37XsBaglUcte/w==}
     engines: {node: '>=22.12.0'}
+
+  node-api-headers@1.9.0:
+    resolution: {integrity: sha512-2oNILP4jXwRB4ywnYKjVk1YyJ96n2D4EOVJO6S3oYZ5PtbJrw3Yt9TpAuX3nBLMuzn74rnfGQrv13pS9vC+YiA==}
 
   node-api-version@0.2.1:
     resolution: {integrity: sha512-2xP/IGGMmmSQpI1+O/k72jF/ykvZ89JeuKX3TLJAYPDVLUalrshrLHkeVcCCZqG/eEa635cr8IBYzgnDvM2O8Q==}
@@ -11370,6 +11377,8 @@ snapshots:
   node-abi@4.40.0:
     dependencies:
       semver: 7.8.6
+
+  node-api-headers@1.9.0: {}
 
   node-api-version@0.2.1:
     dependencies:

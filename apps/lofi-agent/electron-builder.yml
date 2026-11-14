@@ -12,6 +12,9 @@ files:
   - dist/client/**
   - dist/electron/**
   - "!**/node_modules/**"
+# The afm addon is native code: it can't load from inside the app's archive.
+asarUnpack:
+  - dist/electron/afm.node
 npmRebuild: false
 mac:
   category: public.app-category.productivity
