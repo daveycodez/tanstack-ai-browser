@@ -1,6 +1,6 @@
 {
   "name": "@tanstack-ai-browser/transformers-js",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "TanStack AI adapter for Transformers.js models running in the browser on WebGPU, or on a server",
   "license": "MIT",
   "author": "daveycodez",
