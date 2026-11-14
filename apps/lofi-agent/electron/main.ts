@@ -15,7 +15,7 @@
  *   the CPU get SharedArrayBuffer and several threads.
  */
 import { app, BrowserWindow, net, protocol, shell } from "electron"
-import { stat } from "node:fs/promises"
+import { readdir, stat } from "node:fs/promises"
 import path from "node:path"
 import { pathToFileURL } from "node:url"
 
@@ -72,6 +72,14 @@ protocol.registerSchemesAsPrivileged([
   }
 ])
 
+async function isDirectory(dir: string) {
+  try {
+    return (await stat(dir)).isDirectory()
+  } catch {
+    return false
+  }
+}
+
 async function isFile(file: string) {
   try {
     return (await stat(file)).isFile()
@@ -81,10 +89,33 @@ async function isFile(file: string) {
 }
 
 /**
+ * The page prerendered for a dynamic route by its pattern (vite.config.ts),
+ * as TanStack Router names its files: /sessions/<id> is
+ * sessions/$sessionId/index.html. Each segment is the folder of that name,
+ * or else the folder of a parameter ($name) beside it.
+ */
+async function routePage(segments: Array<string>) {
+  let dir = SITE
+  for (const segment of segments) {
+    const named = path.join(dir, segment)
+    if (await isDirectory(named)) {
+      dir = named
+      continue
+    }
+    const entries = await readdir(dir, { withFileTypes: true }).catch(() => [])
+    const param = entries.find((entry) => entry.isDirectory() && entry.name.startsWith("$"))
+    if (!param) return undefined
+    dir = path.join(dir, param.name)
+  }
+  const page = path.join(dir, "index.html")
+  return (await isFile(page)) ? page : undefined
+}
+
+/**
  * The file for a URL path, as the hosted site resolves it: the file itself,
- * then the prerendered page (/about → about.html or about/index.html).
- * Pages that weren't prerendered (a session, /sessions/<id>) get index.html,
- * and the router renders them in the browser.
+ * then the prerendered page (/about → about.html or about/index.html), then
+ * its route's page (a session's, for /sessions/<id>). Anything else gets
+ * index.html, and the router renders it in the browser.
  */
 async function resolveFile(pathname: string) {
   const relative = path.normalize(decodeURIComponent(pathname)).replace(/^([/\\])+/, "")
@@ -95,7 +126,8 @@ async function resolveFile(pathname: string) {
   for (const candidate of [file, `${file}.html`, path.join(file, "index.html")]) {
     if (await isFile(candidate)) return candidate
   }
-  return path.extname(relative) ? undefined : path.join(SITE, "index.html")
+  if (path.extname(relative)) return undefined
+  return (await routePage(relative.split(path.sep).filter(Boolean))) ?? path.join(SITE, "index.html")
 }
 
 async function serve(request: Request) {

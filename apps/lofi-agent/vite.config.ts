@@ -47,7 +47,13 @@ const config = defineConfig({
     tailwindcss(),
     tanstackStart({
       // Prerender every page reachable from "/" to static HTML at build time.
-      prerender: { enabled: true, crawlLinks: true }
+      prerender: { enabled: true, crawlLinks: true },
+      // And a session's page, by its route pattern: a session's id lives in
+      // the browser, so its page is the same for every id (the id is only in
+      // the router's state). The apps serve it for any session, as
+      // sessions/$sessionId/index.html (electron/main.ts, and AppRouter in
+      // ios/App/App/SceneDelegate.swift).
+      pages: [{ path: "/sessions/$sessionId" }]
     }),
     viteReact()
   ]
