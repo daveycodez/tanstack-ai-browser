@@ -1,3 +1,13 @@
+## 0.2.4 (2026-11-14)
+
+### 🩹 Fixes
+
+- **afm:** structured output keeps its error's code through chat() ([861a08c](https://github.com/daveycodez/tanstack-ai-browser/commit/861a08c))
+
+### ❤️ Thank You
+
+- daveycodez
+
 ## 0.2.3 (2026-11-14)
 
 ### 🩹 Fixes
