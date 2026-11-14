@@ -45,7 +45,7 @@
       "webgllm",
       "wllama"
     ],
-    "projectsRelationship": "independent",
+    "projectsRelationship": "fixed",
     "releaseTag": {
       "pattern": "{projectName}@{version}"
     },

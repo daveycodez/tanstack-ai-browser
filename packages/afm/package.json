@@ -1,6 +1,6 @@
 {
   "name": "@tanstack-ai-browser/afm",
-  "version": "0.1.1",
+  "version": "0.2.1",
   "description": "TanStack AI adapter for Apple's on-device Foundation Model (AFM), through Apple's framework itself, with native tool calling: a Capacitor plugin for iOS, and serveAfm() for Electron on macOS",
   "license": "MIT",
   "author": "daveycodez",
