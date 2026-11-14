@@ -1,6 +1,6 @@
 {
   "name": "@tanstack-ai-browser/web-llm",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "description": "TanStack AI adapter for WebLLM: MLC's catalog of models in the browser on WebGPU, in a Web Worker",
   "license": "MIT",
   "author": "daveycodez",

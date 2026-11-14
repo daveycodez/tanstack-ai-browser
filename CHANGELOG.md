@@ -1,3 +1,13 @@
+## 0.2.3 (2026-11-14)
+
+### 🩹 Fixes
+
+- **afm:** a run's error keeps its code on the error chat() throws ([a18b03b](https://github.com/daveycodez/tanstack-ai-browser/commit/a18b03b))
+
+### ❤️ Thank You
+
+- daveycodez
+
 ## 0.2.2 (2026-11-14)
 
 ### 🚀 Features

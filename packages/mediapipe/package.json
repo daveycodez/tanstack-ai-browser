@@ -1,6 +1,6 @@
 {
   "name": "@tanstack-ai-browser/mediapipe",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "description": "TanStack AI embedding adapter for Google's MediaPipe TextEmbedder (Universal Sentence Encoder) in the browser",
   "license": "MIT",
   "author": "daveycodez",

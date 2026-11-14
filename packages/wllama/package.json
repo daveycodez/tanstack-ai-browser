@@ -1,6 +1,6 @@
 {
   "name": "@tanstack-ai-browser/wllama",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "description": "TanStack AI adapter for GGUF models running in the browser with wllama (llama.cpp in WebAssembly)",
   "license": "MIT",
   "author": "daveycodez",
