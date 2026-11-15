@@ -29,7 +29,7 @@ export type NativeAvailability = {
 export type NativeSchema =
   | { kind: "object"; name: string; description?: string; properties: Array<NativeProperty> }
   | { kind: "array"; items: NativeSchema; minimumElements?: number; maximumElements?: number }
-  | { kind: "string"; choices?: Array<string>; constant?: string; /** A described enum (choices): its name and description, for Apple's model. */ name?: string; description?: string }
+  | { kind: "string"; choices?: Array<string>; constant?: string; /** A described enum (choices) no property holds: its name and description, which the bridge keeps as a described choice of constants. */ name?: string; description?: string }
   | { kind: "integer" | "number"; minimum?: number; maximum?: number }
   | { kind: "boolean" }
   | { kind: "null" }

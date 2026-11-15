@@ -150,8 +150,9 @@ export function toNativeSchema(schema: unknown, name: string): NativeGenerationS
       // A choice of string constants (each with its description, say): the
       // framework's enum, written the same as `enum`. What it says (its own
       // description and its values') goes into the property holding it (see
-      // propertyNotes); where none does (an array's items, the root), Apple's
-      // described enum carries it.
+      // propertyNotes); where none does (an array's items, the root), the
+      // string carries its name and description, and the bridge makes it a
+      // described choice of constants (the framework keeps that description).
       const constants = constantChoices(choices)
       if (constants) {
         const notes = choiceNotes(choices.map(follow))
