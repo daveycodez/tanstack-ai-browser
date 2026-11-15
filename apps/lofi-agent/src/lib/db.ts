@@ -21,7 +21,7 @@ import {
 import type { IndexedDBInstance } from "@tanstack/react-db"
 import { useSyncExternalStore } from "react"
 
-import type { ReplyStats } from "#/chat/generation-stats"
+import type { ReplyStats } from "#/chat/reply-stats"
 import type { ModelId } from "#/chat/models"
 
 export type Thread = {

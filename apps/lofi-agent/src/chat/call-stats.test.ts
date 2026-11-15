@@ -6,7 +6,8 @@ import type { AdapterYieldChunk, TextOptions, TokenUsage } from "@tanstack/ai"
 import { BaseTextAdapter } from "@tanstack/ai/adapters"
 
 import { replyStatsMiddleware } from "./call-stats.ts"
-import type { GenerationStats } from "./generation-stats.ts"
+import { replyStatsOf } from "./reply-stats.ts"
+import type { GenerationStats } from "./reply-stats.ts"
 
 const tick = () => new Promise((resolve) => setTimeout(resolve, 2))
 
@@ -111,4 +112,18 @@ test("a cached count of 0 is kept (the whole prompt was read), and none reported
   for (const stats of read.values()) assert.equal(stats.cachedTokens, 0)
   const unknown = await reply(new FakeAdapter({ promptTokens: 20, completionTokens: 5, totalTokens: 25 }))
   for (const stats of unknown.values()) assert.equal("cachedTokens" in stats, false)
+})
+
+test("prompt speed counts every step's input tokens over its time to first token, whatever a cache held or whether it says", async () => {
+  // A tool call's step, its whole prompt cached, then the answer's step, its cached count unknown.
+  const stats = replyStatsOf([
+    { inputTokens: 1000, cachedTokens: 1000, promptMs: 500, outputTokens: 20, streamMs: 900 },
+    { inputTokens: 2000, promptMs: 1500, outputTokens: 10, streamMs: 1700 }
+  ])
+  assert.ok(stats)
+  assert.equal(stats.promptTokensPerSecond, 1500, "3,000 tokens in 2 s")
+  assert.equal(stats.inputTokens, 2000, "the last step's prompt")
+  // Through chat(): both steps of a reply that calls a tool are timed and counted.
+  const recorded = await reply(new FakeAdapter({ promptTokens: 20, completionTokens: 5, totalTokens: 25 }, "clock"), { tools: [clock()] })
+  assert.ok(replyStatsOf([...recorded.values()])!.promptTokensPerSecond! > 0)
 })

@@ -157,15 +157,14 @@ test("a tool call ends the step with tool_calls while the response waits, and th
   assert.equal(native.named("respond").length, 1, "the same response")
 })
 
-test("each step's RUN_FINISHED carries its own pass's tokens: the calls' pass, then the answer's", async () => {
-  native.replies = [[{ type: "toolCalls", calls: [{ id: "call-1", name: "get_weather", arguments: '{"city": "Paris"}' }], usage: { inputTokens: 132, cachedTokens: 0, outputTokens: 24 } }]]
-  native.resumes = [[{ type: "done", text: "Sunny in Paris.", usage: { inputTokens: 191, cachedTokens: 156, outputTokens: 51 } }]]
+test("each step's RUN_FINISHED carries its own pass's tokens, as an OpenAI-style API reports each call's: the calls' pass, then the answer's", async () => {
+  native.replies = [[{ type: "toolCalls", calls: [{ id: "call-1", name: "get_weather", arguments: '{"city": "Paris"}' }], usage: { inputTokens: 132, outputTokens: 24 } }]]
+  native.resumes = [[{ type: "done", text: "Sunny in Paris.", usage: { inputTokens: 191, outputTokens: 51 } }]]
   const adapter = afmText({ native })
   const first = await run(adapter, { tools: [weather] })
   const calls = first.at(-1)?.usage as Record<string, unknown>
   assert.equal(calls.promptTokens, 132)
   assert.equal(calls.completionTokens, 24)
-  assert.deepEqual(calls.promptTokensDetails, { cachedTokens: 0 })
   const messages = [
     user("Weather in Paris?"),
     { role: "assistant", content: null, toolCalls: [{ id: "call-1", type: "function", function: { name: "get_weather", arguments: '{"city": "Paris"}' } }] },
@@ -174,7 +173,7 @@ test("each step's RUN_FINISHED carries its own pass's tokens: the calls' pass, t
   const second = await run(adapter, { tools: [weather], messages })
   const answer = second.at(-1)?.usage as Record<string, unknown>
   assert.equal(answer.promptTokens, 191)
-  assert.deepEqual(answer.promptTokensDetails, { cachedTokens: 156 })
+  assert.equal(answer.completionTokens, 51)
 })
 
 test("parallel calls are one step; results for only some of them start a new session from the messages", async () => {

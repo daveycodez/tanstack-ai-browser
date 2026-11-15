@@ -51,9 +51,8 @@ export type NativeMessage =
 
 /**
  * The tokens of one pass of the model: a `toolCalls` event's for the pass that
- * made the calls, `done`'s for the last. `cachedTokens` only where it's known:
- * Apple's count without tools; with them, 0 for a session's first response, and
- * the previous pass's input and output for a pass after a tool's results.
+ * made the calls, `done`'s for the last. `cachedTokens` only where the
+ * framework counts it right: for a session without tools.
  */
 export type NativeUsage = { inputTokens: number; cachedTokens?: number; outputTokens: number }
 
