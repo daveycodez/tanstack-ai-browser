@@ -19,8 +19,10 @@ const control = {
   prompts: [] as Array<Prompt>,
   /** The streamed reply, in these pieces. */
   pieces: ["Hello ", "there"] as Array<string>,
-  /** prompt()'s reply. */
+  /** A structured answer (a prompt under responseConstraint). */
   answer: '{"city":"Tokyo"}',
+  /** Structured answers in pieces, one list per prompt, before `answer`. */
+  answers: [] as Array<Array<string>>,
   /** Thrown by create(), or by the prompt. */
   createFailure: undefined as unknown,
   promptFailure: undefined as unknown,
@@ -61,14 +63,18 @@ class FakeSession extends EventTarget {
     control.prompts.push({ kind: "stream", input, options, session: this })
     const signal = options.signal as AbortSignal | undefined
     let index = 0
+    // Under a schema, the structured answer; else the reply's pieces.
+    const pieces = options.responseConstraint ? (control.answers.shift() ?? [control.answer]) : control.pieces
     return new ReadableStream<string>({
       pull(controller) {
+        // An aborted signal first, as prompt() rejects: then the browser's own failure.
+        if (signal?.aborted && index === 0) return controller.error(signal.reason)
         if (control.promptFailure) return controller.error(control.promptFailure)
         control.beforePiece(index)
         if (signal?.aborted) return controller.error(signal.reason)
-        if (index >= control.pieces.length) return controller.close()
+        if (index >= pieces.length) return controller.close()
         control.written++
-        controller.enqueue(control.pieces[index++])
+        controller.enqueue(pieces[index++])
       }
     })
   }
@@ -92,6 +98,7 @@ beforeEach(() => {
     prompts: [],
     pieces: ["Hello ", "there"],
     answer: '{"city":"Tokyo"}',
+    answers: [],
     createFailure: undefined,
     promptFailure: undefined,
     beforePiece: noop,
@@ -574,14 +581,14 @@ test("a browser that can't measure reports no usage, and the reply still ends", 
   }
 })
 
-test("omitResponseConstraintInput: off by default, so prompt() gets the schema and the signal only", async () => {
+test("omitResponseConstraintInput: off by default, so the prompt gets the schema and the signal only", async () => {
   await promptApiText("text").structuredOutput(structured())
   const { options } = control.prompts[0]
   assert.equal(options.responseConstraint, schema)
   assert.equal("omitResponseConstraintInput" in options, false)
 })
 
-test("omitResponseConstraintInput: a request's option, or the adapter's, goes to prompt() next to the schema; a request's false wins", async () => {
+test("omitResponseConstraintInput: a request's option, or the adapter's, goes to the prompt next to the schema; a request's false wins", async () => {
   await promptApiText("text").structuredOutput(structured({ threadId: "a", modelOptions: { omitResponseConstraintInput: true } }))
   assert.equal(control.prompts.at(-1)?.options.omitResponseConstraintInput, true)
   const omitting = promptApiText("text", { omitResponseConstraintInput: true })
@@ -635,4 +642,45 @@ test("usage measures the input with the prompt's options: a schema Chrome writes
   const measured = control.measures.find((m) => m.options?.responseConstraint)
   assert.ok(measured, "the input is measured with the schema")
   assert.equal(measured.options?.omitResponseConstraintInput, true)
+})
+
+test("a structured answer that runs away in whitespace is stopped, and asked again once", async () => {
+  const runaway = ['{"cards":[{"name":"a"}', ...Array.from({ length: 20 }, () => "    \n"), "never read"]
+  control.answers = [runaway, ['{"city":', ' "Tokyo"}']]
+  const result = await promptApiText("text").structuredOutput(structured())
+  assert.deepEqual(result.data, { city: "Tokyo" })
+  assert.equal(control.prompts.length, 2, "asked again once")
+  assert.equal((control.prompts[0].options.signal as AbortSignal).aborted, true, "the runaway was stopped")
+  // Twice: a clear error, with code "runaway".
+  control.answers = [runaway, runaway]
+  await assert.rejects(promptApiText("text").structuredOutput(structured({ threadId: "again" })), (e: Error & { code?: string }) => e.code === "runaway" && /whitespace without end/.test(e.message))
+})
+
+test("whitespace inside a string, and JSON's ordinary spacing, aren't a runaway", async () => {
+  control.answers = [['{"city": "', " ".repeat(200), '",', "\n  ", '"x": 1}']]
+  const result = await promptApiText("text").structuredOutput({ chatOptions: chatOptions(), outputSchema: { type: "object" } } as never)
+  assert.deepEqual(result.data, { city: " ".repeat(200), x: 1 })
+  assert.equal(control.prompts.length, 1)
+})
+
+test("maxOutputTokens stops a reply at that many tokens (the session's count), finishing with length", async () => {
+  control.pieces = Array.from({ length: 40 }, () => "word ")
+  const events: Array<Chunk> = []
+  for await (const event of promptApiText("text").chatStream(chatOptions({ modelOptions: { maxOutputTokens: 30 } }))) events.push(event as Chunk)
+  const finished = events.find((e) => e.type === "RUN_FINISHED") as Chunk & { finishReason?: string }
+  assert.equal(finished.finishReason, "length")
+  assert.ok(control.written < 40, `${control.written} pieces read`)
+  // A short reply measures nothing for the cap: only the usage's own measures.
+  control.measures = []
+  control.pieces = ["Hi"]
+  for await (const _ of promptApiText("text", { maxOutputTokens: 30 }).chatStream(chatOptions({ threadId: "short" }))) void _
+  assert.equal(control.measures.filter((m) => m.input === "Hi").length, 1, "the usage's measure only")
+})
+
+test("maxOutputTokens cuts a structured answer off with code length; the adapter's applies to every call", async () => {
+  control.answers = [['{"cities":[', ...Array.from({ length: 30 }, (_, i) => `"city${i}",`), '"last"]}']]
+  await assert.rejects(
+    promptApiText("text", { maxOutputTokens: 20 }).structuredOutput({ chatOptions: chatOptions(), outputSchema: { type: "object" } } as never),
+    (e: Error & { code?: string }) => e.code === "length" && /maxOutputTokens \(20\)/.test(e.message)
+  )
 })
