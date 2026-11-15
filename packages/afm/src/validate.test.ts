@@ -36,3 +36,11 @@ test("nested arrays, $refs, choices, extra properties and bounds are checked", (
   assert.deepEqual(schemaErrors({ anyOf: [{ type: "string" }, { type: "integer" }] }, true), ["/: fits 0 of its anyOf choices"])
   assert.deepEqual(schemaErrors({ const: "a" }, "b"), ['/: should be "a", not "b"'])
 })
+
+test("prefixItems: each position against its own schema, the rest against items", () => {
+  const schema = { type: "array", prefixItems: [{ type: "string" }, { type: "integer" }], items: false }
+  assert.deepEqual(schemaErrors(schema, ["a", 1]), [])
+  assert.deepEqual(schemaErrors(schema, [1, "a"]), ["/0: should be string, not number", "/1: should be integer, not string"])
+  assert.deepEqual(schemaErrors(schema, ["a", 1, 2]), ["/2: not allowed"])
+  assert.deepEqual(schemaErrors({ prefixItems: [{ type: "string" }], items: { type: "boolean" } }, ["a", true, false]), [])
+})

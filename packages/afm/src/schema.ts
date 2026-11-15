@@ -94,7 +94,7 @@ export function toNativeSchema(schema: unknown, name: string): NativeGenerationS
       }
     }
     const types = Array.isArray(value.type) ? value.type.filter((t) => t !== "null") : [value.type]
-    const type = typeof types[0] === "string" ? types[0] : isObject(value.properties) ? "object" : value.items ? "array" : "string"
+    const type = typeof types[0] === "string" ? types[0] : isObject(value.properties) ? "object" : value.items || value.prefixItems ? "array" : "string"
     switch (type) {
       case "object": {
         const required = Array.isArray(value.required) ? value.required : []
@@ -113,13 +113,33 @@ export function toNativeSchema(schema: unknown, name: string): NativeGenerationS
           properties
         })
       }
-      case "array":
+      case "array": {
+        // A tuple (prefixItems, or items as a list): the framework has no
+        // positions, so its items are any of the positions' schemas (and the
+        // rest's, if more may follow), as many as it has unless more may
+        // follow. Which goes where is checked once the answer is in.
+        const prefix = Array.isArray(value.prefixItems) ? value.prefixItems : Array.isArray(value.items) ? value.items : undefined
+        if (prefix && prefix.length > 0) {
+          const rest = Array.isArray(value.items) ? value.additionalItems : value.items
+          const more = rest !== undefined && rest !== false
+          const members: Array<unknown> = []
+          for (const member of more ? [...prefix, rest] : prefix) {
+            if (!members.some((m) => JSON.stringify(m) === JSON.stringify(member))) members.push(member)
+          }
+          return defined({
+            kind: "array" as const,
+            items: convert(members.length === 1 ? members[0] : { anyOf: members }, `${path}_item`),
+            minimumElements: number(value.minItems) ?? prefix.length,
+            maximumElements: more ? number(value.maxItems) : Math.min(number(value.maxItems) ?? prefix.length, prefix.length)
+          })
+        }
         return defined({
           kind: "array" as const,
-          items: convert(Array.isArray(value.items) ? value.items[0] : value.items, `${path}_item`),
+          items: convert(value.items, `${path}_item`),
           minimumElements: number(value.minItems),
           maximumElements: number(value.maxItems)
         })
+      }
       case "integer":
       case "number":
         return defined({

@@ -144,3 +144,23 @@ test("enums hold to their exact members: strings as choices, integers (with stri
   assert.throws(() => toNativeSchema({ type: "number", enum: [0.5, 1.5] }, "ratio"), /decimal numbers isn't supported/)
   assert.throws(() => toNativeSchema({ enum: ["a", true] }, "mixed"), /mixing string and boolean/)
 })
+
+test("prefixItems: items any of the positions' schemas, as many as there are positions", () => {
+  const { root } = toNativeSchema({ type: "array", prefixItems: [{ type: "string" }, { type: "integer" }, { type: "string" }] }, "Pair")
+  assert.deepEqual(root, {
+    kind: "array",
+    items: { kind: "anyOf", name: "Pair_item", choices: [{ kind: "string" }, { kind: "integer" }] },
+    minimumElements: 3,
+    maximumElements: 3
+  })
+  // More may follow (items): at least as many, the rest's schema among the choices.
+  const open = toNativeSchema({ prefixItems: [{ type: "string" }], items: { type: "boolean" }, maxItems: 4 }, "Open").root
+  assert.deepEqual(open, { kind: "array", items: { kind: "anyOf", name: "Open_item", choices: [{ kind: "string" }, { kind: "boolean" }] }, minimumElements: 1, maximumElements: 4 })
+  // One schema at every position: that schema.
+  assert.deepEqual(toNativeSchema({ prefixItems: [{ type: "number" }, { type: "number" }] }, "Two").root, {
+    kind: "array",
+    items: { kind: "number" },
+    minimumElements: 2,
+    maximumElements: 2
+  })
+})

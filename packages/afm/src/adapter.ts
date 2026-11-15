@@ -28,6 +28,8 @@ import type { AfmGuardrails, AfmNative, AfmSampling, NativeEvent, NativeMessage,
 import { toNativeSchema } from "./schema.js"
 import { parseJsonValue } from "./json-value.js"
 import { schemaErrors } from "./validate.js"
+import { orderedForm } from "./ordered.js"
+import type { OrderedForm } from "./ordered.js"
 
 export type AfmConfig = {
   /**
@@ -186,23 +188,30 @@ const signalOf = (options: TextOptions<AfmTextModelOptions>) =>
   options.abortController?.signal ?? (options.request as RequestInit | undefined)?.signal ?? undefined
 
 /**
- * A structured answer the model wrote as text (permissive guardrails' fallback,
- * which the framework didn't hold to the schema): its JSON value, if it fits the
- * schema. chat() validates only schemas with a Standard Schema validator, not
- * plain JSON Schema, so the adapter checks it here.
+ * A structured answer's value in the caller's shape (see ordered.ts), if it
+ * fits the caller's schema. The framework holds a guided answer to the schema
+ * Apple's model got, but not to all of it (it has left out required
+ * properties and written fewer items than minItems), and an answer written as
+ * text (permissive guardrails' fallback) to none of it. chat() validates only
+ * schemas with a Standard Schema validator, not plain JSON Schema, so the
+ * adapter checks every answer here.
  */
-function checkedAnswer(text: string, schema: unknown): unknown {
+function checkedAnswer(text: string, asText: boolean, schema: unknown, form: OrderedForm): unknown {
+  const how = asText ? ", written as text past its guardrails," : ""
   let data: unknown
   try {
-    data = parseJsonValue(text)
+    data = asText ? parseJsonValue(text) : JSON.parse(text)
   } catch (error) {
-    throw Object.assign(new Error(`Apple's model wrote no JSON for the schema (its answer, written as text past its guardrails, was ${JSON.stringify(text.slice(0, 120))})`, { cause: error }), { code: "invalidJson" })
+    const failure = new Error(`Apple's model wrote no JSON for the schema (its answer${how} was ${JSON.stringify(text.slice(0, 120))})`, { cause: error })
+    // A guided answer keeps TanStack's code for a parse failure (structured-output-parse-failed, from the cause).
+    throw asText ? Object.assign(failure, { code: "invalidJson" }) : failure
   }
-  const problems = schemaErrors(schema, data)
+  const value = form.restore(data)
+  const problems = schemaErrors(schema, value)
   if (problems.length > 0) {
-    throw Object.assign(new Error(`Apple's model's answer, written as text past its guardrails, doesn't fit the schema: ${problems.slice(0, 5).join("; ")}`), { code: "schemaMismatch" })
+    throw Object.assign(new Error(`Apple's model's answer${how} doesn't fit the schema: ${problems.slice(0, 5).join("; ")}`), { code: "schemaMismatch" })
   }
-  return data
+  return value
 }
 
 const parse = (json: string): unknown => {
@@ -642,11 +651,13 @@ export class AfmTextAdapter extends BaseTextAdapter<
       thread.queue = new EventQueue()
       this.queues.set(thread.sessionId, thread)
       const { temperature, maximumResponseTokens } = chatOptions.modelOptions ?? {}
+      // Objects of uniform properties as ordered arrays (see ordered.ts).
+      const form = orderedForm(outputSchema)
       await this.native.respond({
         sessionId: thread.sessionId,
         turn: 1,
         prompt: prompted ? contentText(last.content) : "",
-        schema: toNativeSchema(outputSchema, "Answer"),
+        schema: toNativeSchema(form.schema, "Answer"),
         options: {
           ...(temperature !== undefined && { temperature }),
           ...(maximumResponseTokens !== undefined && { maximumResponseTokens }),
@@ -657,7 +668,10 @@ export class AfmTextAdapter extends BaseTextAdapter<
         const event = await thread.queue.next(signal)
         if (event.type === "done") {
           const usage = usageOf(event.usage)
-          return { data: event.asText ? checkedAnswer(event.text, outputSchema) : (JSON.parse(event.text) as unknown), rawText: event.text, model: this.model, ...(usage && { usage }) }
+          const data = checkedAnswer(event.text, event.asText === true, outputSchema, form)
+          // (The answer as the caller's schema has it, where the model wrote another form.)
+          const rawText = form.changed ? JSON.stringify(data) : event.text
+          return { data, rawText, model: this.model, ...(usage && { usage }) }
         }
         if (event.type === "error") throw Object.assign(new Error(event.message), { code: event.code })
       }

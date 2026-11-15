@@ -3,7 +3,7 @@
  * ("/actions/0/operation: not one of add, remove"). Empty when it fits. It reads
  * what afm converts for Apple's framework and the framework holds answers to:
  * types (with null), objects (properties, required, additionalProperties),
- * arrays (items, minItems, maxItems), enum, const, anyOf, oneOf, allOf, $ref to
+ * arrays (items, prefixItems, additionalItems, minItems, maxItems), enum, const, anyOf, oneOf, allOf, $ref to
  * $defs or definitions, string lengths and patterns, and numeric bounds. Other
  * keywords are left unchecked.
  */
@@ -85,8 +85,13 @@ export function schemaErrors(schema: unknown, value: unknown): Array<string> {
     if (Array.isArray(v)) {
       if (typeof s.minItems === "number" && v.length < s.minItems) out.push(`${at}: fewer than ${s.minItems} items`)
       if (typeof s.maxItems === "number" && v.length > s.maxItems) out.push(`${at}: more than ${s.maxItems} items`)
-      if (Array.isArray(s.items)) s.items.forEach((item, i) => i < v.length && check(item, v[i], `${path}/${i}`, out))
-      else if (s.items !== undefined) v.forEach((item, i) => check(s.items, item, `${path}/${i}`, out))
+      // A tuple: each position's schema (prefixItems, or items as a list), then the rest's.
+      const prefix = Array.isArray(s.prefixItems) ? s.prefixItems : Array.isArray(s.items) ? s.items : undefined
+      const rest = Array.isArray(s.prefixItems) ? s.items : Array.isArray(s.items) ? s.additionalItems : s.items
+      v.forEach((item, i) => {
+        if (prefix && i < prefix.length) check(prefix[i], item, `${path}/${i}`, out)
+        else if (rest !== undefined) check(rest, item, `${path}/${i}`, out)
+      })
     }
     if (typeof v === "string") {
       if (typeof s.minLength === "number" && [...v].length < s.minLength) out.push(`${at}: shorter than ${s.minLength}`)
