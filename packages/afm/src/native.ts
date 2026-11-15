@@ -72,6 +72,13 @@ export type NativeEvent = { sessionId: string; turn: number } & (
  */
 export type AfmGuardrails = "default" | "permissiveContentTransformations"
 
+/**
+ * How a response picks its tokens: "greedy" (always the likeliest, so the same
+ * prompt gives the same answer), or random among the `topK` likeliest or those
+ * within `topP` of the probability mass, with a `seed` to repeat it.
+ */
+export type AfmSampling = "greedy" | { topK: number; seed?: number } | { topP: number; seed?: number }
+
 export interface AfmNative {
   availability(options?: { guardrails?: AfmGuardrails }): Promise<NativeAvailability>
   createSession(options: {
@@ -92,6 +99,8 @@ export interface AfmNative {
       maximumResponseTokens?: number
       /** Whether the model may call the session's tools, must, or mustn't (iOS/macOS 27). Left out, the framework decides. */
       toolCallingMode?: "allowed" | "required" | "disallowed"
+      /** How the response picks its tokens. Left out, the framework's default. */
+      sampling?: AfmSampling
     }
     schema?: NativeGenerationSchema
   }): Promise<void>

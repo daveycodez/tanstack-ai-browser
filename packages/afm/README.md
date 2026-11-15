@@ -33,6 +33,19 @@ if ((await adapter.availability()) === "available") {
 
 Each thread (`threadId`) keeps a native session, so a follow-up message only sends that message. Structured output (`chat({ outputSchema })`) is held to the schema by the framework.
 
+Apple's model doesn't write an object's properties in the order the schema declares them: it picks a different order on each call, for schemas made at run time and for `@Generable` types alike. When a value depends on order or on another value (a tag for each word of a sentence, in sentence order), use an array, whose items are written one after another, rather than one property per item: on a six-word tagging test, an object keyed by word got 5 of 18 tags right, and an array of `{ word, tag }` items 16 of 18.
+
+### Sampling
+
+`sampling` sets how responses pick their tokens: `"greedy"` (always the likeliest, so the same prompt gives the same answer), `{ topK, seed? }` or `{ topP, seed? }`. Left out, Apple's default applies.
+
+```ts
+const adapter = afmText({ sampling: "greedy" }) // every response
+chat({ adapter, threadId, messages, modelOptions: { sampling: { topK: 40 } } }) // this one
+```
+
+Greedy steadies short answers such as structured output's small enums (on the same tagging test, the array form went from 16 to 18 of 18), but it can't make up for a schema whose order is wrong.
+
 ### Guardrails
 
 Apple's default guardrails can block ordinary text that sounds unsafe out of context, such as a card game's card names ("add 2 Searing Blood", "swap the Shocks for Play with Fire"), with a `guardrailViolation` error. `guardrails: "permissiveContentTransformations"` relaxes them:
