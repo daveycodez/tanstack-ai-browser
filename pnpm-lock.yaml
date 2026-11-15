@@ -269,9 +269,6 @@ importers:
       '@cloudflare/vite-plugin':
         specifier: ^1.69.1
         version: 1.69.1(@types/node@26.6.6)(vite@8.3.8(@types/node@26.6.6)(esbuild@0.28.2)(jiti@2.7.0)(yaml@2.9.0))(workerd@1.20261113.1)(wrangler@4.162.0(@types/node@26.6.6))
-      '@tanstack/router-cli':
-        specifier: ^1.168.0
-        version: 1.168.0(supports-color@7.2.0)
       '@types/node':
         specifier: ^26.6.6
         version: 26.6.6
@@ -342,9 +339,6 @@ importers:
       '@cloudflare/vite-plugin':
         specifier: ^1.69.1
         version: 1.69.1(@types/node@26.6.6)(vite@8.3.8(@types/node@26.6.6)(esbuild@0.28.2)(jiti@2.7.0)(yaml@2.9.0))(workerd@1.20261110.1)(wrangler@4.162.0(@types/node@26.6.6))
-      '@tanstack/router-cli':
-        specifier: ^1.168.0
-        version: 1.168.0(supports-color@7.2.0)
       '@types/node':
         specifier: ^26.6.6
         version: 26.6.6
@@ -499,9 +493,6 @@ importers:
       '@tanstack/react-ai-devtools':
         specifier: 1.0.1
         version: 1.0.1(@types/react@19.3.0)(csstype@3.2.3)(react@19.3.1)(solid-js@1.9.19)(zod@4.6.7)
-      '@tanstack/router-cli':
-        specifier: ^1.168.0
-        version: 1.168.0(supports-color@7.2.0)
       '@types/node':
         specifier: ^26.6.6
         version: 26.6.6
@@ -578,9 +569,6 @@ importers:
       '@cloudflare/vite-plugin':
         specifier: ^1.69.1
         version: 1.69.1(@types/node@26.6.6)(vite@8.3.8(@types/node@26.6.6)(esbuild@0.28.2)(jiti@2.7.0)(yaml@2.9.0))(workerd@1.20261110.1)(wrangler@4.162.0(@types/node@26.6.6))
-      '@tanstack/router-cli':
-        specifier: ^1.168.0
-        version: 1.168.0(supports-color@7.2.0)
       '@types/node':
         specifier: ^26.6.6
         version: 26.6.6
@@ -3314,11 +3302,6 @@ packages:
       react: ^16.8.0 || ^17.0.0 || ^18.0.0 || ^19.0.0
       react-dom: ^16.8.0 || ^17.0.0 || ^18.0.0 || ^19.0.0
 
-  '@tanstack/router-cli@1.168.0':
-    resolution: {integrity: sha512-bjonksrARN9TUQYZo0bZO41fQq8EfFNfh/WAuax0NmZJHghHcp+FQegSdUjjTsTwp9SlokLju1Gbwzyp7dmvCw==}
-    engines: {node: ^20.19.0 || >=22.12.0}
-    hasBin: true
-
   '@tanstack/router-core@1.171.39':
     resolution: {integrity: sha512-qUhoJ0meuSUqGYQbHbcJYdASr06YtK+bulbj6vtrhKYFkLgkSsZ6tXmMyym7sFxiSJSPYgasgozrL01LyyR/6A==}
     engines: {node: '>=20.19'}
@@ -3955,10 +3938,6 @@ packages:
   bytestreamjs@2.0.1:
     resolution: {integrity: sha512-U1Z/ob71V/bXfVABvNr/Kumf5VyeQRBEm6Txb0PQ6S7V5GpBM3w4Cbqz/xPDicR5tN0uvDifng8C+5qECeGwyQ==}
     engines: {node: '>=6.0.0'}
-
-  cac@7.1.0:
-    resolution: {integrity: sha512-LMDU/U2yA4IPIY8KT0NsNPWEYZvAMkbgyspxJ6btJaYV+WMDOHAZCmB0lsTObiHaRS1V/ztKAl7+TSkTqXyeoA==}
-    engines: {node: '>=20.19.0'}
 
   cacheable-lookup@5.0.4:
     resolution: {integrity: sha512-2/kNscPhpcxrOigMZzbiWF7dz8ilhb/nIHU3EyZiXWXpeq/au8qJ8VhdftMkty3n7Gj6HIGalQG8oiBNB3AJgA==}
@@ -9237,14 +9216,6 @@ snapshots:
       react-dom: 19.3.1(react@19.3.1)
       use-sync-external-store: 1.7.0(react@19.3.1)
 
-  '@tanstack/router-cli@1.168.0(supports-color@7.2.0)':
-    dependencies:
-      '@tanstack/router-generator': 1.168.0(supports-color@7.2.0)
-      cac: 7.1.0
-      chokidar: 5.0.0
-    transitivePeerDependencies:
-      - supports-color
-
   '@tanstack/router-core@1.171.39':
     dependencies:
       '@tanstack/history': 1.162.5
@@ -9982,8 +9953,6 @@ snapshots:
       - supports-color
 
   bytestreamjs@2.0.1: {}
-
-  cac@7.1.0: {}
 
   cacheable-lookup@5.0.4: {}
 

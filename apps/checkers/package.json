@@ -4,7 +4,6 @@
   "type": "module",
   "scripts": {
     "dev": "vite dev --port 3002",
-    "generate-routes": "tsr generate",
     "build": "vite build",
     "preview": "vite preview --port 3002",
     "deploy": "wrangler deploy",
@@ -28,7 +27,6 @@
   },
   "devDependencies": {
     "@cloudflare/vite-plugin": "^1.69.1",
-    "@tanstack/router-cli": "^1.168.0",
     "@types/node": "^26.6.6",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
@@ -53,12 +51,6 @@
           "{projectRoot}/.wrangler/deploy"
         ]
       },
-      "generate-routes": {
-        "cache": true,
-        "outputs": [
-          "{projectRoot}/src/routeTree.gen.ts"
-        ]
-      },
       "deploy": {
         "dependsOn": [
           "build"
@@ -74,9 +66,6 @@
         "options": {
           "cwd": "{projectRoot}"
         },
-        "dependsOn": [
-          "generate-routes"
-        ],
         "cache": true,
         "inputs": [
           "default",
