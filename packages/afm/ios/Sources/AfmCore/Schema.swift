@@ -51,9 +51,13 @@ enum Schema {
                 return DynamicGenerationSchema(type: String.self, guides: [.constant(constant)])
             }
             if let choices = json["choices"] as? [String], !choices.isEmpty {
-                // A described enum (where no property holds its description): Apple's named one.
+                // A described enum (where no property holds its description): a named choice of
+                // constants, which the framework keeps as a definition with its description.
+                // Its named enum of strings (`anyOf: [String]`) drops the description wherever
+                // it is: in an array's items, a definition, a property.
                 if let description = json["description"] as? String {
-                    return DynamicGenerationSchema(name: json["name"] as? String ?? "choice", description: description, anyOf: choices)
+                    let constants = choices.map { DynamicGenerationSchema(type: String.self, guides: [.constant($0)]) }
+                    return DynamicGenerationSchema(name: json["name"] as? String ?? "choice", description: description, anyOf: constants)
                 }
                 return DynamicGenerationSchema(type: String.self, guides: [.anyOf(choices)])
             }

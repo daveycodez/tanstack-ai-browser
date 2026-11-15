@@ -225,7 +225,7 @@ test("a referenced choice's own description reaches the property too, before its
   ])
 })
 
-test("with no property to hold it (an array's items), a described choice is Apple's described enum, named where it's used", () => {
+test("with no property to hold it (an array's items), a described choice carries its name and description (the bridge makes it a described choice of constants)", () => {
   const tag = { description: "A tag.", oneOf: [{ const: "cost", description: "mana cost" }, { const: "color", description: "card color" }] }
   const { root } = toNativeSchema({ type: "array", items: { $ref: "#/$defs/tag" }, $defs: { tag } }, "Answer")
   assert.deepEqual(root, {

@@ -47,6 +47,15 @@ public final class AfmBridge: @unchecked Sendable {
 
     /// Whether the model can run here, why not, and the tokens a session holds:
     /// the model with the guardrails `options` names.
+    /// The JSON Schema the framework makes of a native schema (`{ schema }`), as the model
+    /// reads it: to check what the framework keeps of what the adapter sends.
+    public static func schemaJSON(_ options: [String: Any]) throws -> String {
+        let schema = try Schema.generationSchema(options["schema"])
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        return String(data: try encoder.encode(schema), encoding: .utf8) ?? ""
+    }
+
     public static func availability(_ options: [String: Any] = [:]) -> [String: Any] {
         let model = model(options)
         var result: [String: Any]
@@ -210,8 +219,11 @@ final class BridgeSession: @unchecked Sendable {
     }
 
     /// What a prompt adds to ask for a schema's answer as text: a JSON value (an object,
-    /// an array or a primitive, as the schema says) that matches it.
-    static func asJSON(_ schema: GenerationSchema) -> String {
+    /// an array or a primitive, as the schema says) that matches it. Without the schema
+    /// when the caller left it out of the prompt (`includeSchemaInPrompt` false): its
+    /// prompt says what to write, and the schema's tokens stay out as they asked.
+    static func asJSON(_ schema: GenerationSchema, includeSchema: Bool = true) -> String {
+        guard includeSchema else { return "\n\nAnswer with only a JSON value, and no other text." }
         let json = (try? JSONEncoder().encode(schema)).flatMap { String(data: $0, encoding: .utf8) } ?? ""
         return "\n\nAnswer with only a JSON value, and no other text, that matches this JSON Schema:\n\(json)"
     }
@@ -229,9 +241,10 @@ final class BridgeSession: @unchecked Sendable {
                     // Permissive guardrails cover String responses only: Apple documents that
                     // any other response (a schema's) gets the default guardrails, which block
                     // text such as "add 2 Searing Blood". So a blocked answer is asked for again
-                    // as text, a JSON value to the schema in JSON Schema. `done` says so
-                    // (`asText`): the framework didn't hold it to the schema, the caller checks it.
-                    text = try await session.respond(to: prompt + Self.asJSON(schema), options: options).content
+                    // as text, a JSON value to the schema in JSON Schema (or without it, as the
+                    // caller asked: see asJSON). `done` says so (`asText`): the framework didn't
+                    // hold it to the schema, the caller checks it.
+                    text = try await session.respond(to: prompt + Self.asJSON(schema, includeSchema: includeSchemaInPrompt), options: options).content
                     asText = true
                 }
             } else {
