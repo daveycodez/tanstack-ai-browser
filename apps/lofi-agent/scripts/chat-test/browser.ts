@@ -95,10 +95,18 @@ try {
  */
 function recordPrompts() {
   type Message = { role: string; content: unknown }
-  type Session = Record<string, (...args: Array<any>) => any>
+  type PromptOptions = { responseConstraint?: object }
+  type Session = {
+    append: (input: unknown, options?: unknown) => Promise<unknown>
+    prompt: (input: unknown, options?: PromptOptions) => Promise<string>
+    promptStreaming: (input: unknown, options?: PromptOptions) => ReadableStream<string>
+    clone: (options?: unknown) => Promise<Session>
+  }
+  type CreateOptions = { initialPrompts?: Array<Message> }
+  type LanguageModel = { create: (options?: CreateOptions) => Promise<Session> }
   const asMessages = (input: unknown): Array<Message> =>
     typeof input === "string" ? [{ role: "user", content: input }] : (input as Array<Message>)
-  const record = (history: Array<Message>, input: unknown, options: any, reply: string) =>
+  const record = (history: Array<Message>, input: unknown, options: PromptOptions | undefined, reply: string) =>
     void post(
       "/request",
       JSON.stringify({
@@ -115,16 +123,16 @@ function recordPrompts() {
       history.push(...asMessages(input))
       return result
     }
-    session.prompt = async (input: unknown, options?: any) => {
+    session.prompt = async (input: unknown, options?: PromptOptions) => {
       const before = [...history]
       const reply = await prompt.call(session, input, options)
       record(before, input, options, reply)
       history.push(...asMessages(input), { role: "assistant", content: reply })
       return reply
     }
-    session.promptStreaming = (input: unknown, options?: any) => {
+    session.promptStreaming = (input: unknown, options?: PromptOptions) => {
       const before = [...history]
-      const stream = promptStreaming.call(session, input, options) as ReadableStream<string>
+      const stream = promptStreaming.call(session, input, options)
       let reply = ""
       return stream.pipeThrough(
         new TransformStream<string, string>({
@@ -143,8 +151,9 @@ function recordPrompts() {
       follow(await clone.call(session, options), [...history])
     return session
   }
-  const model = (globalThis as any).LanguageModel
+  const model = (globalThis as { LanguageModel?: LanguageModel }).LanguageModel
+  if (!model) throw new Error("This browser has no LanguageModel (Prompt API)")
   const create = model.create.bind(model)
-  model.create = async (options?: any) =>
+  model.create = async (options?: CreateOptions) =>
     follow(await create(options), [...(options?.initialPrompts ?? [])])
 }

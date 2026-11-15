@@ -76,7 +76,7 @@ test("WEBGLLM_MODEL_REASONING has every model, in TanStack's shape", () => {
 
 // Compile-time: each model's reasoning is exact (typecheck fails if it widens again).
 type Equal<A, B> = (<T>() => T extends A ? 1 : 2) extends <T>() => T extends B ? 1 : 2 ? true : false
-const exact = <T extends true>(_: T) => undefined
+const exact = <T extends true>(value: T) => value
 type Thinkers = keyof import("./catalog.js").WebGllmModelReasoningByName
 exact<Equal<Thinkers,
   | "LiquidAI/LFM3-1.7B-GGUF"

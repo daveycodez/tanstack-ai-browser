@@ -108,8 +108,9 @@ function stream(steps: Array<Step>, signal: AbortSignal | undefined): AsyncItera
       for (;;) {
         await tick()
         if (signal?.aborted) throw abortError()
-        if (done || i >= steps.length) return { value: undefined, done: true }
-        const step = steps[i++]!
+        const step = done ? undefined : steps[i]
+        if (step === undefined) return { value: undefined, done: true }
+        i++
         if (step instanceof Error) throw step
         if ("wait" in step) {
           await step.wait

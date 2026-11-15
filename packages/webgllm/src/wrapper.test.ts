@@ -93,7 +93,7 @@ test("structured output: the schema as given in response_format, the system prom
     response_format: { json_schema: { schema: unknown } }
   }
   assert.deepEqual(body.response_format.json_schema.schema, schema)
-  assert.equal(body.messages[0]!.content, "Play well.")
+  assert.equal(body.messages[0]?.content, "Play well.")
 
   const events = (await collect(
     webgllmText(MODEL).structuredOutputStream({ chatOptions: textOptions(), outputSchema: schema })
@@ -129,7 +129,7 @@ test("images: a model with a vision encoder reads them, sent as OpenAI image_url
     )
   )
   const body = lastBody() as unknown as { messages: Array<{ content: unknown }> }
-  assert.deepEqual(body.messages.at(-1)!.content, [
+  assert.deepEqual(body.messages.at(-1)?.content, [
     { type: "image_url", image_url: { url: "data:image/png;base64,AAAA", detail: "auto" } },
     { type: "text", text: "What's this?" }
   ])
@@ -195,10 +195,12 @@ test("prefill with a forced tool choice sends the same prompt as auto, so the en
     await adapter.prefill({ systemPrompts: ["Use the tools."], tools, toolChoice } as never)
     bodies.push(lastBody() as unknown as Record<string, unknown>)
   }
+  const reference = bodies[2]
+  assert.ok(reference)
   for (const body of bodies) {
     assert.equal(body.tool_choice, undefined)
-    assert.deepEqual(body.tools, bodies[2]!.tools)
-    assert.deepEqual(body.messages, bodies[2]!.messages)
+    assert.deepEqual(body.tools, reference.tools)
+    assert.deepEqual(body.messages, reference.messages)
   }
   // "none" renders no tools: kept, as chat() sends it.
   await adapter.prefill({ systemPrompts: ["Use the tools."], tools, toolChoice: "none" } as never)

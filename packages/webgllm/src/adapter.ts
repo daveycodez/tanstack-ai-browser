@@ -318,7 +318,7 @@ export class WebGllmTextAdapter<TModel extends WebGllmModel> extends OpenAIBaseC
   }
 
   /** Schemas as given: webgllm constrains to any JSON Schema, without OpenAI's strict-mode rewrite. */
-  protected override makeStructuredOutputCompatible(schema: Record<string, any>) {
+  protected override makeStructuredOutputCompatible(schema: Record<string, unknown>) {
     return schema
   }
 }

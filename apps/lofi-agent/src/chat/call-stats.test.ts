@@ -11,6 +11,12 @@ import type { GenerationStats } from "./reply-stats.ts"
 
 const tick = () => new Promise((resolve) => setTimeout(resolve, 2))
 
+/** A count or timing the test reads: fails when it wasn't recorded. */
+function recordedValue(value: number | undefined): number {
+  assert.ok(value !== undefined, "not recorded")
+  return value
+}
+
 /**
  * Streams text after a pause, or a tool call when the model hasn't seen a
  * tool result yet and `tool` is set. Reports `usage` when given: the Prompt
@@ -32,12 +38,12 @@ class FakeAdapter extends BaseTextAdapter<"fake", Record<string, never>, ["text"
     const timestamp = Date.now()
     yield { type: EventType.RUN_STARTED, runId, threadId, model, timestamp }
     await tick()
-    const callsTool = this.tool && !options.messages.some((m) => m.role === "tool")
-    if (callsTool) {
-      const call = { toolCallId: "call-1", toolCallName: this.tool!, model, timestamp }
+    const tool = this.tool && !options.messages.some((m) => m.role === "tool") ? this.tool : undefined
+    if (tool) {
+      const call = { toolCallId: "call-1", toolCallName: tool, model, timestamp }
       yield { type: EventType.TOOL_CALL_START, ...call, index: 0 }
       yield { type: EventType.TOOL_CALL_ARGS, toolCallId: "call-1", delta: "{}", args: "{}", model, timestamp }
-      yield { type: EventType.TOOL_CALL_END, toolCallId: "call-1", toolCallName: this.tool!, input: {}, model, timestamp }
+      yield { type: EventType.TOOL_CALL_END, toolCallId: "call-1", toolCallName: tool, input: {}, model, timestamp }
     } else {
       yield { type: EventType.TEXT_MESSAGE_START, messageId: "m", role: "assistant", model, timestamp }
       yield { type: EventType.TEXT_MESSAGE_CONTENT, messageId: "m", delta: "Hi", model, timestamp }
@@ -51,7 +57,7 @@ class FakeAdapter extends BaseTextAdapter<"fake", Record<string, never>, ["text"
       threadId,
       model,
       timestamp,
-      finishReason: callsTool ? "tool_calls" : "stop",
+      finishReason: tool ? "tool_calls" : "stop",
       ...(this.usage && { usage: this.usage })
     }
   }
@@ -86,12 +92,13 @@ const clock = () =>
 test("a call with no usage (the Prompt API's) still records its time to first token and its stream time", async () => {
   const recorded = await reply(new FakeAdapter())
   assert.deepEqual([...recorded.keys()], ["run:0"])
-  const stats = recorded.get("run:0")!
+  const stats = recorded.get("run:0")
+  assert.ok(stats)
   assert.equal(stats.inputTokens, undefined)
   assert.equal(stats.outputTokens, undefined)
-  assert.ok(stats.firstTokenMs! > 0, "measured time to first token")
+  assert.ok(recordedValue(stats.firstTokenMs) > 0, "measured time to first token")
   assert.equal(stats.promptMs, stats.firstTokenMs)
-  assert.ok(stats.streamMs! > stats.firstTokenMs!, "measured to the last token")
+  assert.ok(recordedValue(stats.streamMs) > recordedValue(stats.firstTokenMs), "measured to the last token")
 })
 
 test("a call's usage adds its token counts to the same timings, for every step of a reply that calls a tool", async () => {
@@ -102,8 +109,8 @@ test("a call's usage adds its token counts to the same timings, for every step o
     assert.equal(stats.inputTokens, 20)
     assert.equal(stats.outputTokens, 5)
     assert.equal(stats.cachedTokens, 8)
-    assert.ok(stats.firstTokenMs! > 0)
-    assert.ok(stats.streamMs! >= stats.firstTokenMs!)
+    assert.ok(recordedValue(stats.firstTokenMs) > 0)
+    assert.ok(recordedValue(stats.streamMs) >= recordedValue(stats.firstTokenMs))
   }
 })
 
@@ -125,5 +132,7 @@ test("prompt speed counts every step's input tokens over its time to first token
   assert.equal(stats.inputTokens, 2000, "the last step's prompt")
   // Through chat(): both steps of a reply that calls a tool are timed and counted.
   const recorded = await reply(new FakeAdapter({ promptTokens: 20, completionTokens: 5, totalTokens: 25 }, "clock"), { tools: [clock()] })
-  assert.ok(replyStatsOf([...recorded.values()])!.promptTokensPerSecond! > 0)
+  const throughChat = replyStatsOf([...recorded.values()])
+  assert.ok(throughChat)
+  assert.ok(recordedValue(throughChat.promptTokensPerSecond) > 0)
 })

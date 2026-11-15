@@ -421,7 +421,7 @@ export class WebLlmTextAdapter<TModel extends WebLlmModel> extends OpenAIBaseCha
   }
 
   /** Schemas as given: WebLLM's grammar takes any JSON Schema, without OpenAI's strict-mode rewrite. */
-  protected override makeStructuredOutputCompatible(schema: Record<string, any>) {
+  protected override makeStructuredOutputCompatible(schema: Record<string, unknown>) {
     return schema
   }
 }
