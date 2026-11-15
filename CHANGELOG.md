@@ -1,3 +1,13 @@
+## 0.2.5 (2026-11-15)
+
+### 🚀 Features
+
+- **prompt-api:** omitResponseConstraintInput, to keep structured output's schema out of the model's input ([7a2ed2c](https://github.com/daveycodez/tanstack-ai-browser/commit/7a2ed2c))
+
+### ❤️ Thank You
+
+- daveycodez
+
 ## 0.2.4 (2026-11-14)
 
 ### 🩹 Fixes

@@ -1,3 +1,7 @@
+## 0.2.5 (2026-11-15)
+
+This was a version bump only for mediapipe to align it with other projects, there were no code changes.
+
 ## 0.2.4 (2026-11-14)
 
 This was a version bump only for mediapipe to align it with other projects, there were no code changes.
