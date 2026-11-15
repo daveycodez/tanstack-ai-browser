@@ -132,7 +132,8 @@ test("every Human and AI captured seed flies once, including the landing seed, i
     const flights = verifyFrames(record, frames)
     const captured = flights.filter((flight) => flight.kind === "capture")
     const store = side === "human" ? 6 : 13
-    const landing = record.drops.at(-1)!
+    const landing = record.drops.at(-1)
+    assert.ok(landing !== undefined)
     assert.equal(captured.length, 6)
     assert.equal(captured.filter((flight) => flight.from === landing).length, 1)
     assert.deepEqual(
@@ -292,7 +293,7 @@ test("the complete handful travels together between adjacent pits, releasing one
     )
     assert.ok(
       leg.every(
-        (flight) => flight.fromHand === i > 0 && flight.handPit === record.pit
+        (flight) => flight.fromHand === (i > 0) && flight.handPit === record.pit
       )
     )
     assert.deepEqual(
@@ -414,7 +415,8 @@ test("thirty complete canonical games conserve every moving seed at every frame"
       const legal = legalMoves(game.board, game.turn)
       random = (Math.imul(random, 1664525) + 1013904223) >>> 0
       const next = applyMove(game, legal[random % legal.length])
-      const record = next.history.at(-1)!
+      const record = next.history.at(-1)
+      assert.ok(record)
       const before = structuredClone(record)
       const frames = planSowingAnimation(record)
       verifyFrames(record, frames)

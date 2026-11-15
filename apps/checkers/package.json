@@ -4,7 +4,6 @@
   "type": "module",
   "scripts": {
     "dev": "vite dev --port 3002",
-    "generate-routes": "tsr generate",
     "build": "vite build",
     "preview": "vite preview --port 3002",
     "deploy": "wrangler deploy",
@@ -27,8 +26,7 @@
     "zod": "^4.6.7"
   },
   "devDependencies": {
-    "@cloudflare/vite-plugin": "^1.69.0",
-    "@tanstack/router-cli": "^1.168.0",
+    "@cloudflare/vite-plugin": "^1.69.1",
     "@types/node": "^26.6.6",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
@@ -37,7 +35,7 @@
     "fake-indexeddb": "^6.2.8",
     "typescript": "npm:@typescript/typescript6@^6.0.2",
     "vite": "^8.3.8",
-    "wrangler": "^4.160.1"
+    "wrangler": "^4.162.0"
   },
   "nx": {
     "name": "checkers",
@@ -51,12 +49,6 @@
         "outputs": [
           "{projectRoot}/dist",
           "{projectRoot}/.wrangler/deploy"
-        ]
-      },
-      "generate-routes": {
-        "cache": true,
-        "outputs": [
-          "{projectRoot}/src/routeTree.gen.ts"
         ]
       },
       "deploy": {
@@ -74,9 +66,6 @@
         "options": {
           "cwd": "{projectRoot}"
         },
-        "dependsOn": [
-          "generate-routes"
-        ],
         "cache": true,
         "inputs": [
           "default",

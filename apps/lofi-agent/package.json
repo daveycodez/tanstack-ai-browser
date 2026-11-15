@@ -10,7 +10,6 @@
   "main": "dist/electron/main.js",
   "scripts": {
     "dev": "vite dev --port 3000",
-    "generate-routes": "tsr generate",
     "build": "vite build",
     "preview": "vite preview",
     "test": "node --experimental-strip-types --test src/chat/*.test.ts src/lib/*.test.ts",
@@ -64,23 +63,22 @@
   },
   "devDependencies": {
     "@capacitor/cli": "^8.6.2",
-    "@cloudflare/vite-plugin": "^1.69.0",
+    "@cloudflare/vite-plugin": "^1.69.1",
     "@tailwindcss/typography": "^0.5.20",
     "@tanstack/devtools-vite": "0.8.6",
     "@tanstack/react-ai-devtools": "1.0.1",
-    "@tanstack/router-cli": "^1.168.0",
     "@types/node": "^26.6.6",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "@typescript/native": "npm:typescript@^7.0.2",
     "@vitejs/plugin-react": "^6.3.0",
-    "electron": "^45.3.1",
+    "electron": "^45.3.2",
     "electron-builder": "^26.18.0",
     "esbuild": "0.28.2",
     "node-api-headers": "1.9.0",
     "typescript": "npm:@typescript/typescript6@^6.0.2",
     "vite": "^8.3.8",
-    "wrangler": "^4.160.1"
+    "wrangler": "^4.162.0"
   },
   "nx": {
     "name": "lofi-agent",
@@ -95,7 +93,7 @@
         ]
       },
       "typecheck": {
-        "command": "tsc --noEmit",
+        "command": "tsc --noEmit && tsc --noEmit -p tsconfig.scripts.json",
         "options": {
           "cwd": "{projectRoot}"
         },

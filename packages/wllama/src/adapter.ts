@@ -323,7 +323,7 @@ export class WllamaTextAdapter<TModel extends WllamaModel> extends OpenAIBaseCha
   }
 
   /** Schemas as given: llama.cpp's grammar takes any JSON Schema, without OpenAI's strict-mode rewrite. */
-  protected override makeStructuredOutputCompatible(schema: Record<string, any>) {
+  protected override makeStructuredOutputCompatible(schema: Record<string, unknown>) {
     return schema
   }
 }

@@ -67,6 +67,10 @@ async function bundle(entry: string, context: unknown, modules: Record<string, s
   } }] })
   return import(pathToFileURL(outfile).href)
 }
+function present<T>(value: T | null | undefined): T {
+  assert.ok(value != null)
+  return value
+}
 function replaceGlobal(name: string, value: unknown) {
   const original = Object.getOwnPropertyDescriptor(globalThis, name)
   Object.defineProperty(globalThis, name, { configurable: true, value })
@@ -103,7 +107,7 @@ test("actual AI hooks in two tabs and reloads never retry a failed position with
     const initial = await a.ensureGame()
     ca.host.render(() => ha.useAiTurn(initial, false)); cb.host.render(() => hb.useAiTurn(initial, false)); await locks.idle()
     assert.equal(generations, 1, "the waiting tab observes the first tab's persisted failure")
-    let game = (await b.currentGame())!
+    let game = present(await b.currentGame())
     assert.equal(game.aiFailures?.length, 1)
     ca.host.dispose(); ca.host = new HookHost(); hosts.push(ca.host)
     const ra = ca.host.render(() => ha.useAiTurn(game, false)), rb = cb.host.render(() => hb.useAiTurn(game, false))
@@ -111,13 +115,13 @@ test("actual AI hooks in two tabs and reloads never retry a failed position with
     assert.equal(ra.state.phase, "error"); assert.match(ra.state.message, /isn't JSON/)
     ca.host.render(() => ha.useAiTurn(game, true)); ca.host.render(() => ha.useAiTurn(game, false)); await locks.idle()
     assert.equal(generations, 1, "busy-state changes are not implicit retries")
-    ra.retry(); rb.retry(); game = (await a.currentGame())!
+    ra.retry(); rb.retry(); game = present(await a.currentGame())
     ca.host.render(() => ha.useAiTurn(game, false)); cb.host.render(() => hb.useAiTurn(game, false)); await locks.idle()
     assert.equal(generations, 2, "two simultaneous clicks authorize only one additional attempt")
-    game = (await b.currentGame())!; assert.equal(game.aiFailures?.length, 2)
+    game = present(await b.currentGame()); assert.equal(game.aiFailures?.length, 2)
     const retry = ca.host.render(() => ha.useAiTurn(game, false)); cb.host.render(() => hb.useAiTurn(game, false)); await locks.idle()
     assert.equal(generations, 2)
-    succeed = true; retry.retry(); game = (await a.currentGame())!
+    succeed = true; retry.retry(); game = present(await a.currentGame())
     ca.host.render(() => ha.useAiTurn(game, false)); cb.host.render(() => hb.useAiTurn(game, false)); await locks.idle()
     assert.equal(generations, 3); assert.equal((await b.currentGame())?.history.length, 1)
     assert.equal((await b.currentGame())?.aiFailures?.length, 2)
@@ -190,14 +194,15 @@ test("full log is constructed only on expand/copy, unmounts when closed, and cli
   let game = newGame("black")
   const failure = finishAiTrace(createAiTrace(game, { model: "LiquidAI/LFM3-1.7B-GGUF", thinking: false }, "model"), { error: "failed" })
   failure.rawAnswer = "large diagnostics ".repeat(2000); game = { ...game, aiFailures: [failure] }
+  const focus = () => { focused++ }
   const render = () => c.host.render(() => m.TurnLog({ game }), tree => {
     for (const node of elements(tree)) {
       const ref = node.props.ref as { current: unknown } | undefined
-      if (ref) ref.current = node.type === "pre" ? { focus() { focused++ } } : { open: false }
+      if (ref) ref.current = node.type === "pre" ? { focus } : { open: false }
     }
   })
-  const toggle = (tree: unknown, open: boolean) => (elements(tree).find(n => n.type === "details")!.props.onToggle as (e: unknown) => void)({ currentTarget: { open } })
-  const copy = async (tree: unknown) => { (elements(tree).find(n => n.type === "button")!.props.onClick as () => void)(); await new Promise(resolve => setImmediate(resolve)) }
+  const toggle = (tree: unknown, open: boolean) => (present(elements(tree).find(n => n.type === "details")).props.onToggle as (e: unknown) => void)({ currentTarget: { open } })
+  const copy = async (tree: unknown) => { (present(elements(tree).find(n => n.type === "button")).props.onClick as () => void)(); await new Promise(resolve => setImmediate(resolve)) }
   try {
     let tree = render(); assert.equal(c.builds, 0); assert(!elements(tree).some(n => n.type === "pre"))
     game = { ...game, updatedAt: game.updatedAt + 1 }; tree = render(); assert.equal(c.builds, 0)
@@ -255,7 +260,7 @@ test("benchmark trial bodies and nested JSON/outcomes mount only when individual
   }
   const trialHost = c.host
   const renderTrial = () => { c.host = trialHost; return c.host.render(() => m.Trial({ result })) }
-  const toggle = (tree: unknown, open: boolean) => (elements(tree).find(n => n.type === "details")!.props.onToggle as (e: unknown) => void)({ currentTarget: { open } })
+  const toggle = (tree: unknown, open: boolean) => (present(elements(tree).find(n => n.type === "details")).props.onToggle as (e: unknown) => void)({ currentTarget: { open } })
   type Component = { type: (props: Record<string, unknown>) => unknown; props: Record<string, unknown> }
   try {
     let tree = renderTrial(); assert.equal(jsonCalls, 0); assert.equal(choiceReads, 0)
@@ -270,7 +275,7 @@ test("benchmark trial bodies and nested JSON/outcomes mount only when individual
     const renderJson = () => { c.host = jsonHost; return c.host.render(() => jsonDetail.type(jsonDetail.props)) }
     let detail = renderJson(); assert.equal(jsonCalls, 0); assert(!elements(detail).some(n => n.type === "pre"))
     toggle(detail, true); detail = renderJson(); assert.equal(jsonCalls, 1)
-    const text = elements(detail).find(n => n.type === "pre")!.props.children as string
+    const text = present(elements(detail).find(n => n.type === "pre")).props.children as string
     assert.deepEqual(JSON.parse(text), { caseId: result.caseId, prompt: result.prompt, rawAnswer: result.rawAnswer })
     toggle(detail, false); detail = renderJson(); assert.equal(jsonCalls, 1); assert(!elements(detail).some(n => n.type === "pre"))
     const choices = nodes.find(n => n.props.title === "Every legal move and its outcome") as unknown as Component

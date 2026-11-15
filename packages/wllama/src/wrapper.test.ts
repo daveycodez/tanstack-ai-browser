@@ -81,7 +81,9 @@ const delta = (d: object, finish: string | null = null) => ({ id: "c", object: "
 async function run(extra: Record<string, unknown> = {}) {
   const events: Array<Chunk> = []
   for await (const event of wllamaText(MODEL).chatStream(options(extra))) events.push(event)
-  return { events, request: control.requests.at(-1)!.request }
+  const sent = control.requests.at(-1)
+  assert.ok(sent)
+  return { events, request: sent.request }
 }
 
 beforeEach(() => {
@@ -140,7 +142,8 @@ test("structured output sends the schema as given; the caller's signal reaches w
     outputSchema: schema
   })
   assert.deepEqual(result.data, { city: "Oslo" })
-  const sent = control.requests.at(-1)!
+  const sent = control.requests.at(-1)
+  assert.ok(sent)
   assert.deepEqual((sent.request.response_format as { json_schema: { schema: unknown } }).json_schema.schema, schema)
   assert.equal(sent.signal, controller.signal)
 })

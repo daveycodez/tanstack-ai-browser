@@ -29,7 +29,7 @@ export type NativeAvailability = {
 export type NativeSchema =
   | { kind: "object"; name: string; description?: string; properties: Array<NativeProperty> }
   | { kind: "array"; items: NativeSchema; minimumElements?: number; maximumElements?: number }
-  | { kind: "string"; choices?: Array<string>; constant?: string }
+  | { kind: "string"; choices?: Array<string>; constant?: string; /** A described enum (choices) no property holds: its name and description, which the bridge keeps as a described choice of constants. */ name?: string; description?: string }
   | { kind: "integer" | "number"; minimum?: number; maximum?: number }
   | { kind: "boolean" }
   | { kind: "null" }
@@ -50,16 +50,16 @@ export type NativeMessage =
   | { role: "tool"; toolCallId: string; name: string; text: string }
 
 /**
- * A response's tokens, over every pass of the model (a tool call's too).
- * `cachedTokens` is there only where the framework counts it right: for a
- * session without tools.
+ * The tokens of one pass of the model: a `toolCalls` event's for the pass that
+ * made the calls, `done`'s for the last. `cachedTokens` only where the
+ * framework counts it right: for a session without tools.
  */
 export type NativeUsage = { inputTokens: number; cachedTokens?: number; outputTokens: number }
 
 /** What a session sends while it responds, for the `turn` of the `respond` call. */
 export type NativeEvent = { sessionId: string; turn: number } & (
   | { type: "delta"; text: string }
-  | { type: "toolCalls"; calls: Array<{ id: string; name: string; arguments: string }> }
+  | { type: "toolCalls"; calls: Array<{ id: string; name: string; arguments: string }>; usage?: NativeUsage }
   /** `asText`: a schema's answer written as text (permissive guardrails' fallback), not held to the schema. */
   | { type: "done"; text: string; usage?: NativeUsage; asText?: boolean }
   | { type: "error"; code: string; message: string }
@@ -101,6 +101,8 @@ export interface AfmNative {
       toolCallingMode?: "allowed" | "required" | "disallowed"
       /** How the response picks its tokens. Left out, the framework's default. */
       sampling?: AfmSampling
+      /** False: the schema stays out of the model's prompt (the framework still holds the answer to it). */
+      includeSchemaInPrompt?: boolean
     }
     schema?: NativeGenerationSchema
   }): Promise<void>

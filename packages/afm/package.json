@@ -94,7 +94,7 @@
   "devDependencies": {
     "@capacitor/core": "^8.6.2",
     "@tanstack/ai": "1.4.0",
-    "electron": "^45.3.1",
+    "electron": "^45.3.2",
     "node-api-headers": "1.9.0"
   }
 }

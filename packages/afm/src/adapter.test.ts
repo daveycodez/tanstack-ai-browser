@@ -157,6 +157,25 @@ test("a tool call ends the step with tool_calls while the response waits, and th
   assert.equal(native.named("respond").length, 1, "the same response")
 })
 
+test("each step's RUN_FINISHED carries its own pass's tokens, as an OpenAI-style API reports each call's: the calls' pass, then the answer's", async () => {
+  native.replies = [[{ type: "toolCalls", calls: [{ id: "call-1", name: "get_weather", arguments: '{"city": "Paris"}' }], usage: { inputTokens: 132, outputTokens: 24 } }]]
+  native.resumes = [[{ type: "done", text: "Sunny in Paris.", usage: { inputTokens: 191, outputTokens: 51 } }]]
+  const adapter = afmText({ native })
+  const first = await run(adapter, { tools: [weather] })
+  const calls = first.at(-1)?.usage as Record<string, unknown>
+  assert.equal(calls.promptTokens, 132)
+  assert.equal(calls.completionTokens, 24)
+  const messages = [
+    user("Weather in Paris?"),
+    { role: "assistant", content: null, toolCalls: [{ id: "call-1", type: "function", function: { name: "get_weather", arguments: '{"city": "Paris"}' } }] },
+    { role: "tool", toolCallId: "call-1", content: '{"temperature": 21}' }
+  ]
+  const second = await run(adapter, { tools: [weather], messages })
+  const answer = second.at(-1)?.usage as Record<string, unknown>
+  assert.equal(answer.promptTokens, 191)
+  assert.equal(answer.completionTokens, 51)
+})
+
 test("parallel calls are one step; results for only some of them start a new session from the messages", async () => {
   const calls = [
     { id: "a", name: "get_weather", arguments: '{"city": "Tokyo"}' },
@@ -515,4 +534,18 @@ test("a guided answer is checked against the caller's schema too: missing proper
   assert.deepEqual(fits.data, { cards: [{ job: "pump", cost: null }, { job: "ramp", cost: 2 }, { job: "draw", cost: 1 }] })
   await assert.rejects(ask('{"cards":[{"job":"pump","cost":1}]}'), (e: Error & { code?: string }) => e.code === "schemaMismatch" && /\/cards: fewer than 3 items/.test(e.message))
   await assert.rejects(ask('{"cards":[{"cost":1},{"job":"a","cost":1},{"job":"b","cost":1}]}'), (e: Error & { code?: string }) => e.code === "schemaMismatch" && /\/cards\/0\/job: missing/.test(e.message))
+})
+
+test("includeSchemaInPrompt false reaches the native response: the adapter's for every call, a request's over it; true by default", async () => {
+  const outputSchema = { type: "object", properties: { city: { type: "string" } }, required: ["city"] }
+  const ask = async (config: Record<string, unknown>, modelOptions?: Record<string, unknown>) => {
+    native = new FakeNative()
+    native.replies = [[{ type: "done", text: '{"city":"Paris"}' }]]
+    await afmText({ native, ...config }).structuredOutput({ chatOptions: chatOptions(modelOptions ? { modelOptions } : {}), outputSchema } as never)
+    return (native.named("respond")[0].options as Record<string, unknown>).includeSchemaInPrompt
+  }
+  assert.equal(await ask({}), undefined, "Apple's default: the schema in the prompt")
+  assert.equal(await ask({ includeSchemaInPrompt: false }), false)
+  assert.equal(await ask({ includeSchemaInPrompt: false }, { includeSchemaInPrompt: true }), undefined)
+  assert.equal(await ask({}, { includeSchemaInPrompt: false }), false)
 })

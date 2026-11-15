@@ -11,6 +11,7 @@
  * The location tool is the app's own, so the page's geolocation answers it.
  */
 import { ChatClient } from "@tanstack/ai-client"
+import type { UIMessage } from "@tanstack/ai-client"
 
 import { browserChatConnection } from "#/chat/connection"
 import { prepareModel } from "#/chat/models"
@@ -18,7 +19,20 @@ import type { ModelId } from "#/chat/models"
 import { locationTool } from "#/lib/location"
 import { checkMcpServers, getMcpClients } from "#/lib/mcp"
 
-type Part = { type: string; name?: string; arguments?: string; content?: string }
+/** The assistant's tool calls (as name(arguments)) and texts in `messages`. */
+function assistantParts(messages: Array<UIMessage>) {
+  const tools: Array<string> = []
+  const texts: Array<string> = []
+  for (const message of messages) {
+    if (message.role !== "assistant") continue
+    for (const part of message.parts) {
+      if (part.type === "tool-call") tools.push(`${part.name}(${part.arguments})`)
+      else if (part.type === "text") texts.push(part.content)
+    }
+  }
+  return { tools, texts }
+}
+
 type Run = { tools: Array<string>; reply: string; chained: boolean; error?: string }
 
 /** One run: a fresh thread, the message, both steps, until the client is idle. */
@@ -35,12 +49,7 @@ async function once(text: string, model: ModelId, effort: "off" | "high"): Promi
   })
   await client.sendMessage(text)
   while (client.getIsLoading()) await new Promise((r) => setTimeout(r, 200))
-  const parts = client
-    .getMessages()
-    .filter((m) => m.role === "assistant")
-    .flatMap((m) => m.parts as Array<Part>)
-  const tools = parts.filter((p) => p.type === "tool-call").map((p) => `${p.name}(${p.arguments ?? ""})`)
-  const texts = parts.filter((p) => p.type === "text").map((p) => p.content ?? "")
+  const { tools, texts } = assistantParts(client.getMessages())
   return {
     tools,
     reply: texts.join(" | ").replace(/\s+/g, " ").slice(0, 160),
@@ -90,31 +99,29 @@ export async function sevenTurns(model: ModelId, effort: "off" | "high" = "off")
   for (let i = 0; i < 50 && getMcpClients().length === 0; i++) await new Promise((r) => setTimeout(r, 200))
   const failed = await prepareModel(model)
   if (failed) throw failed
-  let error: string | undefined
+  // Each error the client reports, in order: a turn's are those added while it ran.
+  const errors: Array<string> = []
   const client = new ChatClient({
     threadId: `seven-${model}-${Math.random().toString(36).slice(2)}`,
     connection: browserChatConnection,
     tools: [locationTool],
     forwardedProps: { model, effort },
     onError: (e: Error) => {
-      error = e.message
+      errors.push(e.message)
     }
   })
   const out: Array<{ turn: string; tools: Array<string>; reply: string; error?: string }> = []
   for (const turn of turns) {
     const seen = client.getMessages().length
-    error = undefined
+    const reported = errors.length
     await client.sendMessage(turn)
     while (client.getIsLoading()) await new Promise((r) => setTimeout(r, 200))
-    const parts = client
-      .getMessages()
-      .slice(seen)
-      .filter((m) => m.role === "assistant")
-      .flatMap((m) => m.parts as Array<Part>)
+    const { tools, texts } = assistantParts(client.getMessages().slice(seen))
+    const error = errors.slice(reported).at(-1)
     out.push({
       turn,
-      tools: parts.filter((p) => p.type === "tool-call").map((p) => `${p.name}(${p.arguments ?? ""})`),
-      reply: parts.filter((p) => p.type === "text").map((p) => p.content ?? "").join(" | ").replace(/\s+/g, " ").slice(0, 120),
+      tools,
+      reply: texts.join(" | ").replace(/\s+/g, " ").slice(0, 120),
       ...(error && { error })
     })
   }

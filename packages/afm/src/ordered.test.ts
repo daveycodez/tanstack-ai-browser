@@ -142,3 +142,21 @@ test("a uniform object that may be null becomes an array that may be null: the f
   assert.deepEqual(form.restore({ size: null }), { size: null })
   assert.deepEqual(form.restore({}), { size: null })
 })
+
+test("described tags reach the ordered array's value: Apple's model reads what each value means", () => {
+  const form = orderedForm({
+    type: "object",
+    properties: { cheap: { $ref: "#/$defs/tag" }, green: { $ref: "#/$defs/tag" } },
+    required: ["cheap", "green"],
+    $defs: { tag: { oneOf: [{ const: "cost", description: "what the card costs" }, { const: "color", description: "the card's colors" }] } }
+  })
+  const { root } = toNativeSchema(form.schema, "Answer")
+  assert.ok(root.kind === "array" && root.items.kind === "object")
+  assert.deepEqual(root.kind === "array" && root.items.kind === "object" && root.items.properties[1], {
+    name: "value",
+    description: "One of: cost: what the card costs; color: the card's colors.",
+    optional: false,
+    schema: { kind: "string", choices: ["cost", "color"] }
+  })
+  assert.deepEqual(form.restore([{ key: "green", value: "color" }, { key: "cheap", value: "cost" }]), { cheap: "cost", green: "color" })
+})

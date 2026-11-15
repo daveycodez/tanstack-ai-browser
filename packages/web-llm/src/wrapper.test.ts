@@ -172,7 +172,15 @@ const delta = (d: object, finish: string | null = null) => ({ id: "c", object: "
 async function run(adapter: Adapter, extra: Record<string, unknown> = {}) {
   const events: Array<Chunk> = []
   for await (const event of adapter.chatStream(options(extra))) events.push(event)
-  return { events, request: control.requests.at(-1)! }
+  const request = control.requests.at(-1)
+  return {
+    events,
+    /** The request WebLLM got; only a run that sent none leaves it unread. */
+    get request() {
+      assert.ok(request, "WebLLM got a request")
+      return request
+    }
+  }
 }
 
 beforeEach(() => {
@@ -207,7 +215,9 @@ test("structured output sends the schema as given, in WebLLM's json_object shape
   const schema = { type: "object", properties: { city: { type: "string" }, note: { type: "string" } }, required: ["city"] }
   const result = await webLlmText(MODEL).structuredOutput({ chatOptions: options(), outputSchema: schema })
   assert.deepEqual(result.data, { city: "Oslo" })
-  const format = control.requests.at(-1)!.response_format as { type: string; schema: string }
+  const sent = control.requests.at(-1)
+  assert.ok(sent)
+  const format = sent.response_format as { type: string; schema: string }
   assert.equal(format.type, "json_object")
   assert.deepEqual(JSON.parse(format.schema), schema)
 })
@@ -298,9 +308,11 @@ test("tools by prompt: none sent to WebLLM, listed in the system prompt; a fence
   assert.equal(request.tools, undefined)
   const messages = request.messages as Array<{ role: string; content: string }>
   assert.ok(messages.every((m) => m.role !== "tool"), "results go back as text")
-  assert.match(messages[0]!.content, /^Be brief\.[\s\S]*get_weather[\s\S]*tool_call/)
-  assert.match(messages[2]!.content, /```tool_call\n\{"name":"get_weather","arguments":\{"city":"Paris"\},"id":"c1"\}/)
-  assert.match(messages[3]!.content, /```tool_result\n\{"name":"get_weather","result":\{"temp":3\}/)
+  const [system, , call, result] = messages
+  assert.ok(system && call && result)
+  assert.match(system.content, /^Be brief\.[\s\S]*get_weather[\s\S]*tool_call/)
+  assert.match(call.content, /```tool_call\n\{"name":"get_weather","arguments":\{"city":"Paris"\},"id":"c1"\}/)
+  assert.match(result.content, /```tool_result\n\{"name":"get_weather","result":\{"temp":3\}/)
   const end = events.find((e) => e.type === "TOOL_CALL_END")
   assert.equal(end?.toolCallName ?? end?.toolName, "get_weather")
   assert.equal((events.at(-1) as Chunk).finishReason, "tool_calls")
@@ -338,7 +350,7 @@ test("images go to WebLLM as image_url without detail; vision models read images
   assert.deepEqual(webLlmText(MODEL).inputModalities, ["text"])
   const image = { type: "image", source: { type: "data", value: "AAAA", mimeType: "image/png" } }
   const { request } = await run(adapter, { model: VISION, messages: [{ role: "user", content: [{ type: "text", content: "What's this?" }, image] }] })
-  const content = (request.messages as Array<{ content: unknown }>).at(-1)!.content
+  const content = (request.messages as Array<{ content: unknown }>).at(-1)?.content
   assert.deepEqual(content, [{ type: "text", text: "What's this?" }, { type: "image_url", image_url: { url: "data:image/png;base64,AAAA" } }])
 })
 
@@ -348,7 +360,7 @@ test("embeddings: WebLLM's embeddings.create, a vector per input, in their own e
   const result = await adapter.createEmbeddings({ logger, model: adapter.model, input: ["a", "b"] })
   assert.deepEqual(result.embeddings, [{ vector: [0, 1], index: 0 }, { vector: [1, 1], index: 1 }])
   assert.deepEqual(control.requests.at(-1), { model: adapter.model, input: ["a", "b"] })
-  assert.equal(control.reloads.at(-1)!.model, adapter.model)
+  assert.equal(control.reloads.at(-1)?.model, adapter.model)
 })
 
 test("a tool call's JSON is read whole: call syntax inside its string arguments is text", async () => {

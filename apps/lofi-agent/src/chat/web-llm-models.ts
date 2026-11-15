@@ -35,7 +35,8 @@ function lowestQuants(models: ReadonlyArray<WebLlmChatModel>): Array<WebLlmChatM
   const better = (a: string, b: string) => {
     const [x, y] = [rank(a), rank(b)]
     const at = x.findIndex((value, i) => value !== y[i])
-    return at !== -1 && x[at]! < y[at]!
+    const [mine, theirs] = [x[at], y[at]]
+    return mine !== undefined && theirs !== undefined && mine < theirs
   }
   const best = new Map<string, WebLlmChatModel>()
   for (const model of models) {

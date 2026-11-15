@@ -50,6 +50,15 @@ export type AfmConfig = {
    * "greedy" steadies short answers such as structured output's small enums.
    */
   sampling?: AfmSampling
+  /**
+   * Whether structured output's schema is written into the model's prompt
+   * (Apple's `includeSchemaInPrompt`): true by default. False leaves it out,
+   * which saves its tokens on every call (about 450 for DeckGen's schemas);
+   * the framework still holds the answer to the schema, but the model doesn't
+   * read its field names or allowed values (nor described enum values), so
+   * the prompt should name them. A request's `modelOptions` overrides it.
+   */
+  includeSchemaInPrompt?: boolean
 }
 
 /** Per-call `modelOptions`: the response's sampling and length, and the guardrails. */
@@ -61,6 +70,8 @@ export type AfmTextModelOptions = {
   guardrails?: AfmGuardrails
   /** How this response picks its tokens, over the adapter's `sampling`. */
   sampling?: AfmSampling
+  /** Whether this structured answer's schema is written into the prompt, over the adapter's `includeSchemaInPrompt`. */
+  includeSchemaInPrompt?: boolean
 }
 
 export type Availability = "unavailable" | "downloadable" | "downloading" | "available"
@@ -248,9 +259,11 @@ export class AfmTextAdapter extends BaseTextAdapter<
     this.native = config.native ?? (globalThis as { afm?: AfmNative }).afm ?? Afm
     this.guardrails = config.guardrails
     this.sampling = config.sampling
+    this.includeSchemaInPrompt = config.includeSchemaInPrompt
   }
 
   private readonly sampling: AfmSampling | undefined
+  private readonly includeSchemaInPrompt: boolean | undefined
 
   private readonly guardrails: AfmGuardrails | undefined
 
@@ -519,7 +532,9 @@ export class AfmTextAdapter extends BaseTextAdapter<
           paused = true
           // A session no thread keeps is still found by the step with the results.
           if (!step.kept) this.paused.set(step.key, thread)
-          yield { type: EventType.RUN_FINISHED, runId, threadId, model, timestamp: timestamp(), finishReason: "tool_calls" }
+          // The tokens of the pass that made the calls (the next step's pass reads their results).
+          const usage = usageOf(event.usage)
+          yield { type: EventType.RUN_FINISHED, runId, threadId, model, timestamp: timestamp(), finishReason: "tool_calls", ...(usage && { usage }) }
           return
         } else if (event.type === "done") {
           // Any of the response not sent as deltas.
@@ -651,6 +666,7 @@ export class AfmTextAdapter extends BaseTextAdapter<
       thread.queue = new EventQueue()
       this.queues.set(thread.sessionId, thread)
       const { temperature, maximumResponseTokens } = chatOptions.modelOptions ?? {}
+      const include = chatOptions.modelOptions?.includeSchemaInPrompt ?? this.includeSchemaInPrompt
       // Objects of uniform properties as ordered arrays (see ordered.ts).
       const form = orderedForm(outputSchema)
       await this.native.respond({
@@ -661,7 +677,8 @@ export class AfmTextAdapter extends BaseTextAdapter<
         options: {
           ...(temperature !== undefined && { temperature }),
           ...(maximumResponseTokens !== undefined && { maximumResponseTokens }),
-          ...(this.samplingOf(chatOptions) && { sampling: this.samplingOf(chatOptions) })
+          ...(this.samplingOf(chatOptions) && { sampling: this.samplingOf(chatOptions) }),
+          ...(include === false && { includeSchemaInPrompt: false })
         }
       })
       for (;;) {

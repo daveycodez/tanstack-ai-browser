@@ -14,10 +14,12 @@ import FoundationModels
 ///
 /// Events, each with the `sessionId` and the `turn` of the `respond` call:
 /// - `{ type: "delta", text }`: more of the response.
-/// - `{ type: "toolCalls", calls: [{ id, name, arguments }] }`: `arguments` in JSON.
-/// - `{ type: "done", text, usage, asText }`: the response, and its tokens (iOS/macOS 27):
-///   `inputTokens` and `outputTokens` over every pass of the model (a tool call's
-///   too), and `cachedTokens` only for a session without tools (see `usage()`).
+/// - `{ type: "toolCalls", calls: [{ id, name, arguments }], usage }`: `arguments` in
+///   JSON, and the tokens of the pass of the model that made the calls (see `done`).
+/// - `{ type: "done", text, usage, asText }`: the response, and the tokens of its
+///   last pass of the model (iOS/macOS 27; a response that called tools made one pass
+///   per batch of calls, then the answer's): `inputTokens`, `outputTokens`, and
+///   `cachedTokens` only for a session without tools (see `usage()`).
 ///   `asText` when a schema's answer was written as text (a permissive session's
 ///   fallback, see `run`): not held to the schema, so the caller checks it.
 /// - `{ type: "error", code, message }`.
@@ -45,6 +47,15 @@ public final class AfmBridge: @unchecked Sendable {
 
     /// Whether the model can run here, why not, and the tokens a session holds:
     /// the model with the guardrails `options` names.
+    /// The JSON Schema the framework makes of a native schema (`{ schema }`), as the model
+    /// reads it: to check what the framework keeps of what the adapter sends.
+    public static func schemaJSON(_ options: [String: Any]) throws -> String {
+        let schema = try Schema.generationSchema(options["schema"])
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        return String(data: try encoder.encode(schema), encoding: .utf8) ?? ""
+    }
+
     public static func availability(_ options: [String: Any] = [:]) -> [String: Any] {
         let model = model(options)
         var result: [String: Any]
@@ -101,8 +112,10 @@ public final class AfmBridge: @unchecked Sendable {
     }
 
     /// Prompts a session (`sessionId`, `prompt`, `turn`, `options`: `temperature`,
-    /// `maximumResponseTokens`). The response comes as events. With a `schema` (as
-    /// tools' parameters take it), the answer is held to it, and `done` has it in JSON.
+    /// `maximumResponseTokens`, `includeSchemaInPrompt`). The response comes as events.
+    /// With a `schema` (as tools' parameters take it), the answer is held to it, and
+    /// `done` has it in JSON; `includeSchemaInPrompt` false leaves the schema out of the
+    /// model's prompt (the framework still holds the answer to it).
     public func respond(_ options: [String: Any]) throws {
         let state = try session(options)
         let settings = options["options"] as? [String: Any] ?? [:]
@@ -121,7 +134,8 @@ public final class AfmBridge: @unchecked Sendable {
             }
         }
         let schema = try options["schema"].map(Schema.generationSchema)
-        try state.respond(prompt: options["prompt"] as? String ?? "", turn: options["turn"] as? Int ?? 0, options: generation, schema: schema)
+        let include = settings["includeSchemaInPrompt"] as? Bool ?? true
+        try state.respond(prompt: options["prompt"] as? String ?? "", turn: options["turn"] as? Int ?? 0, options: generation, schema: schema, includeSchemaInPrompt: include)
     }
 
     /// A tool's result (`sessionId`, `callId`, `output`): the waiting call returns it.
@@ -168,6 +182,8 @@ final class BridgeSession: @unchecked Sendable {
     private var turn = 0
     private var waiting: [Call] = []
     private var answered: Set<String> = []
+    /// The session's tokens when the current pass of the model began (see `usage()`).
+    private var passStart: (input: Int, cached: Int, output: Int)?
 
     private struct Call {
         let id: String
@@ -182,12 +198,12 @@ final class BridgeSession: @unchecked Sendable {
         self.emit = emit
     }
 
-    func respond(prompt: String, turn: Int, options: GenerationOptions, schema: GenerationSchema?) throws {
+    func respond(prompt: String, turn: Int, options: GenerationOptions, schema: GenerationSchema?, includeSchemaInPrompt: Bool = true) throws {
         try lock.withLock {
             guard task == nil else { throw Schema.Unsupported(description: "Session \(id) is responding") }
             self.turn = turn
             answered = []
-            task = Task { [self] in await run(prompt, options, schema) }
+            task = Task { [self] in await run(prompt, options, schema, includeSchemaInPrompt) }
         }
     }
 
@@ -203,27 +219,32 @@ final class BridgeSession: @unchecked Sendable {
     }
 
     /// What a prompt adds to ask for a schema's answer as text: a JSON value (an object,
-    /// an array or a primitive, as the schema says) that matches it.
-    static func asJSON(_ schema: GenerationSchema) -> String {
+    /// an array or a primitive, as the schema says) that matches it. Without the schema
+    /// when the caller left it out of the prompt (`includeSchemaInPrompt` false): its
+    /// prompt says what to write, and the schema's tokens stay out as they asked.
+    static func asJSON(_ schema: GenerationSchema, includeSchema: Bool = true) -> String {
+        guard includeSchema else { return "\n\nAnswer with only a JSON value, and no other text." }
         let json = (try? JSONEncoder().encode(schema)).flatMap { String(data: $0, encoding: .utf8) } ?? ""
         return "\n\nAnswer with only a JSON value, and no other text, that matches this JSON Schema:\n\(json)"
     }
 
-    private func run(_ prompt: String, _ options: GenerationOptions, _ schema: GenerationSchema?) async {
+    private func run(_ prompt: String, _ options: GenerationOptions, _ schema: GenerationSchema?, _ includeSchemaInPrompt: Bool) async {
         let before = usage()
+        lock.withLock { passStart = before }
         var text = ""
         var asText = false
         do {
             if let schema {
                 do {
-                    text = try await session.respond(to: prompt, schema: schema, options: options).content.jsonString
+                    text = try await session.respond(to: prompt, schema: schema, includeSchemaInPrompt: includeSchemaInPrompt, options: options).content.jsonString
                 } catch where permissive && Self.code(error) == "guardrailViolation" {
                     // Permissive guardrails cover String responses only: Apple documents that
                     // any other response (a schema's) gets the default guardrails, which block
                     // text such as "add 2 Searing Blood". So a blocked answer is asked for again
-                    // as text, a JSON value to the schema in JSON Schema. `done` says so
-                    // (`asText`): the framework didn't hold it to the schema, the caller checks it.
-                    text = try await session.respond(to: prompt + Self.asJSON(schema), options: options).content
+                    // as text, a JSON value to the schema in JSON Schema (or without it, as the
+                    // caller asked: see asJSON). `done` says so (`asText`): the framework didn't
+                    // hold it to the schema, the caller checks it.
+                    text = try await session.respond(to: prompt + Self.asJSON(schema, includeSchema: includeSchemaInPrompt), options: options).content
                     asText = true
                 }
             } else {
@@ -238,14 +259,7 @@ final class BridgeSession: @unchecked Sendable {
             try Task.checkCancellation()
             var done: [String: Any] = ["type": "done", "text": text]
             if asText { done["asText"] = true }
-            if let before, let after = usage() {
-                var usage: [String: Any] = [
-                    "inputTokens": after.input - before.input,
-                    "outputTokens": after.output - before.output
-                ]
-                if !hasTools { usage["cachedTokens"] = after.cached - before.cached }
-                done["usage"] = usage
-            }
+            if let pass = lock.withLock({ passUsage() }) { done["usage"] = pass.usage }
             send(done)
         } catch is CancellationError {
             send(["type": "error", "code": "cancelled", "message": "The response was stopped"])
@@ -284,12 +298,28 @@ final class BridgeSession: @unchecked Sendable {
         }
     }
 
-    /// Sends the waiting calls not sent yet. Called holding the lock.
+    /// Sends the waiting calls not sent yet, with the tokens of the pass that made
+    /// them; the next pass starts. Called holding the lock.
     private func reportWaiting() {
         let calls = waiting.indices.filter { !waiting[$0].reported }
         guard !calls.isEmpty else { return }
         for index in calls { waiting[index].reported = true }
-        send(["type": "toolCalls", "calls": calls.map { ["id": waiting[$0].id, "name": waiting[$0].name, "arguments": waiting[$0].arguments] }])
+        var event: [String: Any] = ["type": "toolCalls", "calls": calls.map { ["id": waiting[$0].id, "name": waiting[$0].name, "arguments": waiting[$0].arguments] }]
+        if let pass = passUsage() {
+            event["usage"] = pass.usage
+            // The next pass, which reads the results, starts here.
+            passStart = pass.now
+        }
+        send(event)
+    }
+
+    /// The current pass's tokens so far, as an event's `usage`, and the session's
+    /// totals now. Called holding the lock.
+    private func passUsage() -> (usage: [String: Any], now: (input: Int, cached: Int, output: Int))? {
+        guard let start = passStart, let now = usage() else { return nil }
+        var usage: [String: Any] = ["inputTokens": now.input - start.input, "outputTokens": now.output - start.output]
+        if !hasTools { usage["cachedTokens"] = now.cached - start.cached }
+        return (usage, now)
     }
 
     func resolve(callId: String, output: String) throws {

@@ -51,7 +51,9 @@ test("full-game proof and incomplete-analysis paths remain factual, never select
   const game = { ...createGame(), turn: "ai" as const, board }
   const input = buildMovePrompt(game)
   assert.equal(input.outcomeComparison?.complete, true)
-  assert.match(input.choices.find(c => c.id === 10)!.outcome, /PROVED WIN FOR YOU/)
+  const ten = input.choices.find(c => c.id === 10)
+  assert.ok(ten)
+  assert.match(ten.outcome, /PROVED WIN FOR YOU/)
   assert.ok(input.choices.some(c => /PROVED (DRAW|DEFEAT)/.test(c.outcome)))
   assert.doesNotMatch(input.systemPrompt + input.prompt, recommendation)
   assert.equal("recommendedAction" in input, false)

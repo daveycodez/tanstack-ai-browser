@@ -120,7 +120,7 @@ function engineSlot(name: string, worker?: Worker) {
     const onMessage = () => {
       answered = true
     }
-    let fail = (_error: Error) => undefined as void
+    let fail: (error: Error) => void = () => undefined
     const failure = new Promise<never>((_, reject) => (fail = reject))
     // Nothing may be waiting when it fails.
     failure.catch(() => undefined)

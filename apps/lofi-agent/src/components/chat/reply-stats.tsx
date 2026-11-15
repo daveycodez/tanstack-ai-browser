@@ -2,7 +2,7 @@ import { Tooltip } from "@heroui/react"
 import { eq, useLiveQuery, useOptionalDbClient } from "@tanstack/react-db"
 
 import { replyStatsCollection } from "#/lib/db"
-import { formatReplyStats } from "#/chat/generation-stats"
+import { formatReplyStats } from "#/chat/reply-stats"
 
 /**
  * One muted line under the composer with the chat's latest reply's stats,
