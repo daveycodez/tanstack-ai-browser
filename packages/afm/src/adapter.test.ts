@@ -469,3 +469,50 @@ test("sampling reaches the native response: none by default, the adapter's for e
   await greedy.structuredOutput({ chatOptions: chatOptions({ threadId: "structured" }), outputSchema: { type: "object", properties: { city: { type: "string" } } } } as never)
   assert.equal(respondOptions().sampling, "greedy")
 })
+
+test("an object of uniform properties is asked for as an ordered array, and comes back as the caller's object", async () => {
+  native = new FakeNative()
+  const outputSchema = {
+    type: "object",
+    properties: { cheap: { $ref: "#/$defs/Tag" }, green: { $ref: "#/$defs/Tag" }, pump: { $ref: "#/$defs/Tag" } },
+    required: ["cheap", "green", "pump"],
+    $defs: { Tag: { type: "string", enum: ["cost", "color", "effect"] } }
+  }
+  native.replies = [[{ type: "done", text: '[{"key":"cheap","value":"cost"},{"key":"pump","value":"effect"},{"key":"green","value":"color"}]' }]]
+  const result = await afmText({ native }).structuredOutput({ chatOptions: chatOptions(), outputSchema } as never)
+  assert.deepEqual(result.data, { cheap: "cost", green: "color", pump: "effect" })
+  assert.equal(result.rawText, '{"cheap":"cost","green":"color","pump":"effect"}')
+  const [respond] = native.named("respond")
+  const root = (respond.schema as { root: Record<string, unknown> }).root
+  assert.equal(root.kind, "array")
+  assert.equal(root.minimumElements, 3)
+  assert.equal(root.maximumElements, 3)
+  // A key written twice (one left out): the caller's schema says what's missing.
+  native = new FakeNative()
+  native.replies = [[{ type: "done", text: '[{"key":"cheap","value":"cost"},{"key":"cheap","value":"color"},{"key":"pump","value":"effect"}]' }]]
+  await assert.rejects(afmText({ native }).structuredOutput({ chatOptions: chatOptions(), outputSchema } as never), (e: Error & { code?: string }) => e.code === "schemaMismatch" && /\/green: missing/.test(e.message))
+})
+
+test("a guided answer is checked against the caller's schema too: missing properties and too few items fail with schemaMismatch", async () => {
+  const outputSchema = {
+    type: "object",
+    properties: {
+      cards: {
+        type: "array",
+        minItems: 3,
+        items: { type: "object", properties: { job: { type: "string" }, cost: { type: ["integer", "null"] } }, required: ["job", "cost"] }
+      }
+    },
+    required: ["cards"]
+  }
+  const ask = (text: string) => {
+    native = new FakeNative()
+    native.replies = [[{ type: "done", text }]]
+    return afmText({ native }).structuredOutput({ chatOptions: chatOptions(), outputSchema } as never)
+  }
+  // A nullable property left out comes back as null; three items fit.
+  const fits = await ask('{"cards":[{"job":"pump"},{"job":"ramp","cost":2},{"job":"draw","cost":1}]}')
+  assert.deepEqual(fits.data, { cards: [{ job: "pump", cost: null }, { job: "ramp", cost: 2 }, { job: "draw", cost: 1 }] })
+  await assert.rejects(ask('{"cards":[{"job":"pump","cost":1}]}'), (e: Error & { code?: string }) => e.code === "schemaMismatch" && /\/cards: fewer than 3 items/.test(e.message))
+  await assert.rejects(ask('{"cards":[{"cost":1},{"job":"a","cost":1},{"job":"b","cost":1}]}'), (e: Error & { code?: string }) => e.code === "schemaMismatch" && /\/cards\/0\/job: missing/.test(e.message))
+})

@@ -86,6 +86,19 @@ In later steps the model sees its earlier calls as the same fences and the resul
 
 `chat({ outputSchema })` prompts the thread's session once under the Prompt API's `responseConstraint`, with the schema as given, which Chrome holds the reply to; the result is parsed as JSON. A schema Chrome can't enforce fails with Chrome's error.
 
+### Runaway whitespace
+
+JSON allows any whitespace between its tokens. So when the schema forbids what the model wants to write next (closing an array before its `minItems`, say), Gemini Nano can write spaces and newlines until Chrome stops it: one call took 171 s. The adapter reads the answer as it streams, and stops it once it writes more than 64 characters of whitespace outside a string, which no answer needs. It asks again once (Chrome drops a stopped turn, so the session is as it was), then fails with the code `runaway`.
+
+### An output cap
+
+The Prompt API has no cap on a reply's length. `maxOutputTokens` (the adapter's, for every call, or a call's `modelOptions`) stops a reply once it has streamed that many pieces: a token each in Chrome 157, and never less than one, so a reply never stops before the cap. (The session's own count can't be used mid-reply: Chrome runs one model call at a time, so a count waits for the reply to end.) A reply stopped there finishes with `finishReason: "length"`; a structured answer, whose JSON is then cut short, fails with the code `length`.
+
+```ts
+const adapter = promptApiText({ maxOutputTokens: 512 }) // every call
+chat({ adapter, threadId, messages, modelOptions: { maxOutputTokens: 64 } }) // this call
+```
+
 ### Leaving the schema out of the input
 
 By default Chrome also writes a description of the schema into the model's input, on every call. `omitResponseConstraintInput: true` leaves it out: Chrome still holds the reply to the schema, but the model doesn't read it. It's off by default.

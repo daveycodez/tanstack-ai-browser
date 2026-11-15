@@ -21,6 +21,7 @@ import { contentText, mediaIn, toLanguageModelMessages } from "./messages.js"
 import { baseOptions, createSession, DEFAULT_LANGUAGES, MEDIA_INPUTS, promptApiAvailability } from "./model.js"
 import type { Availability, MediaInput } from "./model.js"
 import type { PromptApiChatModel } from "./model-meta.js"
+import { RUNAWAY_WHITESPACE, tokenCap, whitespaceRun } from "./runaway.js"
 import { toolCallReader, toolSystemPrompt } from "./tools.js"
 import type { DownloadProgressCallback, LanguageModelInput, LanguageModelPromptOptions, LanguageModelSession, SamplingMode } from "./types.js"
 
@@ -54,6 +55,8 @@ export type PromptApiConfig = {
    * schema; a Chrome that doesn't know the option ignores it.
    */
   omitResponseConstraintInput?: boolean
+  /** Most tokens a reply may write, for every call (`modelOptions.maxOutputTokens` overrides it). None by default. */
+  maxOutputTokens?: number
   /**
    * Called when a thread's session overflows its context window (the
    * session's `contextoverflow` event): Chrome then drops the oldest
@@ -84,6 +87,13 @@ export type PromptApiTextModelOptions = {
    * schema; a Chrome that doesn't know the option ignores it.
    */
   omitResponseConstraintInput?: boolean
+  /**
+   * Most tokens this reply may write (or the adapter's `maxOutputTokens`): the
+   * Prompt API has no cap, so the adapter stops the reply once it has
+   * streamed this many pieces (a token each in Chrome 157, and at least one). A reply stopped there finishes
+   * with "length"; a structured answer fails with code "length".
+   */
+  maxOutputTokens?: number
 }
 
 type MetadataByModality = {
@@ -176,9 +186,11 @@ export class PromptApiTextAdapter extends BaseTextAdapter<
     this.onDownloadProgress = config.onDownloadProgress
     this.onContextOverflow = config.onContextOverflow
     this.omitResponseConstraintInput = config.omitResponseConstraintInput
+    this.maxOutputTokens = config.maxOutputTokens
   }
 
   private readonly omitResponseConstraintInput: boolean | undefined
+  private readonly maxOutputTokens: number | undefined
 
   /**
    * The browser's own `LanguageModel.availability()` for this adapter's
@@ -384,6 +396,46 @@ export class PromptApiTextAdapter extends BaseTextAdapter<
     }
   }
 
+  /** A call's token cap: its modelOptions', else the adapter's. */
+  private capOf(options: TextOptions<PromptApiTextModelOptions>) {
+    const cap = options.modelOptions?.maxOutputTokens ?? this.maxOutputTokens
+    return typeof cap === "number" && cap > 0 ? cap : undefined
+  }
+
+  /**
+   * A structured answer, streamed so it can be stopped: on a runaway of
+   * whitespace (see runaway.ts), or at the token cap. Returns its text, and
+   * why it stopped early if it did.
+   */
+  private async constrained(
+    session: LanguageModelSession,
+    input: Parameters<LanguageModelSession["prompt"]>[0],
+    constraint: LanguageModelPromptOptions,
+    signal: AbortSignal | undefined,
+    max: number | undefined
+  ): Promise<{ text: string; stopped?: "runaway" | "length" }> {
+    const stop = new AbortController()
+    const generation = signal ? AbortSignal.any([signal, stop.signal]) : stop.signal
+    const whitespace = whitespaceRun()
+    const cap = tokenCap(max)
+    let text = ""
+    let stopped: "runaway" | "length" | undefined
+    try {
+      for await (const piece of session.promptStreaming(input, { ...constraint, signal: generation })) {
+        text += piece
+        if (whitespace.push(piece) > RUNAWAY_WHITESPACE) stopped = "runaway"
+        else if (cap.reached()) stopped = "length"
+        if (stopped) {
+          stop.abort()
+          break
+        }
+      }
+    } catch (error) {
+      if (!stop.signal.aborted || signal?.aborted) throw error
+    }
+    return { text, ...(stopped && { stopped }) }
+  }
+
   async *chatStream(options: TextOptions<PromptApiTextModelOptions>): AsyncIterable<AdapterYieldChunk> {
     const runId = options.runId ?? nextId("run")
     const { threadId } = options
@@ -420,11 +472,18 @@ export class PromptApiTextAdapter extends BaseTextAdapter<
       // What the session holds before this prompt, and all the model writes (a tool call's text too).
       const held = session.contextUsage
       let written = ""
+      const cap = tokenCap(this.capOf(options))
+      let capped = false
       try {
         for await (const piece of session.promptStreaming(input, { signal: generation })) {
           written += piece
           yield* textEvents(reader ? reader.push(piece) : piece)
           if (reader?.call) {
+            stop.abort()
+            break
+          }
+          if (cap.reached()) {
+            capped = true
             stop.abort()
             break
           }
@@ -472,7 +531,7 @@ export class PromptApiTextAdapter extends BaseTextAdapter<
         threadId,
         model,
         timestamp: timestamp(),
-        finishReason: call ? "tool_calls" : "stop",
+        finishReason: call ? "tool_calls" : capped ? "length" : "stop",
         ...(usage && { usage })
       }
     } catch (error) {
@@ -515,7 +574,19 @@ export class PromptApiTextAdapter extends BaseTextAdapter<
       // option, so it never carries over to another call of a kept session.
       const omit = chatOptions.modelOptions?.omitResponseConstraintInput ?? this.omitResponseConstraintInput
       const constraint: LanguageModelPromptOptions = { responseConstraint: outputSchema, ...(omit && { omitResponseConstraintInput: true }) }
-      const rawText = await session.prompt(input, { ...constraint, signal })
+      // A runaway (see runaway.ts) is asked again once: Chrome drops a stopped turn, so the session is as it was.
+      let answer = await this.constrained(session, input, constraint, signal, this.capOf(chatOptions))
+      if (answer.stopped === "runaway") answer = await this.constrained(session, input, constraint, signal, this.capOf(chatOptions))
+      if (answer.stopped === "runaway") {
+        throw Object.assign(
+          new Error(`The browser's model wrote whitespace without end (more than ${RUNAWAY_WHITESPACE} characters of it outside strings), twice: the schema likely forbids what it wanted to write next`),
+          { code: "runaway" }
+        )
+      }
+      if (answer.stopped === "length") {
+        throw Object.assign(new Error(`The structured answer was cut off at maxOutputTokens (${this.capOf(chatOptions)}) before its JSON was complete`), { code: "length" })
+      }
+      const rawText = answer.text
       if (kept) kept.seen = [...keys, messageKey({ role: "assistant", content: rawText })]
       const data = JSON.parse(rawText) as unknown
       const usage = await this.usage(session, held, goesOn, input, rawText, constraint)

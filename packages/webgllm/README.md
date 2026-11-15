@@ -52,6 +52,18 @@ chat({ adapter: webgllmText("LiquidAI/LFM3-1.7B-GGUF"), messages, modelOptions: 
 
 Unset sampling fields take the model card's values (webgllm's), and there's no output cap unless you set one. Events come back as TanStack's Chat Completions adapter writes them: reasoning, text and tool call events, and `RUN_FINISHED` with the finish reason and token usage. Timings aren't in it: measure them from the stream, as for any adapter. A model that fails to load ends the run with a `RUN_ERROR` whose `code` is webgllm's (`download-failed`, `storage-full`, `webgl2-unavailable`); other failures are TanStack's `RUN_ERROR`. Aborting the request stops the generation and ends the stream without one.
 
+## Prompt caching
+
+webgllm reads only what's new in a prompt that starts with what it read before: the same chat one message on, or a system prompt (with its tools) it has read before, even after chats with other system prompts, and after the page loads again (it keeps them on disk too; see webgllm's README). `RUN_FINISHED`'s usage says how many prompt tokens came from the cache (`promptTokensDetails.cachedTokens`, 0 when none did), for text and structured answers alike.
+
+`prefill()` reads a prompt ahead of time, generating nothing (webgllm's `max_tokens: 0`), so the next `chat()` that starts with it reads only the rest: the system prompt and the messages so far while the user types, or a system prompt the app will use soon. Pass the parts of `chat()`'s options that make the prompt (`systemPrompts`, `messages`, `tools`, `toolChoice`, `reasoning`, `modelOptions`), the same as `chat()` will get. It loads the model first if it isn't, and resolves to `{ promptTokens, cachedTokens }`.
+
+```ts
+const adapter = webgllmText("LiquidAI/LFM3-1.7B-GGUF", { contextLength: 8192 })
+await adapter.prefill({ systemPrompts: [PLANNER], tools, messages })
+chat({ adapter, systemPrompts: [PLANNER], tools, messages: [...messages, question], threadId })
+```
+
 ## A worker of your own
 
 webgllm starts a worker for each model it loads. To run the model in one you start (bundled your way, or shared with your own code), write the worker with webgllm's handler and give it to the adapter:

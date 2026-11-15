@@ -33,7 +33,11 @@ if ((await adapter.availability()) === "available") {
 
 Each thread (`threadId`) keeps a native session, so a follow-up message only sends that message. Structured output (`chat({ outputSchema })`) is held to the schema by the framework.
 
-Apple's model doesn't write an object's properties in the order the schema declares them: it picks a different order on each call, for schemas made at run time and for `@Generable` types alike. When a value depends on order or on another value (a tag for each word of a sentence, in sentence order), use an array, whose items are written one after another, rather than one property per item: on a six-word tagging test, an object keyed by word got 5 of 18 tags right, and an array of `{ word, tag }` items 16 of 18.
+Apple's model doesn't write an object's properties in the order the schema declares them: it picks a different order on each call, for schemas made at run time and for `@Generable` types alike, and it may leave some out. When a value depends on order or on another value (a tag for each word of a sentence, in sentence order), an array works better, since its items are written one after another: on a six-word tagging test, an object keyed by word got 5 of 18 tags right, and an array of `{ word, tag }` items 16 of 18.
+
+So the adapter asks for an object whose properties all share one schema (two or more, all required) as that array itself: `{ key, value }` items, the key one of the property names, the value their shared schema, exactly as many items as there are properties, and the order in the array's description. It then rebuilds your object from the answer, so your schema and prompt stay as they are. When DeckGen wrote that array into its own schema for its card search (one property per word, each the same tag enum), Apple's model went from 23–25 of 41 searches right to 35 of 40. Doing it in the adapter keeps the gain without the extra prompt the array needed there.
+
+Every structured answer is then checked against your schema, guided ones too: the framework holds the model to what it can express, but it has let answers through with required properties missing and fewer items than `minItems`. One that doesn't fit fails with the code `schemaMismatch`. A required property that may be null, which the framework makes optional, comes back as `null` when the model leaves it out. A tuple (`prefixItems`) is asked for as items of any of its positions' schemas, as many as `minItems` and `maxItems` (or `items: false`) allow, and checked position by position.
 
 ### Sampling
 
