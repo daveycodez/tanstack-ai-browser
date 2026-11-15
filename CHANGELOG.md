@@ -1,3 +1,13 @@
+## 0.2.6 (2026-11-15)
+
+### 🚀 Features
+
+- **afm:** a sampling option (greedy, top-k, top-p), and the README says to use arrays where order matters ([0e733f5](https://github.com/daveycodez/tanstack-ai-browser/commit/0e733f5))
+
+### ❤️ Thank You
+
+- daveycodez
+
 ## 0.2.5 (2026-11-15)
 
 ### 🚀 Features
