@@ -8,6 +8,7 @@
 import { chat } from "@tanstack/ai"
 import type { AnyTextAdapter } from "@tanstack/ai"
 import { ChatClient, stream } from "@tanstack/ai-client"
+import type { UIMessage } from "@tanstack/ai-client"
 import { createMCPClient } from "@tanstack/ai-mcp"
 
 import { currentSystemPrompt } from "#/lib/settings"
@@ -134,35 +135,26 @@ export async function run({ name, adapter, reasoning, progress, ask }: Args) {
   ].join("\n")
 }
 
-type Part = {
-  type: string
-  content?: string
-  text?: string
-  name?: string
-  arguments?: string
-  output?: unknown
-  state?: string
-}
 type Call = { name: string; args: string; output?: unknown }
 
 /** A turn's messages as markdown, its answer, and its tool calls. */
-function describe(messages: Array<{ role: string; parts: Array<Part> }>) {
+function describe(messages: Array<UIMessage>) {
   const body: Array<string> = []
   const calls: Array<Call> = []
   let answer = ""
   for (const message of messages) {
     for (const part of message.parts) {
       if (part.type === "thinking") {
-        body.push("**Notes:**", "", quote(part.content ?? ""), "")
+        body.push("**Notes:**", "", quote(part.content), "")
       } else if (part.type === "tool-call") {
-        calls.push({ name: part.name ?? "", args: part.arguments ?? "", output: part.output })
+        calls.push({ name: part.name, args: part.arguments, output: part.output })
         const output = JSON.stringify(part.output ?? "")
         body.push(
           `**Tool:** \`${part.name}\` \`${part.arguments}\` → ${output.slice(0, 160)}${output.length > 160 ? "…" : ""}`,
           ""
         )
       } else if (part.type === "text" && message.role === "assistant") {
-        answer = part.content ?? ""
+        answer = part.content
         body.push("**Answer:**", "", quote(answer), "")
       }
     }

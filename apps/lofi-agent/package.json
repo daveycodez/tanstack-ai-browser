@@ -93,7 +93,7 @@
         ]
       },
       "typecheck": {
-        "command": "tsc --noEmit",
+        "command": "tsc --noEmit && tsc --noEmit -p tsconfig.scripts.json",
         "options": {
           "cwd": "{projectRoot}"
         },
