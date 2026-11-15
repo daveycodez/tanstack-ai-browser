@@ -51,6 +51,10 @@ enum Schema {
                 return DynamicGenerationSchema(type: String.self, guides: [.constant(constant)])
             }
             if let choices = json["choices"] as? [String], !choices.isEmpty {
+                // A described enum (where no property holds its description): Apple's named one.
+                if let description = json["description"] as? String {
+                    return DynamicGenerationSchema(name: json["name"] as? String ?? "choice", description: description, anyOf: choices)
+                }
                 return DynamicGenerationSchema(type: String.self, guides: [.anyOf(choices)])
             }
             return DynamicGenerationSchema(type: String.self)

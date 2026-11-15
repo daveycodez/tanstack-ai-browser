@@ -207,3 +207,44 @@ test("constants without descriptions, or a choice of other shapes, convert as be
   assert.equal(root.properties[0].description, undefined)
   assert.equal(root.properties[1].schema.kind, "anyOf")
 })
+
+test("a referenced choice's own description reaches the property too, before its values' notes", () => {
+  const { root } = toNativeSchema(
+    {
+      type: "object",
+      properties: { word: { $ref: "#/$defs/tag", description: "The word's tag." }, bare: { $ref: "#/$defs/tag" } },
+      required: ["word", "bare"],
+      $defs: { tag: { description: "What a word says about the card.", oneOf: [{ const: "cost", description: "mana cost" }, { const: "color" }] } }
+    },
+    "Answer"
+  )
+  assert.ok(root.kind === "object")
+  assert.deepEqual(root.properties.map((p) => [p.description, p.schema]), [
+    ["The word's tag. What a word says about the card. One of: cost: mana cost; color.", { kind: "string", choices: ["cost", "color"] }],
+    ["What a word says about the card. One of: cost: mana cost; color.", { kind: "string", choices: ["cost", "color"] }]
+  ])
+})
+
+test("with no property to hold it (an array's items), a described choice is Apple's described enum, named where it's used", () => {
+  const tag = { description: "A tag.", oneOf: [{ const: "cost", description: "mana cost" }, { const: "color", description: "card color" }] }
+  const { root } = toNativeSchema({ type: "array", items: { $ref: "#/$defs/tag" }, $defs: { tag } }, "Answer")
+  assert.deepEqual(root, {
+    kind: "array",
+    items: { kind: "string", choices: ["cost", "color"], name: "Answer_item", description: "A tag. One of: cost: mana cost; color: card color." }
+  })
+  // Without descriptions, the plain enum.
+  assert.deepEqual(toNativeSchema({ type: "array", items: { oneOf: [{ const: "a" }, { const: "b" }] } }, "Answer").root, {
+    kind: "array",
+    items: { kind: "string", choices: ["a", "b"] }
+  })
+})
+
+test("value notes name each value as normalized: an enum of one value reads like a const", () => {
+  const { root } = toNativeSchema(
+    { type: "object", properties: { t: { oneOf: [{ enum: ["cost"], description: "mana cost" }, { const: "color", description: "card color" }, { enum: ["type"] }] } }, required: ["t"] },
+    "Answer"
+  )
+  assert.ok(root.kind === "object")
+  assert.equal(root.properties[0].description, "One of: cost: mana cost; color: card color; type.")
+  assert.deepEqual(root.properties[0].schema, { kind: "string", choices: ["cost", "color", "type"] })
+})
