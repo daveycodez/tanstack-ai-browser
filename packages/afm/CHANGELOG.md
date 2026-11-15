@@ -1,3 +1,18 @@
+## 0.2.7 (2026-11-15)
+
+### 🚀 Features
+
+- **afm:** objects of uniform properties as ordered arrays, prefixItems, and every structured answer checked against the caller's schema ([4edec8b](https://github.com/daveycodez/tanstack-ai-browser/commit/4edec8b))
+
+### 🩹 Fixes
+
+- **afm, prompt-api:** review fixes ([7c33182](https://github.com/daveycodez/tanstack-ai-browser/commit/7c33182))
+- **afm:** an ordered array keeps its object's definitions (a root $ref resolves); docs for ordered arrays, checked answers and prefixItems ([451248c](https://github.com/daveycodez/tanstack-ai-browser/commit/451248c))
+
+### ❤️ Thank You
+
+- daveycodez
+
 ## 0.2.6 (2026-11-15)
 
 ### 🚀 Features

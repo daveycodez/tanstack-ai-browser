@@ -1,3 +1,22 @@
+## 0.2.7 (2026-11-15)
+
+### 🚀 Features
+
+- **afm:** objects of uniform properties as ordered arrays, prefixItems, and every structured answer checked against the caller's schema ([4edec8b](https://github.com/daveycodez/tanstack-ai-browser/commit/4edec8b))
+- **prompt-api:** stop a structured answer that runs away in whitespace (asked again once, then code runaway), and maxOutputTokens ([db69153](https://github.com/daveycodez/tanstack-ai-browser/commit/db69153))
+- **webgllm:** prefill(), to read a prompt ahead of time; cached tokens tested for structured answers ([0958585](https://github.com/daveycodez/tanstack-ai-browser/commit/0958585))
+
+### 🩹 Fixes
+
+- **afm:** an ordered array keeps its object's definitions (a root $ref resolves); docs for ordered arrays, checked answers and prefixItems ([451248c](https://github.com/daveycodez/tanstack-ai-browser/commit/451248c))
+- **afm, prompt-api:** review fixes ([7c33182](https://github.com/daveycodez/tanstack-ai-browser/commit/7c33182))
+- **prompt-api): maxOutputTokens counts streamed pieces (a token each:** Chrome runs one model call at a time, so measuring mid-reply waited for the reply to end ([7eae2b6](https://github.com/daveycodez/tanstack-ai-browser/commit/7eae2b6))
+- **webgllm:** prefill with a forced tool choice sends it as auto (the same prompt), and the prefill types are exported from the root ([7d9b2d4](https://github.com/daveycodez/tanstack-ai-browser/commit/7d9b2d4))
+
+### ❤️ Thank You
+
+- daveycodez
+
 ## 0.2.6 (2026-11-15)
 
 ### 🚀 Features

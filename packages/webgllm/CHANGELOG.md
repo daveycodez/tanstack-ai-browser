@@ -1,3 +1,17 @@
+## 0.2.7 (2026-11-15)
+
+### 🚀 Features
+
+- **webgllm:** prefill(), to read a prompt ahead of time; cached tokens tested for structured answers ([0958585](https://github.com/daveycodez/tanstack-ai-browser/commit/0958585))
+
+### 🩹 Fixes
+
+- **webgllm:** prefill with a forced tool choice sends it as auto (the same prompt), and the prefill types are exported from the root ([7d9b2d4](https://github.com/daveycodez/tanstack-ai-browser/commit/7d9b2d4))
+
+### ❤️ Thank You
+
+- daveycodez
+
 ## 0.2.6 (2026-11-15)
 
 This was a version bump only for webgllm to align it with other projects, there were no code changes.

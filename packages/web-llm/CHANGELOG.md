@@ -1,3 +1,7 @@
+## 0.2.7 (2026-11-15)
+
+This was a version bump only for web-llm to align it with other projects, there were no code changes.
+
 ## 0.2.6 (2026-11-15)
 
 This was a version bump only for web-llm to align it with other projects, there were no code changes.

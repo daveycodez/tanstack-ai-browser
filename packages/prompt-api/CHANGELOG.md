@@ -1,3 +1,18 @@
+## 0.2.7 (2026-11-15)
+
+### 🚀 Features
+
+- **prompt-api:** stop a structured answer that runs away in whitespace (asked again once, then code runaway), and maxOutputTokens ([db69153](https://github.com/daveycodez/tanstack-ai-browser/commit/db69153))
+
+### 🩹 Fixes
+
+- **prompt-api): maxOutputTokens counts streamed pieces (a token each:** Chrome runs one model call at a time, so measuring mid-reply waited for the reply to end ([7eae2b6](https://github.com/daveycodez/tanstack-ai-browser/commit/7eae2b6))
+- **afm, prompt-api:** review fixes ([7c33182](https://github.com/daveycodez/tanstack-ai-browser/commit/7c33182))
+
+### ❤️ Thank You
+
+- daveycodez
+
 ## 0.2.6 (2026-11-15)
 
 This was a version bump only for prompt-api to align it with other projects, there were no code changes.
