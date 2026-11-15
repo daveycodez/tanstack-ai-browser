@@ -455,3 +455,17 @@ test("structured output keeps the error's code through chat(): on the thrown err
   const parse = (await (chat({ adapter: afmText({ native }), threadId: "structured-parse", messages: [user("Paris")], outputSchema, stream: false } as never) as unknown as Promise<unknown>).catch((e: unknown) => e)) as Error & { code?: string }
   assert.equal(parse.code, "structured-output-parse-failed")
 })
+
+test("sampling reaches the native response: none by default, the adapter's for every response, a request's over it, structured output too", async () => {
+  const respondOptions = () => (native.named("respond").at(-1)?.options ?? {}) as Record<string, unknown>
+  await run(afmText({ native }), { threadId: "default" })
+  assert.equal("sampling" in respondOptions(), false)
+  const greedy = afmText({ native, sampling: "greedy" })
+  await run(greedy, { threadId: "greedy" })
+  assert.equal(respondOptions().sampling, "greedy")
+  await run(greedy, { threadId: "top-k", modelOptions: { sampling: { topK: 40, seed: 7 } } })
+  assert.deepEqual(respondOptions().sampling, { topK: 40, seed: 7 })
+  native.replies = [[{ type: "done", text: '{"city":"Paris"}' }]]
+  await greedy.structuredOutput({ chatOptions: chatOptions({ threadId: "structured" }), outputSchema: { type: "object", properties: { city: { type: "string" } } } } as never)
+  assert.equal(respondOptions().sampling, "greedy")
+})

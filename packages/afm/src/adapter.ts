@@ -24,7 +24,7 @@ import type { StructuredOutputOptions, StructuredOutputResult } from "@tanstack/
 import { contentText, toNativeMessages } from "./messages.js"
 import type { AfmChatModel } from "./model-meta.js"
 import { Afm } from "./native.js"
-import type { AfmGuardrails, AfmNative, NativeEvent, NativeMessage, NativeUsage, UnavailableReason } from "./native.js"
+import type { AfmGuardrails, AfmNative, AfmSampling, NativeEvent, NativeMessage, NativeUsage, UnavailableReason } from "./native.js"
 import { toNativeSchema } from "./schema.js"
 import { parseJsonValue } from "./json-value.js"
 import { schemaErrors } from "./validate.js"
@@ -42,6 +42,12 @@ export type AfmConfig = {
    * names. A request's `modelOptions.guardrails` overrides it.
    */
   guardrails?: AfmGuardrails
+  /**
+   * How responses pick their tokens: "greedy", `{ topK, seed? }` or `{ topP, seed? }`.
+   * Left out, Apple's default. A request's `modelOptions.sampling` overrides it.
+   * "greedy" steadies short answers such as structured output's small enums.
+   */
+  sampling?: AfmSampling
 }
 
 /** Per-call `modelOptions`: the response's sampling and length, and the guardrails. */
@@ -51,6 +57,8 @@ export type AfmTextModelOptions = {
   maximumResponseTokens?: number
   /** Apple's guardrails for this request's session, over the adapter's `guardrails`. */
   guardrails?: AfmGuardrails
+  /** How this response picks its tokens, over the adapter's `sampling`. */
+  sampling?: AfmSampling
 }
 
 export type Availability = "unavailable" | "downloadable" | "downloading" | "available"
@@ -230,9 +238,17 @@ export class AfmTextAdapter extends BaseTextAdapter<
     super({}, model)
     this.native = config.native ?? (globalThis as { afm?: AfmNative }).afm ?? Afm
     this.guardrails = config.guardrails
+    this.sampling = config.sampling
   }
 
+  private readonly sampling: AfmSampling | undefined
+
   private readonly guardrails: AfmGuardrails | undefined
+
+  /** A request's sampling: its own, else the adapter's (left out: Apple's default). */
+  private samplingOf(options: TextOptions<AfmTextModelOptions>) {
+    return options.modelOptions?.sampling ?? this.sampling
+  }
 
   /** A request's guardrails: its own, else the adapter's (left out: the host's, else Apple's default). */
   private guardrailsOf(options: TextOptions<AfmTextModelOptions>) {
@@ -442,6 +458,7 @@ export class AfmTextAdapter extends BaseTextAdapter<
           options: {
             ...(temperature !== undefined && { temperature }),
             ...(maximumResponseTokens !== undefined && { maximumResponseTokens }),
+            ...(this.samplingOf(options) && { sampling: this.samplingOf(options) }),
             ...(toolCallingModeOf(options) && { toolCallingMode: toolCallingModeOf(options) })
           }
         })
@@ -632,7 +649,8 @@ export class AfmTextAdapter extends BaseTextAdapter<
         schema: toNativeSchema(outputSchema, "Answer"),
         options: {
           ...(temperature !== undefined && { temperature }),
-          ...(maximumResponseTokens !== undefined && { maximumResponseTokens })
+          ...(maximumResponseTokens !== undefined && { maximumResponseTokens }),
+          ...(this.samplingOf(chatOptions) && { sampling: this.samplingOf(chatOptions) })
         }
       })
       for (;;) {

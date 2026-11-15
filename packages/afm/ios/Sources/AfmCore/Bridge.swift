@@ -107,6 +107,7 @@ public final class AfmBridge: @unchecked Sendable {
         let state = try session(options)
         let settings = options["options"] as? [String: Any] ?? [:]
         var generation = GenerationOptions(
+            samplingMode: BridgeSession.sampling(settings["sampling"]),
             temperature: (settings["temperature"] as? NSNumber)?.doubleValue,
             maximumResponseTokens: (settings["maximumResponseTokens"] as? NSNumber)?.intValue
         )
@@ -188,6 +189,17 @@ final class BridgeSession: @unchecked Sendable {
             answered = []
             task = Task { [self] in await run(prompt, options, schema) }
         }
+    }
+
+    /// How a response picks its tokens: "greedy" (always the likeliest), `{ topK, seed? }`
+    /// or `{ topP, seed? }` (random among the likeliest). Left out, the framework's default.
+    static func sampling(_ value: Any?) -> GenerationOptions.SamplingMode? {
+        if (value as? String) == "greedy" { return .greedy }
+        guard let spec = value as? [String: Any] else { return nil }
+        let seed = (spec["seed"] as? NSNumber)?.uint64Value
+        if let k = (spec["topK"] as? NSNumber)?.intValue { return .random(top: k, seed: seed) }
+        if let p = (spec["topP"] as? NSNumber)?.doubleValue { return .random(probabilityThreshold: p, seed: seed) }
+        return nil
     }
 
     /// What a prompt adds to ask for a schema's answer as text: a JSON value (an object,
