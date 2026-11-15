@@ -16,6 +16,8 @@
  * the model leave out (one that may be null, which the framework makes
  * optional) as null.
  */
+import { schemaErrors } from "./validate.js"
+
 type Json = Record<string, unknown>
 
 const isObject = (value: unknown): value is Json => typeof value === "object" && value !== null && !Array.isArray(value)
@@ -91,9 +93,11 @@ export function orderedForm(schema: unknown): OrderedForm {
           .filter(([key]) => ROOT_KEYS.has(key))
           .map(([key, v]) => [key, SCHEMA_MAPS.has(key) && isObject(v) ? Object.fromEntries(Object.entries(v).map(([name, sub]) => [name, transform(sub)])) : v])
       )
+      // One that may be null still may: an array or null.
+      const orNull = Array.isArray(value.type) && value.type.includes("null")
       return {
         ...kept,
-        type: "array",
+        type: orNull ? ["array", "null"] : "array",
         description: `${said}One item for each key, in this order: ${keys.join(", ")}.`,
         items: {
           type: "object",
@@ -129,6 +133,12 @@ export function orderedForm(schema: unknown): OrderedForm {
     return match && isObject(defs) ? defs[decodeURIComponent(match[2])] : undefined
   }
 
+  /** A schema with its $refs followed. */
+  const follow = (s: unknown): unknown => {
+    for (let i = 0; i < 16 && isObject(s) && typeof s.$ref === "string"; i++) s = resolve(s.$ref)
+    return s
+  }
+
   /** `value`, written for schema `s` of the transformed schema, in the caller's shape. */
   const restore = (s: unknown, value: unknown, seen = 0): unknown => {
     if (!isObject(s) || seen > 64) return value
@@ -136,17 +146,34 @@ export function orderedForm(schema: unknown): OrderedForm {
     const keys = s[KEYS]
     if (Array.isArray(keys) && Array.isArray(value)) {
       const item = isObject(s.items) && isObject(s.items.properties) ? s.items.properties.value : undefined
+      // A value that may be null, which the framework let the model leave out of its entry.
+      const orNull = nullable(follow(item))
       const object: Json = {}
       // The caller's order, whatever order the items came in.
       const byKey = new Map<unknown, unknown>()
-      for (const entry of value) if (isObject(entry) && !byKey.has(entry.key)) byKey.set(entry.key, entry.value)
+      for (const entry of value) {
+        if (!isObject(entry) || byKey.has(entry.key)) continue
+        if (Object.hasOwn(entry, "value")) byKey.set(entry.key, entry.value)
+        else if (orNull) byKey.set(entry.key, null)
+      }
       for (const key of keys) if (byKey.has(key)) object[key as string] = restore(item, byKey.get(key), seen)
       return object
     }
     const variants = s.anyOf ?? s.oneOf
     if (Array.isArray(variants)) {
-      // The choice the value has the shape of: an array choice for an array, an object choice for an object.
-      const choice = variants.find((v) => isObject(v) && shapeOf(v, resolve) === shapeOf(value))
+      // The choice the value fits: its keys and values, not only its shape (two
+      // objects of uniform properties are both arrays). Of those of its shape,
+      // the one it fits best, the first among equals.
+      const shaped = variants.filter((v) => isObject(v) && shapeOf(v, resolve) === shapeOf(value))
+      let choice: unknown
+      let fewest = Infinity
+      for (const v of shaped) {
+        const misfits = schemaErrors({ ...(v as Json), $defs: root.$defs, definitions: root.definitions }, value).length
+        if (misfits < fewest) {
+          fewest = misfits
+          choice = v
+        }
+      }
       if (choice) return restore(choice, value, seen)
     }
     if (isObject(value) && isObject(s.properties)) {

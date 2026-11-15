@@ -116,21 +116,25 @@ export function toNativeSchema(schema: unknown, name: string): NativeGenerationS
       case "array": {
         // A tuple (prefixItems, or items as a list): the framework has no
         // positions, so its items are any of the positions' schemas (and the
-        // rest's, if more may follow), as many as it has unless more may
-        // follow. Which goes where is checked once the answer is in.
+        // rest's, if a schema is given for them). Its length is what the
+        // schema says, no more: prefixItems describes positions, it doesn't
+        // require them (minItems does), and more may follow unless the rest
+        // is false (then no more than the positions). Which goes where is
+        // checked once the answer is in.
         const prefix = Array.isArray(value.prefixItems) ? value.prefixItems : Array.isArray(value.items) ? value.items : undefined
         if (prefix && prefix.length > 0) {
           const rest = Array.isArray(value.items) ? value.additionalItems : value.items
-          const more = rest !== undefined && rest !== false
+          const closed = rest === false
           const members: Array<unknown> = []
-          for (const member of more ? [...prefix, rest] : prefix) {
+          for (const member of isObject(rest) ? [...prefix, rest] : prefix) {
             if (!members.some((m) => JSON.stringify(m) === JSON.stringify(member))) members.push(member)
           }
+          const most = number(value.maxItems)
           return defined({
             kind: "array" as const,
             items: convert(members.length === 1 ? members[0] : { anyOf: members }, `${path}_item`),
-            minimumElements: number(value.minItems) ?? prefix.length,
-            maximumElements: more ? number(value.maxItems) : Math.min(number(value.maxItems) ?? prefix.length, prefix.length)
+            minimumElements: number(value.minItems),
+            maximumElements: closed ? Math.min(most ?? prefix.length, prefix.length) : most
           })
         }
         return defined({

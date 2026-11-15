@@ -34,16 +34,22 @@ export function whitespaceRun() {
 }
 
 /**
- * A cap on the tokens a reply writes, which the Prompt API has no option for:
- * `count` measures text in the session's tokens, and runs only once the text
- * could have reached the cap (a token is at least one character), so a short
- * reply measures nothing.
+ * A cap on the tokens a reply writes, which the Prompt API has no option for.
+ * `count` is the session's measure (`measureContextUsage`), which counts a
+ * message's control tokens too: what it gives an empty text is taken off, as
+ * the usage report does. Measuring starts only once the reply could have
+ * reached the cap: a token is at least one byte of UTF-8 (byte-level and
+ * byte-fallback tokenizers never split a byte), so a reply of fewer bytes
+ * than the cap has fewer tokens.
  */
 export function tokenCap(max: number | undefined, count: (text: string) => Promise<number>) {
+  let empty: Promise<number> | undefined
+  const encoder = new TextEncoder()
   return {
     async reached(written: string) {
-      if (max === undefined || written.length < max) return false
-      return (await count(written)) >= max
+      if (max === undefined || encoder.encode(written).length < max) return false
+      empty ??= count("")
+      return (await count(written)) - (await empty) >= max
     }
   }
 }

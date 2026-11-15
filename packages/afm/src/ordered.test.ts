@@ -107,3 +107,38 @@ test("uniform objects in $defs are transformed where they're defined, and restor
   assert.equal(((form.schema as Record<string, Record<string, Record<string, unknown>>>).$defs.Point).type, "array")
   assert.deepEqual(form.restore({ point: [{ key: "x", value: 1 }, { key: "y", value: 2 }] }), { point: { x: 1, y: 2 } })
 })
+
+test("a union of uniform objects restores through the branch the answer fits, not the first array", () => {
+  const point = { type: "object", properties: { x: { type: "number" }, y: { type: "number" } }, required: ["x", "y"] }
+  const size = { type: "object", properties: { width: { type: "number" }, height: { type: "number" } }, required: ["width", "height"] }
+  const form = orderedForm({ type: "object", properties: { shape: { anyOf: [point, size] } }, required: ["shape"] })
+  assert.deepEqual(form.restore({ shape: [{ key: "width", value: 3 }, { key: "height", value: 4 }] }), { shape: { width: 3, height: 4 } })
+  assert.deepEqual(form.restore({ shape: [{ key: "y", value: 2 }, { key: "x", value: 1 }] }), { shape: { x: 1, y: 2 } })
+})
+
+test("an entry whose value may be null, left out by the framework, restores as null", () => {
+  const form = orderedForm({
+    type: "object",
+    properties: { a: { $ref: "#/$defs/Maybe" }, b: { $ref: "#/$defs/Maybe" } },
+    required: ["a", "b"],
+    $defs: { Maybe: { type: ["integer", "null"] } }
+  })
+  assert.deepEqual(form.restore([{ key: "a" }, { key: "b", value: 2 }]), { a: null, b: 2 })
+  // A value that may not be null stays left out: the schema check then says so.
+  const strict = orderedForm({ type: "object", properties: { a: { type: "integer" }, b: { type: "integer" } }, required: ["a", "b"] })
+  assert.deepEqual(strict.restore([{ key: "a" }, { key: "b", value: 2 }]), { b: 2 })
+})
+
+test("a uniform object that may be null becomes an array that may be null: the framework keeps it optional", () => {
+  const form = orderedForm({
+    type: "object",
+    properties: { size: { type: ["object", "null"], properties: { w: { type: "number" }, h: { type: "number" } }, required: ["w", "h"] } },
+    required: ["size"]
+  })
+  const size = (form.schema as { properties: Record<string, Record<string, unknown>> }).properties.size
+  assert.deepEqual(size.type, ["array", "null"])
+  const { root } = toNativeSchema(form.schema, "Answer")
+  assert.ok(root.kind === "object" && root.properties[0].optional === true)
+  assert.deepEqual(form.restore({ size: null }), { size: null })
+  assert.deepEqual(form.restore({}), { size: null })
+})
