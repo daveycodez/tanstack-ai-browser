@@ -32,6 +32,23 @@ function nullable(schema: unknown): boolean {
 
 const number = (value: unknown) => (typeof value === "number" && Number.isFinite(value) ? value : undefined)
 
+/** A choice's string constants, when every branch is one (a const, or an enum of one string); else undefined. */
+function constantChoices(choices: Array<unknown>): Array<string> | undefined {
+  if (choices.length < 2) return undefined
+  const values: Array<string> = []
+  for (const choice of choices) {
+    if (!isObject(choice)) return undefined
+    if (typeof choice.const === "string") values.push(choice.const)
+    else if (Array.isArray(choice.enum) && choice.enum.length === 1 && typeof choice.enum[0] === "string") values.push(choice.enum[0])
+    else return undefined
+  }
+  return values
+}
+
+/** A description, and what a choice's values say, together. */
+const describe = (own: string | undefined, notes: string | undefined) =>
+  own && notes ? `${own.trim()} One of: ${notes}.` : notes ? `One of: ${notes}.` : own
+
 /** A schema's name for the framework: letters, digits and underscores. */
 const typeName = (name: string) => name.replace(/[^A-Za-z0-9_]/g, "_") || "Value"
 
@@ -43,6 +60,33 @@ export function toNativeSchema(schema: unknown, name: string): NativeGenerationS
   const json = isObject(schema) ? schema : {}
   const defs: Json = { ...(isObject(json.definitions) ? json.definitions : {}), ...(isObject(json.$defs) ? json.$defs : {}) }
   const definitions = new Map<string, NativeSchema>()
+
+  /** A schema with its local $refs followed. */
+  const follow = (value: unknown): unknown => {
+    for (let i = 0; i < 16 && isObject(value) && typeof value.$ref === "string"; i++) value = defs[value.$ref.split("/").at(-1) ?? ""]
+    return value
+  }
+
+  /**
+   * What a choice of described constants says of each value, for the
+   * property holding it: "cost: what the card costs; color: …". Only
+   * Apple's model reads it, in its schema: other models' prompts don't grow.
+   * Undefined for any other schema, or constants without descriptions.
+   */
+  const valueNotes = (property: unknown): string | undefined => {
+    const target = follow(property)
+    if (!isObject(target)) return undefined
+    const variants = target.oneOf ?? target.anyOf
+    if (!Array.isArray(variants)) return undefined
+    const choices = variants.filter((v) => !isNull(v)).map(follow)
+    if (!constantChoices(choices) || !choices.some((c) => isObject(c) && typeof c.description === "string")) return undefined
+    return choices
+      .map((c) => {
+        const choice = c as Json
+        return typeof choice.description === "string" && choice.description.trim() ? `${choice.const as string}: ${choice.description.trim()}` : (choice.const as string)
+      })
+      .join("; ")
+  }
 
   const convert = (value: unknown, path: string): NativeSchema => {
     if (!isObject(value)) return { kind: "string" }
@@ -83,6 +127,11 @@ export function toNativeSchema(schema: unknown, name: string): NativeGenerationS
     const variants = value.anyOf ?? value.oneOf
     if (Array.isArray(variants)) {
       const choices = variants.filter((v) => !isNull(v))
+      // A choice of string constants (each with its description, say): the
+      // framework's enum, written the same as `enum`. Their descriptions go
+      // into the property's (see valueNotes).
+      const constants = constantChoices(choices)
+      if (constants) return { kind: "string", choices: constants }
       if (choices.length === 1) return convert({ ...choices[0], description: value.description ?? choices[0].description }, path)
       if (choices.length > 1) {
         return defined({
@@ -101,7 +150,7 @@ export function toNativeSchema(schema: unknown, name: string): NativeGenerationS
         const properties = Object.entries(isObject(value.properties) ? value.properties : {}).map(([key, property]) =>
           defined({
             name: key,
-            description: isObject(property) && typeof property.description === "string" ? property.description : undefined,
+            description: describe(isObject(property) && typeof property.description === "string" ? property.description : undefined, valueNotes(property)),
             optional: !required.includes(key) || nullable(property),
             schema: convert(property, `${path}_${key}`)
           })
