@@ -50,16 +50,17 @@ export type NativeMessage =
   | { role: "tool"; toolCallId: string; name: string; text: string }
 
 /**
- * A response's tokens, over every pass of the model (a tool call's too).
- * `cachedTokens` is there only where the framework counts it right: for a
- * session without tools.
+ * The tokens of one pass of the model: a `toolCalls` event's for the pass that
+ * made the calls, `done`'s for the last. `cachedTokens` only where it's known:
+ * Apple's count without tools; with them, 0 for a session's first response, and
+ * the previous pass's input and output for a pass after a tool's results.
  */
 export type NativeUsage = { inputTokens: number; cachedTokens?: number; outputTokens: number }
 
 /** What a session sends while it responds, for the `turn` of the `respond` call. */
 export type NativeEvent = { sessionId: string; turn: number } & (
   | { type: "delta"; text: string }
-  | { type: "toolCalls"; calls: Array<{ id: string; name: string; arguments: string }> }
+  | { type: "toolCalls"; calls: Array<{ id: string; name: string; arguments: string }>; usage?: NativeUsage }
   /** `asText`: a schema's answer written as text (permissive guardrails' fallback), not held to the schema. */
   | { type: "done"; text: string; usage?: NativeUsage; asText?: boolean }
   | { type: "error"; code: string; message: string }

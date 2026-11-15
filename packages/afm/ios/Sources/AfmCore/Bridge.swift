@@ -14,10 +14,12 @@ import FoundationModels
 ///
 /// Events, each with the `sessionId` and the `turn` of the `respond` call:
 /// - `{ type: "delta", text }`: more of the response.
-/// - `{ type: "toolCalls", calls: [{ id, name, arguments }] }`: `arguments` in JSON.
-/// - `{ type: "done", text, usage, asText }`: the response, and its tokens (iOS/macOS 27):
-///   `inputTokens` and `outputTokens` over every pass of the model (a tool call's
-///   too), and `cachedTokens` only for a session without tools (see `usage()`).
+/// - `{ type: "toolCalls", calls: [{ id, name, arguments }], usage }`: `arguments` in
+///   JSON, and the tokens of the pass of the model that made the calls (see `done`).
+/// - `{ type: "done", text, usage, asText }`: the response, and the tokens of its
+///   last pass of the model (iOS/macOS 27; a response that called tools made one pass
+///   per batch of calls, then the answer's): `inputTokens`, `outputTokens`, and
+///   `cachedTokens` where it's known (see `passCached`).
 ///   `asText` when a schema's answer was written as text (a permissive session's
 ///   fallback, see `run`): not held to the schema, so the caller checks it.
 /// - `{ type: "error", code, message }`.
@@ -171,6 +173,18 @@ final class BridgeSession: @unchecked Sendable {
     private var turn = 0
     private var waiting: [Call] = []
     private var answered: Set<String> = []
+    /// The session's tokens when the current pass of the model began (see `usage()`).
+    private var passStart: (input: Int, cached: Int, output: Int)?
+    /// The current pass's cached tokens, where they're known. Apple's count is right
+    /// without tools, and wrong with them (see `usage()`), where they're worked out:
+    /// a session's first response reads everything (0), and a pass after a tool's
+    /// result reads only what's new since the last pass, as the session keeps its
+    /// cache while a tool runs (an 8 s tool left the next pass no slower). A later
+    /// response's first pass isn't known: the framework seems to keep a cache for its
+    /// latest session only, so another session's response in between may have dropped it.
+    private var passCached: Int?
+    /// No response yet: the first one's first pass reads everything.
+    private var fresh = true
 
     private struct Call {
         let id: String
@@ -214,6 +228,11 @@ final class BridgeSession: @unchecked Sendable {
 
     private func run(_ prompt: String, _ options: GenerationOptions, _ schema: GenerationSchema?, _ includeSchemaInPrompt: Bool) async {
         let before = usage()
+        lock.withLock {
+            passStart = before
+            passCached = fresh ? 0 : nil
+            fresh = false
+        }
         var text = ""
         var asText = false
         do {
@@ -241,14 +260,7 @@ final class BridgeSession: @unchecked Sendable {
             try Task.checkCancellation()
             var done: [String: Any] = ["type": "done", "text": text]
             if asText { done["asText"] = true }
-            if let before, let after = usage() {
-                var usage: [String: Any] = [
-                    "inputTokens": after.input - before.input,
-                    "outputTokens": after.output - before.output
-                ]
-                if !hasTools { usage["cachedTokens"] = after.cached - before.cached }
-                done["usage"] = usage
-            }
+            if let pass = lock.withLock({ passUsage() }) { done["usage"] = pass.usage }
             send(done)
         } catch is CancellationError {
             send(["type": "error", "code": "cancelled", "message": "The response was stopped"])
@@ -287,12 +299,32 @@ final class BridgeSession: @unchecked Sendable {
         }
     }
 
-    /// Sends the waiting calls not sent yet. Called holding the lock.
+    /// Sends the waiting calls not sent yet, with the tokens of the pass that made
+    /// them; the next pass starts. Called holding the lock.
     private func reportWaiting() {
         let calls = waiting.indices.filter { !waiting[$0].reported }
         guard !calls.isEmpty else { return }
         for index in calls { waiting[index].reported = true }
-        send(["type": "toolCalls", "calls": calls.map { ["id": waiting[$0].id, "name": waiting[$0].name, "arguments": waiting[$0].arguments] }])
+        var event: [String: Any] = ["type": "toolCalls", "calls": calls.map { ["id": waiting[$0].id, "name": waiting[$0].name, "arguments": waiting[$0].arguments] }]
+        if let pass = passUsage() {
+            event["usage"] = pass.usage
+            // The next pass reads the results: what the session holds now is cached.
+            passStart = pass.now
+            passCached = pass.input + pass.output
+        }
+        send(event)
+    }
+
+    /// The current pass's tokens so far, as an event's `usage`, and the session's
+    /// totals now. Called holding the lock.
+    private func passUsage() -> (usage: [String: Any], input: Int, output: Int, now: (input: Int, cached: Int, output: Int))? {
+        guard let start = passStart, let now = usage() else { return nil }
+        let input = now.input - start.input, output = now.output - start.output
+        var usage: [String: Any] = ["inputTokens": input, "outputTokens": output]
+        // Without tools Apple's own count is right; with them, the one worked out (see passCached).
+        let cached = hasTools ? passCached : now.cached - start.cached
+        if let cached { usage["cachedTokens"] = min(cached, input) }
+        return (usage, input, output, now)
     }
 
     func resolve(callId: String, output: String) throws {

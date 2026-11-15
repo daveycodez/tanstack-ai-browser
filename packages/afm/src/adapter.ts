@@ -532,7 +532,9 @@ export class AfmTextAdapter extends BaseTextAdapter<
           paused = true
           // A session no thread keeps is still found by the step with the results.
           if (!step.kept) this.paused.set(step.key, thread)
-          yield { type: EventType.RUN_FINISHED, runId, threadId, model, timestamp: timestamp(), finishReason: "tool_calls" }
+          // The tokens of the pass that made the calls (the next step's pass reads their results).
+          const usage = usageOf(event.usage)
+          yield { type: EventType.RUN_FINISHED, runId, threadId, model, timestamp: timestamp(), finishReason: "tool_calls", ...(usage && { usage }) }
           return
         } else if (event.type === "done") {
           // Any of the response not sent as deltas.
