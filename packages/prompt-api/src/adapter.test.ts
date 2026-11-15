@@ -663,18 +663,20 @@ test("whitespace inside a string, and JSON's ordinary spacing, aren't a runaway"
   assert.equal(control.prompts.length, 1)
 })
 
-test("maxOutputTokens stops a reply at that many tokens (the session's count), finishing with length", async () => {
+test("maxOutputTokens stops a reply at that many streamed pieces (a token each), finishing with length", async () => {
   control.pieces = Array.from({ length: 40 }, () => "word ")
   const events: Array<Chunk> = []
   for await (const event of promptApiText("text").chatStream(chatOptions({ modelOptions: { maxOutputTokens: 30 } }))) events.push(event as Chunk)
   const finished = events.find((e) => e.type === "RUN_FINISHED") as Chunk & { finishReason?: string }
   assert.equal(finished.finishReason, "length")
   assert.ok(control.written < 40, `${control.written} pieces read`)
-  // A short reply measures nothing for the cap: only the usage's own measures.
+  assert.equal(events.filter((e) => e.type === "TEXT_MESSAGE_CONTENT").length, 30, "stopped at the 30th piece")
+  // The cap never measures mid-reply (Chrome would wait for the reply to end): only the usage's own measures.
   control.measures = []
-  control.pieces = ["Hi"]
+  control.written = 0
+  control.pieces = Array.from({ length: 40 }, () => "word ")
   for await (const _ of promptApiText("text", { maxOutputTokens: 30 }).chatStream(chatOptions({ threadId: "short" }))) void _
-  assert.equal(control.measures.filter((m) => m.input === "Hi").length, 1, "the usage's measure only")
+  assert.equal(control.measures.length, 3, "the usage's three measures, after the reply")
 })
 
 test("maxOutputTokens cuts a structured answer off with code length; the adapter's applies to every call", async () => {

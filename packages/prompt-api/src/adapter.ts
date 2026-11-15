@@ -89,8 +89,8 @@ export type PromptApiTextModelOptions = {
   omitResponseConstraintInput?: boolean
   /**
    * Most tokens this reply may write (or the adapter's `maxOutputTokens`): the
-   * Prompt API has no cap, so the adapter stops the reply once it has written
-   * this many, counted in the session's tokens. A reply stopped there finishes
+   * Prompt API has no cap, so the adapter stops the reply once it has
+   * streamed this many pieces (a token each in Chrome 157, and at least one). A reply stopped there finishes
    * with "length"; a structured answer fails with code "length".
    */
   maxOutputTokens?: number
@@ -417,14 +417,14 @@ export class PromptApiTextAdapter extends BaseTextAdapter<
     const stop = new AbortController()
     const generation = signal ? AbortSignal.any([signal, stop.signal]) : stop.signal
     const whitespace = whitespaceRun()
-    const cap = tokenCap(max, (text) => session.measureContextUsage(text))
+    const cap = tokenCap(max)
     let text = ""
     let stopped: "runaway" | "length" | undefined
     try {
       for await (const piece of session.promptStreaming(input, { ...constraint, signal: generation })) {
         text += piece
         if (whitespace.push(piece) > RUNAWAY_WHITESPACE) stopped = "runaway"
-        else if (await cap.reached(text)) stopped = "length"
+        else if (cap.reached()) stopped = "length"
         if (stopped) {
           stop.abort()
           break
@@ -472,7 +472,7 @@ export class PromptApiTextAdapter extends BaseTextAdapter<
       // What the session holds before this prompt, and all the model writes (a tool call's text too).
       const held = session.contextUsage
       let written = ""
-      const cap = tokenCap(this.capOf(options), (text) => session.measureContextUsage(text))
+      const cap = tokenCap(this.capOf(options))
       let capped = false
       try {
         for await (const piece of session.promptStreaming(input, { signal: generation })) {
@@ -482,7 +482,7 @@ export class PromptApiTextAdapter extends BaseTextAdapter<
             stop.abort()
             break
           }
-          if (await cap.reached(written)) {
+          if (cap.reached()) {
             capped = true
             stop.abort()
             break

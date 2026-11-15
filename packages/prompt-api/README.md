@@ -92,7 +92,7 @@ JSON allows any whitespace between its tokens. So when the schema forbids what t
 
 ### An output cap
 
-The Prompt API has no cap on a reply's length. `maxOutputTokens` (the adapter's, for every call, or a call's `modelOptions`) stops a reply once it has written that many tokens, counted with the session's own measure (less the control tokens it counts around any message, as usage does). A reply stopped there finishes with `finishReason: "length"`; a structured answer, whose JSON is then cut short, fails with the code `length`.
+The Prompt API has no cap on a reply's length. `maxOutputTokens` (the adapter's, for every call, or a call's `modelOptions`) stops a reply once it has streamed that many pieces: a token each in Chrome 157, and never less than one, so a reply never stops before the cap. (The session's own count can't be used mid-reply: Chrome runs one model call at a time, so a count waits for the reply to end.) A reply stopped there finishes with `finishReason: "length"`; a structured answer, whose JSON is then cut short, fails with the code `length`.
 
 ```ts
 const adapter = promptApiText({ maxOutputTokens: 512 }) // every call

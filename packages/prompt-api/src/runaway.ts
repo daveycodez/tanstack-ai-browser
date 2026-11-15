@@ -34,22 +34,20 @@ export function whitespaceRun() {
 }
 
 /**
- * A cap on the tokens a reply writes, which the Prompt API has no option for.
- * `count` is the session's measure (`measureContextUsage`), which counts a
- * message's control tokens too: what it gives an empty text is taken off, as
- * the usage report does. Measuring starts only once the reply could have
- * reached the cap: a token is at least one byte of UTF-8 (byte-level and
- * byte-fallback tokenizers never split a byte), so a reply of fewer bytes
- * than the cap has fewer tokens.
+ * A cap on the tokens a reply writes, which the Prompt API has no option for,
+ * counted as the pieces Chrome streams: one token each in Chrome 157, and at
+ * least one in any, so the count never stops a reply early. The session's own
+ * measure (`measureContextUsage`) can't count mid-reply: Chrome runs one model
+ * call at a time, so a measure waits for the reply to end (34.8 s, measured
+ * after 41 characters of a long story), on any session.
  */
-export function tokenCap(max: number | undefined, count: (text: string) => Promise<number>) {
-  let empty: Promise<number> | undefined
-  const encoder = new TextEncoder()
+export function tokenCap(max: number | undefined) {
+  let pieces = 0
   return {
-    async reached(written: string) {
-      if (max === undefined || encoder.encode(written).length < max) return false
-      empty ??= count("")
-      return (await count(written)) - (await empty) >= max
+    /** Counts one streamed piece; true once the reply has reached the cap. */
+    reached() {
+      pieces++
+      return max !== undefined && pieces >= max
     }
   }
 }
