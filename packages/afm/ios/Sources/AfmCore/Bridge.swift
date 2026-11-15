@@ -101,8 +101,10 @@ public final class AfmBridge: @unchecked Sendable {
     }
 
     /// Prompts a session (`sessionId`, `prompt`, `turn`, `options`: `temperature`,
-    /// `maximumResponseTokens`). The response comes as events. With a `schema` (as
-    /// tools' parameters take it), the answer is held to it, and `done` has it in JSON.
+    /// `maximumResponseTokens`, `includeSchemaInPrompt`). The response comes as events.
+    /// With a `schema` (as tools' parameters take it), the answer is held to it, and
+    /// `done` has it in JSON; `includeSchemaInPrompt` false leaves the schema out of the
+    /// model's prompt (the framework still holds the answer to it).
     public func respond(_ options: [String: Any]) throws {
         let state = try session(options)
         let settings = options["options"] as? [String: Any] ?? [:]
@@ -121,7 +123,8 @@ public final class AfmBridge: @unchecked Sendable {
             }
         }
         let schema = try options["schema"].map(Schema.generationSchema)
-        try state.respond(prompt: options["prompt"] as? String ?? "", turn: options["turn"] as? Int ?? 0, options: generation, schema: schema)
+        let include = settings["includeSchemaInPrompt"] as? Bool ?? true
+        try state.respond(prompt: options["prompt"] as? String ?? "", turn: options["turn"] as? Int ?? 0, options: generation, schema: schema, includeSchemaInPrompt: include)
     }
 
     /// A tool's result (`sessionId`, `callId`, `output`): the waiting call returns it.
@@ -182,12 +185,12 @@ final class BridgeSession: @unchecked Sendable {
         self.emit = emit
     }
 
-    func respond(prompt: String, turn: Int, options: GenerationOptions, schema: GenerationSchema?) throws {
+    func respond(prompt: String, turn: Int, options: GenerationOptions, schema: GenerationSchema?, includeSchemaInPrompt: Bool = true) throws {
         try lock.withLock {
             guard task == nil else { throw Schema.Unsupported(description: "Session \(id) is responding") }
             self.turn = turn
             answered = []
-            task = Task { [self] in await run(prompt, options, schema) }
+            task = Task { [self] in await run(prompt, options, schema, includeSchemaInPrompt) }
         }
     }
 
@@ -209,14 +212,14 @@ final class BridgeSession: @unchecked Sendable {
         return "\n\nAnswer with only a JSON value, and no other text, that matches this JSON Schema:\n\(json)"
     }
 
-    private func run(_ prompt: String, _ options: GenerationOptions, _ schema: GenerationSchema?) async {
+    private func run(_ prompt: String, _ options: GenerationOptions, _ schema: GenerationSchema?, _ includeSchemaInPrompt: Bool) async {
         let before = usage()
         var text = ""
         var asText = false
         do {
             if let schema {
                 do {
-                    text = try await session.respond(to: prompt, schema: schema, options: options).content.jsonString
+                    text = try await session.respond(to: prompt, schema: schema, includeSchemaInPrompt: includeSchemaInPrompt, options: options).content.jsonString
                 } catch where permissive && Self.code(error) == "guardrailViolation" {
                     // Permissive guardrails cover String responses only: Apple documents that
                     // any other response (a schema's) gets the default guardrails, which block

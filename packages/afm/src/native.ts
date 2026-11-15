@@ -101,6 +101,8 @@ export interface AfmNative {
       toolCallingMode?: "allowed" | "required" | "disallowed"
       /** How the response picks its tokens. Left out, the framework's default. */
       sampling?: AfmSampling
+      /** False: the schema stays out of the model's prompt (the framework still holds the answer to it). */
+      includeSchemaInPrompt?: boolean
     }
     schema?: NativeGenerationSchema
   }): Promise<void>

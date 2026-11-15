@@ -516,3 +516,17 @@ test("a guided answer is checked against the caller's schema too: missing proper
   await assert.rejects(ask('{"cards":[{"job":"pump","cost":1}]}'), (e: Error & { code?: string }) => e.code === "schemaMismatch" && /\/cards: fewer than 3 items/.test(e.message))
   await assert.rejects(ask('{"cards":[{"cost":1},{"job":"a","cost":1},{"job":"b","cost":1}]}'), (e: Error & { code?: string }) => e.code === "schemaMismatch" && /\/cards\/0\/job: missing/.test(e.message))
 })
+
+test("includeSchemaInPrompt false reaches the native response: the adapter's for every call, a request's over it; true by default", async () => {
+  const outputSchema = { type: "object", properties: { city: { type: "string" } }, required: ["city"] }
+  const ask = async (config: Record<string, unknown>, modelOptions?: Record<string, unknown>) => {
+    native = new FakeNative()
+    native.replies = [[{ type: "done", text: '{"city":"Paris"}' }]]
+    await afmText({ native, ...config }).structuredOutput({ chatOptions: chatOptions(modelOptions ? { modelOptions } : {}), outputSchema } as never)
+    return (native.named("respond")[0].options as Record<string, unknown>).includeSchemaInPrompt
+  }
+  assert.equal(await ask({}), undefined, "Apple's default: the schema in the prompt")
+  assert.equal(await ask({ includeSchemaInPrompt: false }), false)
+  assert.equal(await ask({ includeSchemaInPrompt: false }, { includeSchemaInPrompt: true }), undefined)
+  assert.equal(await ask({}, { includeSchemaInPrompt: false }), false)
+})
