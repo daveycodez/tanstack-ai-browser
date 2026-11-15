@@ -22,7 +22,7 @@ import { baseOptions, createSession, DEFAULT_LANGUAGES, MEDIA_INPUTS, promptApiA
 import type { Availability, MediaInput } from "./model.js"
 import type { PromptApiChatModel } from "./model-meta.js"
 import { toolCallReader, toolSystemPrompt } from "./tools.js"
-import type { DownloadProgressCallback, LanguageModelInput, LanguageModelSession, SamplingMode } from "./types.js"
+import type { DownloadProgressCallback, LanguageModelInput, LanguageModelPromptOptions, LanguageModelSession, SamplingMode } from "./types.js"
 
 export type PromptApiConfig = {
   /**
@@ -43,6 +43,18 @@ export type PromptApiConfig = {
    */
   onDownloadProgress?: DownloadProgressCallback
   /**
+   * Leave the JSON schema of structured output (`chat({ outputSchema })`) out
+   * of the model's input. The default for every call (a request's
+   * `modelOptions.omitResponseConstraintInput` overrides it). Off by default: Chrome then writes a description of
+   * the schema into the model's input and also holds the reply to it. On,
+   * Chrome still holds the reply to the schema but doesn't write it into the
+   * input, which saves those tokens on every call, a lot for large schemas or
+   * ones made per message. The model then sees no field names or allowed
+   * values, so the prompt should describe the JSON it expects. Sent only with a
+   * schema; a Chrome that doesn't know the option ignores it.
+   */
+  omitResponseConstraintInput?: boolean
+  /**
    * Called when a thread's session overflows its context window (the
    * session's `contextoverflow` event): Chrome then drops the oldest
    * messages after the system prompt to make room.
@@ -61,6 +73,17 @@ export type PromptApiTextModelOptions = {
   /** Raw sampling, for extensions (web pages ignore it). Chrome refuses it together with `samplingMode`. */
   temperature?: number
   topK?: number
+  /**
+   * This request's: leave the JSON schema of structured output (`chat({ outputSchema })`) out
+   * of the model's input. Off by default (or the adapter's `omitResponseConstraintInput`): Chrome then writes a description of
+   * the schema into the model's input and also holds the reply to it. On,
+   * Chrome still holds the reply to the schema but doesn't write it into the
+   * input, which saves those tokens on every call, a lot for large schemas or
+   * ones made per message. The model then sees no field names or allowed
+   * values, so the prompt should describe the JSON it expects. Sent only with a
+   * schema; a Chrome that doesn't know the option ignores it.
+   */
+  omitResponseConstraintInput?: boolean
 }
 
 type MetadataByModality = {
@@ -152,7 +175,10 @@ export class PromptApiTextAdapter extends BaseTextAdapter<
     this.inputs = config.inputs ?? []
     this.onDownloadProgress = config.onDownloadProgress
     this.onContextOverflow = config.onContextOverflow
+    this.omitResponseConstraintInput = config.omitResponseConstraintInput
   }
+
+  private readonly omitResponseConstraintInput: boolean | undefined
 
   /**
    * The browser's own `LanguageModel.availability()` for this adapter's
@@ -334,11 +360,13 @@ export class PromptApiTextAdapter extends BaseTextAdapter<
     held: number,
     goesOn: boolean,
     input: LanguageModelInput,
-    reply: string
+    reply: string,
+    // The prompt's own options: a schema Chrome writes into the input counts as input.
+    promptOptions?: LanguageModelPromptOptions
   ): Promise<TokenUsage | undefined> {
     try {
       const [read, written, markers] = await Promise.all([
-        session.measureContextUsage(input),
+        session.measureContextUsage(input, promptOptions),
         session.measureContextUsage(reply),
         session.measureContextUsage("")
       ])
@@ -469,8 +497,8 @@ export class PromptApiTextAdapter extends BaseTextAdapter<
   /**
    * A JSON answer for `chat({ outputSchema })`: the thread's session
    * answers the conversation under the Prompt API's `responseConstraint`,
-   * which holds the model to the schema as given. `chat()` validates the
-   * result.
+   * which holds the model to the schema as given (written into its input too,
+   * unless `omitResponseConstraintInput`).
    */
   async structuredOutput(
     options: StructuredOutputOptions<PromptApiTextModelOptions>
@@ -483,10 +511,14 @@ export class PromptApiTextAdapter extends BaseTextAdapter<
       step = await this.begin(chatOptions, signal)
       const { session, kept, keys, input, goesOn } = step
       const held = session.contextUsage
-      const rawText = await session.prompt(input, { responseConstraint: outputSchema, signal })
+      // The schema, and whether Chrome leaves it out of the input: a per-prompt
+      // option, so it never carries over to another call of a kept session.
+      const omit = chatOptions.modelOptions?.omitResponseConstraintInput ?? this.omitResponseConstraintInput
+      const constraint: LanguageModelPromptOptions = { responseConstraint: outputSchema, ...(omit && { omitResponseConstraintInput: true }) }
+      const rawText = await session.prompt(input, { ...constraint, signal })
       if (kept) kept.seen = [...keys, messageKey({ role: "assistant", content: rawText })]
       const data = JSON.parse(rawText) as unknown
-      const usage = await this.usage(session, held, goesOn, input, rawText)
+      const usage = await this.usage(session, held, goesOn, input, rawText, constraint)
       return { data, rawText, model: this.model, ...(usage && { usage }) }
     } catch (error) {
       failed = true
