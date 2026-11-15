@@ -228,6 +228,10 @@ export class WebGllmTextAdapter<TModel extends WebGllmModel> extends OpenAIBaseC
     // A whole completion: no stream.
     delete request.stream
     delete request.stream_options
+    // A forced call ("required", a named tool) renders every tool as "auto" does, so the
+    // prompt is the same without it; with it, webgllm would hold the reply to the call's
+    // schema, which no reply of 0 tokens meets. "none" stays: it renders no tools.
+    if (request.tool_choice !== undefined && request.tool_choice !== "none") delete request.tool_choice
     const reply = await this.engine.webgllm.chat.completions.create(
       { ...request, max_tokens: 0, max_completion_tokens: 0 } as never,
       signal ? { signal } : {}

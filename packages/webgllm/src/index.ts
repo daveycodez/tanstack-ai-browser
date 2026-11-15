@@ -4,7 +4,15 @@
  * The model catalog (model-meta.ts) is exported here too.
  */
 export { webgllmText, WebGllmTextAdapter } from "./adapter.js"
-export type { Availability, DownloadProgressCallback, WebGllmConfig, WebGllmModel, WebGllmTextModelOptions } from "./adapter.js"
+export type {
+  Availability,
+  DownloadProgressCallback,
+  PrefillUsage,
+  WebGllmConfig,
+  WebGllmModel,
+  WebGllmPrefillOptions,
+  WebGllmTextModelOptions
+} from "./adapter.js"
 // webgllm's own worker handler, for a worker of your own (`worker` in the adapter's config).
 export { WebGLLMWorkerHandler } from "webgllm"
 export { WEBGLLM_CHAT_MODELS, WEBGLLM_MODEL_META, WEBGLLM_MODEL_REASONING } from "./catalog.js"

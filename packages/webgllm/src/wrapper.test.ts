@@ -182,3 +182,25 @@ test("structured answers carry webgllm's cached count too, streamed or not", asy
   )) as Array<{ type: string; usage?: { promptTokensDetails?: unknown } }>
   assert.deepEqual(events.find((e) => e.type === "RUN_FINISHED")?.usage?.promptTokensDetails, { cachedTokens: 2349 })
 })
+
+test("prefill with a forced tool choice sends the same prompt as auto, so the engine has no answer to hold to a schema", async () => {
+  const adapter = webgllmText(MODEL)
+  fake.script = () => [chunk({}, "length"), usageChunk({ prompt: 120, completion: 0 })]
+  const tools = [
+    { name: "lookup", description: "Looks a word up", inputSchema: { type: "object", properties: { word: { type: "string" } } } },
+    { name: "define", description: "Defines a word", inputSchema: { type: "object", properties: { word: { type: "string" } } } }
+  ]
+  const bodies: Array<Record<string, unknown>> = []
+  for (const toolChoice of ["required", { type: "function", name: "lookup" }, "auto"] as const) {
+    await adapter.prefill({ systemPrompts: ["Use the tools."], tools, toolChoice } as never)
+    bodies.push(lastBody() as unknown as Record<string, unknown>)
+  }
+  for (const body of bodies) {
+    assert.equal(body.tool_choice, undefined)
+    assert.deepEqual(body.tools, bodies[2]!.tools)
+    assert.deepEqual(body.messages, bodies[2]!.messages)
+  }
+  // "none" renders no tools: kept, as chat() sends it.
+  await adapter.prefill({ systemPrompts: ["Use the tools."], tools, toolChoice: "none" } as never)
+  assert.equal((lastBody() as unknown as Record<string, unknown>).tool_choice, "none")
+})
