@@ -144,3 +144,41 @@ test("usage keeps webgllm's cached count, 0 included (TanStack's conversion leav
     assert.deepEqual(usage.promptTokensDetails, { cachedTokens: cached })
   }
 })
+
+test("prefill sends chat()'s request with nothing generated, and says what was cached", async () => {
+  const adapter = webgllmText(MODEL)
+  fake.script = () => [chunk({}, "length"), usageChunk({ prompt: 2371, completion: 0, cached: 2346 })]
+  const tools = [{ name: "lookup", description: "Looks a word up", inputSchema: { type: "object", properties: { word: { type: "string" } } } }]
+  const prompt = { systemPrompts: ["Plan decks."], messages: [{ role: "user" as const, content: "Water cycle" }], tools, modelOptions: { temperature: 0.2, max_tokens: 64 } }
+  const usage = await adapter.prefill(prompt as never)
+  assert.deepEqual(usage, { promptTokens: 2371, cachedTokens: 2346 })
+  const prefill = lastBody() as unknown as Record<string, unknown>
+  assert.equal(prefill.max_tokens, 0)
+  assert.equal(prefill.max_completion_tokens, 0)
+  assert.equal(prefill.stream, undefined)
+  assert.equal(prefill.stream_options, undefined)
+  // The prompt as chat() writes it: the same messages and tools.
+  fake.script = () => [chunk({ role: "assistant", content: "Hi" }), chunk({}, "stop"), usageChunk()]
+  await collect(adapter.chatStream(textOptions(prompt as never)))
+  const chat = lastBody() as unknown as Record<string, unknown>
+  assert.deepEqual(prefill.messages, chat.messages)
+  assert.deepEqual(prefill.tools, chat.tools)
+  assert.equal(chat.max_tokens, 64)
+  // The model loads first; the signal reaches webgllm.
+  assert.equal(fake.loads[0]?.model, MODEL)
+  const controller = new AbortController()
+  await adapter.prefill({ systemPrompts: ["Plan decks."], signal: controller.signal })
+  assert.equal(fake.requests.at(-1)?.options.signal, controller.signal)
+  assert.deepEqual((lastBody() as unknown as { messages: unknown }).messages, [{ role: "system", content: "Plan decks." }])
+})
+
+test("structured answers carry webgllm's cached count too, streamed or not", async () => {
+  const schema = { type: "object", properties: { title: { type: "string" } }, required: ["title"] }
+  fake.script = () => [chunk({ content: '{"title":"Water"}' }), chunk({}, "stop"), usageChunk({ prompt: 2371, completion: 6, cached: 2349 })]
+  const result = await webgllmText(MODEL).structuredOutput({ chatOptions: textOptions(), outputSchema: schema })
+  assert.deepEqual((result as { usage?: { promptTokensDetails?: unknown } }).usage?.promptTokensDetails, { cachedTokens: 2349 })
+  const events = (await collect(
+    webgllmText(MODEL).structuredOutputStream({ chatOptions: textOptions(), outputSchema: schema })
+  )) as Array<{ type: string; usage?: { promptTokensDetails?: unknown } }>
+  assert.deepEqual(events.find((e) => e.type === "RUN_FINISHED")?.usage?.promptTokensDetails, { cachedTokens: 2349 })
+})
