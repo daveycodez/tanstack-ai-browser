@@ -24,6 +24,8 @@ const isObject = (value: unknown): value is Json => typeof value === "object" &&
 const SCHEMA_MAPS = new Set(["properties", "$defs", "definitions", "patternProperties"])
 const SCHEMA_LISTS = new Set(["anyOf", "oneOf", "allOf", "prefixItems"])
 const SCHEMA_VALUES = new Set(["items", "additionalProperties", "not", "contains"])
+/** What an object schema may hold for the schema as a whole, kept when it becomes an array. */
+const ROOT_KEYS = new Set(["$defs", "definitions", "$schema", "$id", "title"])
 
 /** Where a transformed object's names are kept, on its array schema (Apple's framework ignores it). */
 const KEYS = "x-afm-keys"
@@ -83,7 +85,14 @@ export function orderedForm(schema: unknown): OrderedForm {
       changed = true
       const shared = transform((value.properties as Json)[keys[0]])
       const said = typeof value.description === "string" && value.description.trim() ? `${value.description.trim()} ` : ""
+      // What the object held for the schema as a whole (its definitions, at the root), kept.
+      const kept = Object.fromEntries(
+        Object.entries(value)
+          .filter(([key]) => ROOT_KEYS.has(key))
+          .map(([key, v]) => [key, SCHEMA_MAPS.has(key) && isObject(v) ? Object.fromEntries(Object.entries(v).map(([name, sub]) => [name, transform(sub)])) : v])
+      )
       return {
+        ...kept,
         type: "array",
         description: `${said}One item for each key, in this order: ${keys.join(", ")}.`,
         items: {

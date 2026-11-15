@@ -28,10 +28,19 @@ test("an object of uniform properties becomes an ordered array of key and value,
     required: ["key", "value"],
     additionalProperties: false
   })
-  // Apple's framework gets the array, its count fixed (minimumElements kept: without it the model stopped early).
+  // The root's definitions stay with it: the value's $ref still resolves.
+  assert.deepEqual(schema.$defs, search.$defs)
+  // Apple's framework gets the array, its count fixed (minimumElements kept: without it the model stopped early),
+  // and each value held to the tags.
   const { root } = toNativeSchema(form.schema, "Answer")
   assert.equal(root.kind, "array")
   assert.ok(root.kind === "array" && root.minimumElements === 4 && root.maximumElements === 4)
+  assert.ok(root.kind === "array" && root.items.kind === "object")
+  assert.deepEqual(root.kind === "array" && root.items.kind === "object" && root.items.properties[1], {
+    name: "value",
+    optional: false,
+    schema: { kind: "string", choices: ["cost", "color", "effect", "type"] }
+  })
 })
 
 test("restore rebuilds the caller's object in its own order, whatever order the items came in", () => {
