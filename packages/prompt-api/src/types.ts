@@ -69,6 +69,11 @@ export type LanguageModelPromptOptions = {
   signal?: AbortSignal
   /** A JSON Schema (or RegExp) the reply must match. */
   responseConstraint?: object
+  /**
+   * Don't write `responseConstraint` into the model's input: Chrome still holds
+   * the reply to it, but the model doesn't read it (the prompt should describe
+   * the format then). False by default.
+   */
   omitResponseConstraintInput?: boolean
 }
 

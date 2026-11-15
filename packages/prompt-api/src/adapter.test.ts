@@ -32,7 +32,9 @@ const control = {
   /** Download progress the browser reports on create. */
   progress: [0, 1] as Array<number>,
   /** Sessions made, in order. */
-  sessions: [] as Array<EventTarget>
+  sessions: [] as Array<EventTarget>,
+  /** measureContextUsage()'s calls: the input and the options. */
+  measures: [] as Array<{ input: unknown; options?: Record<string, unknown> }>
 }
 
 class FakeSession extends EventTarget {
@@ -45,7 +47,8 @@ class FakeSession extends EventTarget {
   destroy() {
     control.destroyed++
   }
-  async measureContextUsage(input: unknown) {
+  async measureContextUsage(input: unknown, options?: Record<string, unknown>) {
+    control.measures.push({ input, ...(options && { options }) })
     return JSON.stringify(input).length
   }
   async prompt(input: unknown, options: Record<string, unknown> = {}) {
@@ -95,7 +98,8 @@ beforeEach(() => {
     written: 0,
     destroyed: 0,
     progress: [0, 1],
-    sessions: []
+    sessions: [],
+    measures: []
   })
 })
 
@@ -568,4 +572,67 @@ test("a browser that can't measure reports no usage, and the reply still ends", 
   } finally {
     FakeSession.prototype.measureContextUsage = measure
   }
+})
+
+test("omitResponseConstraintInput: off by default, so prompt() gets the schema and the signal only", async () => {
+  await promptApiText("text").structuredOutput(structured())
+  const { options } = control.prompts[0]
+  assert.equal(options.responseConstraint, schema)
+  assert.equal("omitResponseConstraintInput" in options, false)
+})
+
+test("omitResponseConstraintInput: a request's option, or the adapter's, goes to prompt() next to the schema; a request's false wins", async () => {
+  await promptApiText("text").structuredOutput(structured({ threadId: "a", modelOptions: { omitResponseConstraintInput: true } }))
+  assert.equal(control.prompts.at(-1)?.options.omitResponseConstraintInput, true)
+  const omitting = promptApiText("text", { omitResponseConstraintInput: true })
+  await omitting.structuredOutput(structured({ threadId: "b" }))
+  assert.equal(control.prompts.at(-1)?.options.omitResponseConstraintInput, true)
+  await omitting.structuredOutput(structured({ threadId: "c", modelOptions: { omitResponseConstraintInput: false } }))
+  assert.equal("omitResponseConstraintInput" in (control.prompts.at(-1)?.options ?? {}), false)
+})
+
+test("omitResponseConstraintInput is never sent without a schema", async () => {
+  const adapter = promptApiText("text", { omitResponseConstraintInput: true })
+  for await (const _ of adapter.chatStream(chatOptions({ modelOptions: { omitResponseConstraintInput: true } }))) void _
+  const stream = control.prompts.find((p) => p.kind === "stream")
+  assert.ok(stream)
+  assert.equal("omitResponseConstraintInput" in stream.options, false)
+  assert.equal("responseConstraint" in stream.options, false)
+})
+
+test("omitResponseConstraintInput: streaming structured output sends it like the promise does", async () => {
+  const chunks: Array<Chunk> = []
+  for await (const chunk of chat({
+    adapter: promptApiText("text"),
+    threadId: "streamed",
+    messages: [{ role: "user", content: "Largest city?" }],
+    outputSchema: schema,
+    stream: true,
+    modelOptions: { omitResponseConstraintInput: true }
+  } as never) as unknown as AsyncIterable<Chunk>) chunks.push(chunk)
+  const constrained = control.prompts.find((p) => p.options.responseConstraint)
+  assert.equal(constrained?.options.omitResponseConstraintInput, true)
+  assert.ok(chunks.some((c) => c.type === "CUSTOM"))
+})
+
+test("omitResponseConstraintInput is a prompt's, not the session's: it doesn't carry over to the thread's next prompt", async () => {
+  const adapter = promptApiText("text")
+  await adapter.structuredOutput(structured({ threadId: "kept", modelOptions: { omitResponseConstraintInput: true } }))
+  await adapter.structuredOutput(
+    structured({
+      threadId: "kept",
+      messages: [{ role: "user", content: "Weather in Paris?" }, { role: "assistant", content: '{"city":"Tokyo"}' }, { role: "user", content: "And tomorrow?" }]
+    })
+  )
+  assert.equal(control.prompts.length, 2)
+  assert.equal(control.prompts[0].session, control.prompts[1].session, "the thread keeps its session")
+  assert.equal(control.prompts[0].options.omitResponseConstraintInput, true)
+  assert.equal("omitResponseConstraintInput" in control.prompts[1].options, false)
+})
+
+test("usage measures the input with the prompt's options: a schema Chrome writes into the input counts", async () => {
+  await promptApiText("text").structuredOutput(structured({ modelOptions: { omitResponseConstraintInput: true } }))
+  const measured = control.measures.find((m) => m.options?.responseConstraint)
+  assert.ok(measured, "the input is measured with the schema")
+  assert.equal(measured.options?.omitResponseConstraintInput, true)
 })

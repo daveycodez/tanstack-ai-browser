@@ -84,7 +84,18 @@ In later steps the model sees its earlier calls as the same fences and the resul
 
 ## Structured output
 
-`chat({ outputSchema })` prompts the thread's session once under the Prompt API's `responseConstraint`, with the schema as given; the result is parsed as JSON and `chat()` validates it. A schema Chrome can't enforce fails with Chrome's error.
+`chat({ outputSchema })` prompts the thread's session once under the Prompt API's `responseConstraint`, with the schema as given, which Chrome holds the reply to; the result is parsed as JSON. A schema Chrome can't enforce fails with Chrome's error.
+
+### Leaving the schema out of the input
+
+By default Chrome also writes a description of the schema into the model's input, on every call. `omitResponseConstraintInput: true` leaves it out: Chrome still holds the reply to the schema, but the model doesn't read it. It's off by default.
+
+```ts
+const adapter = promptApiText({ omitResponseConstraintInput: true }) // every call
+chat({ adapter, threadId, messages, outputSchema, modelOptions: { omitResponseConstraintInput: false } }) // this call: back on
+```
+
+Use it for large schemas, or ones made per message (an enum of the user's own words, say), when the prompt already describes the JSON it wants: it saves those tokens on every call. The tradeoff: the model doesn't see the schema's field names or allowed values unless the prompt states them. The option is sent only with a schema, and a Chrome that doesn't know it ignores it. Usage counts what the model reads, so `promptTokens` shows the difference.
 
 ## Images and audio
 
