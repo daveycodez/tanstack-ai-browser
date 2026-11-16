@@ -63,3 +63,25 @@ test("a reply of nothing is not an answer", async () => {
   const answered = await run(adapterOf(() => [text("Hello!")]), ["hello"])
   assert.equal(answered.summary.passed, 1)
 })
+
+test("local weather passes only after the location's result, not on a guessed city", async () => {
+  const guessed = await run(
+    adapterOf(({ messages }) => (messages.some((m) => m.role === "tool") ? [text("It's 61 degrees.")] : [call("w", "get_weather_by_city", { city: "Long Beach" })])),
+    ["weather-here"],
+    { tools: "lofi-agent" }
+  )
+  assert.equal(guessed.summary.passed, 0)
+  const located = await run(
+    adapterOf(({ messages }) => {
+      const results = messages.filter((m) => m.role === "tool").length
+      return results === 0
+        ? [call("l", "get_my_location", {})]
+        : results === 1
+          ? [call("w", "get_weather_by_city", { city: "Long Beach" })]
+          : [text("It's 61 degrees.")]
+    }),
+    ["weather-here"],
+    { tools: "lofi-agent" }
+  )
+  assert.equal(located.summary.passed, 1)
+})

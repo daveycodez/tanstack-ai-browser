@@ -107,7 +107,8 @@ await opened
     const lines = JSON.parse((await evaluate(`JSON.stringify(globalThis.__afmToolTests?.lines.slice(${seen}) ?? [])`)) ?? "[]")
     for (const line of lines) {
       console.log(line)
-      if (line === "ALL DONE" || line.startsWith("ERROR")) process.exit(0)
+      if (line === "ALL DONE") process.exit(0)
+      if (line.startsWith("ERROR")) process.exit(1)
     }
     seen += lines.length
   }

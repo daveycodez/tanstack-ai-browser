@@ -28,7 +28,7 @@ export type WeatherCondition =
 export type WeatherReport = {
   /** The place found, such as "Kyoto, Japan". */
   location: string
-  /** "°C" or "°F", from the browser's region. */
+  /** "°C" or "°F", as the call asked (Celsius by default). */
   unit: string
   windUnit: string
   current: {
@@ -68,16 +68,6 @@ function conditionOf(code: number): [WeatherCondition, string] {
   }
   if (code >= 95) return ["thunderstorm", "Thunderstorm"]
   return ["cloudy", "Cloudy"]
-}
-
-/** Fahrenheit where the browser's region uses it (the US, Liberia, Myanmar). */
-function usesFahrenheit() {
-  try {
-    const region = new Intl.Locale(navigator.language).maximize().region
-    return region === "US" || region === "LR" || region === "MM"
-  } catch {
-    return false
-  }
 }
 
 const round = (value: number) => Math.round(value)
@@ -176,7 +166,8 @@ async function findCity(city: string, signal?: AbortSignal, countryCode?: string
     : (await geocode(city, 1, signal))[0]
   const [first, ...rest] = city.split(",").map((part) => part.trim())
   if (!place && rest.length > 0 && first) {
-    const found = await geocode(first, 10, signal)
+    // With a country, only places there.
+    const found = (await geocode(first, 10, signal)).filter((p) => !country || p.country_code?.toUpperCase() === country)
     const wanted = rest.map((part) => part.toLowerCase())
     const matches = (value: string | undefined) => !!value && wanted.includes(value.toLowerCase())
     place = found.find((p) => matches(p.admin1) || matches(p.country) || matches(p.country_code)) ?? found[0]
@@ -193,7 +184,7 @@ async function findCity(city: string, signal?: AbortSignal, countryCode?: string
   return { latitude: place.latitude, longitude: place.longitude, name }
 }
 
-/** The units asked for: Open-Meteo's names, each left out to use the device's own. */
+/** The units asked for: Open-Meteo's names, each left out for the tool's default (Celsius, km/h). */
 type Units = { temperature?: string; wind?: string }
 
 /** A city's weather now and for the next five days. */
@@ -216,9 +207,9 @@ async function weatherAt(
   signal?: AbortSignal,
   units: Units = {}
 ): Promise<WeatherReport> {
-  // The units asked for, else the device's region's.
-  const fahrenheit = units.temperature ? units.temperature === "fahrenheit" : usesFahrenheit()
-  const wind = units.wind && WIND_UNITS[units.wind] ? units.wind : fahrenheit ? "mph" : "kmh"
+  // The units asked for, else the schema's defaults, as the server applies them.
+  const fahrenheit = units.temperature === "fahrenheit"
+  const wind = units.wind && WIND_UNITS[units.wind] ? units.wind : "kmh"
   const forecasting = getJson<Forecast>(
     `https://api.open-meteo.com/v1/forecast?${new URLSearchParams({
       latitude: String(place.latitude),

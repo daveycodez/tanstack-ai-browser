@@ -123,6 +123,8 @@ type Case = {
   optional?: boolean
   /** What a call to one of `tools` must be given: one such call must pass it. */
   input?: (input: unknown) => boolean
+  /** A tool the model must have called, and had the result of, in an earlier step than that call. */
+  after?: string
   /** A case for one tool list only (see `tools` in runSuite's options). */
   only?: "lofi-agent"
   /**
@@ -153,6 +155,7 @@ const CASES: Array<Case> = [
     prompt: "whats the weather like where i am?",
     history: [],
     tools: ["get_weather_by_city"],
+    after: "get_my_location",
     input: (input) => /long beach/i.test(String((input as { city?: unknown } | null)?.city ?? "")),
     answer: /61/,
     only: "lofi-agent"
@@ -164,6 +167,7 @@ const CASES: Array<Case> = [
     prompt: "whats the weather like where i am?",
     history: [],
     tools: ["get_weather_by_city"],
+    after: "get_my_location",
     input: (input) => /long beach/i.test(String((input as { city?: unknown } | null)?.city ?? "")),
     answer: /61/,
     only: "lofi-agent"
@@ -304,7 +308,8 @@ export async function runSuite(
     if (last?.kind !== "text" || !last.text.trim() || !matches(c, last.text)) return false
     if (!c.tools) return steps.length === 1
     const wanted = (call: Call) => c.tools!.includes(call.name) && (c.input?.(call.input) ?? true)
-    return c.optional || steps.some((reply) => reply.kind === "tool" && reply.calls.some(wanted))
+    const called = (name: string, before: number) => steps.slice(0, before).some((r) => r.kind === "tool" && r.calls.some((call) => call.name === name))
+    return c.optional || steps.some((reply, i) => reply.kind === "tool" && reply.calls.some(wanted) && (!c.after || called(c.after, i)))
   }
 
   const brief = (r: Step) =>
