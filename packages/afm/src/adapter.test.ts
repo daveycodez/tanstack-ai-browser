@@ -115,8 +115,8 @@ test("a reply streams as text from a new session holding the instructions and to
   // With tools, the framework's cached count is wrong, and the bridge sends none.
   assert.equal((chunks.at(-1)?.usage as Record<string, unknown>).promptTokensDetails, undefined)
   const [session] = native.named("createSession")
-  // The system prompt, then when to call tools (the session has one).
-  assert.match(session.instructions as string, /^Be brief\.\n\nMost requests need no tool/)
+  // The system prompt as given: the adapter adds nothing on when to call tools.
+  assert.equal(session.instructions, "Be brief.")
   assert.deepEqual(session.messages, [])
   assert.deepEqual(session.tools, [
     {
