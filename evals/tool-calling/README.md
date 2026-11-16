@@ -2,13 +2,14 @@
 
 One suite for every adapter: seven prompts, each run four times (28 cases), with real MCP servers' tools and no system prompt unless you give one.
 
-- **Tools:** by default (`tools.json`) Exa's `web_search_exa` and `web_fetch_exa`, the MCP Time server's `get_current_time`, `convert_time` and `get_time_ago`, and `calculate`, with their own names, descriptions and schemas. `tools=lofi-agent` offers Lofi Agent's own list instead (`tools-lofi-agent.json`: its time, location and weather tools, then Exa's two). Which wrong tool a small model reaches for changes with the list, so test with the one your app sends.
+- **Tools:** by default (`tools.json`) Exa's `web_search_exa` and `web_fetch_exa`, the MCP Time server's `get_current_time`, `convert_time` and `get_time_ago`, and `calculate`, with their own names, descriptions and schemas. `tools=lofi-agent` offers Lofi Agent's own list instead (`tools-lofi-agent.json`: its time, location and weather tools, then Exa's two, with fixed results as those tools answer). Which wrong tool a small model reaches for changes with the list, so test with the one your app sends.
 - **Prompts** (`suite.ts`):
   - `hello`: a text answer, no call.
   - `story` and `story-after-greeting`: a short story about a space adventure (alone, and after a greeting): a real story (400 characters at least), not a refusal, and no tool call.
   - `world-series` and `world-series-after-story`: "Who won the World Series in 2026?" (alone, and after a story in the chat): a `web_search_exa` call, and an answer naming the winner.
   - `time`: a time-tool call for Tokyo, then the time from its result.
   - `math-after-greeting`: 391 for 17 × 23, from `calculate` or straight away (the call is optional; a wrong number fails).
+  - With `tools=lofi-agent` only, `weather-here` and `weather-here-after-hi`: "whats the weather like where i am?", alone and as a second turn after a "hi" the model answers itself: one `get_weather` call with the city "here", and the temperature from its result.
 - **Tool results:** Exa's tools answer from `exa.json`, not from Exa: its real answer to one search, recorded, and a page for each result in `web_fetch_exa`'s format and length (two as Exa returned them, the rest written in that format), plus Exa's real error for a page it can't read. Every model reads the same results, in the real format, and no run calls Exa. The time tools and the calculator return fixed results in their servers' own shapes.
 - **Steps:** a case runs as `chat()` would run it: each tool call gets its result and the model goes on, until it answers in text (six replies at most). So a search, then a fetch, then the answer passes; a model that never answers, or runs out of context, fails.
 - **Passing:** text where no tool is needed (a call there fails the case at once); where one is, a call to it and a final answer that matches.

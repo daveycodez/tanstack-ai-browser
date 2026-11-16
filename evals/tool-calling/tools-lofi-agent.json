@@ -15,7 +15,7 @@
  },
  {
   "name": "get_current_location",
-  "description": "Get where the user is from their device: the place's name, the nearest city, latitude and longitude. Only for when the user asks about where they are without naming a place, such as \"what's the weather?\": then call this instead of asking for their city, and pass the nearest city to get_weather. When the user names a place, use that place and don't call this. The browser asks the user first.",
+  "description": "Get where the user is from their device: the place's name, the nearest city, latitude and longitude. Only for when the user asks where they are. The browser asks the user first.",
   "inputSchema": {
    "type": "object",
    "properties": {}
@@ -23,13 +23,13 @@
  },
  {
   "name": "get_weather",
-  "description": "Get the current weather and a 5-day forecast for a city. Use this for any question about weather, temperature or rain. For the weather where the user is, when they name no place, call get_current_location first: don't guess a city.",
+  "description": "Get the current weather and a 5-day forecast for a city, or for where the user is. Use this for any question about weather, temperature or rain. When the user names no place, pass \"here\" as the city: don't guess one.",
   "inputSchema": {
    "type": "object",
    "properties": {
     "city": {
      "type": "string",
-     "description": "The city the user named, or the nearest city get_current_location returned."
+     "description": "The city the user named, or \"here\" for where the user is."
     }
    },
    "required": [

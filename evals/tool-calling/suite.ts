@@ -29,7 +29,24 @@ const FIXED: Record<string, string> = {
     time_difference: "+17.0h"
   }),
   get_time_ago: JSON.stringify({ timezone: "Asia/Tokyo", datetime: "2026-11-15T09:52:00+09:00", day_of_week: "Sunday", is_dst: false }),
-  calculate: "391"
+  calculate: "391",
+  // Lofi Agent's own tools, as they answer.
+  // The location tool answers in a sentence (apps/lofi-agent/src/lib/location.ts, describeLocation), the weather tool in JSON.
+  get_current_location:
+    "The user is in Long Beach, California, United States. The nearest city is Long Beach (latitude 33.77, longitude -118.19, time zone America/Los_Angeles). For the weather there, call get_weather with this city.",
+  get_weather: JSON.stringify({
+    location: "Long Beach, California, United States",
+    unit: "°F",
+    windUnit: "mph",
+    current: { temperature: 61, feelsLike: 60, humidity: 78, wind: 5, condition: "partly-cloudy", summary: "Partly cloudy", isDay: true },
+    days: [
+      { date: "2026-11-16", condition: "partly-cloudy", summary: "Partly cloudy", high: 68, low: 56 },
+      { date: "2026-11-17", condition: "cloudy", summary: "Overcast", high: 68, low: 49 },
+      { date: "2026-11-18", condition: "partly-cloudy", summary: "Partly cloudy", high: 67, low: 61 },
+      { date: "2026-11-19", condition: "partly-cloudy", summary: "Partly cloudy", high: 68, low: 62 },
+      { date: "2026-11-20", condition: "cloudy", summary: "Overcast", high: 67, low: 58 }
+    ]
+  })
 }
 
 /** web_search_exa's results as Exa separates them. */
@@ -100,6 +117,15 @@ type Case = {
   history: Array<ModelMessage>
   tools?: Array<string>
   optional?: boolean
+  /** What a call to one of `tools` must be given: one such call must pass it. */
+  input?: (input: unknown) => boolean
+  /** A case for one tool list only (see `tools` in runSuite's options). */
+  only?: "lofi-agent"
+  /**
+   * An earlier turn the model answers itself, in the same conversation,
+   * before `prompt`: a real second turn, not a replayed one.
+   */
+  opening?: string
   answer?: RegExp | ((text: string) => boolean)
 }
 
@@ -114,7 +140,28 @@ const CASES: Array<Case> = [
   { name: "time", prompt: "What time is it in Tokyo?", history: [], tools: ["get_current_time", "convert_time"], answer: /9:52|09:52/ },
   { name: "world-series-after-story", prompt: "Who won the World Series in 2026?", history: TOLD, tools: ["web_search_exa"], answer: WORLD_SERIES },
   // 391, from `calculate` or straight away: the call is optional.
-  { name: "math-after-greeting", prompt: "What's 17 times 23?", history: GREETING, tools: ["calculate"], optional: true, answer: /391/ }
+  { name: "math-after-greeting", prompt: "What's 17 times 23?", history: GREETING, tools: ["calculate"], optional: true, answer: /391/ },
+  // Lofi Agent's tools: the weather where the user is (61°), one get_weather call with the city "here".
+  {
+    name: "weather-here",
+    prompt: "whats the weather like where i am?",
+    history: [],
+    tools: ["get_weather"],
+    input: (input) => /^here$/i.test(String((input as { city?: unknown } | null)?.city ?? "").trim()),
+    answer: /61/,
+    only: "lofi-agent"
+  },
+  // The same as a second turn, after one the model answers itself.
+  {
+    name: "weather-here-after-hi",
+    opening: "hi",
+    prompt: "whats the weather like where i am?",
+    history: [],
+    tools: ["get_weather"],
+    input: (input) => /^here$/i.test(String((input as { city?: unknown } | null)?.city ?? "").trim()),
+    answer: /61/,
+    only: "lofi-agent"
+  }
 ]
 
 /** The adapter's side the suite uses: TanStack's `chatStream`, as `chat()` calls it. */
@@ -148,7 +195,8 @@ export async function runSuite(
 ) {
   const { runs = 4, log, label, stepMs = 120_000, maxSteps = 6, request } = options
   const tools = options.tools === "lofi-agent" ? lofiAgentTools : mcpTools
-  const cases = options.cases ? CASES.filter((c) => options.cases!.includes(c.name)) : CASES
+  const offered = CASES.filter((c) => !c.only || c.only === options.tools)
+  const cases = options.cases ? offered.filter((c) => options.cases!.includes(c.name)) : offered
 
   const step = async (threadId: string, messages: Array<ModelMessage>): Promise<Step> => {
     let text = ""
@@ -172,16 +220,13 @@ export async function runSuite(
     return call ? { kind: "tool", tool: call.name, call, text } : { kind: "text", text }
   }
 
-  /** A case as `chat()` runs it: each tool call gets its result, until the model answers in text. */
-  const once = async (c: Case): Promise<Array<Step>> => {
-    const threadId = `eval${Math.random()}`
-    const messages: Array<ModelMessage> = [...c.history, { role: "user", content: c.prompt }]
+  /** A turn as `chat()` runs it: each tool call gets its result, until the model answers in text. `messages` gains the calls and results. */
+  const turn = async (threadId: string, messages: Array<ModelMessage>, runTools: boolean): Promise<Array<Step>> => {
     const steps: Array<Step> = []
     while (steps.length < maxSteps) {
       const reply = await step(threadId, messages)
       steps.push(reply)
-      // A call where no tool is needed already fails the case: its tool isn't run.
-      if (reply.kind !== "tool" || !c.tools) break
+      if (reply.kind !== "tool" || !runTools) break
       const { id, name, input } = reply.call
       messages.push(
         { role: "assistant", content: reply.text, toolCalls: [{ id, type: "function", function: { name, arguments: JSON.stringify(input ?? {}) } }] },
@@ -191,12 +236,30 @@ export async function runSuite(
     return steps
   }
 
+  /** A case: its opening turn if it has one (the model's own reply stays in the conversation), then its prompt. */
+  const once = async (c: Case): Promise<{ steps: Array<Step>; opening?: Array<Step> }> => {
+    const threadId = `eval${Math.random()}`
+    const messages: Array<ModelMessage> = [...c.history]
+    let opening: Array<Step> | undefined
+    if (c.opening) {
+      messages.push({ role: "user", content: c.opening })
+      opening = await turn(threadId, messages, true)
+      const last = opening.at(-1)
+      // An opening the model couldn't answer ends the case there.
+      if (last?.kind !== "text") return { steps: opening, opening }
+      messages.push({ role: "assistant", content: last.text })
+    }
+    messages.push({ role: "user", content: c.prompt })
+    // A call where no tool is needed already fails the case: its tool isn't run.
+    return { steps: await turn(threadId, messages, !!c.tools), ...(opening && { opening }) }
+  }
+
   const matches = (c: Case, text: string) => (typeof c.answer === "function" ? c.answer(text) : (c.answer?.test(text) ?? true))
   const passes = (c: Case, steps: Array<Step>) => {
     const last = steps.at(-1)
     if (last?.kind !== "text" || !matches(c, last.text)) return false
     if (!c.tools) return steps.length === 1
-    return c.optional || steps.some((reply) => reply.kind === "tool" && c.tools!.includes(reply.tool))
+    return c.optional || steps.some((reply) => reply.kind === "tool" && c.tools!.includes(reply.tool) && (c.input?.(reply.call.input) ?? true))
   }
 
   const brief = (r: Step) => (r.kind === "tool" ? `tool:${r.tool} ${JSON.stringify(r.call.input)}` : `${r.kind}:${r.text.slice(0, 120).replace(/\s+/g, " ")}`)
@@ -207,9 +270,10 @@ export async function runSuite(
   for (let run = 1; run <= runs; run++) {
     for (const c of cases) {
       let steps: Array<Step>
+      let opening: Array<Step> | undefined
       const start = performance.now()
       try {
-        steps = await once(c)
+        ;({ steps, opening } = await once(c))
       } catch (error) {
         steps = [{ kind: "error", text: String((error as Error)?.message ?? error) }]
       }
@@ -223,7 +287,9 @@ export async function runSuite(
         s.passed++
         passed++
       }
-      log(`CASE ${c.name} run ${run}: ${ok ? "PASS" : "FAIL"} ${took.toFixed(1)}s || ${steps.map(brief).join(" || ")}`)
+      // An opening turn's replies come first, marked, before the turn that's scored.
+      const before = opening && opening !== steps ? opening.map((reply) => `opening ${brief(reply)}`) : []
+      log(`CASE ${c.name} run ${run}: ${ok ? "PASS" : "FAIL"} ${took.toFixed(1)}s || ${[...before, ...steps.map(brief)].join(" || ")}`)
     }
   }
   const summary = { model: label, passed, total: runs * cases.length, seconds: Math.round(seconds * 10) / 10, cases: score }
