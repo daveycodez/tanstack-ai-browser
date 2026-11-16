@@ -72,6 +72,10 @@ export function replyStatsMiddleware(record: RecordGeneration): ChatMiddleware {
       const clock = clocks.get(key)
       if (!clock) return
       if (chunk.type === "RUN_FINISHED") {
+        // A reply that pauses for a client tool (the location tool) or an
+        // approval finishes again after the call's own end and its usage:
+        // that pause ends no model call, and would replace the call's counts.
+        if (chunk.outcome?.type === "interrupt") return
         record(ctx.threadId, key, statsFromUsage(undefined, clock))
         return
       }
