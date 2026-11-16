@@ -137,6 +137,8 @@ const WORLD_SERIES = /Brewers/i
 
 const CASES: Array<Case> = [
   { name: "hello", prompt: "Hello", history: [] },
+  // A shorter greeting: small models call tools on it far more than on "Hello".
+  { name: "hi", prompt: "Hi", history: [] },
   { name: "story", prompt: "Write me a short story about a space adventure", history: [], answer: story },
   { name: "story-after-greeting", prompt: "Write me a short story about a space adventure", history: GREETING, answer: story },
   { name: "world-series", prompt: "Who won the World Series in 2026?", history: [], tools: ["web_search_exa"], answer: WORLD_SERIES },
