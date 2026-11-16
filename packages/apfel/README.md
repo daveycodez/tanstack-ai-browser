@@ -2,7 +2,7 @@
 
 A [TanStack AI](https://tanstack.com/ai) adapter for Apple's on-device Foundation Model, served on your Mac by [apfel](https://apfel.franzai.com)'s OpenAI-compatible server. The browser streams straight from apfel.
 
-It's a thin pass-through: TanStack's OpenAI-compatible Chat Completions adapter (`@tanstack/ai-openai/compatible`) pointed at apfel. Tool calls go to apfel as `tools` and come back as apfel parses them; structured output goes as `response_format`, which apfel holds the model to with Apple's guided generation. The adapter adds an availability check and renames `modelOptions` for the request.
+It's a thin pass-through: TanStack's OpenAI-compatible Chat Completions adapter (`@tanstack/ai-openai/compatible`) pointed at apfel. Tool calls go to apfel as `tools` and come back as apfel parses them; structured output goes as `response_format`, which apfel holds the model to with Apple's guided generation. The adapter adds an availability check; `modelOptions` and usage are as TanStack's adapter sends and reports them.
 
 ```sh
 npm install @tanstack-ai-browser/apfel @tanstack/ai
