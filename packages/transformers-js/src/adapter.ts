@@ -219,10 +219,12 @@ export class TransformersJsTextAdapter<TModel extends string> extends BaseTextAd
         choice === "none"
           ? []
           : (options.tools ?? []).filter((tool) => typeof choice !== "object" || tool.name === choice.name)
-      const enableThinking = resolveReasoning(options.reasoning, modelReasoning(model))?.value === "true"
+      // Thinking on or off as asked; not asked, the chat template's own default (LFM3 thinks).
+      const level = resolveReasoning(options.reasoning, modelReasoning(model))?.value
+      const enableThinking = level === undefined ? undefined : level === "true"
       const meta = listed(model)
       const card = (enableThinking && meta?.thinkingSampling) || meta?.sampling
-      const generation = generationOptions(options.modelOptions, card, enableThinking)
+      const generation = generationOptions(options.modelOptions, card, enableThinking === true)
       // Without tools, the reply is all text: nothing is read as a call.
       const reader = tools.length > 0 ? toolCallReader(new Set(tools.map((tool) => tool.name))) : undefined
       const splitter = thinkingSplitter()
@@ -264,7 +266,7 @@ export class TransformersJsTextAdapter<TModel extends string> extends BaseTextAd
           yield { type: EventType.REASONING_MESSAGE_CONTENT, messageId: reasoningId, delta, model, timestamp: timestamp() }
         }
       }
-      let counts: { inputTokens: number; cachedTokens?: number; outputTokens: number } = { inputTokens: 0, outputTokens: 0 }
+      let counts: { inputTokens: number; cachedTokens?: number; outputTokens: number; finishReason: "stop" | "length" } = { inputTokens: 0, outputTokens: 0, finishReason: "stop" }
       const events = client.generate(
         { ...this.settings, ...(vision && { vision }) },
         {
@@ -272,7 +274,7 @@ export class TransformersJsTextAdapter<TModel extends string> extends BaseTextAd
           ...(vision && { images: prompt.images }),
           options: generation,
           ...(tools.length > 0 && { tools: toTemplateTools(tools) }),
-          enableThinking
+          ...(enableThinking !== undefined && { enableThinking })
         },
         { onDownloadProgress: this.onDownloadProgress, signal }
       )
@@ -315,7 +317,7 @@ export class TransformersJsTextAdapter<TModel extends string> extends BaseTextAd
         threadId,
         model,
         timestamp: timestamp(),
-        finishReason: call ? "tool_calls" : counts.outputTokens >= generation.max_new_tokens ? "length" : "stop",
+        finishReason: call ? "tool_calls" : counts.finishReason,
         usage: {
           ...buildBaseUsage({
             promptTokens: counts.inputTokens,
@@ -372,7 +374,7 @@ export class TransformersJsTextAdapter<TModel extends string> extends BaseTextAd
     const { prompt, vision } = this.promptOf(chatOptions)
     const generation = generationOptions(chatOptions.modelOptions, listed(this.model)?.sampling, false)
     let rawText = ""
-    let counts: { inputTokens: number; cachedTokens?: number; outputTokens: number } = { inputTokens: 0, outputTokens: 0 }
+    let counts: { inputTokens: number; cachedTokens?: number; outputTokens: number; finishReason: "stop" | "length" } = { inputTokens: 0, outputTokens: 0, finishReason: "stop" }
     const events = this.client.generate(
       { ...this.settings, ...(vision && { vision }) },
       {
@@ -389,7 +391,7 @@ export class TransformersJsTextAdapter<TModel extends string> extends BaseTextAd
       else rawText += event.text
     }
     signal?.throwIfAborted()
-    if (counts.outputTokens >= generation.max_new_tokens) {
+    if (counts.finishReason === "length") {
       throw Object.assign(new Error(`The structured answer was cut off at max_new_tokens (${generation.max_new_tokens}) before its JSON was complete`), { code: "length" })
     }
     const data = JSON.parse(rawText) as unknown

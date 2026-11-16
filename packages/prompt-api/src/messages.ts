@@ -60,22 +60,22 @@ async function userContent(content: ModelMessage["content"]): Promise<LanguageMo
   )
 }
 
-/** A value without its nulls, which a `tool-response`'s `object` can't hold. */
-function withoutNulls(value: unknown): unknown {
-  if (Array.isArray(value)) return value.filter((item) => item !== null).map(withoutNulls)
-  if (value && typeof value === "object") {
-    return Object.fromEntries(
-      Object.entries(value).flatMap(([key, item]) => (item === null ? [] : [[key, withoutNulls(item)]]))
-    )
-  }
-  return value
+/** Whether a value holds a null anywhere, which a `tool-response`'s `object` can't. */
+function holdsNull(value: unknown): boolean {
+  if (value === null) return true
+  if (value && typeof value === "object") return Object.values(value).some(holdsNull)
+  return false
 }
 
-/** A tool's output as a `tool-response` result: its JSON object (or array) as an object, else its text. */
+/**
+ * A tool's output as a `tool-response` result: its JSON object (or array)
+ * as an object, else its text. JSON with a null in it goes as its text, as
+ * written: dropping the nulls would shift arrays and lose null against absent.
+ */
 function toolResult(content: string): Array<LanguageModelToolResultContent> {
   try {
     const value = JSON.parse(content) as unknown
-    if (value && typeof value === "object") return [{ type: "object", value: withoutNulls(value) }]
+    if (value && typeof value === "object" && !holdsNull(value)) return [{ type: "object", value }]
   } catch {
     // Text.
   }

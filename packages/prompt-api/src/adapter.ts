@@ -132,13 +132,27 @@ type Kept = { session: Promise<LanguageModelSession>; settings: string; seen: Ar
 /** Closes a session once it's made; one that failed to start has nothing to close. */
 const close = (session: Promise<LanguageModelSession>) => void session.then((s) => s.destroy(), () => undefined)
 
+/** A call's arguments as compared: their JSON as parsed, else the text. */
+const argumentsKey = (text: string) => {
+  try {
+    return JSON.stringify(JSON.parse(text))
+  } catch {
+    return text
+  }
+}
+
 /**
  * A message as compared with what a session holds. The model's own replies
- * go by their text alone: the session has them as the model wrote them.
+ * go by their text and their calls (each one's id, name and arguments: a
+ * native call is in the session too, so an edited one isn't what it holds).
  */
 const messageKey = (m: ModelMessage) =>
   m.role === "assistant"
-    ? JSON.stringify(["assistant", contentText(m.content).trim()])
+    ? JSON.stringify([
+        "assistant",
+        contentText(m.content).trim(),
+        (m.toolCalls ?? []).map((call) => [call.id, call.function.name, argumentsKey(call.function.arguments)])
+      ])
     : JSON.stringify([m.role, m.content, m.toolCallId ?? null, m.error ?? null])
 
 /** The tools a step offers: none for `toolChoice: "none"`, only the chosen one for a named choice. */
@@ -566,7 +580,10 @@ export class PromptApiTextAdapter extends BaseTextAdapter<
       // A finished reply is in the session now, a native call included. One
       // stopped at a call by prompt isn't: Chrome drops a stopped turn whole,
       // so the next step sends it.
-      if (kept && !stop.signal.aborted) kept.seen = [...keys, messageKey({ role: "assistant", content: text })]
+      if (kept && !stop.signal.aborted) {
+        const toolCalls = calls.map((call) => ({ id: call.id, type: "function" as const, function: { name: call.name, arguments: JSON.stringify(call.arguments) } }))
+        kept.seen = [...keys, messageKey({ role: "assistant", content: text, ...(toolCalls.length && { toolCalls }) })]
+      }
       for (const [index, call] of calls.entries()) {
         const toolCallId = call.id
         const args = JSON.stringify(call.arguments)

@@ -71,7 +71,8 @@ async function promptInputs(
   { messages, tools, enableThinking, images }: GenerateRequest,
   { tokenizer, processor }: Loaded
 ): Promise<{ input_ids: Tensor; [name: string]: unknown }> {
-  const template = { add_generation_prompt: true, ...(tools && { tools }), ...(enableThinking && { enable_thinking: true }) }
+  // `enable_thinking` as asked, off too (LFM3's template thinks by default); left out, the template's own default.
+  const template = { add_generation_prompt: true, ...(tools && { tools }), ...(enableThinking !== undefined && { enable_thinking: enableThinking }) }
   if (!images?.length) {
     return tokenizer.apply_chat_template(messages as never, { ...template, return_dict: true }) as never
   }
@@ -178,7 +179,8 @@ export class TransformersJsWorkerHandler {
     // The prompt tokens the reused cache holds: generate() reads only the rest.
     let cachedTokens = this.reuse ? cacheLength(this.reuse.cache) : 0
     // A thought the chat template opened in the prompt (Qwen3.5's): the reply starts inside it.
-    if (/<think>\s*$/.test(tokenizer.decode(prompt.slice(-8)))) this.post({ status: "update", output: "<think>" })
+    // (Not for a structured answer: the schema holds the whole reply, which has no thought.)
+    if (!request.outputSchema && /<think>\s*$/.test(tokenizer.decode(prompt.slice(-8)))) this.post({ status: "update", output: "<think>" })
 
     let outputTokens = 0
     const specialTokens = new Set(tokenizer.all_special_tokens)
@@ -215,13 +217,19 @@ export class TransformersJsWorkerHandler {
       output = await model.generate({ ...settings, ...constraint() })
     }
     const { sequences, past_key_values } = output as { sequences: Tensor; past_key_values?: DynamicCache }
+    // Out of tokens, or ended: by the last token written, not by the count (which takes in the end-of-turn token).
+    const ids = tokenIds(sequences)
+    const eos = [model.generation_config?.eos_token_id ?? tokenizer.eos_token_id].flat().filter((id): id is number => typeof id === "number")
+    const ended = outputTokens > 0 && eos.includes(ids.at(-1) ?? -1)
+    const finishReason = !ended && outputTokens >= request.options.max_new_tokens ? "length" : "stop"
     if (withImages) await past_key_values?.dispose().catch(() => undefined)
-    this.reuse = past_key_values && !withImages ? { cache: past_key_values, tokens: tokenIds(sequences) } : null
+    this.reuse = past_key_values && !withImages ? { cache: past_key_values, tokens: ids } : null
     this.post({
       status: "complete",
       inputTokens: prompt.length,
       ...(cachedTokens !== undefined && { cachedTokens }),
-      outputTokens
+      outputTokens,
+      finishReason
     })
   }
 }

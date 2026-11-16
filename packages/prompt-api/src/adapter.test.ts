@@ -318,7 +318,8 @@ test("with the browser's own tool use, earlier calls are tool-call content and r
     assert.equal(results.role, "user")
     assert.deepEqual(results.content.map((part) => part.type), ["tool-response", "tool-response"])
     assert.ok(results.content[0].value instanceof FakeToolSuccess)
-    assert.deepEqual(results.content[0].value.init, { callId: "c1", callID: "c1", name: "get_weather", result: [{ type: "object", value: { temp: 12 } }] })
+    // JSON with a null goes as its text, as written: an object can't hold the null, and dropping it would lose it.
+    assert.deepEqual(results.content[0].value.init, { callId: "c1", callID: "c1", name: "get_weather", result: [{ type: "text", value: '{"temp":12,"wind":null}' }] })
     assert.ok(results.content[1].value instanceof FakeToolError)
     assert.deepEqual(results.content[1].value.init, { callId: "c2", callID: "c2", name: "get_weather", errorMessage: "offline" })
   })
@@ -831,4 +832,23 @@ test("maxOutputTokens cuts a structured answer off with code length; the adapter
     promptApiText("text", { maxOutputTokens: 20 }).structuredOutput({ chatOptions: chatOptions(), outputSchema: { type: "object" } } as never),
     (e: Error & { code?: string }) => e.code === "length" && /maxOutputTokens \(20\)/.test(e.message)
   )
+})
+
+test("the browser's own call stays the thread's history only as it was made: an edited call starts the session over", async () => {
+  await withToolUse(async () => {
+    const adapter = promptApiText("text")
+    const first = [{ role: "user", content: "Weather in Paris?" }]
+    control.pieces = [{ type: "tool-call", value: new FakeToolCall({ callId: "b1", name: "get_weather", arguments: { city: "Paris" } }) }]
+    await step(adapter, first, { tools: [weather] })
+    control.pieces = ["Sunny."]
+    const call = (city: string) => ({ role: "assistant", content: "", toolCalls: [{ id: "b1", type: "function", function: { name: "get_weather", arguments: JSON.stringify({ city }) } }] })
+    // The call as made: the kept session goes on, with only the result.
+    await step(adapter, [...first, call("Paris"), { role: "tool", toolCallId: "b1", content: "18C" }], { tools: [weather] })
+    assert.equal(control.creates.length, 1, "the same session")
+    assert.equal((control.prompts[1].input as Array<unknown>).length, 1, "only the result")
+    // The call edited (Rome): what the session holds isn't the conversation, so it starts over.
+    await step(adapter, [...first, call("Rome"), { role: "tool", toolCallId: "b1", content: "21C" }], { tools: [weather] })
+    assert.equal(control.creates.length, 2, "a new session")
+    assert.equal((control.prompts[2].input as Array<unknown>).length, 3, "the whole conversation")
+  })
 })
