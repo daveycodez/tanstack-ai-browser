@@ -17,6 +17,7 @@ import type { ModelMessage, Tool } from "@tanstack/ai"
 import exa from "./exa.json"
 import lofiAgentTools from "./tools-lofi-agent.json"
 import mcpTools from "./tools.json"
+import { capToolResult } from "../../apps/lofi-agent/src/chat/tool-result-cap.ts"
 
 type Call = { id: string; name: string; input: unknown }
 
@@ -200,6 +201,11 @@ export async function runSuite(
 ) {
   const { runs = 4, log, label, stepMs = 120_000, maxSteps = 6, request } = options
   const tools = options.tools === "lofi-agent" ? lofiAgentTools : mcpTools
+  // Lofi Agent caps each tool result (its tool-result-cap middleware), so a web search fits a phone's context.
+  const resultOf = (name: string, input: unknown) => {
+    const result = toolResult(name, input)
+    return options.tools === "lofi-agent" ? ((capToolResult(result) as string | undefined) ?? result) : result
+  }
   const offered = CASES.filter((c) => !c.only || c.only === options.tools)
   const cases = options.cases ? offered.filter((c) => options.cases!.includes(c.name)) : offered
 
@@ -267,7 +273,7 @@ export async function runSuite(
       if (reply.kind !== "tool" || !runTools) break
       messages.push(
         { role: "assistant", content: reply.text, toolCalls: reply.calls.map(({ id, name, input }) => ({ id, type: "function" as const, function: { name, arguments: JSON.stringify(input ?? {}) } })) },
-        ...reply.calls.map(({ id, name, input }): ModelMessage => ({ role: "tool", toolCallId: id, content: toolResult(name, input) }))
+        ...reply.calls.map(({ id, name, input }): ModelMessage => ({ role: "tool", toolCallId: id, content: resultOf(name, input) }))
       )
     }
     return steps
