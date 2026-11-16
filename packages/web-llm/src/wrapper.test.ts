@@ -310,7 +310,8 @@ test("tools by prompt: none sent to WebLLM, listed in the system prompt; a fence
   assert.ok(messages.every((m) => m.role !== "tool"), "results go back as text")
   const [system, , call, result] = messages
   assert.ok(system && call && result)
-  assert.match(system.content, /^Be brief\.[\s\S]*get_weather[\s\S]*tool_call/)
+  assert.ok(system.content.startsWith("Be brief.\n\nYou are a helpful AI assistant with access to tools.\n\n# Available Tools\n"), "browser-ai's prompt, after the caller's")
+  assert.match(system.content, /get_weather[\s\S]*- You can include brief reasoning before or after the tool call\n- If no tool is needed, respond directly without tool_call fences$/)
   assert.match(call.content, /```tool_call\n\{"name":"get_weather","arguments":\{"city":"Paris"\},"id":"c1"\}/)
   assert.match(result.content, /```tool_result\n\{"name":"get_weather","result":\{"temp":3\}/)
   const end = events.find((e) => e.type === "TOOL_CALL_END")
@@ -319,6 +320,16 @@ test("tools by prompt: none sent to WebLLM, listed in the system prompt; a fence
   const text = events.filter((e) => e.type === "TEXT_MESSAGE_CONTENT").map((e) => e.delta).join("")
   assert.equal(text, "Checking. ")
   assert.equal(control.interrupts, 1)
+})
+
+test("a fence the reply leaves open is the call if it holds a whole one", async () => {
+  const tools = [{ name: "get_weather", description: "Weather", inputSchema: { type: "object", properties: { city: { type: "string" } } } }]
+  control.chunks = [delta({ role: "assistant", content: '```tool_call\n{"name": "get_weather", "arguments": {"city": "Oslo"}}' }), delta({}, "stop")]
+  const { events } = await run(webLlmText(MODEL), { tools })
+  const end = events.find((e) => e.type === "TOOL_CALL_END")
+  assert.equal(end?.toolCallName ?? end?.toolName, "get_weather")
+  assert.equal((events.at(-1) as Chunk).finishReason, "tool_calls")
+  assert.equal(events.filter((e) => e.type === "TEXT_MESSAGE_CONTENT").length, 0)
 })
 
 test("thinking between <think> tags comes back as REASONING events, the rest as text", async () => {

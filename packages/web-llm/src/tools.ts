@@ -36,9 +36,11 @@ export function toolSystemPrompt(system: string, tools: ReadonlyArray<Tool>): st
     description: tool.description ?? "No description provided.",
     parameters: tool.inputSchema ?? { type: "object", properties: {} }
   }))
-  // How tools are called here (by prompt): the tools, and the format of a call and
-  // of its result. When to call one is the caller's to say, in its system prompt.
-  const instructions = `# Available Tools
+  // browser-ai's tool prompt, exactly as browser-ai builds it
+  // (github.com/jakobhoeg/browser-ai, packages/vercel/shared/src/tool-calling).
+  const instructions = `You are a helpful AI assistant with access to tools.
+
+# Available Tools
 ${JSON.stringify(definitions, null, 2)}
 
 # Tool Calling Instructions
@@ -59,7 +61,8 @@ Use the \`result\` payload (and treat \`error\` as a boolean flag) when continui
 Important:
 - Use exact tool and parameter names from the schema above
 - Arguments must be a valid JSON object matching the tool's parameters
-- A reply without a tool call is plain text, without tool_call fences`
+- You can include brief reasoning before or after the tool call
+- If no tool is needed, respond directly without tool_call fences`
   return system.trim() ? `${system.trim()}\n\n${instructions}` : instructions
 }
 
@@ -305,6 +308,15 @@ export function toolCallReader() {
     },
     end(): string {
       if (call) return ""
+      // A fence still open when the reply ends: the call, if it holds a whole one.
+      if (start && !start.python) {
+        const parsed = parseToolCall(buffer.slice(start.start.length))
+        if (parsed) {
+          call = parsed
+          buffer = ""
+          return ""
+        }
+      }
       const rest = buffer
       buffer = ""
       return rest

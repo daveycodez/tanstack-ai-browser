@@ -158,6 +158,12 @@ async function* withToolCalls(stream: AsyncIterable<Chunk>, interrupt: () => voi
     ...chunk,
     choices: [{ index: 0, delta, finish_reason: finish }]
   })
+  /** A call as an OpenAI `tool_calls` delta, ending the reply. */
+  const callChunks = function* (chunk: Chunk, call: ParsedToolCall): Generator<Chunk> {
+    const toolCall = { index: 0, id: `call_${Date.now().toString(36)}`, type: "function", function: { name: call.name, arguments: JSON.stringify(call.arguments ?? {}) } }
+    yield choice(chunk, { tool_calls: [toolCall] })
+    yield choice(chunk, {}, "tool_calls")
+  }
   for await (const chunk of stream) {
     if (reader.call) {
       // Only the usage that ends the stream.
@@ -177,16 +183,17 @@ async function* withToolCalls(stream: AsyncIterable<Chunk>, interrupt: () => voi
       const call = reader.call as ParsedToolCall | undefined
       if (call) {
         interrupt()
-        const toolCall = { index: 0, id: `call_${Date.now().toString(36)}`, type: "function", function: { name: call.name, arguments: JSON.stringify(call.arguments ?? {}) } }
-        yield choice(chunk, { tool_calls: [toolCall] })
-        yield choice(chunk, {}, "tool_calls")
+        yield* callChunks(chunk, call)
         continue
       }
     }
     if (first?.finish_reason) {
       const rest = reader.end()
       if (rest) yield choice(chunk, { content: rest })
-      yield choice(chunk, {}, first.finish_reason)
+      // (Set by end above: a fence the reply left open.)
+      const call = reader.call as ParsedToolCall | undefined
+      if (call) yield* callChunks(chunk, call)
+      else yield choice(chunk, {}, first.finish_reason)
     }
   }
 }
