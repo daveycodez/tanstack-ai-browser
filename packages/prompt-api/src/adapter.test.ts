@@ -687,8 +687,8 @@ test("a reply reports its tokens: what the session held, and the prompt and the 
   const prompt = 120 + measured(first)
   // Less an empty message's count: the turn markers a session counts around any message.
   const reply = measured("Hello there") - measured("")
-  // A new session read what it holds in this step: nothing cached.
-  assert.deepEqual(await step(first), { promptTokens: prompt, completionTokens: reply, totalTokens: prompt + reply, promptTokensDetails: { cachedTokens: 0 } })
+  // A new session read what it holds in this step: nothing cached, so no cached count (as TanStack reports it).
+  assert.deepEqual(await step(first), { promptTokens: prompt, completionTokens: reply, totalTokens: prompt + reply })
 
   // The thread's kept session doesn't read what it holds again: only the new message.
   Object.assign(control.sessions[0], { contextUsage: 300 })

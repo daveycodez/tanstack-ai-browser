@@ -95,12 +95,12 @@ const typesOf = (chunks: Array<Chunk>) => chunks.map((c) => c.type)
 const textIn = (chunks: Array<Chunk>) =>
   chunks.filter((c) => c.type === "TEXT_MESSAGE_CONTENT").map((c) => c.delta).join("")
 
-test("cached tokens pass through where the bridge counts them, none included", async () => {
+test("cached tokens pass through where the bridge counts them; none is left out, as TanStack reports it", async () => {
   const adapter = afmText({ native })
-  for (const cachedTokens of [0, 2890]) {
+  for (const [cachedTokens, details] of [[2890, { cachedTokens: 2890 }], [0, undefined]] as const) {
     native.replies = [[{ type: "done", text: "Hi", usage: { inputTokens: 2907, cachedTokens, outputTokens: 2 } }]]
     const chunks = await run(adapter, { threadId: `cached-${cachedTokens}` })
-    assert.deepEqual((chunks.at(-1)?.usage as Record<string, unknown>).promptTokensDetails, { cachedTokens })
+    assert.deepEqual((chunks.at(-1)?.usage as Record<string, unknown>).promptTokensDetails, details)
   }
 })
 

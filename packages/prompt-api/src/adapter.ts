@@ -437,8 +437,8 @@ export class PromptApiTextAdapter extends BaseTextAdapter<
       const completionTokens = Math.max(0, written - markers)
       return {
         ...buildBaseUsage({ promptTokens, completionTokens, totalTokens: promptTokens + completionTokens }),
-        // A new session read all of it in this step: none was cached.
-        promptTokensDetails: { cachedTokens: goesOn ? held : 0 }
+        // What a kept session held, as TanStack reports cached tokens: left out for none (a new session read all of it).
+        ...(goesOn && held > 0 && { promptTokensDetails: { cachedTokens: held } })
       }
     } catch {
       return undefined

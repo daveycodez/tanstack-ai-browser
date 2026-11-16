@@ -561,8 +561,8 @@ test("a worker of your own that failed before the adapter's first call rejects i
   assert.equal(control.reloads.length, 0)
 })
 
-test("usage keeps the cached count the worker adds, 0 included (TanStack's conversion leaves a 0 out)", async () => {
-  for (const cached_tokens of [0, 352]) {
+test("usage is TanStack's conversion of the worker's: its cached count, and none for 0", async () => {
+  for (const [cached_tokens, details] of [[352, { cachedTokens: 352 }], [0, undefined]] as const) {
     control.chunks = [
       delta({ role: "assistant", content: "Hi" }),
       { ...delta({}, "stop"), usage: { prompt_tokens: 371, completion_tokens: 2, total_tokens: 373, prompt_tokens_details: { cached_tokens } } }
@@ -570,6 +570,6 @@ test("usage keeps the cached count the worker adds, 0 included (TanStack's conve
     const { events } = await run(webLlmText(MODEL))
     const usage = events.find((e) => e.type === "RUN_FINISHED")?.usage as { promptTokens: number; promptTokensDetails?: unknown }
     assert.equal(usage.promptTokens, 371)
-    assert.deepEqual(usage.promptTokensDetails, { cachedTokens: cached_tokens })
+    assert.deepEqual(usage.promptTokensDetails, details)
   }
 })

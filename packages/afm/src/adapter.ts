@@ -176,8 +176,8 @@ const usageOf = (usage: NativeUsage | undefined): TokenUsage | undefined =>
       completionTokens: usage.outputTokens,
       totalTokens: usage.inputTokens + usage.outputTokens
     }),
-    // 0 too: nothing was cached. Left out where the framework can't say.
-    ...(usage.cachedTokens !== undefined && { promptTokensDetails: { cachedTokens: usage.cachedTokens } })
+    // The prompt tokens the framework reused, as TanStack reports them: left out for none, or where the framework can't say.
+    ...(usage.cachedTokens ? { promptTokensDetails: { cachedTokens: usage.cachedTokens } } : {})
   }
 
 let ids = 0

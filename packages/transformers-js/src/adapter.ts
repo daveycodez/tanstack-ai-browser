@@ -322,8 +322,8 @@ export class TransformersJsTextAdapter<TModel extends string> extends BaseTextAd
             completionTokens: counts.outputTokens,
             totalTokens: counts.inputTokens + counts.outputTokens
           }),
-          // The prompt tokens a reused cache held, 0 included: read fresh.
-          ...(counts.cachedTokens !== undefined && { promptTokensDetails: { cachedTokens: counts.cachedTokens } })
+          // The prompt tokens a reused cache held, as TanStack reports them: left out for none.
+          ...(counts.cachedTokens ? { promptTokensDetails: { cachedTokens: counts.cachedTokens } } : {})
         }
       }
     } catch (error) {
@@ -399,7 +399,7 @@ export class TransformersJsTextAdapter<TModel extends string> extends BaseTextAd
       model: this.model,
       usage: {
         ...buildBaseUsage({ promptTokens: counts.inputTokens, completionTokens: counts.outputTokens, totalTokens: counts.inputTokens + counts.outputTokens }),
-        ...(counts.cachedTokens !== undefined && { promptTokensDetails: { cachedTokens: counts.cachedTokens } })
+        ...(counts.cachedTokens ? { promptTokensDetails: { cachedTokens: counts.cachedTokens } } : {})
       }
     }
   }
