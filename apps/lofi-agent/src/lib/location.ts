@@ -8,7 +8,7 @@
  */
 import { toolDefinition } from "@tanstack/ai"
 
-import { nearestCity, onlineCity, placeName } from "#/lib/places"
+import { nearestCity, placeName } from "#/lib/places"
 import { setting } from "#/lib/settings"
 
 export const LOCATION_TOOL = "get_current_location"
@@ -22,10 +22,7 @@ export type CurrentLocation = {
   longitude: number
   /** Where the user is, named offline (lib/places.ts), if it could be. */
   place?: string
-  /**
-   * The user's city, town or village from OpenStreetMap, or else the nearest
-   * listed city, however far.
-   */
+  /** The nearest listed city, however far. */
   city?: string
   /** The device's time zone, such as "America/Los_Angeles". */
   timeZone: string
@@ -53,8 +50,8 @@ function reason(error: GeolocationPositionError) {
   return "The device couldn't find its location."
 }
 
-/** The device's position, from the browser. */
-const position = () =>
+/** The device's position, from the browser (which asks the user first). The weather tool reads it too, for the weather where the user is. */
+export const devicePosition = () =>
   new Promise<Omit<CurrentLocation, "place" | "city">>((resolve, reject) => {
     if (typeof navigator === "undefined" || !navigator.geolocation) {
       reject(new Error("This browser can't share a location."))
@@ -96,21 +93,15 @@ export const locationTool = locationToolDefinition.client(
     describeLocation(await currentLocation(context?.abortSignal))
 )
 
-/** Where the user is: the position, then its names. The weather tool uses it too, when no city is named. */
-export async function currentLocation(signal?: AbortSignal): Promise<CurrentLocation> {
-  const where = await position()
+/** Where the user is: the position, then its names, from the list of cities that ships with the app. */
+async function currentLocation(signal?: AbortSignal): Promise<CurrentLocation> {
+  const where = await devicePosition()
   // The browser's prompt can't be cancelled, so a reply stopped while it was
   // open is noticed only once it answers.
   signal?.throwIfAborted()
-  // The city from OpenStreetMap, or the nearest listed one where it has
-  // none or can't be reached.
   const [place, city] = await Promise.all([
     placeName(where.latitude, where.longitude).catch(() => undefined),
-    onlineCity(where.latitude, where.longitude).then(
-      (found) =>
-        found ??
-        nearestCity(where.latitude, where.longitude).catch(() => undefined)
-    )
+    nearestCity(where.latitude, where.longitude).catch(() => undefined)
   ])
   return { ...where, ...(place && { place }), ...(city && { city }) }
 }

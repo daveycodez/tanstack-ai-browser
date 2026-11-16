@@ -8,7 +8,8 @@
  */
 import { toolDefinition } from "@tanstack/ai"
 
-import { currentLocation, locationToolSetting } from "#/lib/location"
+import { devicePosition, locationToolSetting } from "#/lib/location"
+import { placeName } from "#/lib/places"
 import { setting } from "#/lib/settings"
 
 export const WEATHER_TOOL = "get_weather"
@@ -198,13 +199,16 @@ export async function lookUpWeather(
   return weatherAt(await findCity(city, signal), signal)
 }
 
-/** A place's weather now and for the next five days. */
+/**
+ * A place's weather now and for the next five days. A name still being
+ * found doesn't hold the forecast back: both are awaited together.
+ */
 async function weatherAt(
-  place: { latitude: number; longitude: number; name: string },
+  place: { latitude: number; longitude: number; name: string | Promise<string> },
   signal?: AbortSignal
 ): Promise<WeatherReport> {
   const fahrenheit = usesFahrenheit()
-  const forecast = await getJson<Forecast>(
+  const forecasting = getJson<Forecast>(
     `https://api.open-meteo.com/v1/forecast?${new URLSearchParams({
       latitude: String(place.latitude),
       longitude: String(place.longitude),
@@ -220,11 +224,12 @@ async function weatherAt(
     })}`,
     signal
   )
+  const [forecast, name] = await Promise.all([forecasting, place.name])
 
   const { current, daily } = forecast
   const [condition, summary] = conditionOf(current.weather_code)
   return {
-    location: place.name,
+    location: name,
     unit: fahrenheit ? "°F" : "°C",
     windUnit: fahrenheit ? "mph" : "km/h",
     current: {
@@ -281,8 +286,12 @@ export const weatherTool = toolDefinition({
   if (!city) throw new Error(`A city is needed, or "${HERE}" for where the user is.`)
   if (city.toLowerCase() !== HERE) return lookUpWeather(city, signal)
   if (!locationToolSetting.get()) throw new Error("A city is needed: ask the user for one.")
-  const where = await currentLocation(signal)
-  return weatherAt({ latitude: where.latitude, longitude: where.longitude, name: where.place ?? where.city ?? "Your location" }, signal)
+  const { latitude, longitude } = await devicePosition()
+  // The browser's prompt can't be cancelled, so a reply stopped while it was open is noticed here.
+  signal?.throwIfAborted()
+  // The forecast is for the coordinates; the place's name, from the app's own list of cities, is only the card's title.
+  const name = placeName(latitude, longitude).then((found) => found ?? "Your location", () => "Your location")
+  return weatherAt({ latitude, longitude, name }, signal)
 })
 
 /** A tool result as a weather report, if it is one. */
