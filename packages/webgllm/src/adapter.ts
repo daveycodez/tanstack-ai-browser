@@ -105,9 +105,9 @@ function clientFor(engine: Engine, load: (signal?: AbortSignal | null) => Promis
 }
 
 /**
- * Per-call `modelOptions`: webgllm's own request fields (OpenAI's names, and
- * its `top_k`, `min_p`, `repetition_penalty` and `repair_tool_calls`), sent
- * as given. The fields the adapter writes from `chat()`'s own options
+ * Per-call `modelOptions`: webgllm's own request fields (OpenAI's names,
+ * llama.cpp's such as `top_k`, `min_p` and `chat_template_kwargs`, and
+ * webgllm's `repair_tool_calls`), sent as given. The fields the adapter writes from `chat()`'s own options
  * (messages, tools, the output schema, streaming, reasoning) are left out.
  */
 export type WebGllmTextModelOptions = Omit<

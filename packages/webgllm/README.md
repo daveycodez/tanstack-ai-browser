@@ -21,7 +21,7 @@ It needs WebGL 2 with float render targets (`EXT_color_buffer_float`) and Offscr
 
 The package is shaped like `@tanstack/ai-openai`'s text adapter. The root has `webgllmText(model, config?)`, `WebGllmTextAdapter` (with the runtime methods `availability`, `create` and `destroy`) and the types `WebGllmConfig`, `WebGllmModel`, `WebGllmTextModelOptions`, `Availability` and `DownloadProgressCallback`, and the catalog (below).
 
-The engine is the [`webgllm`](https://www.npmjs.com/package/webgllm) package, behind OpenAI's Chat Completions API in the page. The adapter is TanStack's Chat Completions adapter (`@tanstack/openai-base`) with the shared `WebGLLM` instance as its client, so messages, tools, structured output and the stream are TanStack's; it adds loading the model, webgllm's reasoning levels and thinking budget, and its options. Tool-call parsing and repair, thinking, guided tool choice and schema-constrained answers are webgllm's own. See [webgllm.dev](https://webgllm.dev) and its README for how the engine works, its memory and speed.
+The engine is the [`webgllm`](https://www.npmjs.com/package/webgllm) package, behind OpenAI's Chat Completions API in the page. The adapter is TanStack's Chat Completions adapter (`@tanstack/openai-base`) with the shared `WebGLLM` instance as its client, so messages, tools, structured output and the stream are TanStack's; it adds loading the model, webgllm's reasoning levels and thinking budget, and its options. Tool calls held to their tools while they're written (as llama.cpp's grammars hold them), their parsing and optional repair, thinking and schema-constrained answers are webgllm's own, with llama.cpp's request semantics. See [webgllm.dev](https://webgllm.dev) and its README for how the engine works, its memory and speed.
 
 ## The adapter
 
@@ -38,13 +38,13 @@ What maps to what:
 | ------------------------------------------------- | ------------------------------------------------------------------------ |
 | `systemPrompts`, `messages` (tool calls, results, thinking) | `messages` (a failed tool's error as its result)                |
 | `tools` (their `inputSchema`)                     | `tools` (function `parameters`)                                          |
-| `toolChoice` (`auto`, `none`, `required`, a tool) | `tool_choice`; with `none` webgllm offers the model no tools            |
+| `toolChoice` (`auto`, `none`, `required`, a tool) | `tool_choice`, as llama.cpp takes it (`none` keeps the tools in the prompt and reads no calls; a tool is a required call to it) |
 | `outputSchema`                                    | `response_format: { type: "json_schema" }`                              |
 | `reasoning` level / `budgetTokens`                | `reasoning_effort` (`none` or `high`) / `reasoning.max_tokens`          |
 | `promptCache: "none"`                             | `cache_prompt: false`                                                    |
 | `modelOptions`                                    | see below                                                                |
 
-`modelOptions` are webgllm's own request fields, sent as given, as TanStack's adapters do with their provider's fields: OpenAI's names (`max_completion_tokens`, thinking included; `temperature`, `top_p`, `presence_penalty`, `stop`, `seed`, `parallel_tool_calls`, false keeping only the first tool call) and webgllm's own (`top_k`, `min_p`, `repetition_penalty`, and `repair_tool_calls`, false skipping its tool-call repair). `frequency_penalty` isn't supported: anything but 0 throws webgllm's `unsupported-parameter` error. Their type is webgllm's `ChatCompletionCreateParamsBase`, without the fields the adapter writes from `chat()`'s own options (messages, tools, the output schema, streaming, reasoning).
+`modelOptions` are webgllm's own request fields, sent as given, as TanStack's adapters do with their provider's fields: OpenAI's names (`max_completion_tokens`, thinking included; `temperature`, `top_p`, `presence_penalty`, `frequency_penalty`, `stop`, `seed`, `parallel_tool_calls`, false allowing one tool call per reply) and llama.cpp's (`top_k`, `min_p`, `repetition_penalty`, `repeat_last_n`, `chat_template_kwargs`, `reasoning_budget_tokens`), plus webgllm's `repair_tool_calls` (true to check tool calls against their tools and generate bad ones again; off by default, as llama.cpp has no repair). Their type is webgllm's `ChatCompletionCreateParamsBase`, without the fields the adapter writes from `chat()`'s own options (messages, tools, the output schema, streaming, reasoning).
 
 ```ts
 chat({ adapter: webgllmText("LiquidAI/LFM3-1.7B-GGUF"), messages, modelOptions: { max_completion_tokens: 1024, temperature: 0.2 } })

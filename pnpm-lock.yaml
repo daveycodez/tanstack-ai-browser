@@ -682,8 +682,8 @@ importers:
         specifier: ^1.0.4
         version: 1.0.4(@tanstack/ai@1.4.0(zod@4.6.7))(undici@7.30.1)(ws@8.22.2)(zod@4.6.7)
       webgllm:
-        specifier: ^0.3.6
-        version: 0.3.6
+        specifier: ^0.3.7
+        version: 0.3.7
     devDependencies:
       '@huggingface/transformers':
         specifier: 4.3.2
@@ -6338,8 +6338,8 @@ packages:
   webcrypto-core@1.9.2:
     resolution: {integrity: sha512-gsXecm82UQNlTBURJGuqOWy1Ww08S3kZUcr3aOJS02Pk0xLtkfeUAVC0u0xhgdonFme80edSJUIJyuvL/7250Q==}
 
-  webgllm@0.3.6:
-    resolution: {integrity: sha512-tWPII5PJKK5/65l6FyAwCz2fTUNYcZPaUbrI5y2zyQEOPvHFfn9ENgU4I1ef46nkPYZFHNwap6nks+TNWamukw==}
+  webgllm@0.3.7:
+    resolution: {integrity: sha512-A3pg6xNfuVKEuIa2ILBFfLqsNS6ZuB6hWarvNaiTPheBj7bI4m0jykTR/7XS4h4ue1q/p1/S6lKD5miaDcISvQ==}
 
   webpack-virtual-modules@0.6.2:
     resolution: {integrity: sha512-66/V2i5hQanC51vBQKPH4aI8NMAcBW59FVBs+rC7eGHupMyfn34q7rZIE+ETlJ+XTevqfUhVVBgSUNSW2flEUQ==}
@@ -12739,7 +12739,7 @@ snapshots:
       asn1js: 3.1.0
       tslib: 2.9.1
 
-  webgllm@0.3.6:
+  webgllm@0.3.7:
     dependencies:
       '@huggingface/jinja': 0.5.11
       '@huggingface/tokenizers': 0.2.0
