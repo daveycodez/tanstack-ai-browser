@@ -56,11 +56,11 @@ Unset sampling fields take the model card's values (webgllm's), and there's no o
 
 webgllm reads only what's new in a prompt that starts with what it read before: the same chat one message on, or a system prompt (with its tools) it has read before, even after chats with other system prompts, and after the page loads again (it keeps them on disk too; see webgllm's README). `RUN_FINISHED`'s usage says how many prompt tokens came from the cache (`promptTokensDetails.cachedTokens`, 0 when none did), for text and structured answers alike.
 
-`prefill()` reads a prompt ahead of time, generating nothing (webgllm's `max_tokens: 0`), so the next `chat()` that starts with it reads only the rest: the system prompt and the messages so far while the user types, or a system prompt the app will use soon. Pass the parts of `chat()`'s options that make the prompt (`systemPrompts`, `messages`, `tools`, `toolChoice`, `reasoning`, `modelOptions`), the same as `chat()` will get. It loads the model first if it isn't, and resolves to `{ promptTokens, cachedTokens }`.
+To read a prompt ahead of time (the system prompt and the messages so far while the user types, say), send it as the next `chat()` will, with webgllm's `max_completion_tokens: 0`: nothing is generated, and the `chat()` that starts with that prompt reads only the rest.
 
 ```ts
 const adapter = webgllmText("LiquidAI/LFM3-1.7B-GGUF", { contextLength: 8192 })
-await adapter.prefill({ systemPrompts: [PLANNER], tools, messages })
+for await (const _ of chat({ adapter, systemPrompts: [PLANNER], tools, messages, modelOptions: { max_completion_tokens: 0 } }));
 chat({ adapter, systemPrompts: [PLANNER], tools, messages: [...messages, question], threadId })
 ```
 

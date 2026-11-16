@@ -7,10 +7,8 @@ export { webgllmText, WebGllmTextAdapter } from "./adapter.js"
 export type {
   Availability,
   DownloadProgressCallback,
-  PrefillUsage,
   WebGllmConfig,
   WebGllmModel,
-  WebGllmPrefillOptions,
   WebGllmTextModelOptions
 } from "./adapter.js"
 // webgllm's own worker handler, for a worker of your own (`worker` in the adapter's config).

@@ -11,7 +11,7 @@
  * and its reasoning levels and thinking budget.
  */
 import type { ModelReasoning, TextOptions } from "@tanstack/ai"
-import { resolveDebugOption, resolveReasoning } from "@tanstack/ai/adapter-internals"
+import { resolveReasoning } from "@tanstack/ai/adapter-internals"
 import { OpenAIBaseChatCompletionsTextAdapter } from "@tanstack/openai-base"
 import type { OpenAIClientLike } from "@tanstack/openai-base"
 import { WebGLLM } from "webgllm"
@@ -148,18 +148,6 @@ export type WebGllmConfig = {
   onDownloadProgress?: DownloadProgressCallback
 }
 
-/**
- * What `prefill` reads: the parts of `chat()`'s options that make the
- * prompt (pass the same ones `chat()` will get, so its prompt starts with
- * this one), and a signal to stop it.
- */
-export type WebGllmPrefillOptions = Partial<
-  Pick<TextOptions<WebGllmTextModelOptions>, "messages" | "systemPrompts" | "tools" | "modelOptions" | "reasoning" | "toolChoice">
-> & { signal?: AbortSignal }
-
-/** What `prefill` read: the prompt's tokens, and how many of them came from webgllm's cache. */
-export type PrefillUsage = { promptTokens: number; cachedTokens: number }
-
 /** A model's reasoning levels: a listed model's, none for a listed one that doesn't reason, else the switch. */
 type ResolveReasoning<TModel extends string> = TModel extends keyof WebGllmModelReasoningByName
   ? WebGllmModelReasoningByName[TModel]
@@ -242,40 +230,6 @@ export class WebGllmTextAdapter<TModel extends WebGllmModel> extends OpenAIBaseC
     const ready = this.load(options.signal, options.onDownloadProgress).then(() => this)
     ready.catch(() => undefined)
     return ready
-  }
-
-  /**
-   * Reads a prompt ahead of time, generating nothing (webgllm's
-   * `max_tokens: 0`): the system prompts, tools and messages so far, while
-   * the user types, say. The `chat()` call whose prompt starts with it then
-   * reads only what's new. webgllm keeps each system prompt it has read
-   * (in memory and on disk), so prefilling one also helps later chats and
-   * page loads with it. Pass what `chat()` will get: other tools, reasoning
-   * or options change the prompt. Loads the model first if it isn't.
-   */
-  async prefill(options: WebGllmPrefillOptions = {}): Promise<PrefillUsage> {
-    const { signal, ...prompt } = options
-    await this.load(signal)
-    const request: Partial<CreateParams> = this.mapOptionsToRequest({
-      logger: resolveDebugOption(false),
-      model: this.model,
-      messages: [],
-      ...prompt
-    } as TextOptions)
-    // A whole completion: no stream.
-    delete request.stream
-    delete request.stream_options
-    // A required or named call renders every tool as "auto" does, so the prompt is the
-    // same without it; with it, webgllm would hold the reply to a call (a named one's
-    // schema, or no end before a required one), which no reply of 0 tokens meets.
-    // "none" stays: it renders no tools.
-    if (request.tool_choice !== undefined && request.tool_choice !== "none") delete request.tool_choice
-    const reply = await this.engine.webgllm.chat.completions.create(
-      { ...request, max_tokens: 0, max_completion_tokens: 0 } as never,
-      signal ? { signal } : {}
-    )
-    const usage = (reply as { usage?: { prompt_tokens: number; prompt_tokens_details?: { cached_tokens?: number } | null } }).usage
-    return { promptTokens: usage?.prompt_tokens ?? 0, cachedTokens: usage?.prompt_tokens_details?.cached_tokens ?? 0 }
   }
 
   /** Unloads the model, freeing its GPU memory. Its files stay. Never rejects. */
