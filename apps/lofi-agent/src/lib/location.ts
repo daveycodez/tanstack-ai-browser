@@ -11,7 +11,7 @@ import { toolDefinition } from "@tanstack/ai"
 import { nearestCity, placeName } from "#/lib/places"
 import { setting } from "#/lib/settings"
 
-export const LOCATION_TOOL = "get_current_location"
+export const LOCATION_TOOL = "get_my_location"
 
 /** Whether models get the location tool. On unless turned off in Settings. */
 export const locationToolSetting = setting("locationTool", true)
@@ -31,8 +31,7 @@ export type CurrentLocation = {
 /** The tool's definition, which `chat()` gets: it has no code of its own. */
 export const locationToolDefinition = toolDefinition({
   name: LOCATION_TOOL,
-  description:
-    "Get where the user is from their device: the place's name, the nearest city, latitude and longitude. Only for when the user asks where they are. The browser asks the user first.",
+  description: "Get the location of the current user",
   inputSchema: { type: "object", properties: {} }
 })
 

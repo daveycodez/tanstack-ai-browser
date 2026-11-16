@@ -36,9 +36,9 @@ const FIXED: Record<string, string> = {
   calculate: "391",
   // Lofi Agent's own tools, as they answer.
   // The location tool answers in a sentence (apps/lofi-agent/src/lib/location.ts, describeLocation), the weather tool in JSON.
-  get_current_location:
+  get_my_location:
     "The user is in Long Beach, California, United States. The nearest city is Long Beach (latitude 33.77, longitude -118.19, time zone America/Los_Angeles).",
-  get_weather: JSON.stringify({
+  get_weather_by_city: JSON.stringify({
     location: "Long Beach, California, United States",
     unit: "°F",
     windUnit: "mph",
@@ -147,13 +147,13 @@ const CASES: Array<Case> = [
   { name: "world-series-after-story", prompt: "Who won the World Series in 2026?", history: TOLD, tools: ["web_search_exa"], answer: WORLD_SERIES },
   // 391, from `calculate` or straight away: the call is optional.
   { name: "math-after-greeting", prompt: "What's 17 times 23?", history: GREETING, tools: ["calculate"], optional: true, answer: /391/ },
-  // Lofi Agent's tools: the weather where the user is (61°), one get_weather call with the city "here".
+  // Lofi Agent's tools: the weather where the user is (61°): the location, then the weather for its city.
   {
     name: "weather-here",
     prompt: "whats the weather like where i am?",
     history: [],
-    tools: ["get_weather"],
-    input: (input) => /^here$/i.test(String((input as { city?: unknown } | null)?.city ?? "").trim()),
+    tools: ["get_weather_by_city"],
+    input: (input) => /long beach/i.test(String((input as { city?: unknown } | null)?.city ?? "")),
     answer: /61/,
     only: "lofi-agent"
   },
@@ -163,8 +163,8 @@ const CASES: Array<Case> = [
     opening: "hi",
     prompt: "whats the weather like where i am?",
     history: [],
-    tools: ["get_weather"],
-    input: (input) => /^here$/i.test(String((input as { city?: unknown } | null)?.city ?? "").trim()),
+    tools: ["get_weather_by_city"],
+    input: (input) => /long beach/i.test(String((input as { city?: unknown } | null)?.city ?? "")),
     answer: /61/,
     only: "lofi-agent"
   }

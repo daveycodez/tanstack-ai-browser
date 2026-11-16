@@ -108,22 +108,29 @@ export function getCurrentTime(timezone: string): TimeResult {
 
 const READ_ONLY = { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }
 
-/** The timezone argument's description, naming the user's zone (the browser's) as the default. */
-const zoneDescription = () =>
-  `IANA timezone name (e.g., 'America/New_York', 'Europe/London'). Optional: defaults to the user's time zone, '${localTimezone()}'.`
-
-/** The time tool models see, run in the page by `chat()` (see chat/connection.ts); made per run, with the browser's zone. */
+/**
+ * The time tool models see, run in the page by `chat()` (see chat/connection.ts);
+ * made per run, with the browser's zone as the server's local one. It's
+ * mcp-server-time's `get_current_time` (https://pypi.org/project/mcp-server-time/),
+ * as that server publishes it.
+ */
 export function timeTools() {
   const local = localTimezone()
   return [
     toolDefinition({
       name: "get_current_time",
-      description: "Get the current date and time, in the user's time zone or another one",
+      description: "Get current time in a specific timezone",
       inputSchema: {
-        type: "object",
         properties: {
-          timezone: { type: "string", default: local, description: zoneDescription() }
-        }
+          timezone: {
+            default: local,
+            description: `IANA timezone name (e.g., 'America/New_York', 'Europe/London'). Optional: defaults to the server's local timezone, '${local}', when omitted.`,
+            title: "Timezone",
+            type: "string"
+          }
+        },
+        type: "object",
+        title: "get_current_timeArguments"
       },
       metadata: { annotations: READ_ONLY }
     }).server((args) => {
