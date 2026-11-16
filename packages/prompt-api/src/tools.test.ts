@@ -1,7 +1,7 @@
 import assert from "node:assert/strict"
 import { test } from "node:test"
 
-import { parseToolCall, toolCallFence, toolCallReader, toolOutputFence, toolSystemPrompt } from "./tools.js"
+import { parseToolCall, toolCallFence, toolCallReader, toolOutputFence, toolResultFence, toolResultLine, toolSystemPrompt } from "./tools.js"
 
 const weather = {
   name: "get_weather",
@@ -166,6 +166,14 @@ test("other ways small models write a call are read too: tags, delimiters, Pytho
   assert.deepEqual(read(["<|tool_call>call:get_weather{days:3,metric:true}<tool_call|>"]).call?.arguments, { days: 3, metric: true })
 })
 
+test("a fence still open when the reply ends is the call if it holds a whole one (Phi-4-mini leaves it open)", () => {
+  assert.deepEqual(read(['Sure.\n```tool_call\n{"name": "get_weather", "arguments": {"city": "Paris"}}']), {
+    shown: "Sure.\n",
+    call: { name: "get_weather", arguments: { city: "Paris" } }
+  })
+  assert.deepEqual(read(['```tool_code\nprint(get_weather(city="Oslo"))\n']).call, { name: "get_weather", arguments: { city: "Oslo" } })
+})
+
 test("a fence without a call, an unclosed fence, bare JSON and other code fences are text", () => {
   const reader = toolCallReader()
   assert.equal(reader.push("Hm. ```tool_call\nnope\n``` then "), "Hm. ```tool_call\nnope\n``` then ")
@@ -184,4 +192,20 @@ test("a JSON call is read as JSON: call syntax in its string arguments is just t
     assert.deepEqual(read(["```tool_call\n" + body + "\n```"]).call, { name: "search", arguments: { query } })
   }
   assert.equal(parseToolCall("see call:bogus{arg:value} here"), undefined, "the fallback syntax is the whole body")
+})
+
+test("browser-ai's format: its prompt as browser-ai builds it, calls and results as its JSON fences", () => {
+  const prompt = toolSystemPrompt("", [weather], "browser-ai")
+  assert.ok(prompt.startsWith("You are a helpful AI assistant with access to tools.\n\n# Available Tools\n"))
+  const json = prompt.slice(prompt.indexOf("["), prompt.indexOf("\n]\n") + 2)
+  assert.deepEqual(JSON.parse(json), [{ name: "get_weather", description: "Weather for a city", parameters: weather.inputSchema }])
+  assert.match(prompt, /Only request one tool call at a time\. Wait for tool results before asking for another tool\./)
+  assert.match(prompt, /- You can include brief reasoning before or after the tool call\n- If no tool is needed, respond directly without tool_call fences$/)
+  assert.equal(
+    toolCallFence([{ id: "c1", type: "function", function: { name: "get_weather", arguments: '{"city":"Paris"}' } }], "browser-ai"),
+    '```tool_call\n{"name":"get_weather","arguments":{"city":"Paris"},"id":"c1"}\n```'
+  )
+  assert.equal(toolResultLine("c1", "get_weather", '{"temp":12}'), '{"name":"get_weather","result":{"temp":12},"error":false,"id":"c1"}')
+  assert.equal(toolResultLine("c1", "get_weather", "", "no such city"), '{"name":"get_weather","result":"no such city","error":true,"id":"c1"}')
+  assert.equal(toolResultFence(["a", "b"]), "```tool_result\na\nb\n```")
 })

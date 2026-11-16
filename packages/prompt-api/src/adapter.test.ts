@@ -329,6 +329,60 @@ test("without the browser's own tool use, tools go by prompt", async () => {
   assert.equal(chunks.find((c) => c.type === "TOOL_CALL_END")?.toolCallName, "get_weather")
 })
 
+/** Runs `body` in Edge (Phi-4-mini), as its client hints say. */
+async function inEdge(body: () => Promise<void>) {
+  const original = Object.getOwnPropertyDescriptor(globalThis, "navigator")
+  Object.defineProperty(globalThis, "navigator", {
+    value: { userAgent: "Mozilla/5.0", userAgentData: { brands: [{ brand: "Microsoft Edge" }, { brand: "Chromium" }] } },
+    configurable: true
+  })
+  try {
+    await body()
+  } finally {
+    if (original) Object.defineProperty(globalThis, "navigator", original)
+    else delete (globalThis as { navigator?: unknown }).navigator
+  }
+}
+
+test("for Phi-4-mini, tools go in browser-ai's prompt and JSON fences", async () => {
+  await inEdge(async () => {
+    control.pieces = ['```tool_call\n{"name": "get_weather", "arguments": {"city": "Paris"}}\n```']
+    const chunks = await run({
+      tools: [weather],
+      systemPrompts: ["Be brief."],
+      messages: [
+        { role: "user", content: "Weather in Paris and Rome?" },
+        {
+          role: "assistant",
+          content: "Checking.",
+          toolCalls: [
+            { id: "c1", type: "function", function: { name: "get_weather", arguments: '{"city":"Paris"}' } },
+            { id: "c2", type: "function", function: { name: "get_weather", arguments: '{"city":"Rome"}' } }
+          ]
+        },
+        { role: "tool", toolCallId: "c1", content: '{"temp":12}' },
+        { role: "tool", toolCallId: "c2", content: "", error: "offline" }
+      ]
+    })
+    const system = String((control.creates[0].initialPrompts as Array<{ content: string }>)[0].content)
+    assert.ok(system.startsWith("Be brief.\n\nYou are a helpful AI assistant with access to tools.\n\n# Available Tools\n["))
+    assert.match(system, /- If no tool is needed, respond directly without tool_call fences$/)
+    assert.doesNotMatch(system, /tool_code/)
+    assert.deepEqual(control.prompts[0].input, [
+      { role: "user", content: "Weather in Paris and Rome?" },
+      {
+        role: "assistant",
+        content: 'Checking.\n```tool_call\n{"name":"get_weather","arguments":{"city":"Paris"},"id":"c1"}\n{"name":"get_weather","arguments":{"city":"Rome"},"id":"c2"}\n```'
+      },
+      {
+        role: "user",
+        content: '```tool_result\n{"name":"get_weather","result":{"temp":12},"error":false,"id":"c1"}\n{"name":"get_weather","result":"offline","error":true,"id":"c2"}\n```'
+      }
+    ])
+    assert.equal(chunks.find((c) => c.type === "TOOL_CALL_END")?.toolCallName, "get_weather")
+  })
+})
+
 test("images are loaded as Blobs, and the session expects them", async () => {
   await run({
     messages: [

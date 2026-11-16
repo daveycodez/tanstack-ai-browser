@@ -103,11 +103,59 @@ function pythonMethod(tool: Tool): string {
 }
 
 /**
- * The system prompt with the tools and how to call them; unchanged without
- * tools.
+ * How tools go in the prompt: Google's Gemma 3 `tool_code` format (Gemini
+ * Nano writes it on its own), or browser-ai's JSON `tool_call` fence, for
+ * Phi-4-mini (which reads `tool_code` badly).
  */
-export function toolSystemPrompt(system: string, tools: ReadonlyArray<Tool>): string {
+export type ToolFormat = "tool_code" | "browser-ai"
+
+/**
+ * browser-ai's tool prompt, exactly as browser-ai builds it
+ * (github.com/jakobhoeg/browser-ai, packages/vercel/shared/src/tool-calling/build-json-system-prompt.ts).
+ */
+function browserAiInstructions(tools: ReadonlyArray<Tool>) {
+  const definitions = tools.map((tool) => ({
+    name: tool.name,
+    description: tool.description ?? "No description provided.",
+    parameters: tool.inputSchema ?? { type: "object", properties: {} }
+  }))
+  return `You are a helpful AI assistant with access to tools.
+
+# Available Tools
+${JSON.stringify(definitions, null, 2)}
+
+# Tool Calling Instructions
+Only request one tool call at a time. Wait for tool results before asking for another tool.
+
+To call a tool, output JSON in this exact format inside a \`\`\`tool_call code fence:
+
+\`\`\`tool_call
+{"name": "tool_name", "arguments": {"param1": "value1", "param2": "value2"}}
+\`\`\`
+
+Tool responses will be provided in \`\`\`tool_result fences. Each line contains JSON like:
+\`\`\`tool_result
+{"id": "call_123", "name": "tool_name", "result": {...}, "error": false}
+\`\`\`
+Use the \`result\` payload (and treat \`error\` as a boolean flag) when continuing the conversation.
+
+Important:
+- Use exact tool and parameter names from the schema above
+- Arguments must be a valid JSON object matching the tool's parameters
+- You can include brief reasoning before or after the tool call
+- If no tool is needed, respond directly without tool_call fences`
+}
+
+/**
+ * The system prompt with the tools and how to call them, in `format`;
+ * unchanged without tools.
+ */
+export function toolSystemPrompt(system: string, tools: ReadonlyArray<Tool>, format: ToolFormat = "tool_code"): string {
   if (tools.length === 0) return system
+  if (format === "browser-ai") {
+    const instructions = browserAiInstructions(tools)
+    return system.trim() ? `${system.trim()}\n\n${instructions}` : instructions
+  }
   // How tools are called here (the Prompt API has none of its own), in the words
   // of Google's Gemma 3 guide, without its lines on how to behave: when to call
   // a tool is the caller's to say, in its system prompt.
@@ -120,8 +168,23 @@ ${tools.map(pythonMethod).join("\n\n")}
   return system.trim() ? `${system.trim()}\n\n${instructions}` : instructions
 }
 
-/** Earlier tool calls in the conversation, as Python calls in a ```tool_code block. */
-export function toolCallFence(calls: NonNullable<ModelMessage["toolCalls"]>): string {
+/**
+ * Earlier tool calls in the conversation, in `format`: Python calls in a
+ * ```tool_code block, or browser-ai's JSON lines in a ```tool_call fence.
+ */
+export function toolCallFence(calls: NonNullable<ModelMessage["toolCalls"]>, format: ToolFormat = "tool_code"): string {
+  if (format === "browser-ai") {
+    const lines = calls.map((call) => {
+      let args: unknown
+      try {
+        args = JSON.parse(call.function.arguments || "{}")
+      } catch {
+        args = call.function.arguments
+      }
+      return JSON.stringify({ name: call.function.name, arguments: args, ...(call.id && { id: call.id }) })
+    })
+    return `\`\`\`tool_call\n${lines.join("\n")}\n\`\`\``
+  }
   const lines = calls.map((call) => {
     let args: unknown
     try {
@@ -134,6 +197,22 @@ export function toolCallFence(calls: NonNullable<ModelMessage["toolCalls"]>): st
   })
   return `\`\`\`tool_code\n${lines.join("\n")}\n\`\`\``
 }
+
+/** A tool's result as browser-ai writes it, a line of its ```tool_result fence: the JSON output (or text, or the error). */
+export function toolResultLine(id: string, name: string, content: string, error?: string): string {
+  let result: unknown = error ?? content
+  if (error === undefined) {
+    try {
+      result = JSON.parse(content)
+    } catch {
+      // Plain text.
+    }
+  }
+  return JSON.stringify({ name, result: result ?? null, error: error !== undefined, ...(id && { id }) })
+}
+
+/** A step's tool results as browser-ai writes them: a line each in one ```tool_result fence. */
+export const toolResultFence = (lines: ReadonlyArray<string>) => `\`\`\`tool_result\n${lines.join("\n")}\n\`\`\``
 
 /** A tool's result in a ```tool_output block: its output as it came, or its error. */
 export const toolOutputFence = (content: string, error?: string) =>
@@ -297,7 +376,9 @@ function partialFenceStart(text: string) {
  * first fence that closes with a call in it ends the reply (stop generating
  * then): `call` is the call, and `trailing` the text after it. A fence without
  * a call, a call to a tool not in `tools` (when given), and other code fences,
- * are text. `end` gives the rest, an unclosed fence as text.
+ * are text. `end` gives the rest: a fence still open when the reply ends is
+ * the call if it holds a whole one (the model ended its reply there, so
+ * nothing more was coming), else text.
  */
 export function toolCallReader(tools?: ReadonlyArray<Pick<Tool, "name" | "inputSchema">>) {
   const names = tools?.map((tool) => tool.name)
@@ -360,6 +441,14 @@ export function toolCallReader(tools?: ReadonlyArray<Pick<Tool, "name" | "inputS
     },
     end(): string {
       if (call) return ""
+      if (start && !start.python) {
+        const parsed = parseToolCall(buffer.slice(start.start.length), parameterNames)
+        if (parsed && (!names || names.includes(parsed.name))) {
+          call = parsed
+          buffer = ""
+          return ""
+        }
+      }
       const rest = buffer
       buffer = ""
       return rest
