@@ -1,5 +1,6 @@
 /**
- * The Settings modal: a custom system prompt for every model, the built-in
+ * The Settings modal: the system prompt for every model (the default, or the
+ * user's own, with a button to put the default back), the built-in
  * weather and location tools, and deleting every session.
  */
 import TrashBin from "@gravity-ui/icons/TrashBin"
@@ -17,7 +18,7 @@ import { useLiveQuery, useOptionalDbClient } from "@tanstack/react-db"
 import { useState } from "react"
 
 import { threadsCollection } from "#/lib/db"
-import { systemPromptSetting } from "#/lib/settings"
+import { DEFAULT_SYSTEM_PROMPT, systemPromptSetting } from "#/lib/settings"
 import { locationToolSetting } from "#/lib/location"
 import { timeToolsSetting } from "#/lib/time"
 import { weatherToolSetting } from "#/lib/weather"
@@ -91,6 +92,16 @@ function SettingsForm({
             browser only.
           </Description>
         </TextField>
+        {/* The default prompt back in the field: saved with the rest. */}
+        <Button
+          size="sm"
+          variant="tertiary"
+          isDisabled={systemPrompt === DEFAULT_SYSTEM_PROMPT}
+          onPress={() => setSystemPrompt(DEFAULT_SYSTEM_PROMPT)}
+          className="-mt-4 self-start"
+        >
+          Reset to default
+        </Button>
         <Switch isSelected={timeTools} onChange={setTimeTools}>
           <Switch.Content className="w-full justify-between gap-4">
             <div className="flex min-w-0 flex-col gap-0.5">

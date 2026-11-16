@@ -39,7 +39,7 @@ export type ChatRecord = { id: string; state: ChatPersistedState }
 
 /** Every setting, by key, with its value's type. */
 export type Settings = {
-  /** A system prompt the user wrote. Empty means none. */
+  /** The system prompt the user saved (the default until then). Empty means none. */
   systemPrompt: string
   model: ModelId
   /** How hard models think, clamped to each model's levels. */
