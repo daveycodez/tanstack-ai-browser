@@ -2,10 +2,12 @@
  * A TanStack AI text adapter for Apple's on-device Foundation Model, served
  * by apfel. apfel speaks OpenAI's Chat Completions API, so this is TanStack's
  * OpenAI-compatible adapter pointed at it: tool calls and structured output
- * go to apfel as `tools` and `response_format`, image parts as `image_url`
+ * go to apfel as `tools` and `response_format` (their schemas as given, not
+ * in OpenAI's strict form), image parts as `image_url`
  * parts, and `modelOptions` as given. It adds `availability()` and
  * `create()`, which ask apfel whether it serves the model.
  */
+import type { TextOptions } from "@tanstack/ai"
 import { openaiCompatibleText } from "@tanstack/ai-openai/compatible"
 import type { OpenAICompatibleChatAdapter } from "@tanstack/ai-openai/compatible"
 
@@ -43,6 +45,25 @@ export type ApfelTextAdapter = OpenAICompatibleChatAdapter<ApfelModel, ApfelText
 
 const DEFAULT_BASE_URL = "http://127.0.0.1:11434/v1"
 
+/**
+ * The tools as given: OpenAI's strict mode (TanStack's default for
+ * OpenAI-compatible APIs) makes every optional field required and nullable,
+ * and apfel lists the tools to the model from these schemas.
+ */
+const toolsAsGiven = ({ tools }: TextOptions) =>
+  tools && {
+    tools: tools.map(({ name, description, inputSchema }) => ({
+      type: "function" as const,
+      function: { name, description, parameters: inputSchema ?? { type: "object", properties: {} } }
+    }))
+  }
+
+/** The OpenAI base's request methods, overridden on the instance (TanStack's factory returns its class). */
+type RequestMapping = {
+  mapOptionsToRequest(options: TextOptions): Record<string, unknown>
+  makeStructuredOutputCompatibleWithMap(schema: Record<string, unknown>): { schema: Record<string, unknown>; nullWideningMap: unknown }
+}
+
 /** A model apfel serves: Apple's ("apple-foundationmodel", the default), or any other name. */
 export type ApfelModel = ApfelChatModel | (string & {})
 
@@ -74,6 +95,11 @@ export function apfelText(modelOrConfig?: ApfelModel | ApfelConfig, maybeConfig:
     // apfel runs on the user's own machine: there's no secret key to expose.
     dangerouslyAllowBrowser: true
   }) as OpenAICompatibleChatAdapter<ApfelModel, ApfelTextModelOptions>
+  // Tools and structured output's schema as given, not in OpenAI's strict form.
+  const mapping = adapter as unknown as RequestMapping
+  const mapOptionsToRequest = mapping.mapOptionsToRequest.bind(adapter)
+  mapping.mapOptionsToRequest = (options) => Object.assign(mapOptionsToRequest(options), toolsAsGiven(options))
+  mapping.makeStructuredOutputCompatibleWithMap = (schema) => ({ schema, nullWideningMap: undefined })
 
   const availability = async (signal?: AbortSignal): Promise<Availability> => {
     try {
