@@ -161,8 +161,6 @@ export class TransformersJsWorkerHandler {
         )
       : await Promise.all([null, AutoTokenizer.from_pretrained(id), AutoModelForCausalLM.from_pretrained(id, options)])
     tokenizer.chat_template ??= await standaloneTemplate(id)
-    // A first token compiles the GPU's shaders, so the first reply doesn't wait for it.
-    await model.generate({ ...tokenizer("a"), max_new_tokens: 1 })
     this.loaded = { tokenizer, processor, model }
     this.post({ status: "ready" })
   }
