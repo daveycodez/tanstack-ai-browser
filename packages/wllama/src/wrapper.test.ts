@@ -175,8 +175,8 @@ test("audio kept as an uploaded file is refused: wllama reads bytes", async () =
   assert.equal(control.requests.length, 0)
 })
 
-test("usage keeps llama.cpp's cached count, 0 included (TanStack's conversion leaves a 0 out)", async () => {
-  for (const cached_tokens of [0, 352]) {
+test("usage is TanStack's conversion of llama.cpp's: its cached count, and none for 0", async () => {
+  for (const [cached_tokens, details] of [[352, { cachedTokens: 352 }], [0, undefined]] as const) {
     control.chunks = [
       delta({ role: "assistant", content: "Hi" }),
       { ...delta({}, "stop"), usage: { prompt_tokens: 371, completion_tokens: 2, total_tokens: 373, prompt_tokens_details: { cached_tokens } } }
@@ -184,6 +184,6 @@ test("usage keeps llama.cpp's cached count, 0 included (TanStack's conversion le
     const { events } = await run()
     const usage = events.find((e) => e.type === "RUN_FINISHED")?.usage as { promptTokens: number; promptTokensDetails?: unknown }
     assert.equal(usage.promptTokens, 371)
-    assert.deepEqual(usage.promptTokensDetails, { cachedTokens: cached_tokens })
+    assert.deepEqual(usage.promptTokensDetails, details)
   }
 })
