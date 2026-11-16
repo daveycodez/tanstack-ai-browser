@@ -1,6 +1,6 @@
 /**
- * The built-in weather tool: a city's current weather and the next days'
- * forecast from Open-Meteo, which is free, needs no key and allows any site
+ * The built-in weather tool: the current weather and the next days'
+ * forecast, for a city or for where the user is, from Open-Meteo, which is free, needs no key and allows any site
  * (CORS). It runs in the page like the rest of `chat()`, reads data only,
  * so it never asks first, and can be turned off in Settings. Its result is
  * typed: the model reads it, and the weather card (weather-tool.tsx) draws
@@ -194,8 +194,14 @@ export async function lookUpWeather(
   city: string,
   signal?: AbortSignal
 ): Promise<WeatherReport> {
-  const place = await findCity(city, signal)
+  return weatherAt(await findCity(city, signal), signal)
+}
 
+/** A place's weather now and for the next five days. */
+async function weatherAt(
+  place: { latitude: number; longitude: number; name: string },
+  signal?: AbortSignal
+): Promise<WeatherReport> {
   const fahrenheit = usesFahrenheit()
   const forecast = await getJson<Forecast>(
     `https://api.open-meteo.com/v1/forecast?${new URLSearchParams({
@@ -242,28 +248,42 @@ export async function lookUpWeather(
   }
 }
 
-/** The tool models see, run in the page by `chat()` (see chat/connection.ts). */
+/** What `city` is for the weather where the user is. */
+const HERE = "here"
+
+/**
+ * The tool models see, run in the page by `chat()` (see chat/connection.ts).
+ * With the city "here" it's the weather where the user is: the device's
+ * position (the browser asks the user first; lib/location.ts), in one call.
+ * Small models don't reliably call a location tool and then this one: some
+ * stop after the first and make the weather up. And they fill a field
+ * rather than leave it out, so "here" is a value to write, not an omission.
+ */
 export const weatherTool = toolDefinition({
   name: WEATHER_TOOL,
   description:
-    "Get the current weather and a 5-day forecast for a city. Use this for any question about weather, temperature or rain. For the weather where the user is, when they name no place, call get_current_location first: don't guess a city.",
+    `Get the current weather and a 5-day forecast for a city, or for where the user is. Use this for any question about weather, temperature or rain. When the user names no place, pass "${HERE}" as the city: don't guess one.`,
   inputSchema: {
     type: "object",
     properties: {
       city: {
         type: "string",
-        description:
-          "The city the user named, or the nearest city get_current_location returned."
+        description: `The city the user named, or "${HERE}" for where the user is.`
       }
     },
     required: ["city"]
   }
 }).server(async (args, context) => {
-  const { city } = args as Record<string, unknown>
-  if (typeof city === "string" && city.trim()) {
-    return lookUpWeather(city.trim(), context?.abortSignal)
-  }
-  throw new Error("A city is needed.")
+  const signal = context?.abortSignal
+  const given = (args as Record<string, unknown>).city
+  const city = typeof given === "string" ? given.trim() : ""
+  if (!city) throw new Error(`A city is needed, or "${HERE}" for where the user is.`)
+  if (city.toLowerCase() !== HERE) return lookUpWeather(city, signal)
+  // Loaded here: lib/location.ts reads this file's setting and tool name.
+  const { currentLocation, locationToolSetting } = await import("#/lib/location")
+  if (!locationToolSetting.get()) throw new Error("A city is needed: ask the user for one.")
+  const where = await currentLocation(signal)
+  return weatherAt({ latitude: where.latitude, longitude: where.longitude, name: where.place ?? where.city ?? "Your location" }, signal)
 })
 
 /** A tool result as a weather report, if it is one. */

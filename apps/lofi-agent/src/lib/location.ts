@@ -36,7 +36,7 @@ export type CurrentLocation = {
 export const locationToolDefinition = toolDefinition({
   name: LOCATION_TOOL,
   description:
-    "Get where the user is from their device: the place's name, the nearest city, latitude and longitude. Only for when the user asks about where they are without naming a place, such as \"what's the weather?\": then call this instead of asking for their city, and pass the nearest city to get_weather. When the user names a place, use that place and don't call this. The browser asks the user first.",
+    "Get where the user is from their device: the place's name, the nearest city, latitude and longitude. Only for when the user asks where they are. The browser asks the user first.",
   inputSchema: { type: "object", properties: {} }
 })
 
@@ -101,7 +101,8 @@ export const locationTool = locationToolDefinition.client(
     describeLocation(await currentLocation(context?.abortSignal))
 )
 
-async function currentLocation(signal?: AbortSignal): Promise<CurrentLocation> {
+/** Where the user is: the position, then its names. The weather tool uses it too, when no city is named. */
+export async function currentLocation(signal?: AbortSignal): Promise<CurrentLocation> {
   const where = await position()
   // The browser's prompt can't be cancelled, so a reply stopped while it was
   // open is noticed only once it answers.
