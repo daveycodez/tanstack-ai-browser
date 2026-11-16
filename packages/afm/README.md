@@ -29,7 +29,19 @@ if ((await adapter.availability()) === "available") {
 }
 ```
 
-`availability()` is `"available"`, `"downloading"` while Apple Intelligence gets its model, or `"unavailable"` (an older OS, an ineligible device, or Apple Intelligence turned off). `contextSize()` is the tokens a session holds, on iOS 26.4 and later.
+`availability()` is `"available"`, `"downloading"` while Apple Intelligence gets its model, or `"unavailable"` (an older OS, an ineligible device, or Apple Intelligence turned off). `contextSize()` is the tokens a session holds (iOS/macOS 26.0 and later).
+
+`variant()` says which Apple model runs, checked natively as Apple's guide [Detecting available Apple Foundation Models](https://developer.apple.com/documentation/foundationmodels/detecting-available-apple-foundation-models) does: AFM 3 Core or AFM 3 Core Advanced on 27 (depending on the device), AFM 2.1 Core on 26.4 and later, AFM 2 Core before. It resolves to one of `SystemLanguageModel.Variant`'s constants, so it compares like Swift's `==`, or to `undefined` where the model can't run:
+
+```ts
+import { afmText, SystemLanguageModel } from "@tanstack-ai-browser/afm"
+
+const variant = await afmText().variant()
+variant === SystemLanguageModel.Variant.coreAdvanced3 // true on an M3 Ultra Mac on macOS 27
+variant?.displayName // "AFM 3 Core Advanced", for showing the name
+```
+
+The constants are Apple's `core3` and `coreAdvanced3`, and `core2_1` and `core2` from the guide's table, which Swift has no constants for. A variant newer than these comes with its own `displayName`, the same object each time.
 
 Each thread (`threadId`) keeps a native session, so a follow-up message only sends that message. Structured output (`chat({ outputSchema })`) is held to the schema by the framework.
 

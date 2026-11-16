@@ -23,7 +23,7 @@ import {
   effortFor,
   effortOptions,
   loadWebLlmModels,
-  modelInfo,
+  modelName,
   PROVIDERS,
   useAttachableKinds,
   useBackends,
@@ -107,7 +107,7 @@ export function ChatPromptInput() {
           <Alert.Indicator />
           <Alert.Content>
             <Alert.Description>
-              {cantRead(modelInfo(model).name, unreadable)} Pick a model that can, or remove them to send.
+              {cantRead(modelName(model), unreadable)} Pick a model that can, or remove them to send.
             </Alert.Description>
           </Alert.Content>
         </Alert>

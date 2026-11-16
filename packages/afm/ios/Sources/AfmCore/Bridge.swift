@@ -46,8 +46,6 @@ public final class AfmBridge: @unchecked Sendable {
         }
     }
 
-    /// Whether the model can run here, why not, and the tokens a session holds:
-    /// the model with the guardrails `options` names.
     /// The JSON Schema the framework makes of a native schema (`{ schema }`), as the model
     /// reads it: to check what the framework keeps of what the adapter sends.
     public static func schemaJSON(_ options: [String: Any]) throws -> String {
@@ -57,6 +55,8 @@ public final class AfmBridge: @unchecked Sendable {
         return String(data: try encoder.encode(schema), encoding: .utf8) ?? ""
     }
 
+    /// Whether the model can run here, why not, the tokens a session holds, and which
+    /// Apple model it is (see `variant`): the model with the guardrails `options` names.
     public static func availability(_ options: [String: Any] = [:]) -> [String: Any] {
         let model = model(options)
         var result: [String: Any]
@@ -73,10 +73,31 @@ public final class AfmBridge: @unchecked Sendable {
             }
             result = ["available": false, "reason": name]
         }
-        if #available(iOS 26.4, macOS 26.4, *) {
-            result["contextSize"] = model.contextSize
-        }
+        // (Back-deployed: readable from iOS/macOS 26.0.)
+        result["contextSize"] = model.contextSize
+        if result["available"] as? Bool == true { result.merge(variant()) { _, new in new } }
         return result
+    }
+
+    /// Which Apple model runs here, checked as Apple's guide "Detecting available Apple
+    /// Foundation Models" says: its variant from iOS/macOS 27, otherwise the OS version
+    /// (AFM 2.1 Core from 26.4, AFM 2 Core before). `variant` is a stable key (core3,
+    /// coreAdvanced3, core2_1, core2); a 27 variant the bridge doesn't know comes as
+    /// `variantName`, its display name. (Apple's check names iPadOS too; Swift's availability
+    /// reads iPadOS as iOS, and warns at the name.)
+    static func variant() -> [String: String] {
+        if #available(iOS 27.0, macOS 27.0, visionOS 27.0, *) {
+            let variant = SystemLanguageModel.default.variant
+            switch variant {
+            case .core3: return ["variant": "core3"]
+            case .coreAdvanced3: return ["variant": "coreAdvanced3"]
+            default: return ["variantName": variant.displayName]
+            }
+        } else if #available(iOS 26.4, macOS 26.4, visionOS 26.4, *) {
+            return ["variant": "core2_1"]
+        } else {
+            return ["variant": "core2"]
+        }
     }
 
     /// Starts a session: `sessionId`, `instructions`, `tools` ([{ name, description,

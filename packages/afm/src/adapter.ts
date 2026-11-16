@@ -26,6 +26,7 @@ import type { AfmChatModel } from "./model-meta.js"
 import { Afm } from "./native.js"
 import type { AfmGuardrails, AfmNative, AfmSampling, NativeEvent, NativeMessage, NativeUsage, UnavailableReason } from "./native.js"
 import { toNativeSchema } from "./schema.js"
+import * as SystemLanguageModel from "./system-language-model.js"
 import { parseJsonValue } from "./json-value.js"
 import { schemaErrors } from "./validate.js"
 import { orderedForm } from "./ordered.js"
@@ -287,10 +288,25 @@ export class AfmTextAdapter extends BaseTextAdapter<
     }
   }
 
-  /** Tokens a session holds, where the OS says (26.4 and later). */
+  /** Tokens a session holds (iOS/macOS 26.0 and later). */
   async contextSize(): Promise<number | undefined> {
     try {
       return (await this.native.availability(this.guardrails ? { guardrails: this.guardrails } : undefined)).contextSize
+    } catch {
+      return undefined
+    }
+  }
+
+  /**
+   * Which Apple model runs here, as Apple's guide "Detecting available Apple
+   * Foundation Models" checks it (natively, on iOS and in Electron): one of
+   * `SystemLanguageModel.Variant`'s constants, so `===` compares like Swift's
+   * `==`. Undefined when the model can't run here.
+   */
+  async variant(): Promise<SystemLanguageModel.Variant | undefined> {
+    try {
+      const answer = await this.native.availability(this.guardrails ? { guardrails: this.guardrails } : undefined)
+      return answer.available ? SystemLanguageModel.Variant.fromNative(answer) : undefined
     } catch {
       return undefined
     }

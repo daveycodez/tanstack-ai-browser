@@ -5,6 +5,7 @@ import { chat } from "@tanstack/ai"
 import type { TextOptions } from "@tanstack/ai"
 
 import { afmText } from "./adapter.js"
+import { SystemLanguageModel } from "./index.js"
 import type { AfmNative, NativeAvailability, NativeEvent } from "./native.js"
 
 type Chunk = { type: string; [key: string]: unknown }
@@ -288,6 +289,34 @@ test("availability: available, downloading while the model isn't ready, else una
     throw new Error("not implemented on web")
   }
   assert.equal(await adapter.availability(), "unavailable")
+})
+
+test("variant(): the native check's key as Apple's constants, compared with ===; an unknown 27 variant one per name; undefined when unavailable", async () => {
+  const adapter = afmText({ native })
+  const { Variant } = SystemLanguageModel
+  for (const [key, variant, name] of [
+    ["core3", Variant.core3, "AFM 3 Core"],
+    ["coreAdvanced3", Variant.coreAdvanced3, "AFM 3 Core Advanced"],
+    ["core2_1", Variant.core2_1, "AFM 2.1 Core"],
+    ["core2", Variant.core2, "AFM 2 Core"]
+  ] as const) {
+    native.answer = { available: true, contextSize: 4096, variant: key }
+    const got = await adapter.variant()
+    assert.equal(got, variant)
+    assert.equal(got?.displayName, name)
+  }
+  native.answer = { available: true, variantName: "AFM 4 Core" }
+  const unknown = await adapter.variant()
+  assert.equal(unknown?.displayName, "AFM 4 Core")
+  assert.equal(await adapter.variant(), unknown, "the same instance for the same name")
+  native.answer = { available: true }
+  assert.equal(await adapter.variant(), undefined, "a native side too old to say")
+  native.answer = { available: false, reason: "deviceNotEligible", variant: "core2" }
+  assert.equal(await adapter.variant(), undefined)
+  native.availability = async () => {
+    throw new Error("not implemented on web")
+  }
+  assert.equal(await adapter.variant(), undefined)
 })
 
 test("without a native side given, window.afm (an Electron preload's) is used", async () => {

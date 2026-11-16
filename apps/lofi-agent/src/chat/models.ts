@@ -251,6 +251,9 @@ const webLlm = (
 /** The browser's own model's status, and its download's progress. */
 const builtInStatus = statusStore()
 
+/** Apple's framework (the iOS app's plugin, the Mac app's preload): also asked which model it runs. */
+const afm = afmText()
+
 export const MODELS = [
   {
     id: "apple-foundationmodel",
@@ -273,9 +276,10 @@ export const MODELS = [
     /**
      * The same model through Apple's framework itself, with its native tool
      * calling: in the iOS app (the Capacitor plugin), and in the Mac app
-     * (window.afm, from its preload). Offered where it says the model can run.
+     * (window.afm, from its preload). Offered where it says the model can run,
+     * named as Apple's framework names the model running (see reportedNames).
      */
-    adapter: afmText(),
+    adapter: afm,
     /** The OS keeps the model: nothing to download. */
     status: null,
     needsWebGpu: false,
@@ -603,10 +607,23 @@ export function useBackends(): Partial<Record<string, string>> {
  */
 const availabilities = createStore<Partial<Record<ModelId, Availability>>>({})
 
-/** Checks `id`'s availability again, into the store. */
+/**
+ * Names models give themselves, over their entries': Apple's framework says
+ * which model it runs ("AFM 3 Core Advanced", "AFM 2 Core"), once it can run.
+ */
+const reportedNames = createStore<Partial<Record<ModelId, string>>>({})
+
+/** A model's name: the one it reports, else its entry's. */
+export const modelName = (id: ModelId) => reportedNames.get()[id] ?? modelInfo(id).name
+
+/** Checks `id`'s availability again, into the store (and Apple's model's name, once it can run). */
 async function checkAvailability(id: ModelId) {
   const result = await modelInfo(id).adapter.availability()
   availabilities.set((all) => ({ ...all, [id]: result }))
+  if (id === "apple-foundationmodel-afm" && result === "available") {
+    const variant = await afm.variant()
+    if (variant) reportedNames.set((all) => ({ ...all, [id]: variant.displayName }))
+  }
   return result
 }
 
@@ -680,8 +697,10 @@ export function useModels() {
   const isMac = useIsMacOS()
   const hasGpu = useHasWebGpu()
   const all = useAvailabilities()
+  const names = reportedNames.use()
   return allModels().filter((m) => canRun(m.id, isMac, hasGpu)).map((m) => ({
     ...m,
+    name: names[m.id] ?? m.name,
     availability: all[m.id]
   }))
 }

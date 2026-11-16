@@ -17,8 +17,12 @@ export type UnavailableReason =
 export type NativeAvailability = {
   available: boolean
   reason?: UnavailableReason
-  /** Tokens a session holds (iOS/macOS 26.4 and later). */
+  /** Tokens a session holds. */
   contextSize?: number
+  /** Which Apple model runs, when it can (see system-language-model.ts): a key per branch of Apple's check. */
+  variant?: "core3" | "coreAdvanced3" | "core2_1" | "core2"
+  /** A 27 variant the bridge has no key for: its display name. */
+  variantName?: string
 }
 
 /**
