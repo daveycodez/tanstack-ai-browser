@@ -44,17 +44,11 @@ Pass tools to `chat({ tools })` as with any adapter; `chat()` runs them.
 
 Where the browser has the Prompt API's own tool use (its `LanguageModelToolCall`, `LanguageModelToolSuccess` and `LanguageModelToolError` classes: Chrome with `chrome://flags/#prompt-api-tool-use`, which also switches Chrome to Gemma 4), the adapter uses it: the session declares the tools (`name`, `description` and `inputSchema`, as given), the system prompt is the caller's alone, and the model's calls come back as `tool-call` content. The turn runs to its end, so the session holds the calls; a turn can make several, each a tool call with the browser's `callId` (or the adapter's, where the browser gives none). Earlier calls go back as `tool-call` content and results as `tool-response` content: a `LanguageModelToolSuccess` with the tool's JSON output as an `object` (nulls left out, which Chrome refuses) or its text, or a `LanguageModelToolError` with the error.
 
-Elsewhere (Chrome's default Gemini Nano, Edge's Aion-1.1-Instruct), the Prompt API has no tool use, so tools go by prompt. After the caller's system prompt, the adapter adds the tools and their format, and nothing else:
+Elsewhere (Chrome's default Gemini Nano, Edge's Aion-1.1-Instruct), the Prompt API has no tool use, so tools go by prompt. After the caller's system prompt, the adapter adds the tools (compact JSON, a tool a line) and their format, and nothing else:
 
 ````
 # Tools
-[
-  {
-    "name": "get_weather",
-    "description": "Weather for a city",
-    "parameters": { …the tool's input schema… }
-  }
-]
+{"name":"get_weather","description":"Weather for a city","parameters":{ …the tool's input schema… }}
 
 To call a tool, write one call as JSON in a ```tool_call fence:
 

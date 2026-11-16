@@ -38,16 +38,17 @@ function parametersOf(tool: Pick<Tool, "inputSchema">): Array<string> {
 }
 
 /**
- * The tools and their format, and nothing else: the tools as JSON (name,
- * description and schema, as given), how a call is written (one a reply:
+ * The tools and their format, and nothing else: the tools as JSON, one a
+ * line (name, description and schema, as given), how a call is written (one a reply:
  * the adapter reads the first) and how results come back. When to call a
  * tool, and how to answer, are the caller's system prompt's to say, as with
  * a model whose chat template lists its tools.
  */
 function toolInstructions(tools: ReadonlyArray<Tool>) {
   const definitions = tools.map((tool) => ({ name: tool.name, description: tool.description, parameters: tool.inputSchema ?? { type: "object", properties: {} } }))
+  // A tool a line, without indentation: the same list in about a fifth fewer characters.
   return `# Tools
-${JSON.stringify(definitions, null, 2)}
+${definitions.map((definition) => JSON.stringify(definition)).join("\n")}
 
 To call a tool, write one call as JSON in a \`\`\`tool_call fence:
 

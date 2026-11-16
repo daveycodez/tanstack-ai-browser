@@ -128,11 +128,15 @@ test("a JSON call is read as JSON: call syntax in its string arguments is just t
 
 test("the system prompt is the caller's, then the tools and their format, with no guidance on when to call; calls and results are JSON fences", () => {
   assert.equal(toolSystemPrompt("Be brief.", []), "Be brief.")
-  assert.ok(toolSystemPrompt("Be brief.", [weather]).startsWith("Be brief.\n\n# Tools\n["))
-  const prompt = toolSystemPrompt("", [weather])
-  assert.ok(prompt.startsWith("# Tools\n["))
-  const json = prompt.slice(prompt.indexOf("["), prompt.indexOf("\n]\n") + 2)
-  assert.deepEqual(JSON.parse(json), [{ name: "get_weather", description: "Weather for a city", parameters: weather.inputSchema }])
+  assert.ok(toolSystemPrompt("Be brief.", [weather]).startsWith("Be brief.\n\n# Tools\n{"))
+  const prompt = toolSystemPrompt("", [weather, { ...weather, name: "get_tide" }])
+  // A tool a line, as compact JSON.
+  const [heading, first, second, blank] = prompt.split("\n")
+  assert.equal(heading, "# Tools")
+  assert.deepEqual(JSON.parse(first!), { name: "get_weather", description: "Weather for a city", parameters: weather.inputSchema })
+  assert.equal(JSON.parse(second!).name, "get_tide")
+  assert.equal(first, JSON.stringify(JSON.parse(first!)), "no indentation")
+  assert.equal(blank, "")
   assert.match(prompt, /To call a tool, write one call as JSON in a ```tool_call fence:\n\n```tool_call\n\{"name": "tool_name", "arguments": \{/)
   assert.match(prompt, /Tool results come back in a ```tool_result fence, a line of JSON each:\n\n```tool_result\n\{"name": "tool_name", "result": \{\.\.\.\}, "error": false, "id": "call_123"\}\n```$/)
   // The format only: no persona, and nothing on when to call a tool or how to answer.

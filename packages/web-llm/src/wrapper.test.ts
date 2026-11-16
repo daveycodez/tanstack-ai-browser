@@ -310,7 +310,7 @@ test("tools by prompt: none sent to WebLLM, listed in the system prompt; a fence
   assert.ok(messages.every((m) => m.role !== "tool"), "results go back as text")
   const [system, , call, result] = messages
   assert.ok(system && call && result)
-  assert.ok(system.content.startsWith("Be brief.\n\n# Tools\n["), "the tools and their format, after the caller's")
+  assert.ok(system.content.startsWith('Be brief.\n\n# Tools\n{"name":"get_weather"'), "the tools and their format, after the caller's")
   assert.match(system.content, /get_weather[\s\S]*```tool_result\n\{"name": "tool_name", "result": \{\.\.\.\}, "error": false, "id": "call_123"\}\n```$/)
   assert.doesNotMatch(system.content, /You are|helpful|If no tool|reasoning|Important/i)
   assert.match(call.content, /```tool_call\n\{"name":"get_weather","arguments":\{"city":"Paris"\},"id":"c1"\}/)
