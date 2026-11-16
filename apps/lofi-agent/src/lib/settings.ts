@@ -45,7 +45,6 @@ export function setting<K extends SettingKey>(key: K, initial: Settings[K]) {
 
 /**
  * A system prompt the user wrote, sent to every model at the start of each
- * conversation. Empty means none. The date and time are on each user message
- * (chat/timestamps.ts).
+ * conversation. Empty means none.
  */
 export const systemPromptSetting = setting("systemPrompt", "")
