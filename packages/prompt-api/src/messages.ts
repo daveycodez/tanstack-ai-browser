@@ -3,15 +3,13 @@
  * images and audio (loaded as Blobs), the model's messages with their tool
  * calls, and tool results as user messages. With the browser's own tool use,
  * calls are `tool-call` content and results `tool-response` content; else
- * they're text in the prompt's format: Python calls in a ```tool_code block
- * and each result in a ```tool_output block, or browser-ai's JSON lines in a
- * ```tool_call fence and a ```tool_result fence.
+ * they're browser-ai's JSON lines in a ```tool_call fence and a
+ * ```tool_result fence.
  */
 import type { ContentPart, ModelMessage } from "@tanstack/ai"
 
 import type { MediaInput } from "./model.js"
-import { toolCallFence, toolOutputFence, toolResultFence, toolResultLine } from "./tools.js"
-import type { ToolFormat } from "./tools.js"
+import { toolCallFence, toolResultFence, toolResultLine } from "./tools.js"
 import type { LanguageModelContent, LanguageModelMessage, LanguageModelToolClasses, LanguageModelToolResultContent } from "./types.js"
 
 /** The text of a message's content, without its images or audio. */
@@ -98,13 +96,12 @@ function argumentsOf(json: string): Record<string, unknown> {
  * The conversation as Prompt API messages, from `start` on (a kept session
  * holds the rest); a step's tool results share one message. `tools` are the
  * browser's tool-use classes, for its own tool use; without them, calls and
- * results are text in `format`. Tool names come from the whole conversation.
+ * results are browser-ai's text. Tool names come from the whole conversation.
  */
 export async function toLanguageModelMessages(
   messages: ReadonlyArray<ModelMessage>,
   start = 0,
-  tools?: LanguageModelToolClasses,
-  format: ToolFormat = "tool_code"
+  tools?: LanguageModelToolClasses
 ): Promise<Array<LanguageModelMessage>> {
   const out: Array<LanguageModelMessage> = []
   const toolNames = new Map<string, string>()
@@ -128,17 +125,13 @@ export async function toLanguageModelMessages(
         }
         continue
       }
-      const output =
-        format === "browser-ai"
-          ? toolResultLine(callId, toolNames.get(callId) ?? "tool", contentText(m.content), m.error)
-          : toolOutputFence(contentText(m.content), m.error)
-      const text = (lines: Array<string>) => (format === "browser-ai" ? toolResultFence(lines) : lines.join("\n"))
+      const line = toolResultLine(callId, toolNames.get(callId) ?? "tool", contentText(m.content), m.error)
       if (results) {
-        ;(results as Array<string>).push(output)
-        out[out.length - 1] = { role: "user", content: text(results as Array<string>) }
+        ;(results as Array<string>).push(line)
+        out[out.length - 1] = { role: "user", content: toolResultFence(results as Array<string>) }
       } else {
-        results = [output]
-        out.push({ role: "user", content: text(results) })
+        results = [line]
+        out.push({ role: "user", content: toolResultFence(results) })
       }
       continue
     }
@@ -158,7 +151,7 @@ export async function toLanguageModelMessages(
         })
         continue
       }
-      const content = [text, ...(m.toolCalls?.length ? [toolCallFence(m.toolCalls, format)] : [])]
+      const content = [text, ...(m.toolCalls?.length ? [toolCallFence(m.toolCalls)] : [])]
         .filter(Boolean)
         .join("\n")
       if (content) out.push({ role: "assistant", content })

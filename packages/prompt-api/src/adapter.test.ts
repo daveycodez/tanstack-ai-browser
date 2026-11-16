@@ -151,12 +151,11 @@ test("a reply streams as text, on a session the thread keeps", async () => {
   assert.equal(control.destroyed, 0, "kept for the thread's next step")
 })
 
-test("tools go in the system prompt; a tool_code call ends the step with TOOL_CALL events and tool_calls", async () => {
-  control.pieces = ["Checking. ", "```tool_code\n", "print(get_weather(", 'city="Paris"))\n', "```", "never read", "never read"]
+test("tools go in the system prompt; a fenced call ends the step with TOOL_CALL events and tool_calls", async () => {
+  control.pieces = ["Checking. ", "```tool_call\n", '{"name": "get_weather", ', '"arguments": {"city": "Paris"}}\n', "```", "never read", "never read"]
   const chunks = await run({ tools: [weather], systemPrompts: ["Be brief."] })
   const system = String((control.creates[0].initialPrompts as Array<{ content: string }>)[0].content)
-  assert.match(system, /^Be brief\.\n\nAt each turn, if you decide to invoke any of the function\(s\), it should be wrapped with ```tool_code```\./)
-  assert.match(system, /```python\ndef get_weather\(city: str = None\):/)
+  assert.match(system, /^Be brief\.\n\nYou are a helpful AI assistant with access to tools\.\n\n# Available Tools\n\[/)
   assert.deepEqual(typesOf(chunks), [
     "RUN_STARTED",
     "TEXT_MESSAGE_START",
@@ -178,7 +177,7 @@ test("tools go in the system prompt; a tool_code call ends the step with TOOL_CA
 })
 
 test("a call with no text before it sends no text message", async () => {
-  control.pieces = ['```tool_code\nget_weather(city="Paris")\n```']
+  control.pieces = ['```tool_call\n{"name":"get_weather","arguments":{"city":"Paris"}}\n```']
   const chunks = await run({ tools: [weather] })
   assert.deepEqual(typesOf(chunks), ["RUN_STARTED", "TOOL_CALL_START", "TOOL_CALL_ARGS", "TOOL_CALL_END", "RUN_FINISHED"])
 })
@@ -188,7 +187,7 @@ test("toolChoice none leaves the tools out of the prompt", async () => {
   assert.deepEqual(control.creates[0].initialPrompts, [{ role: "system", content: "Be brief." }])
 })
 
-test("earlier calls are a tool_code block and their results one message of tool_output blocks", async () => {
+test("earlier calls are a tool_call fence and their results one tool_result message", async () => {
   await run({
     tools: [weather],
     messages: [
@@ -209,9 +208,12 @@ test("earlier calls are a tool_code block and their results one message of tool_
     { role: "user", content: "Weather in Paris and Rome?" },
     {
       role: "assistant",
-      content: 'Checking.\n```tool_code\nget_weather(city="Paris")\nget_weather(city="Rome")\n```'
+      content: 'Checking.\n```tool_call\n{"name":"get_weather","arguments":{"city":"Paris"},"id":"c1"}\n{"name":"get_weather","arguments":{"city":"Rome"},"id":"c2"}\n```'
     },
-    { role: "user", content: '```tool_output\n{"temp":12}\n```\n```tool_output\nError: offline\n```' }
+    {
+      role: "user",
+      content: '```tool_result\n{"name":"get_weather","result":{"temp":12},"error":false,"id":"c1"}\n{"name":"get_weather","result":"offline","error":true,"id":"c2"}\n```'
+    }
   ])
 })
 
@@ -323,64 +325,10 @@ test("with the browser's own tool use, earlier calls are tool-call content and r
 })
 
 test("without the browser's own tool use, tools go by prompt", async () => {
-  control.pieces = ['```tool_code\nget_weather(city="Paris")\n```']
+  control.pieces = ['```tool_call\n{"name":"get_weather","arguments":{"city":"Paris"}}\n```']
   const chunks = await run({ tools: [weather] })
   assert.equal("tools" in control.creates[0], false)
   assert.equal(chunks.find((c) => c.type === "TOOL_CALL_END")?.toolCallName, "get_weather")
-})
-
-/** Runs `body` in Edge (Phi-4-mini), as its client hints say. */
-async function inEdge(body: () => Promise<void>) {
-  const original = Object.getOwnPropertyDescriptor(globalThis, "navigator")
-  Object.defineProperty(globalThis, "navigator", {
-    value: { userAgent: "Mozilla/5.0", userAgentData: { brands: [{ brand: "Microsoft Edge" }, { brand: "Chromium" }] } },
-    configurable: true
-  })
-  try {
-    await body()
-  } finally {
-    if (original) Object.defineProperty(globalThis, "navigator", original)
-    else delete (globalThis as { navigator?: unknown }).navigator
-  }
-}
-
-test("for Phi-4-mini, tools go in browser-ai's prompt and JSON fences", async () => {
-  await inEdge(async () => {
-    control.pieces = ['```tool_call\n{"name": "get_weather", "arguments": {"city": "Paris"}}\n```']
-    const chunks = await run({
-      tools: [weather],
-      systemPrompts: ["Be brief."],
-      messages: [
-        { role: "user", content: "Weather in Paris and Rome?" },
-        {
-          role: "assistant",
-          content: "Checking.",
-          toolCalls: [
-            { id: "c1", type: "function", function: { name: "get_weather", arguments: '{"city":"Paris"}' } },
-            { id: "c2", type: "function", function: { name: "get_weather", arguments: '{"city":"Rome"}' } }
-          ]
-        },
-        { role: "tool", toolCallId: "c1", content: '{"temp":12}' },
-        { role: "tool", toolCallId: "c2", content: "", error: "offline" }
-      ]
-    })
-    const system = String((control.creates[0].initialPrompts as Array<{ content: string }>)[0].content)
-    assert.ok(system.startsWith("Be brief.\n\nYou are a helpful AI assistant with access to tools.\n\n# Available Tools\n["))
-    assert.match(system, /- If no tool is needed, respond directly without tool_call fences$/)
-    assert.doesNotMatch(system, /tool_code/)
-    assert.deepEqual(control.prompts[0].input, [
-      { role: "user", content: "Weather in Paris and Rome?" },
-      {
-        role: "assistant",
-        content: 'Checking.\n```tool_call\n{"name":"get_weather","arguments":{"city":"Paris"},"id":"c1"}\n{"name":"get_weather","arguments":{"city":"Rome"},"id":"c2"}\n```'
-      },
-      {
-        role: "user",
-        content: '```tool_result\n{"name":"get_weather","result":{"temp":12},"error":false,"id":"c1"}\n{"name":"get_weather","result":"offline","error":true,"id":"c2"}\n```'
-      }
-    ])
-    assert.equal(chunks.find((c) => c.type === "TOOL_CALL_END")?.toolCallName, "get_weather")
-  })
 })
 
 test("images are loaded as Blobs, and the session expects them", async () => {
@@ -600,7 +548,7 @@ test("a step stopped at a tool call isn't in the session, so the next step sends
   assert.equal(control.creates.length, 1, "the same session")
   const input = control.prompts[1].input as Array<{ role: string; content: string }>
   assert.deepEqual(input.map((m) => m.role), ["user", "assistant", "user"], "the question, the call and its result")
-  assert.match(input[2].content, /```tool_output/)
+  assert.match(input[2].content, /```tool_result/)
 })
 
 test("a thread's session reports an overflow to onContextOverflow", async () => {

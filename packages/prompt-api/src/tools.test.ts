@@ -1,7 +1,7 @@
 import assert from "node:assert/strict"
 import { test } from "node:test"
 
-import { parseToolCall, toolCallFence, toolCallReader, toolOutputFence, toolResultFence, toolResultLine, toolSystemPrompt } from "./tools.js"
+import { parseToolCall, toolCallFence, toolCallReader, toolResultFence, toolResultLine, toolSystemPrompt } from "./tools.js"
 
 const weather = {
   name: "get_weather",
@@ -21,75 +21,7 @@ function read(pieces: Array<string>) {
   return { shown, call: reader.call }
 }
 
-test("the system prompt: the caller's prompt, Google's Gemma 3 tool_code lines, and the tools as Python methods", () => {
-  const search = {
-    name: "search",
-    description: "Search the web.\n\nReturns: results.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        limit: { type: "integer", description: "How many\n results", default: 10 },
-        query: { type: "string", description: "What to look for" },
-        unit: { type: ["string", "null"], enum: ["c", "f"] },
-        exact: { type: "boolean" }
-      },
-      required: ["query"]
-    }
-  }
-  const prompt = toolSystemPrompt("Be brief.", [weather, search, { name: "clock", description: "" }])
-  assert.equal(
-    prompt,
-    `Be brief.
-
-At each turn, if you decide to invoke any of the function(s), it should be wrapped with \`\`\`tool_code\`\`\`. The python methods described below are imported and available. The response to a method will be wrapped in \`\`\`tool_output\`\`\`.
-
-The following Python methods are available:
-\`\`\`python
-def get_weather(city: str):
-  """
-  Weather for a city
-
-  Args:
-     city:
-  """
-
-def search(query: str, limit: int = 10, unit: Literal["c", "f"] = None, exact: bool = None):
-  """
-  Search the web.
-
-Returns: results.
-
-  Args:
-     query: What to look for
-     limit: How many results
-     unit:
-     exact:
-  """
-
-def clock():
-  ...
-\`\`\``
-  )
-  // Only how tools are called: no persona, nothing on when to call one.
-  assert.doesNotMatch(prompt, /helpful|assistant|reasoning|only use/i)
-  assert.equal(toolSystemPrompt("Be brief.", []), "Be brief.")
-  assert.ok(toolSystemPrompt("", [weather]).startsWith("At each turn, "))
-  assert.match(toolSystemPrompt("", [{ name: "q", description: 'Say """hi"""' }]), /Say \\"\\"\\"hi\\"\\"\\"/)
-})
-
-test("past calls are Python calls in a tool_code block; results are tool_output blocks", () => {
-  assert.equal(
-    toolCallFence([
-      { id: "c1", type: "function", function: { name: "get_weather", arguments: '{"city":"Paris","days":3,"metric":true,"tags":["a"],"x":null}' } },
-      { id: "c2", type: "function", function: { name: "clock", arguments: "" } }
-    ]),
-    '```tool_code\nget_weather(city="Paris", days=3, metric=True, tags=["a"], x=None)\nclock()\n```'
-  )
-  assert.equal(toolOutputFence('{"temp":12}'), '```tool_output\n{"temp":12}\n```')
-  assert.equal(toolOutputFence("", "no such city"), "```tool_output\nError: no such city\n```")
-})
-
-test("a tool_code call as Gemini Nano writes it: print(), keyword and positional arguments", () => {
+test("a tool_code call is read too: print(), keyword and positional arguments", () => {
   const calculate = { name: "calculate", inputSchema: { type: "object", properties: { expression: { type: "string" } }, required: ["expression"] } }
   const time = { name: "get_current_time", inputSchema: { type: "object", properties: { timezone: { type: "string" } } } }
   const readWith = (pieces: Array<string>) => {
@@ -194,15 +126,17 @@ test("a JSON call is read as JSON: call syntax in its string arguments is just t
   assert.equal(parseToolCall("see call:bogus{arg:value} here"), undefined, "the fallback syntax is the whole body")
 })
 
-test("browser-ai's format: its prompt as browser-ai builds it, calls and results as its JSON fences", () => {
-  const prompt = toolSystemPrompt("", [weather], "browser-ai")
+test("the system prompt is the caller's, then browser-ai's tool prompt as browser-ai builds it; calls and results are its JSON fences", () => {
+  assert.equal(toolSystemPrompt("Be brief.", []), "Be brief.")
+  assert.ok(toolSystemPrompt("Be brief.", [weather]).startsWith("Be brief.\n\nYou are a helpful AI assistant with access to tools.\n\n"))
+  const prompt = toolSystemPrompt("", [weather])
   assert.ok(prompt.startsWith("You are a helpful AI assistant with access to tools.\n\n# Available Tools\n"))
   const json = prompt.slice(prompt.indexOf("["), prompt.indexOf("\n]\n") + 2)
   assert.deepEqual(JSON.parse(json), [{ name: "get_weather", description: "Weather for a city", parameters: weather.inputSchema }])
   assert.match(prompt, /Only request one tool call at a time\. Wait for tool results before asking for another tool\./)
   assert.match(prompt, /- You can include brief reasoning before or after the tool call\n- If no tool is needed, respond directly without tool_call fences$/)
   assert.equal(
-    toolCallFence([{ id: "c1", type: "function", function: { name: "get_weather", arguments: '{"city":"Paris"}' } }], "browser-ai"),
+    toolCallFence([{ id: "c1", type: "function", function: { name: "get_weather", arguments: '{"city":"Paris"}' } }]),
     '```tool_call\n{"name":"get_weather","arguments":{"city":"Paris"},"id":"c1"}\n```'
   )
   assert.equal(toolResultLine("c1", "get_weather", '{"temp":12}'), '{"name":"get_weather","result":{"temp":12},"error":false,"id":"c1"}')

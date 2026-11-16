@@ -1,12 +1,12 @@
 /**
- * Tool calls by prompt. Chrome's Prompt API has no working tool use on web
- * pages (a session that expects tool calls fails to start, and `tools` alone
- * are never called), so the system prompt lists the tools as Python methods
- * and asks for a call in a ```tool_code block; results go back in a
- * ```tool_output block. This is the format of Google's Gemma 3 function-calling
- * guide (gemma-cookbook, `[Gemma_3]Function_Calling_with_HF.ipynb`), which
- * Gemini Nano writes on its own. The adapter reads calls out of the streamed
- * text; `chat()` checks them against the tools.
+ * Tool calls by prompt, where the browser has no tool use of its own
+ * (Chrome's default Gemini Nano, Edge's Phi-4-mini): browser-ai's format,
+ * exactly as browser-ai builds it (github.com/jakobhoeg/browser-ai,
+ * packages/vercel/shared/src/tool-calling). The system prompt lists the tools
+ * as JSON and asks for a call as JSON in a ```tool_call fence; earlier calls
+ * go back as its JSON lines in that fence, results in a ```tool_result
+ * fence. The adapter reads calls out of the streamed text; `chat()` checks
+ * them against the tools.
  */
 import type { ModelMessage, Tool } from "@tanstack/ai"
 
@@ -16,9 +16,9 @@ export type ParsedToolCall = { name: string; arguments: unknown }
 /** Where a call starts and ends: the fence the prompt asks for, then other ways small models write one. */
 type Delimiter = { start: string; end: string }
 const DELIMITERS: Array<Delimiter> = [
-  { start: "```tool_code", end: "```" },
   { start: "```tool_call", end: "```" },
   { start: "```tool-call", end: "```" },
+  { start: "```tool_code", end: "```" },
   { start: "<tool_call>", end: "</tool_call>" },
   { start: "<|tool_call>", end: "<tool_call|>" },
   { start: "<|tool_call_start|>", end: "<|tool_call_end|>" }
@@ -29,85 +29,15 @@ const PYTHON_CALL = /\[(\w+)\(/
 const isObject = (value: unknown): value is Record<string, unknown> =>
   !!value && typeof value === "object" && !Array.isArray(value)
 
-/** A JSON Schema, as far as a Python method's signature can show it. */
-type Schema = {
-  type?: string | Array<string>
-  description?: string
-  enum?: Array<unknown>
-  default?: unknown
-  properties?: Record<string, Schema>
-  required?: Array<string>
-}
+/** A tool's input schema, as far as a Python call's positional arguments need it. */
+type Schema = { properties?: Record<string, unknown>; required?: Array<string> }
 
-const PYTHON_TYPES: Record<string, string> = {
-  string: "str",
-  number: "float",
-  integer: "int",
-  boolean: "bool",
-  array: "list",
-  object: "dict"
-}
-
-/** A value as a Python literal. */
-function pythonLiteral(value: unknown): string {
-  if (value === null || value === undefined) return "None"
-  if (value === true) return "True"
-  if (value === false) return "False"
-  if (typeof value === "number") return String(value)
-  if (typeof value === "string") return JSON.stringify(value)
-  if (Array.isArray(value)) return `[${value.map(pythonLiteral).join(", ")}]`
-  if (isObject(value)) {
-    return `{${Object.entries(value)
-      .map(([key, item]) => `${JSON.stringify(key)}: ${pythonLiteral(item)}`)
-      .join(", ")}}`
-  }
-  return JSON.stringify(value)
-}
-
-/** A parameter's type annotation: an enum's values, else its JSON type. */
-function pythonType(schema: Schema): string | undefined {
-  if (schema.enum?.length) return `Literal[${schema.enum.map(pythonLiteral).join(", ")}]`
-  const types = (Array.isArray(schema.type) ? schema.type : [schema.type]).filter(
-    (type): type is string => !!type && type !== "null"
-  )
-  return types.length ? types.map((type) => PYTHON_TYPES[type] ?? type).join(" | ") : undefined
-}
-
-/** A tool's parameters in signature order: the required ones, then the rest (which Python wants last). */
-function parametersOf(tool: Pick<Tool, "inputSchema">): Array<[string, Schema, boolean]> {
+/** A tool's parameter names in Python signature order: the required ones, then the rest. */
+function parametersOf(tool: Pick<Tool, "inputSchema">): Array<string> {
   const schema = (tool.inputSchema ?? {}) as Schema
   const required = new Set(schema.required ?? [])
-  return Object.entries(schema.properties ?? {})
-    .map(([name, property]): [string, Schema, boolean] => [name, property, required.has(name)])
-    .sort((a, b) => Number(b[2]) - Number(a[2]))
+  return Object.keys(schema.properties ?? {}).sort((a, b) => Number(required.has(b)) - Number(required.has(a)))
 }
-
-/** A tool as a Python method: its signature, and its description and parameters' descriptions as the docstring. */
-function pythonMethod(tool: Tool): string {
-  const params = parametersOf(tool)
-  const signature = params
-    .map(([name, schema, required]) => {
-      const type = pythonType(schema)
-      const annotated = type ? `${name}: ${type}` : name
-      return required ? annotated : `${annotated} = ${pythonLiteral(schema.default)}`
-    })
-    .join(", ")
-  const quoted = (text: string) => text.replace(/"""/g, '\\"\\"\\"')
-  const description = tool.description?.trim()
-  const args = params.map(([name, schema]) => `     ${name}: ${quoted(schema.description ?? "").replace(/\s+/g, " ").trim()}`.trimEnd())
-  const doc = [
-    ...(description ? [`  ${quoted(description)}`] : []),
-    ...(args.length ? [...(description ? [""] : []), "  Args:", ...args] : [])
-  ]
-  return `def ${tool.name}(${signature}):\n` + (doc.length ? `  """\n${doc.join("\n")}\n  """` : "  ...")
-}
-
-/**
- * How tools go in the prompt: Google's Gemma 3 `tool_code` format (Gemini
- * Nano writes it on its own), or browser-ai's JSON `tool_call` fence, for
- * Phi-4-mini (which reads `tool_code` badly).
- */
-export type ToolFormat = "tool_code" | "browser-ai"
 
 /**
  * browser-ai's tool prompt, exactly as browser-ai builds it
@@ -147,55 +77,27 @@ Important:
 }
 
 /**
- * The system prompt with the tools and how to call them, in `format`;
- * unchanged without tools.
+ * The system prompt: the caller's, then browser-ai's tool prompt; unchanged
+ * without tools.
  */
-export function toolSystemPrompt(system: string, tools: ReadonlyArray<Tool>, format: ToolFormat = "tool_code"): string {
+export function toolSystemPrompt(system: string, tools: ReadonlyArray<Tool>): string {
   if (tools.length === 0) return system
-  if (format === "browser-ai") {
-    const instructions = browserAiInstructions(tools)
-    return system.trim() ? `${system.trim()}\n\n${instructions}` : instructions
-  }
-  // How tools are called here (the Prompt API has none of its own), in the words
-  // of Google's Gemma 3 guide, without its lines on how to behave: when to call
-  // a tool is the caller's to say, in its system prompt.
-  const instructions = `At each turn, if you decide to invoke any of the function(s), it should be wrapped with \`\`\`tool_code\`\`\`. The python methods described below are imported and available. The response to a method will be wrapped in \`\`\`tool_output\`\`\`.
-
-The following Python methods are available:
-\`\`\`python
-${tools.map(pythonMethod).join("\n\n")}
-\`\`\``
+  const instructions = browserAiInstructions(tools)
   return system.trim() ? `${system.trim()}\n\n${instructions}` : instructions
 }
 
-/**
- * Earlier tool calls in the conversation, in `format`: Python calls in a
- * ```tool_code block, or browser-ai's JSON lines in a ```tool_call fence.
- */
-export function toolCallFence(calls: NonNullable<ModelMessage["toolCalls"]>, format: ToolFormat = "tool_code"): string {
-  if (format === "browser-ai") {
-    const lines = calls.map((call) => {
-      let args: unknown
-      try {
-        args = JSON.parse(call.function.arguments || "{}")
-      } catch {
-        args = call.function.arguments
-      }
-      return JSON.stringify({ name: call.function.name, arguments: args, ...(call.id && { id: call.id }) })
-    })
-    return `\`\`\`tool_call\n${lines.join("\n")}\n\`\`\``
-  }
+/** Earlier tool calls in the conversation, as browser-ai writes them: JSON lines in a ```tool_call fence. */
+export function toolCallFence(calls: NonNullable<ModelMessage["toolCalls"]>): string {
   const lines = calls.map((call) => {
     let args: unknown
     try {
       args = JSON.parse(call.function.arguments || "{}")
     } catch {
-      args = undefined
+      args = call.function.arguments
     }
-    const kwargs = isObject(args) ? Object.entries(args).map(([key, value]) => `${key}=${pythonLiteral(value)}`) : []
-    return `${call.function.name}(${kwargs.join(", ")})`
+    return JSON.stringify({ name: call.function.name, arguments: args, ...(call.id && { id: call.id }) })
   })
-  return `\`\`\`tool_code\n${lines.join("\n")}\n\`\`\``
+  return `\`\`\`tool_call\n${lines.join("\n")}\n\`\`\``
 }
 
 /** A tool's result as browser-ai writes it, a line of its ```tool_result fence: the JSON output (or text, or the error). */
@@ -213,10 +115,6 @@ export function toolResultLine(id: string, name: string, content: string, error?
 
 /** A step's tool results as browser-ai writes them: a line each in one ```tool_result fence. */
 export const toolResultFence = (lines: ReadonlyArray<string>) => `\`\`\`tool_result\n${lines.join("\n")}\n\`\`\``
-
-/** A tool's result in a ```tool_output block: its output as it came, or its error. */
-export const toolOutputFence = (content: string, error?: string) =>
-  `\`\`\`tool_output\n${error !== undefined ? `Error: ${error}` : content}\n\`\`\``
 
 /** Each tool's parameter names in signature order, for a Python call's positional arguments. */
 type ParameterNames = (tool: string) => ReadonlyArray<string> | undefined
@@ -370,8 +268,8 @@ function partialFenceStart(text: string) {
 
 /**
  * Reads a streamed reply: `push` each piece and get back the text that can
- * be shown now; text inside a ```tool_code block (or another call's
- * delimiters: ```tool_call, `<tool_call>`, `<|tool_call>`,
+ * be shown now; text inside a ```tool_call fence (or another call's
+ * delimiters: ```tool_code, `<tool_call>`, `<|tool_call>`,
  * `<|tool_call_start|>`, or a Python-style `[name(…)]`) is held back. The
  * first fence that closes with a call in it ends the reply (stop generating
  * then): `call` is the call, and `trailing` the text after it. A fence without
@@ -384,7 +282,7 @@ export function toolCallReader(tools?: ReadonlyArray<Pick<Tool, "name" | "inputS
   const names = tools?.map((tool) => tool.name)
   const parameterNames: ParameterNames = (name) => {
     const tool = tools?.find((t) => t.name === name)
-    return tool && parametersOf(tool).map(([param]) => param)
+    return tool && parametersOf(tool)
   }
   let buffer = ""
   // The delimiter of the call being read; a Python-style call is read whole.

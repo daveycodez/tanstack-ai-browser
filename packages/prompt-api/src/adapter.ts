@@ -25,7 +25,6 @@ import type { Availability, MediaInput } from "./model.js"
 import type { PromptApiChatModel } from "./model-meta.js"
 import { RUNAWAY_WHITESPACE, tokenCap, whitespaceRun } from "./runaway.js"
 import { toolCallReader, toolSystemPrompt } from "./tools.js"
-import type { ToolFormat } from "./tools.js"
 import { PromptApiVariant } from "./variant.js"
 import { toolClasses } from "./types.js"
 import type {
@@ -159,23 +158,16 @@ function offeredTools(options: TextOptions<PromptApiTextModelOptions>): Readonly
 function sessionSettings(
   options: TextOptions<PromptApiTextModelOptions>,
   tools: ReadonlyArray<Tool>,
-  native: boolean,
-  format: ToolFormat
+  native: boolean
 ) {
   const caller = normalizeSystemPrompts(options.systemPrompts)
     .map((p) => p.content)
     .join("\n\n")
-  const system = native ? caller : toolSystemPrompt(caller, tools, format)
+  const system = native ? caller : toolSystemPrompt(caller, tools)
   const declared = native ? tools.map((tool) => [tool.name, tool.description, tool.inputSchema]) : null
   const { samplingMode, temperature, topK } = options.modelOptions ?? {}
   return { system, settings: JSON.stringify([system, declared, samplingMode, temperature, topK, mediaIn(options.messages)]) }
 }
-
-/**
- * The format tools go by prompt in: browser-ai's JSON fence for Phi-4-mini
- * (which reads Google's `tool_code` format badly), else `tool_code`.
- */
-const promptFormat = (): ToolFormat => (PromptApiVariant.ofBrowser() === PromptApiVariant.phi4Mini ? "browser-ai" : "tool_code")
 
 /** A piece of a reply as text: a string, or `text` content. */
 const pieceText = (piece: string | LanguageModelContent) =>
@@ -382,8 +374,7 @@ export class PromptApiTextAdapter extends BaseTextAdapter<
     const tools = offeredTools(options)
     // The browser's own tool use where it has it, else tools by prompt.
     const native = tools.length > 0 ? toolClasses() : undefined
-    const format = promptFormat()
-    const { system, settings } = sessionSettings(options, tools, !!native, format)
+    const { system, settings } = sessionSettings(options, tools, !!native)
     const keys = options.messages.map(messageKey)
     const held = retain ? this.kept.get(key) : undefined
     const goesOn = !!held && goesOnFrom(held, settings, keys)
@@ -400,7 +391,7 @@ export class PromptApiTextAdapter extends BaseTextAdapter<
     const pending = kept?.session ?? this.session(options, system, signal, native && tools)
     try {
       const session = await pending
-      const input = await toLanguageModelMessages(options.messages, goesOn ? held.seen.length : 0, native, format)
+      const input = await toLanguageModelMessages(options.messages, goesOn ? held.seen.length : 0, native)
       return { key, session, kept, keys, input, tools, native: !!native, goesOn }
     } catch (error) {
       // A session that goes on still holds the thread; a new one is dropped.
