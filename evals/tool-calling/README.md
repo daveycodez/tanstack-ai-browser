@@ -40,6 +40,7 @@ Open `http://localhost:8795/?adapter=prompt-api` in the browser to test (`localh
   - `apfel`: Apple's model, with `apfel --serve --cors` running.
 - `model`: the model, for the adapters that take one.
 - `thinking`: `off` or `high`, `chat()`'s reasoning level; left out, the model's default.
+- `system`: a system prompt for every request (URL-encoded); left out, none.
 - `runs`: runs of each prompt, 4 by default.
 - `cases`: some of the prompts, `?cases=hello,time`.
 - `queue`: more runs after this one, one at a time: queries separated by `;`, each URL-encoded.

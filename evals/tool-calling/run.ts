@@ -16,7 +16,8 @@
  *   WebGPU where it can (`?gpu=false` for the CPU).
  *
  * `thinking=off` (or `high`) sets `chat()`'s reasoning level; left out, the
- * model's own default.
+ * model's own default. `system=` is a system prompt for every request; left
+ * out, none.
  *
  * Another adapter goes in ADAPTERS: a factory, and the model's name for the results.
  */
@@ -99,12 +100,14 @@ export async function runEval(params: URLSearchParams, log: Log) {
     log(`UA ${navigator.userAgent}`)
     const { adapter, label } = await make(params, log)
     const thinking = params.get("thinking")
+    const system = params.get("system")?.trim()
     log(`ADAPTER ${name} MODEL ${label}${thinking ? ` THINKING ${thinking}` : ""}`)
+    if (system) log(`SYSTEM ${JSON.stringify(system)}`)
     await runSuite(adapter, {
       runs: Number(params.get("runs") ?? 4),
       ...(params.get("cases") && { cases: params.get("cases")!.split(",") }),
-      ...(thinking && { request: { reasoning: { level: thinking, summary: false } } }),
-      label: thinking ? `${label}, thinking ${thinking}` : label,
+      request: { ...(thinking && { reasoning: { level: thinking, summary: false } }), ...(system && { systemPrompts: [system] }) },
+      label: [label, thinking && `thinking ${thinking}`, system && "system prompt"].filter(Boolean).join(", "),
       log
     })
     log("ALL DONE")

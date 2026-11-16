@@ -3,7 +3,7 @@
 // lofi-agent on this Mac (Electron) and on every iPhone or iPad plugged in
 // (Capacitor). Prints each model's score as it finishes, then a table.
 //
-//   node evals/tool-calling/run-all.mjs [--runs 4] [--cases hello,time] [--browser "Google Chrome"] [--out results.json] [--minutes 30]
+//   node evals/tool-calling/run-all.mjs [--runs 4] [--cases hello,time] [--system "…"] [--browser "Google Chrome"] [--out results.json] [--minutes 30]
 //
 // - The browser adapters open in --browser (Chrome by default); the Prompt
 //   API runs in Chrome (Gemini Nano) and Edge Dev (Aion) where installed.
@@ -22,6 +22,7 @@ const { values: args } = parseArgs({
     port: { type: "string", default: "8795" },
     runs: { type: "string", default: "4" },
     cases: { type: "string" },
+    system: { type: "string" },
     browser: { type: "string", default: "Google Chrome" },
     out: { type: "string" },
     minutes: { type: "string", default: "30" }
@@ -29,7 +30,7 @@ const { values: args } = parseArgs({
 })
 const here = (file) => fileURLToPath(new URL(file, import.meta.url))
 const base = `http://localhost:${args.port}`
-const shape = `runs=${args.runs}${args.cases ? `&cases=${args.cases}` : ""}`
+const shape = `runs=${args.runs}${args.cases ? `&cases=${args.cases}` : ""}${args.system ? `&system=${encodeURIComponent(args.system)}` : ""}`
 const children = []
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 

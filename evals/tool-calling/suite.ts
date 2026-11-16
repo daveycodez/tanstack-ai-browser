@@ -94,7 +94,7 @@ export async function runSuite(
     log: (line: string) => void
     /** A step's limit: past it the case fails as a timeout (2 minutes by default). */
     stepMs?: number
-    /** Options added to every request (`reasoning`, `modelOptions`, …). */
+    /** Options added to every request (`reasoning`, `modelOptions`, `systemPrompts`, …): no system prompt unless given here. */
     request?: Record<string, unknown>
   }
 ) {
@@ -108,7 +108,7 @@ export async function runSuite(
     const abortController = new AbortController()
     const timer = setTimeout(() => abortController.abort(new Error("timeout")), stepMs)
     try {
-      for await (const e of adapter.chatStream({ ...request, model: adapter.model, messages, tools: tools as Array<Tool>, systemPrompts: [], logger, threadId, runId: `run${Math.random()}`, abortController })) {
+      for await (const e of adapter.chatStream({ systemPrompts: [], ...request, model: adapter.model, messages, tools: tools as Array<Tool>, logger, threadId, runId: `run${Math.random()}`, abortController })) {
         const event = e as { type: string; delta?: string; toolCallId?: string; toolCallName?: string; input?: unknown; message?: string; error?: { message?: string } }
         if (event.type === "TEXT_MESSAGE_CONTENT") text += event.delta ?? ""
         if (event.type === "TOOL_CALL_END") call = { id: event.toolCallId!, name: event.toolCallName!, input: event.input }
