@@ -111,7 +111,7 @@ export function toolSystemPrompt(system: string, tools: ReadonlyArray<Tool>): st
   // How tools are called here (the Prompt API has none of its own), in the words
   // of Google's Gemma 3 guide, without its lines on how to behave: when to call
   // a tool is the caller's to say, in its system prompt.
-  const instructions = `At each turn, if you decide to invoke any of the function(s), it should be wrapped with \`\`\`tool_code\`\`\`. The response to a method will be wrapped in \`\`\`tool_output\`\`\`.
+  const instructions = `At each turn, if you decide to invoke any of the function(s), it should be wrapped with \`\`\`tool_code\`\`\`. The python methods described below are imported and available. The response to a method will be wrapped in \`\`\`tool_output\`\`\`.
 
 The following Python methods are available:
 \`\`\`python

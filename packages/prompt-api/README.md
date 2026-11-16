@@ -47,7 +47,7 @@ Where the browser has the Prompt API's own tool use (its `LanguageModelToolCall`
 Elsewhere (Chrome's default Gemini Nano, Edge), the Prompt API has no tool use, so tools go by prompt, in the format of Google's Gemma 3 function-calling guide ([`[Gemma_3]Function_Calling_with_HF.ipynb`](https://github.com/google-gemini/gemma-cookbook/blob/main/Gemma/%5BGemma_3%5DFunction_Calling_with_HF.ipynb) in Google's Gemma cookbook): calls in a ```` ```tool_code ```` block, results in a ```` ```tool_output ```` block. Gemini Nano writes ```` ```tool_code ```` calls on its own. After the caller's system prompt, the adapter adds Google's lines on the format, without the guide's lines on how to behave (when to call a tool is the caller's to say), and the tools as Python methods:
 
 ````
-At each turn, if you decide to invoke any of the function(s), it should be wrapped with ```tool_code```. The response to a method will be wrapped in ```tool_output```.
+At each turn, if you decide to invoke any of the function(s), it should be wrapped with ```tool_code```. The python methods described below are imported and available. The response to a method will be wrapped in ```tool_output```.
 
 The following Python methods are available:
 ```python
