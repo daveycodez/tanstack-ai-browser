@@ -1,0 +1,167 @@
+[
+  {
+    "name": "web_search_exa",
+    "title": "Web Search",
+    "description": "Search the web for any topic and get clean, ready-to-use content.\n\n      Best for: Finding current information, news, facts, people, companies, or answering questions about any topic.\n      Returns: Clean text content from top search results.\n\n      Query tips:\n      describe the ideal page, not keywords. \"blog post comparing React and Vue performance\" not \"React vs Vue\".\n      Use category:people / category:company to search through Linkedin profiles / companies respectively.\n      If highlights are insufficient, follow up with web_fetch_exa on the best URLs.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "query": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Natural language search query. Should be a semantically rich description of the ideal page, not just keywords. Optionally include category:<type> (company, people) to focus results — e.g. 'category:people John Doe software engineer'."
+        },
+        "numResults": {
+          "type": "number",
+          "description": "Number of search results to return (default: 10)."
+        },
+        "objective": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096,
+          "description": "Goal for this search turn; say which documents should rank first, which should be excluded, and what specific facts or figures to pull from them."
+        }
+      },
+      "required": [
+        "query",
+        "objective"
+      ],
+      "additionalProperties": false,
+      "$schema": "http://json-schema.org/draft-07/schema#"
+    }
+  },
+  {
+    "name": "web_fetch_exa",
+    "title": "Fetch Web Pages",
+    "description": "Read a webpage's full content as clean markdown. Use after web_search_exa when highlights are insufficient or to read any URL.\n\nBest for: Extracting full content from known URLs. Batch multiple URLs in one call.\nReturns: Clean text content and metadata from the page(s).",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "urls": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "URLs to read. Batch multiple URLs in one call."
+        },
+        "maxCharacters": {
+          "type": "number",
+          "minimum": 1,
+          "description": "Maximum characters to extract per page (default: 3000)"
+        }
+      },
+      "required": [
+        "urls"
+      ],
+      "additionalProperties": false,
+      "$schema": "http://json-schema.org/draft-07/schema#"
+    }
+  },
+  {
+    "name": "get_current_time",
+    "description": "Get current time in a specific timezone",
+    "inputSchema": {
+      "properties": {
+        "timezone": {
+          "default": "America/Los_Angeles",
+          "description": "IANA timezone name (e.g., 'America/New_York', 'Europe/London'). Optional: defaults to the server's local timezone, 'America/Los_Angeles', when omitted.",
+          "title": "Timezone",
+          "type": "string"
+        }
+      },
+      "type": "object",
+      "title": "get_current_timeArguments"
+    }
+  },
+  {
+    "name": "convert_time",
+    "description": "Convert time between timezones",
+    "inputSchema": {
+      "properties": {
+        "source_timezone": {
+          "default": "America/Los_Angeles",
+          "description": "Source IANA timezone name (e.g., 'America/New_York', 'Europe/London'). Optional: defaults to the server's local timezone, 'America/Los_Angeles', when omitted.",
+          "title": "Source Timezone",
+          "type": "string"
+        },
+        "time": {
+          "description": "Time to convert in 24-hour format (HH:MM)",
+          "title": "Time",
+          "type": "string"
+        },
+        "target_timezone": {
+          "default": "America/Los_Angeles",
+          "description": "Target IANA timezone name (e.g., 'Asia/Tokyo', 'America/San_Francisco'). Optional: defaults to the server's local timezone, 'America/Los_Angeles', when omitted.",
+          "title": "Target Timezone",
+          "type": "string"
+        }
+      },
+      "required": [
+        "time"
+      ],
+      "type": "object",
+      "title": "convert_timeArguments"
+    }
+  },
+  {
+    "name": "get_time_ago",
+    "description": "Get the time a given number of days, hours, minutes and seconds ago in a specific timezone",
+    "inputSchema": {
+      "properties": {
+        "timezone": {
+          "default": "America/Los_Angeles",
+          "description": "IANA timezone name (e.g., 'America/New_York', 'Europe/London'). Optional: defaults to the server's local timezone, 'America/Los_Angeles', when omitted.",
+          "title": "Timezone",
+          "type": "string"
+        },
+        "days_ago": {
+          "default": 0,
+          "description": "Whole days before now",
+          "minimum": 0,
+          "title": "Days Ago",
+          "type": "integer"
+        },
+        "hours_ago": {
+          "default": 0,
+          "description": "Whole hours before now",
+          "minimum": 0,
+          "title": "Hours Ago",
+          "type": "integer"
+        },
+        "minutes_ago": {
+          "default": 0,
+          "description": "Whole minutes before now",
+          "minimum": 0,
+          "title": "Minutes Ago",
+          "type": "integer"
+        },
+        "seconds_ago": {
+          "default": 0,
+          "description": "Whole seconds before now",
+          "minimum": 0,
+          "title": "Seconds Ago",
+          "type": "integer"
+        }
+      },
+      "type": "object",
+      "title": "get_time_agoArguments"
+    }
+  },
+  {
+    "name": "calculate",
+    "description": "Calculates/evaluates the given expression.",
+    "inputSchema": {
+      "properties": {
+        "expression": {
+          "title": "Expression",
+          "type": "string"
+        }
+      },
+      "required": [
+        "expression"
+      ],
+      "title": "calculateArguments",
+      "type": "object"
+    }
+  }
+]
