@@ -20,6 +20,12 @@ test("get_current_time: the time in a zone, as the Time server writes it", () =>
     assert.deepEqual(getCurrentTime("UTC"), { timezone: "UTC", datetime: "2026-11-16T04:27:30+00:00", day_of_week: "Monday", is_dst: false })
   })
   at("2026-07-04T19:00:00Z", () => assert.equal(getCurrentTime("America/Los_Angeles").is_dst, true))
+  // As Python's zoneinfo has them: Morocco's +01 is daylight time (+00 during Ramadan is standard), Tokyo has none.
+  at("2026-07-15T12:00:00Z", () => {
+    assert.equal(getCurrentTime("Africa/Casablanca").is_dst, true)
+    assert.equal(getCurrentTime("Asia/Tokyo").is_dst, false)
+  })
+  at("2026-03-01T12:00:00Z", () => assert.equal(getCurrentTime("Africa/Casablanca").is_dst, false))
   assert.throws(() => getCurrentTime("Mars/Base"), { message: "Invalid timezone: 'No time zone found with key Mars/Base'" })
 })
 

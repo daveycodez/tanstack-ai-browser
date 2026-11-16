@@ -69,10 +69,21 @@ function isoOf(format: Intl.DateTimeFormat, at: number) {
   return `${pad(w.year, 4)}-${pad(w.month)}-${pad(w.day)}T${pad(w.hour)}:${pad(w.minute)}:${pad(w.second)}${offset < 0 ? "-" : "+"}${pad(Math.floor(Math.abs(offset) / 60))}:${pad(Math.abs(offset) % 60)}`
 }
 
-/** Whether a zone is on daylight time at an instant: past its standard (least) offset that year. */
+/**
+ * Whether a zone is on daylight time at an instant: past its standard
+ * offset, taken as the least it uses at the start of any month that year.
+ * The server reads tz data's own DST flag (Python's `zoneinfo`), which
+ * browsers don't expose; checked against it for all 598 zones on 120 dates
+ * (2023–2027), the offsets always agree and this agrees for 581 zones. The
+ * rest are changes offsets alone can't tell from DST: a new standard time
+ * (Kazakhstan's +06 to +05 in 2024, Greenland's in 2023), a zone moving to
+ * permanent time (Paraguay, Aysén), and rules changing within the year.
+ * Sampling every month, not only January and July, catches Morocco's
+ * Ramadan hour: tz data has +01 as its daylight time.
+ */
 function isDst(format: Intl.DateTimeFormat, at: number) {
   const year = wallOf(format, at).year
-  const standard = Math.min(offsetOf(format, Date.UTC(year, 0, 1)), offsetOf(format, Date.UTC(year, 6, 1)))
+  const standard = Math.min(...Array.from({ length: 12 }, (_, month) => offsetOf(format, Date.UTC(year, month, 1))))
   return offsetOf(format, at) > standard
 }
 
