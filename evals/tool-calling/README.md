@@ -10,8 +10,8 @@ One suite for every adapter: seven prompts, each run four times (28 cases), with
   - `time`: a time-tool call for Tokyo, then the time from its result.
   - `math-after-greeting`: 391 for 17 × 23, from `calculate` or straight away (the call is optional; a wrong number fails).
   - With `tools=lofi-agent` only, `weather-here` and `weather-here-after-hi`: "whats the weather like where i am?", alone and as a second turn after a "hi" the model answers itself: one `get_weather` call with the city "here", and the temperature from its result.
-- **Tool results:** Exa's tools answer from `exa.json`, not from Exa: its real answer to one search, recorded, and a page for each result in `web_fetch_exa`'s format and length (two as Exa returned them, the rest written in that format), plus Exa's real error for a page it can't read. Every model reads the same results, in the real format, and no run calls Exa. The time tools and the calculator return fixed results in their servers' own shapes.
-- **Steps:** a case runs as `chat()` would run it: each tool call gets its result and the model goes on, until it answers in text (six replies at most). So a search, then a fetch, then the answer passes; a model that never answers, or runs out of context, fails.
+- **Tool results:** Exa's tools answer from `exa.json`, not from Exa, in the formats of Exa's tools: a search answer whose ten results have the titles, URLs and dates a real search returned, with excerpts written for the eval at about the length Exa's were, a page for each result in `web_fetch_exa`'s format and length, and Exa's error for a page it can't read. Every model reads the same results, in the real format, and no run calls Exa. The time tools and the calculator return fixed results in their servers' own shapes.
+- **Steps:** a case runs as `chat()` would run it: every tool call of a reply gets its result and the model goes on, until it answers in text (six replies at most). So a search, then a fetch, then the answer passes; a model that never answers, or runs out of context, fails.
 - **Passing:** text where no tool is needed (a call there fails the case at once); where one is, a call to it and a final answer that matches.
 - **Time:** each case's line has its seconds (every step, the model already loaded), and `SUMMARY` has them per case and in all.
 
@@ -62,6 +62,14 @@ The query is the page's (`adapter=afm` by default; `runs`, `cases`).
 
 - **Electron:** start the app with `--remote-debugging-port=9229`; `curl -s localhost:9229/json` lists its page.
 - **iPhone or iPad** (a debug build, over USB, Web Inspector on): `ios_webkit_debug_proxy -c <udid>:9333 --no-frontend`; `curl -s localhost:9333/json` lists the app's page (`capacitor://localhost`).
+
+## The suite's own tests
+
+```sh
+node --test evals/tool-calling/suite.test.mjs
+```
+
+They run the suite on made-up adapters: every tool call of a reply gets its result, a reply that never comes ends at the step's limit, and a reply of nothing isn't an answer.
 
 ## Adding an adapter
 

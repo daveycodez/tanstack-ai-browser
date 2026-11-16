@@ -18,7 +18,10 @@ import exa from "./exa.json"
 import lofiAgentTools from "./tools-lofi-agent.json"
 import mcpTools from "./tools.json"
 
-type Step = { kind: "text"; text: string } | { kind: "tool"; tool: string; call: { id: string; name: string; input: unknown }; text: string } | { kind: "error"; text: string }
+type Call = { id: string; name: string; input: unknown }
+
+/** A reply of the model: text, its tool calls (every one it made, with any text beside them), or a failure. */
+type Step = { kind: "text"; text: string } | { kind: "tool"; calls: Array<Call>; text: string } | { kind: "error"; text: string }
 
 /** The time tools' and the calculator's results, fixed, in their servers' own shapes. */
 const FIXED: Record<string, string> = {
@@ -199,38 +202,70 @@ export async function runSuite(
   const cases = options.cases ? offered.filter((c) => options.cases!.includes(c.name)) : offered
 
   const step = async (threadId: string, messages: Array<ModelMessage>): Promise<Step> => {
-    let text = ""
-    let call: { id: string; name: string; input: unknown } | undefined
-    // A step that hangs (a browser's model can) fails the case rather than the run.
+    // A step that hangs (a browser's model can) fails the case rather than the run:
+    // the limit ends the wait itself, whether or not the adapter stops when aborted.
     const abortController = new AbortController()
-    const timer = setTimeout(() => abortController.abort(new Error("timeout")), stepMs)
-    try {
-      for await (const e of adapter.chatStream({ systemPrompts: [], ...request, model: adapter.model, messages, tools: tools as Array<Tool>, logger, threadId, runId: `run${Math.random()}`, abortController })) {
-        const event = e as { type: string; delta?: string; toolCallId?: string; toolCallName?: string; input?: unknown; message?: string; error?: { message?: string } }
+    const timeout: Step = { kind: "error", text: `timeout after ${stepMs / 1000} s` }
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const limit = new Promise<Step>((resolve) => {
+      timer = setTimeout(() => {
+        abortController.abort(new Error("timeout"))
+        resolve(timeout)
+      }, stepMs)
+    })
+    const events = adapter
+      .chatStream({
+        systemPrompts: [],
+        ...request,
+        model: adapter.model,
+        messages,
+        tools: tools as Array<Tool>,
+        logger,
+        threadId,
+        runId: `run${Math.random()}`,
+        // Both ways an adapter takes its signal: `chat()`'s own controller, and the request's.
+        abortController,
+        request: { signal: abortController.signal }
+      })
+      [Symbol.asyncIterator]()
+    const reply = (async (): Promise<Step> => {
+      let text = ""
+      const calls: Array<Call> = []
+      for (;;) {
+        const next = await events.next()
+        if (next.done) break
+        const event = next.value as { type: string; delta?: string; toolCallId?: string; toolCallName?: string; input?: unknown; message?: string; error?: { message?: string } }
         if (event.type === "TEXT_MESSAGE_CONTENT") text += event.delta ?? ""
-        if (event.type === "TOOL_CALL_END") call = { id: event.toolCallId!, name: event.toolCallName!, input: event.input }
-        if (event.type === "RUN_ERROR") return { kind: "error", text: abortController.signal.aborted ? `timeout after ${stepMs / 1000} s` : (event.error?.message ?? event.message ?? "error") }
+        if (event.type === "TOOL_CALL_END") calls.push({ id: event.toolCallId!, name: event.toolCallName!, input: event.input })
+        if (event.type === "RUN_ERROR") return abortController.signal.aborted ? timeout : { kind: "error", text: event.error?.message ?? event.message ?? "error" }
       }
+      return calls.length > 0 ? { kind: "tool", calls, text } : { kind: "text", text }
+    })()
+    try {
+      return await Promise.race([reply, limit])
     } catch (error) {
-      if (abortController.signal.aborted) return { kind: "error", text: `timeout after ${stepMs / 1000} s` }
+      if (abortController.signal.aborted) return timeout
       throw error
     } finally {
       clearTimeout(timer)
+      if (abortController.signal.aborted) {
+        // A reply that's still going is left behind: its failure isn't the run's, and its stream is asked to stop.
+        reply.catch(() => undefined)
+        void Promise.resolve(events.return?.()).catch(() => undefined)
+      }
     }
-    return call ? { kind: "tool", tool: call.name, call, text } : { kind: "text", text }
   }
 
-  /** A turn as `chat()` runs it: each tool call gets its result, until the model answers in text. `messages` gains the calls and results. */
+  /** A turn as `chat()` runs it: every tool call of a reply gets its result, until the model answers in text. `messages` gains the calls and results. */
   const turn = async (threadId: string, messages: Array<ModelMessage>, runTools: boolean): Promise<Array<Step>> => {
     const steps: Array<Step> = []
     while (steps.length < maxSteps) {
       const reply = await step(threadId, messages)
       steps.push(reply)
       if (reply.kind !== "tool" || !runTools) break
-      const { id, name, input } = reply.call
       messages.push(
-        { role: "assistant", content: reply.text, toolCalls: [{ id, type: "function", function: { name, arguments: JSON.stringify(input ?? {}) } }] },
-        { role: "tool", toolCallId: id, content: toolResult(name, input) }
+        { role: "assistant", content: reply.text, toolCalls: reply.calls.map(({ id, name, input }) => ({ id, type: "function" as const, function: { name, arguments: JSON.stringify(input ?? {}) } })) },
+        ...reply.calls.map(({ id, name, input }): ModelMessage => ({ role: "tool", toolCallId: id, content: toolResult(name, input) }))
       )
     }
     return steps
@@ -257,12 +292,15 @@ export async function runSuite(
   const matches = (c: Case, text: string) => (typeof c.answer === "function" ? c.answer(text) : (c.answer?.test(text) ?? true))
   const passes = (c: Case, steps: Array<Step>) => {
     const last = steps.at(-1)
-    if (last?.kind !== "text" || !matches(c, last.text)) return false
+    // An answer is text with something in it: a reply of nothing isn't one.
+    if (last?.kind !== "text" || !last.text.trim() || !matches(c, last.text)) return false
     if (!c.tools) return steps.length === 1
-    return c.optional || steps.some((reply) => reply.kind === "tool" && c.tools!.includes(reply.tool) && (c.input?.(reply.call.input) ?? true))
+    const wanted = (call: Call) => c.tools!.includes(call.name) && (c.input?.(call.input) ?? true)
+    return c.optional || steps.some((reply) => reply.kind === "tool" && reply.calls.some(wanted))
   }
 
-  const brief = (r: Step) => (r.kind === "tool" ? `tool:${r.tool} ${JSON.stringify(r.call.input)}` : `${r.kind}:${r.text.slice(0, 120).replace(/\s+/g, " ")}`)
+  const brief = (r: Step) =>
+    r.kind === "tool" ? r.calls.map((call) => `tool:${call.name} ${JSON.stringify(call.input)}`).join(" + ") : `${r.kind}:${r.text.slice(0, 120).replace(/\s+/g, " ")}`
   /** Each case's passes, runs and seconds (every step, summed over its runs). */
   const score: Record<string, { passed: number; n: number; seconds: number }> = {}
   let passed = 0
