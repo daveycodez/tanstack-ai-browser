@@ -6,7 +6,7 @@
       "properties": {
         "timezone": {
           "default": "America/Los_Angeles",
-          "description": "IANA timezone name (e.g., 'America/New_York', 'Europe/London'). Optional: defaults to the server's local timezone, 'America/Los_Angeles', when omitted.",
+          "description": "IANA timezone name (e.g., 'America/New_York', 'Europe/London'). Optional: defaults to the user's local timezone when omitted.",
           "title": "Timezone",
           "type": "string"
         }

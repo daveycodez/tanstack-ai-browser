@@ -29,7 +29,7 @@ test("get_current_time: the time in a zone, as the Time server writes it", () =>
   assert.throws(() => getCurrentTime("Mars/Base"), { message: "Invalid timezone: 'No time zone found with key Mars/Base'" })
 })
 
-test("the time tool is mcp-server-time's get_current_time as that server publishes it, with the user's zone as its local one", () => {
+test("the time tool is mcp-server-time's get_current_time as that server publishes it, its default the user's zone", () => {
   const tools = timeTools()
   assert.deepEqual(tools.map((tool) => tool.name), ["get_current_time"])
   assert.equal(tools[0].description, "Get current time in a specific timezone")
@@ -38,7 +38,7 @@ test("the time tool is mcp-server-time's get_current_time as that server publish
     properties: {
       timezone: {
         default: zone,
-        description: `IANA timezone name (e.g., 'America/New_York', 'Europe/London'). Optional: defaults to the server's local timezone, '${zone}', when omitted.`,
+        description: "IANA timezone name (e.g., 'America/New_York', 'Europe/London'). Optional: defaults to the user's local timezone when omitted.",
         title: "Timezone",
         type: "string"
       }

@@ -112,7 +112,8 @@ const READ_ONLY = { readOnlyHint: true, destructiveHint: false, idempotentHint: 
  * The time tool models see, run in the page by `chat()` (see chat/connection.ts);
  * made per run, with the browser's zone as the server's local one. It's
  * mcp-server-time's `get_current_time` (https://pypi.org/project/mcp-server-time/),
- * as that server publishes it.
+ * as that server publishes it, but for the timezone's default, which is the
+ * user's here, not a server's.
  */
 export function timeTools() {
   const local = localTimezone()
@@ -124,7 +125,7 @@ export function timeTools() {
         properties: {
           timezone: {
             default: local,
-            description: `IANA timezone name (e.g., 'America/New_York', 'Europe/London'). Optional: defaults to the server's local timezone, '${local}', when omitted.`,
+            description: "IANA timezone name (e.g., 'America/New_York', 'Europe/London'). Optional: defaults to the user's local timezone when omitted.",
             title: "Timezone",
             type: "string"
           }
