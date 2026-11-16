@@ -3,7 +3,7 @@
  * images and audio (loaded as Blobs), the model's messages with their tool
  * calls, and tool results as user messages. With the browser's own tool use,
  * calls are `tool-call` content and results `tool-response` content; else
- * they're browser-ai's JSON lines in a ```tool_call fence and a
+ * they're JSON lines in a ```tool_call fence and a
  * ```tool_result fence.
  */
 import type { ContentPart, ModelMessage } from "@tanstack/ai"
@@ -96,7 +96,7 @@ function argumentsOf(json: string): Record<string, unknown> {
  * The conversation as Prompt API messages, from `start` on (a kept session
  * holds the rest); a step's tool results share one message. `tools` are the
  * browser's tool-use classes, for its own tool use; without them, calls and
- * results are browser-ai's text. Tool names come from the whole conversation.
+ * results are text in fences (tools.ts). Tool names come from the whole conversation.
  */
 export async function toLanguageModelMessages(
   messages: ReadonlyArray<ModelMessage>,

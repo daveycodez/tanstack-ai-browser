@@ -126,15 +126,17 @@ test("a JSON call is read as JSON: call syntax in its string arguments is just t
   assert.equal(parseToolCall("see call:bogus{arg:value} here"), undefined, "the fallback syntax is the whole body")
 })
 
-test("the system prompt is the caller's, then browser-ai's tool prompt as browser-ai builds it; calls and results are its JSON fences", () => {
+test("the system prompt is the caller's, then the tools and their format, with no guidance on when to call; calls and results are JSON fences", () => {
   assert.equal(toolSystemPrompt("Be brief.", []), "Be brief.")
-  assert.ok(toolSystemPrompt("Be brief.", [weather]).startsWith("Be brief.\n\nYou are a helpful AI assistant with access to tools.\n\n"))
+  assert.ok(toolSystemPrompt("Be brief.", [weather]).startsWith("Be brief.\n\n# Tools\n["))
   const prompt = toolSystemPrompt("", [weather])
-  assert.ok(prompt.startsWith("You are a helpful AI assistant with access to tools.\n\n# Available Tools\n"))
+  assert.ok(prompt.startsWith("# Tools\n["))
   const json = prompt.slice(prompt.indexOf("["), prompt.indexOf("\n]\n") + 2)
   assert.deepEqual(JSON.parse(json), [{ name: "get_weather", description: "Weather for a city", parameters: weather.inputSchema }])
-  assert.match(prompt, /Only request one tool call at a time\. Wait for tool results before asking for another tool\./)
-  assert.match(prompt, /- You can include brief reasoning before or after the tool call\n- If no tool is needed, respond directly without tool_call fences$/)
+  assert.match(prompt, /To call a tool, write one call as JSON in a ```tool_call fence:\n\n```tool_call\n\{"name": "tool_name", "arguments": \{/)
+  assert.match(prompt, /Tool results come back in a ```tool_result fence, a line of JSON each:\n\n```tool_result\n\{"name": "tool_name", "result": \{\.\.\.\}, "error": false, "id": "call_123"\}\n```$/)
+  // The format only: no persona, and nothing on when to call a tool or how to answer.
+  assert.doesNotMatch(prompt, /You are|helpful|If no tool|reasoning|Important/i)
   assert.equal(
     toolCallFence([{ id: "c1", type: "function", function: { name: "get_weather", arguments: '{"city":"Paris"}' } }]),
     '```tool_call\n{"name":"get_weather","arguments":{"city":"Paris"},"id":"c1"}\n```'

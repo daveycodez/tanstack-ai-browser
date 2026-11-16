@@ -155,7 +155,7 @@ test("tools go in the system prompt; a fenced call ends the step with TOOL_CALL 
   control.pieces = ["Checking. ", "```tool_call\n", '{"name": "get_weather", ', '"arguments": {"city": "Paris"}}\n', "```", "never read", "never read"]
   const chunks = await run({ tools: [weather], systemPrompts: ["Be brief."] })
   const system = String((control.creates[0].initialPrompts as Array<{ content: string }>)[0].content)
-  assert.match(system, /^Be brief\.\n\nYou are a helpful AI assistant with access to tools\.\n\n# Available Tools\n\[/)
+  assert.match(system, /^Be brief\.\n\n# Tools\n\[/)
   assert.deepEqual(typesOf(chunks), [
     "RUN_STARTED",
     "TEXT_MESSAGE_START",

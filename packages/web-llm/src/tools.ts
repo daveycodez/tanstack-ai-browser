@@ -1,8 +1,9 @@
 /**
  * Tool calls by prompt. WebLLM takes OpenAI's `tools` for five Hermes models
  * only, and not with a system prompt, so the system prompt lists the tools
- * as JSON and asks for a call as JSON in a ```tool_call fence; results go
- * back in a ```tool_result fence. The adapter reads calls out of the
+ * as JSON and says how a call is written, as JSON in a ```tool_call fence,
+ * and nothing about when to call one; results go back in a ```tool_result
+ * fence. The adapter reads calls out of the
  * streamed text; `chat()` checks them against the tools.
  */
 import type { ModelMessage, Tool } from "@tanstack/ai"
@@ -26,43 +27,34 @@ const isObject = (value: unknown): value is Record<string, unknown> =>
   !!value && typeof value === "object" && !Array.isArray(value)
 
 /**
- * The system prompt with the tools and how to call them; unchanged without
- * tools.
+ * The tools and their format, and nothing else: the tools as JSON (name,
+ * description and schema, as given), how a call is written (one a reply:
+ * the adapter reads the first) and how results come back. When to call a
+ * tool, and how to answer, are the caller's system prompt's to say, as with
+ * a model whose chat template lists its tools.
  */
-export function toolSystemPrompt(system: string, tools: ReadonlyArray<Tool>): string {
-  if (tools.length === 0) return system
-  const definitions = tools.map((tool) => ({
-    name: tool.name,
-    description: tool.description ?? "No description provided.",
-    parameters: tool.inputSchema ?? { type: "object", properties: {} }
-  }))
-  // browser-ai's tool prompt, exactly as browser-ai builds it
-  // (github.com/jakobhoeg/browser-ai, packages/vercel/shared/src/tool-calling).
-  const instructions = `You are a helpful AI assistant with access to tools.
-
-# Available Tools
+function toolInstructions(tools: ReadonlyArray<Tool>) {
+  const definitions = tools.map((tool) => ({ name: tool.name, description: tool.description, parameters: tool.inputSchema ?? { type: "object", properties: {} } }))
+  return `# Tools
 ${JSON.stringify(definitions, null, 2)}
 
-# Tool Calling Instructions
-Only request one tool call at a time. Wait for tool results before asking for another tool.
-
-To call a tool, output JSON in this exact format inside a \`\`\`tool_call code fence:
+To call a tool, write one call as JSON in a \`\`\`tool_call fence:
 
 \`\`\`tool_call
 {"name": "tool_name", "arguments": {"param1": "value1", "param2": "value2"}}
 \`\`\`
 
-Tool responses will be provided in \`\`\`tool_result fences. Each line contains JSON like:
-\`\`\`tool_result
-{"id": "call_123", "name": "tool_name", "result": {...}, "error": false}
-\`\`\`
-Use the \`result\` payload (and treat \`error\` as a boolean flag) when continuing the conversation.
+Tool results come back in a \`\`\`tool_result fence, a line of JSON each:
 
-Important:
-- Use exact tool and parameter names from the schema above
-- Arguments must be a valid JSON object matching the tool's parameters
-- You can include brief reasoning before or after the tool call
-- If no tool is needed, respond directly without tool_call fences`
+\`\`\`tool_result
+{"name": "tool_name", "result": {...}, "error": false, "id": "call_123"}
+\`\`\``
+}
+
+/** The system prompt: the caller's, then the tools and their format; unchanged without tools. */
+export function toolSystemPrompt(system: string, tools: ReadonlyArray<Tool>): string {
+  if (tools.length === 0) return system
+  const instructions = toolInstructions(tools)
   return system.trim() ? `${system.trim()}\n\n${instructions}` : instructions
 }
 
