@@ -101,10 +101,15 @@ test("structured output: the schema as given in response_format, the system prom
   assert.ok(types(events).includes("RUN_FINISHED"))
 })
 
-test("a model that can't load rejects with webgllm's error, before any request", async () => {
+test("a model that can't load ends the stream with RUN_ERROR and webgllm's error, before any request", async () => {
   fake.loadError = new WebGLLMError("storage-full", "No room for the model.")
-  await assert.rejects(collect(webgllmText(MODEL).chatStream(textOptions())), (error) => error instanceof WebGLLMError && error.code === "storage-full")
+  const events = (await collect(webgllmText(MODEL).chatStream(textOptions()))) as Array<Event>
+  const failure = events.find((e) => e.type === "RUN_ERROR") as (Event & { message?: string; error?: { code?: string } }) | undefined
+  assert.match(String(failure?.message), /No room for the model/)
+  assert.equal(failure?.error?.code, "storage-full")
   assert.equal(fake.requests.length, 0)
+  // create() still rejects with it.
+  await assert.rejects(webgllmText(MODEL).create(), (error) => error instanceof WebGLLMError && error.code === "storage-full")
 })
 
 test("the caller's signal reaches webgllm, which stops the generation", async () => {

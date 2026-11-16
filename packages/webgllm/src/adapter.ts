@@ -7,11 +7,11 @@
  * the one for the adapter's own `worker`):
  * messages, tools, structured output and the stream (text, thinking, tool
  * calls) are TanStack's. This file adds what's webgllm's own: loading the
- * model before a call, and its reasoning levels and thinking budget.
+ * model before each request (in its client, as the wllama adapter does),
+ * and its reasoning levels and thinking budget.
  */
-import type { AdapterYieldChunk, ModelReasoning, TextOptions } from "@tanstack/ai"
+import type { ModelReasoning, TextOptions } from "@tanstack/ai"
 import { resolveDebugOption, resolveReasoning } from "@tanstack/ai/adapter-internals"
-import type { StructuredOutputOptions, StructuredOutputResult } from "@tanstack/ai/adapters"
 import { OpenAIBaseChatCompletionsTextAdapter } from "@tanstack/openai-base"
 import type { OpenAIClientLike } from "@tanstack/openai-base"
 import { WebGLLM } from "webgllm"
@@ -68,6 +68,41 @@ const engineRuns = () => (supported ??= WebGLLM.isSupported())
 /** The download's share of webgllm's load progress (downloading is its first 90%). */
 const downloadShare = ({ progress, loadedBytes, totalBytes }: LoadProgress) =>
   totalBytes ? Math.min((loadedBytes ?? 0) / totalBytes, 1) : Math.min(progress / 0.9, 1)
+
+/**
+ * Loads `model` in `engine` for `contextLength`; webgllm returns at once when
+ * it's loaded for it, and shares a load between its callers. Reports the
+ * download's progress, 0 to 1, then 1 once it's ready.
+ */
+async function loadIn(
+  engine: Engine,
+  model: string,
+  contextLength: number | undefined,
+  signal: AbortSignal | null | undefined,
+  report: DownloadProgressCallback
+) {
+  await engine.webgllm.loadModel(model, {
+    ...(contextLength !== undefined && { contextLength }),
+    ...(signal && { signal }),
+    onProgress: (progress) => {
+      if (progress.phase === "download" && !progress.cached) report(downloadShare(progress))
+    }
+  })
+  report(1)
+}
+
+/**
+ * The engine as an OpenAI client: each request loads the model with the
+ * adapter's settings (at once when it's loaded with them), then goes to
+ * webgllm's own `chat.completions.create`.
+ */
+function clientFor(engine: Engine, load: (signal?: AbortSignal | null) => Promise<void>): OpenAIClientLike {
+  const create = async (body: Record<string, unknown>, options?: { signal?: AbortSignal | null }) => {
+    await load(options?.signal)
+    return engine.webgllm.chat.completions.create(body as never, (options ?? {}) as never)
+  }
+  return { baseURL: "webgllm:", chat: { completions: { create } } } as unknown as OpenAIClientLike
+}
 
 /**
  * Per-call `modelOptions`: webgllm's own request fields (OpenAI's names, and
@@ -145,8 +180,6 @@ type MetadataByModality = { text: unknown; image: unknown; audio: unknown; video
 /** A Chat Completions request, as the base adapter writes it. */
 type CreateParams = Parameters<OpenAIClientLike["chat"]["completions"]["create"]>[0]
 
-const signalOf = (options: TextOptions) =>
-  options.abortController?.signal ?? (options.request as RequestInit | undefined)?.signal ?? undefined
 
 export class WebGllmTextAdapter<TModel extends WebGllmModel> extends OpenAIBaseChatCompletionsTextAdapter<
   TModel,
@@ -165,18 +198,22 @@ export class WebGllmTextAdapter<TModel extends WebGllmModel> extends OpenAIBaseC
    */
   override readonly inputModalities: ReadonlyArray<"text" | "image"> | undefined
 
-  private readonly contextLength: number | undefined
-  private readonly onDownloadProgress: DownloadProgressCallback | undefined
+  /** Loads the model with this adapter's settings, reporting its download to the adapter's listener and `progress`. */
+  private readonly load: (signal?: AbortSignal | null, progress?: DownloadProgressCallback) => Promise<void>
   /** The `WebGLLM` the model loads in: the page's, or the adapter's own worker's. */
   private readonly engine: Engine
 
   constructor(config: WebGllmConfig, model: TModel) {
     const engine = engineFor(config.worker)
-    // Chat Completions (`chat.completions.create`) is all the adapter calls.
-    super(model, "webgllm", engine.webgllm as unknown as OpenAIClientLike, { strictFallbackWarning: false })
+    const onDownloadProgress = config.onDownloadProgress
+    const load = (signal?: AbortSignal | null, progress?: DownloadProgressCallback) =>
+      loadIn(engine, model, config.contextLength, signal, (value) => {
+        onDownloadProgress?.(value)
+        progress?.(value)
+      })
+    super(model, "webgllm", clientFor(engine, load), { strictFallbackWarning: false })
+    this.load = load
     this.engine = engine
-    this.contextLength = config.contextLength
-    this.onDownloadProgress = config.onDownloadProgress
     this.inputModalities = listed(model) ? modelMeta(model).supports.input : undefined
   }
 
@@ -244,40 +281,6 @@ export class WebGllmTextAdapter<TModel extends WebGllmModel> extends OpenAIBaseC
   /** Unloads the model, freeing its GPU memory. Its files stay. Never rejects. */
   destroy(): Promise<void> {
     return this.engine.webgllm.unloadModel(this.model).catch(() => undefined)
-  }
-
-  /**
-   * Loads the model for this adapter's context length; webgllm returns at
-   * once when it's loaded for it, and shares a load between its callers.
-   */
-  private async load(signal?: AbortSignal | null, onDownloadProgress?: DownloadProgressCallback) {
-    const report = (progress: number) => {
-      this.onDownloadProgress?.(progress)
-      onDownloadProgress?.(progress)
-    }
-    await this.engine.webgllm.loadModel(this.model, {
-      ...(this.contextLength !== undefined && { contextLength: this.contextLength }),
-      ...(signal && { signal }),
-      onProgress: (progress) => {
-        if (progress.phase === "download" && !progress.cached) report(downloadShare(progress))
-      }
-    })
-    report(1)
-  }
-
-  override async *chatStream(options: TextOptions<WebGllmTextModelOptions>): AsyncIterable<AdapterYieldChunk> {
-    await this.load(signalOf(options))
-    yield* super.chatStream(options)
-  }
-
-  override async *structuredOutputStream(options: StructuredOutputOptions<WebGllmTextModelOptions>): AsyncIterable<AdapterYieldChunk> {
-    await this.load(signalOf(options.chatOptions))
-    yield* super.structuredOutputStream(options)
-  }
-
-  override async structuredOutput(options: StructuredOutputOptions<WebGllmTextModelOptions>): Promise<StructuredOutputResult<unknown>> {
-    await this.load(signalOf(options.chatOptions))
-    return super.structuredOutput(options)
   }
 
   /** The request, with `modelOptions` as given, the thinking budget and the prompt cache. */
