@@ -105,6 +105,7 @@ export async function runEval(params: URLSearchParams, log: Log) {
     if (system) log(`SYSTEM ${JSON.stringify(system)}`)
     await runSuite(adapter, {
       runs: Number(params.get("runs") ?? 4),
+      ...(params.get("tools") === "lofi-agent" && { tools: "lofi-agent" as const }),
       ...(params.get("cases") && { cases: params.get("cases")!.split(",") }),
       request: { ...(thinking && { reasoning: { level: thinking, summary: false } }), ...(system && { systemPrompts: [system] }) },
       label: [label, thinking && `thinking ${thinking}`, system && "system prompt"].filter(Boolean).join(", "),

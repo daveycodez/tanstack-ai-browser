@@ -1,17 +1,18 @@
 # Tool-calling eval
 
-One suite for every adapter: seven prompts, each run four times (28 cases), with the tools of three real MCP servers and no system prompt.
+One suite for every adapter: seven prompts, each run four times (28 cases), with real MCP servers' tools and no system prompt unless you give one.
 
-- **Tools** (`tools.json`): Exa's `web_search_exa` and `web_fetch_exa`, the MCP Time server's `get_current_time`, `convert_time` and `get_time_ago`, and `calculate`, with their own names, descriptions and schemas.
+- **Tools:** by default (`tools.json`) Exa's `web_search_exa` and `web_fetch_exa`, the MCP Time server's `get_current_time`, `convert_time` and `get_time_ago`, and `calculate`, with their own names, descriptions and schemas. `tools=lofi-agent` offers Lofi Agent's own list instead (`tools-lofi-agent.json`: its time, location and weather tools, then Exa's two). Which wrong tool a small model reaches for changes with the list, so test with the one your app sends.
 - **Prompts** (`suite.ts`):
   - `hello`: a text answer, no call.
-  - `story` and `story-after-greeting`: a short story about a space adventure (alone, and after a greeting), not a refusal.
-  - `world-series` and `world-series-after-story`: a `web_search_exa` call, then the winner from its result (alone, and after a story in the chat).
+  - `story` and `story-after-greeting`: a short story about a space adventure (alone, and after a greeting): a real story (400 characters at least), not a refusal, and no tool call.
+  - `world-series` and `world-series-after-story`: "Who won the World Series in 2026?" (alone, and after a story in the chat): a `web_search_exa` call, and an answer naming the winner.
   - `time`: a time-tool call for Tokyo, then the time from its result.
   - `math-after-greeting`: 391 for 17 × 23, from `calculate` or straight away (the call is optional; a wrong number fails).
-- **Passing:** a call where one is needed, text where it isn't. For a call, the next step (the call and the tool's result in the chat) must answer from that result.
-- **Steps:** at most two, the reply and the reply to the canned tool result. A second tool call where the answer belongs fails the case, even a sensible one (fetching a page after the search).
-- **Time:** each case's line has its seconds (both steps, the model already loaded), and `SUMMARY` has them per case and in all.
+- **Tool results:** Exa's tools answer from `exa.json`, not from Exa: its real answer to one search, recorded, and a page for each result in `web_fetch_exa`'s format and length (two as Exa returned them, the rest written in that format), plus Exa's real error for a page it can't read. Every model reads the same results, in the real format, and no run calls Exa. The time tools and the calculator return fixed results in their servers' own shapes.
+- **Steps:** a case runs as `chat()` would run it: each tool call gets its result and the model goes on, until it answers in text (six replies at most). So a search, then a fetch, then the answer passes; a model that never answers, or runs out of context, fails.
+- **Passing:** text where no tool is needed (a call there fails the case at once); where one is, a call to it and a final answer that matches.
+- **Time:** each case's line has its seconds (every step, the model already loaded), and `SUMMARY` has them per case and in all.
 
 ## Running everything at once
 
@@ -41,6 +42,7 @@ Open `http://localhost:8795/?adapter=prompt-api` in the browser to test (`localh
 - `model`: the model, for the adapters that take one.
 - `thinking`: `off` or `high`, `chat()`'s reasoning level; left out, the model's default.
 - `system`: a system prompt for every request (URL-encoded); left out, none.
+- `tools`: `lofi-agent` for Lofi Agent's tool list; left out, the MCP servers' (above).
 - `runs`: runs of each prompt, 4 by default.
 - `cases`: some of the prompts, `?cases=hello,time`.
 - `queue`: more runs after this one, one at a time: queries separated by `;`, each URL-encoded.
