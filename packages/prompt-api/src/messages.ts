@@ -1,13 +1,13 @@
 /**
  * The conversation as the Prompt API reads it: user messages with their
  * images and audio (loaded as Blobs), the model's messages with their tool
- * calls as ```tool_call fences, and tool results as user messages in a
- * ```tool_result fence.
+ * calls as Python calls in a ```tool_code block, and tool results as user
+ * messages, each result in a ```tool_output block.
  */
 import type { ContentPart, ModelMessage } from "@tanstack/ai"
 
 import type { MediaInput } from "./model.js"
-import { toolCallFence, toolResultFence, toolResultLine } from "./tools.js"
+import { toolCallFence, toolOutputFence } from "./tools.js"
 import type { LanguageModelContent, LanguageModelMessage } from "./types.js"
 
 /** The text of a message's content, without its images or audio. */
@@ -60,35 +60,28 @@ async function userContent(content: ModelMessage["content"]): Promise<LanguageMo
 
 /**
  * The conversation as Prompt API messages, from `start` on (a kept session
- * holds the rest); a step's tool results share one message. Tool names come
- * from the whole conversation.
+ * holds the rest); a step's tool results share one message.
  */
 export async function toLanguageModelMessages(
   messages: ReadonlyArray<ModelMessage>,
   start = 0
 ): Promise<Array<LanguageModelMessage>> {
   const out: Array<LanguageModelMessage> = []
-  const toolNames = new Map<string, string>()
-  for (const m of messages.slice(0, start)) {
-    for (const call of m.toolCalls ?? []) toolNames.set(call.id, call.function.name)
-  }
   let results: Array<string> | undefined
   for (const m of messages.slice(start)) {
     if (m.role === "tool") {
-      const id = m.toolCallId ?? ""
-      const line = toolResultLine(id, toolNames.get(id) ?? "tool", contentText(m.content), m.error)
+      const output = toolOutputFence(contentText(m.content), m.error)
       if (results) {
-        results.push(line)
-        out[out.length - 1] = { role: "user", content: toolResultFence(results) }
+        results.push(output)
+        out[out.length - 1] = { role: "user", content: results.join("\n") }
       } else {
-        results = [line]
-        out.push({ role: "user", content: toolResultFence(results) })
+        results = [output]
+        out.push({ role: "user", content: output })
       }
       continue
     }
     results = undefined
     if (m.role === "assistant") {
-      for (const call of m.toolCalls ?? []) toolNames.set(call.id, call.function.name)
       const content = [contentText(m.content), ...(m.toolCalls?.length ? [toolCallFence(m.toolCalls)] : [])]
         .filter(Boolean)
         .join("\n")

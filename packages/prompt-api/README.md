@@ -40,47 +40,31 @@ A session holds its conversation in the model's memory, about 100 MB for 6,000 t
 
 ## Tool calls
 
-Pass tools to `chat({ tools })` as with any adapter; `chat()` runs them. The Prompt API's own tool use doesn't work on web pages yet (in Chrome 156 a session that expects tool calls fails to start, and `tools` alone are never called), so tools go by prompt. The tools are added to the system prompt as JSON, with how to call them:
+Pass tools to `chat({ tools })` as with any adapter; `chat()` runs them. The Prompt API's own tool use doesn't work on web pages yet (in Chrome 156 a session that expects tool calls fails to start, and `tools` alone are never called), so tools go by prompt, in the format of Google's Gemma 3 function-calling guide ([`[Gemma_3]Function_Calling_with_HF.ipynb`](https://github.com/google-gemini/gemma-cookbook/blob/main/Gemma/%5BGemma_3%5DFunction_Calling_with_HF.ipynb) in Google's Gemma cookbook): calls in a ```` ```tool_code ```` block, results in a ```` ```tool_output ```` block. Gemini Nano writes ```` ```tool_code ```` calls on its own. After the caller's system prompt, the adapter adds Google's lines on the format, without the guide's lines on how to behave (when to call a tool is the caller's to say), and the tools as Python methods:
 
 ````
-You are a helpful AI assistant with access to tools.
+At each turn, if you decide to invoke any of the function(s), it should be wrapped with ```tool_code```. The response to a method will be wrapped in ```tool_output```.
 
-# Available Tools
-[
-  {
-    "name": "get_weather",
-    "description": "Weather for a city",
-    "parameters": { …the tool's input schema… }
-  }
-]
+The following Python methods are available:
+```python
+def get_weather(city: str, unit: Literal["c", "f"] = None):
+  """
+  Weather for a city
 
-# Tool Calling Instructions
-Only request one tool call at a time. Wait for tool results before asking for another tool.
-
-To call a tool, output JSON in this exact format inside a ```tool_call code fence:
-
-```tool_call
-{"name": "tool_name", "arguments": {"param1": "value1", "param2": "value2"}}
+  Args:
+     city: The city's name
+     unit: Celsius or Fahrenheit
+  """
 ```
-
-Tool responses will be provided in ```tool_result fences. Each line contains JSON like:
-```tool_result
-{"id": "call_123", "name": "tool_name", "result": {...}, "error": false}
-```
-Use the `result` payload (and treat `error` as a boolean flag) when continuing the conversation.
-
-Important:
-- Use exact tool and parameter names from the schema above
-- Arguments must be a valid JSON object matching the tool's parameters
-- You can include brief reasoning before or after the tool call
-- If no tool is needed, respond directly without tool_call fences
 ````
 
-The reply streams as text until a ```` ```tool_call ```` fence starts (```` ```tool-call ````, `<tool_call>…</tool_call>`, `<|tool_call>…<tool_call|>`, `<|tool_call_start|>…<|tool_call_end|>` and a Python-style `[name(key="value")]` work too); the fence is held back, and the first fence that closes with a call in it ends the reply: the generation stops (text after the fence, in the piece that closed it, is shown after the call), and the step ends with `TOOL_CALL_START`, `TOOL_CALL_ARGS`, `TOOL_CALL_END` and `RUN_FINISHED` `finishReason: "tool_calls"`. One call per step. A call reads `name` and `arguments` (or `parameters`), as an object or a JSON string; Python-style calls and `call:name{key:value}` are read too. A fence without a call is shown as text and the reply goes on, as does an unclosed fence at the end of the reply; other code fences are text.
+A method's docstring is the tool's description and its parameters' descriptions, as given. Its signature comes from the input schema: JSON types as Python's (`str`, `int`, `float`, `bool`, `list`, `dict`), an `enum` as a `Literal`, the required parameters first and the rest with their `default` (or `None`).
+
+The reply streams as text until a ```` ```tool_code ```` block starts (```` ```tool_call ````, `<tool_call>…</tool_call>`, `<|tool_call>…<tool_call|>`, `<|tool_call_start|>…<|tool_call_end|>` and a Python-style `[name(key="value")]` work too); the block is held back, and the first one that closes with a call in it ends the reply: the generation stops (text after the block, in the piece that closed it, is shown after the call), and the step ends with `TOOL_CALL_START`, `TOOL_CALL_ARGS`, `TOOL_CALL_END` and `RUN_FINISHED` `finishReason: "tool_calls"`. One call per step. A call is a Python call, `name(key="value")`, maybe in `print(…)`; positional arguments take the parameters in the method's order. A JSON object with `name` and `arguments` (or `parameters`) and `call:name{key:value}` are read too. A block without a call to one of the tools (`print(17 * 23)`, say) is shown as text and the reply goes on, as does an unclosed block at the end of the reply; other code fences are text.
 
 The call is emitted as written: `chat()` checks the tool's name and arguments, and reports a bad call back to the model as the tool's result. The step stopped at the call isn't in the thread's session (Chrome drops a stopped turn), so the next step sends the call along with its result.
 
-In later steps the model sees its earlier calls as the same fences and the results as a user message with a ```` ```tool_result ```` fence, one line per result: `{"id", "name", "result", "error"}`, where `result` is the tool's JSON output (or its text, or the error message) and `error` is a boolean. `toolChoice: "none"` leaves the tools out; the Prompt API can't force a tool, so `"required"` and a named tool work like `"auto"`.
+In later steps the model sees its earlier calls as Python calls in a ```` ```tool_code ```` block, and the results as a user message with a ```` ```tool_output ```` block per result: the tool's output as it came, or `Error: ` and the error. `toolChoice: "none"` leaves the tools out; the Prompt API can't force a tool, so `"required"` and a named tool work like `"auto"`.
 
 ## Structured output
 

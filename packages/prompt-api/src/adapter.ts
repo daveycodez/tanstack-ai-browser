@@ -460,7 +460,7 @@ export class PromptApiTextAdapter extends BaseTextAdapter<
       step = await this.begin(options, signal)
       const { session, kept, keys, input, tools, goesOn } = step
       // Without tools to offer, the reply is all text.
-      const reader = tools.length > 0 ? toolCallReader(tools.map((tool) => tool.name)) : undefined
+      const reader = tools.length > 0 ? toolCallReader(tools) : undefined
       let text = ""
       const textEvents = function* (delta: string): Generator<AdapterYieldChunk> {
         if (!delta) return

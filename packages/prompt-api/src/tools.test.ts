@@ -1,14 +1,7 @@
 import assert from "node:assert/strict"
 import { test } from "node:test"
 
-import {
-  parseToolCall,
-  toolCallFence,
-  toolCallReader,
-  toolResultFence,
-  toolResultLine,
-  toolSystemPrompt
-} from "./tools.js"
+import { parseToolCall, toolCallFence, toolCallReader, toolOutputFence, toolSystemPrompt } from "./tools.js"
 
 const weather = {
   name: "get_weather",
@@ -28,31 +21,96 @@ function read(pieces: Array<string>) {
   return { shown, call: reader.call }
 }
 
-test("the system prompt lists the tools as JSON after the caller's prompt, with the fence formats", () => {
-  const prompt = toolSystemPrompt("Be brief.", [weather, { name: "clock", description: "" }])
-  assert.ok(prompt.startsWith("Be brief.\n\nYou are a helpful AI assistant with access to tools.\n\n# Available Tools\n"))
-  const json = prompt.slice(prompt.indexOf("["), prompt.indexOf("\n]\n") + 2)
-  assert.deepEqual(JSON.parse(json), [
-    { name: "get_weather", description: "Weather for a city", parameters: weather.inputSchema },
-    { name: "clock", description: "", parameters: { type: "object", properties: {} } }
-  ])
-  assert.match(prompt, /```tool_call\n\{"name": "tool_name", "arguments": \{"param1": "value1", "param2": "value2"\}\}\n```/)
-  assert.match(prompt, /```tool_result\n\{"id": "call_123", "name": "tool_name", "result": \{\.\.\.\}, "error": false\}\n```/)
-  assert.match(prompt, /Only request one tool call at a time/)
-  assert.match(prompt, /If no tool is needed, respond directly without tool_call fences$/)
+test("the system prompt: the caller's prompt, Google's Gemma 3 tool_code lines, and the tools as Python methods", () => {
+  const search = {
+    name: "search",
+    description: "Search the web.\n\nReturns: results.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        limit: { type: "integer", description: "How many\n results", default: 10 },
+        query: { type: "string", description: "What to look for" },
+        unit: { type: ["string", "null"], enum: ["c", "f"] },
+        exact: { type: "boolean" }
+      },
+      required: ["query"]
+    }
+  }
+  const prompt = toolSystemPrompt("Be brief.", [weather, search, { name: "clock", description: "" }])
+  assert.equal(
+    prompt,
+    `Be brief.
+
+At each turn, if you decide to invoke any of the function(s), it should be wrapped with \`\`\`tool_code\`\`\`. The response to a method will be wrapped in \`\`\`tool_output\`\`\`.
+
+The following Python methods are available:
+\`\`\`python
+def get_weather(city: str):
+  """
+  Weather for a city
+
+  Args:
+     city:
+  """
+
+def search(query: str, limit: int = 10, unit: Literal["c", "f"] = None, exact: bool = None):
+  """
+  Search the web.
+
+Returns: results.
+
+  Args:
+     query: What to look for
+     limit: How many results
+     unit:
+     exact:
+  """
+
+def clock():
+  ...
+\`\`\``
+  )
+  // Only how tools are called: no persona, nothing on when to call one.
+  assert.doesNotMatch(prompt, /helpful|assistant|reasoning|only use/i)
   assert.equal(toolSystemPrompt("Be brief.", []), "Be brief.")
-  assert.ok(toolSystemPrompt("", [weather]).startsWith("You are a helpful AI assistant with access to tools."))
+  assert.ok(toolSystemPrompt("", [weather]).startsWith("At each turn, "))
+  assert.match(toolSystemPrompt("", [{ name: "q", description: 'Say """hi"""' }]), /Say \\"\\"\\"hi\\"\\"\\"/)
 })
 
-test("past calls and results are written in the fences the prompt describes", () => {
+test("past calls are Python calls in a tool_code block; results are tool_output blocks", () => {
   assert.equal(
-    toolCallFence([{ id: "c1", type: "function", function: { name: "get_weather", arguments: '{"city":"Paris"}' } }]),
-    '```tool_call\n{"name":"get_weather","arguments":{"city":"Paris"},"id":"c1"}\n```'
+    toolCallFence([
+      { id: "c1", type: "function", function: { name: "get_weather", arguments: '{"city":"Paris","days":3,"metric":true,"tags":["a"],"x":null}' } },
+      { id: "c2", type: "function", function: { name: "clock", arguments: "" } }
+    ]),
+    '```tool_code\nget_weather(city="Paris", days=3, metric=True, tags=["a"], x=None)\nclock()\n```'
   )
-  assert.equal(toolResultLine("c1", "get_weather", '{"temp":12}'), '{"name":"get_weather","result":{"temp":12},"error":false,"id":"c1"}')
-  assert.equal(toolResultLine("c1", "get_weather", "sunny"), '{"name":"get_weather","result":"sunny","error":false,"id":"c1"}')
-  assert.equal(toolResultLine("c1", "get_weather", "", "no such city"), '{"name":"get_weather","result":"no such city","error":true,"id":"c1"}')
-  assert.equal(toolResultFence(["a", "b"]), "```tool_result\na\nb\n```")
+  assert.equal(toolOutputFence('{"temp":12}'), '```tool_output\n{"temp":12}\n```')
+  assert.equal(toolOutputFence("", "no such city"), "```tool_output\nError: no such city\n```")
+})
+
+test("a tool_code call as Gemini Nano writes it: print(), keyword and positional arguments", () => {
+  const calculate = { name: "calculate", inputSchema: { type: "object", properties: { expression: { type: "string" } }, required: ["expression"] } }
+  const time = { name: "get_current_time", inputSchema: { type: "object", properties: { timezone: { type: "string" } } } }
+  const readWith = (pieces: Array<string>) => {
+    const reader = toolCallReader([calculate, time])
+    let shown = ""
+    for (const piece of pieces) shown += reader.push(piece)
+    return { shown: shown + reader.end(), call: reader.call }
+  }
+  assert.deepEqual(readWith(["```tool_code\nprint(get_current_time(timezone='Asia/Tokyo'))\n```"]).call, {
+    name: "get_current_time",
+    arguments: { timezone: "Asia/Tokyo" }
+  })
+  assert.deepEqual(readWith(['```tool_', 'code\nprint(calculate("17 * 23"))\n``', "`"]), {
+    shown: "",
+    call: { name: "calculate", arguments: { expression: "17 * 23" } }
+  })
+  assert.deepEqual(readWith(['```tool_code\ncalculate(expression="1 == 1")\n```']).call?.arguments, { expression: "1 == 1" })
+  // Code that calls no tool is text.
+  assert.deepEqual(readWith(["391. ```tool_code\nprint(17 * 23)\n```"]), { shown: "391. ```tool_code\nprint(17 * 23)\n```", call: undefined })
+  // Without the tools, positional arguments have no names.
+  assert.deepEqual(parseToolCall('calculate("17 * 23")'), { name: "calculate", arguments: {} })
 })
 
 test("a call's JSON: arguments or parameters, a JSON-string argument, an array or lines; nothing else", () => {
