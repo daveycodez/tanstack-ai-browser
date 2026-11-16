@@ -13,6 +13,16 @@ One suite for every adapter: seven prompts, each run four times (28 cases), with
 - **Steps:** at most two, the reply and the reply to the canned tool result. A second tool call where the answer belongs fails the case, even a sensible one (fetching a page after the search).
 - **Time:** each case's line has its seconds (both steps, the model already loaded), and `SUMMARY` has them per case and in all.
 
+## Running everything at once
+
+```sh
+node evals/tool-calling/run-all.mjs
+```
+
+It starts the server and runs the suite on every model at the same time: each browser adapter in a tab of Chrome (`--browser` for another), the Prompt API in Chrome (Gemini Nano) and Edge Dev (Aion), apfel if its server is up, and AFM inside lofi-agent on this Mac (relaunched with remote debugging) and on each iPhone or iPad plugged in (the app open, Web Inspector on). It prints each model's score as it finishes, then a table; `--out results.json` keeps the summaries, and `--runs` and `--cases` shape the run. Chrome downloads Gemini Nano only after a click on its page: the output says when.
+
+The suite has no system prompt: each step sends the tools and the messages only. Where a model's tools go in the prompt, its adapter puts them there (the chat template's tool list; WebLLM's prompt for models without native tool calls).
+
 ## Running it in a browser
 
 ```sh

@@ -12,9 +12,11 @@ const params = new URLSearchParams(location.search)
 const out = document.getElementById("out")!
 // The lines go to the server in order, and all of them before the next run loads.
 let sent = Promise.resolve()
+// Pages that run at once share the server's output: each tags its lines.
+const run = Math.random().toString(36).slice(2, 8)
 void runEval(params, (line) => {
   out.textContent += line + "\n"
-  sent = sent.then(() => fetch("/log", { method: "POST", body: line }).then(() => undefined, () => undefined))
+  sent = sent.then(() => fetch(`/log?run=${run}`, { method: "POST", body: line }).then(() => undefined, () => undefined))
 }).then(async () => {
   await sent
   const [next, ...rest] = (params.get("queue") ?? "").split(";").filter(Boolean)

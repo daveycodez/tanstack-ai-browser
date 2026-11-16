@@ -46,10 +46,17 @@ const loaded = async <T extends { create(options?: object): Promise<unknown> }>(
 }
 
 const ADAPTERS: Record<string, Factory> = {
-  "prompt-api": async () => {
+  "prompt-api": async (_params, log) => {
     const adapter = promptApiText()
     const availability = await adapter.availability()
     if (availability === "unavailable") throw new Error("The Prompt API's model is unavailable in this browser.")
+    // The browser starts its model's download only from a user gesture: a click on the page.
+    if (availability !== "available") {
+      log("CLICK the page to download the model")
+      await new Promise<void>((resolve, reject) =>
+        addEventListener("click", () => void adapter.create().then(() => resolve(), reject), { once: true })
+      )
+    }
     const variant = await adapter.variant()
     return { adapter, label: variant?.displayName ?? "the Prompt API's model" }
   },

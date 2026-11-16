@@ -1,7 +1,7 @@
 // Serves the tool-calling eval (browser.ts) on localhost, a secure context the
 // Prompt API runs in: `node evals/tool-calling/serve.mjs [port]` (8795 by
 // default), then open http://localhost:<port>/?adapter=prompt-api in Chrome or
-// Edge. The page's lines are printed here as `[eval] …`; `ALL DONE` or `ERROR`
+// Edge. The page's lines are printed here as `[eval <run>] …` (a run id each page picks); `ALL DONE` or `ERROR`
 // ends a run.
 //
 // The page is cross-origin isolated (webgllm and Transformers.js get
@@ -57,7 +57,9 @@ createServer(async (req, res) => {
   if (req.method === "POST" && url.pathname === "/log") {
     let body = ""
     for await (const chunk of req) body += chunk
-    console.log(`[eval] ${body}`)
+    const run = url.searchParams.get("run")
+    // A page without a run id is an older bundle still open: kept apart.
+    console.log(run ? `[eval ${run}] ${body}` : `[untagged] ${body}`)
     res.writeHead(204).end()
     return
   }
