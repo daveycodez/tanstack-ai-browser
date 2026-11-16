@@ -15,9 +15,8 @@ import type { webLlmText, WebLlmChatModel } from "@tanstack-ai-browser/web-llm"
 import type { webLlmModel as WebLlmModel } from "./web-llm-models.ts"
 import { apfelText } from "@tanstack-ai-browser/apfel"
 import { afmText } from "@tanstack-ai-browser/afm"
-import { PromptApiTextAdapter, promptApiText } from "@tanstack-ai-browser/prompt-api"
+import { PromptApiTextAdapter, PromptApiVariant, promptApiText } from "@tanstack-ai-browser/prompt-api"
 import type { Availability } from "@tanstack-ai-browser/prompt-api"
-import { browserModel } from "./browser-model.ts"
 import { useSyncExternalStore } from "react"
 
 import { createStore } from "#/lib/store"
@@ -253,6 +252,8 @@ const builtInStatus = statusStore()
 
 /** Apple's framework (the iOS app's plugin, the Mac app's preload): also asked which model it runs. */
 const afm = afmText()
+/** The browser's own model, through the Prompt API. */
+const builtIn = promptApiText({ onDownloadProgress: builtInStatus.onDownloadProgress })
 
 export const MODELS = [
   {
@@ -288,15 +289,16 @@ export const MODELS = [
   },
   {
     id: "built-in",
-    /** The browser's own model: Gemini Nano in Chrome, Phi-4-mini in Edge. */
-    name: browserModel().name,
+    /**
+     * The browser's own model: Gemini Nano or Gemma 4 in Chrome, Phi-4-mini in
+     * Edge, named by the adapter's variant() once checked (see reportedNames).
+     */
+    name: "Built-in model",
     icon:
-      browserModel().id === "phi-4-mini"
+      PromptApiVariant.ofBrowser() === PromptApiVariant.phi4Mini
         ? "/icons/microsoft.svg"
         : "/icons/gemini.svg",
-    adapter: promptApiText({
-      onDownloadProgress: builtInStatus.onDownloadProgress
-    }),
+    adapter: builtIn,
     /** The browser downloads it, once for every site, with progress. */
     status: builtInStatus.status as ModelStatusStore | null,
     needsWebGpu: false,
@@ -609,21 +611,26 @@ const availabilities = createStore<Partial<Record<ModelId, Availability>>>({})
 
 /**
  * Names models give themselves, over their entries': Apple's framework says
- * which model it runs ("AFM 3 Core Advanced", "AFM 2 Core"), once it can run.
+ * which model it runs ("AFM 3 Core Advanced", "AFM 2 Core"), once it can run;
+ * the Prompt API adapter, which model the browser runs ("Gemini Nano",
+ * "Gemma 4", "Phi-4-mini").
  */
 const reportedNames = createStore<Partial<Record<ModelId, string>>>({})
 
 /** A model's name: the one it reports, else its entry's. */
 export const modelName = (id: ModelId) => reportedNames.get()[id] ?? modelInfo(id).name
 
-/** Checks `id`'s availability again, into the store (and Apple's model's name, once it can run). */
+/** Checks `id`'s availability again, into the store (and the name of Apple's model or the browser's). */
 async function checkAvailability(id: ModelId) {
   const result = await modelInfo(id).adapter.availability()
   availabilities.set((all) => ({ ...all, [id]: result }))
-  if (id === "apple-foundationmodel-afm" && result === "available") {
-    const variant = await afm.variant()
-    if (variant) reportedNames.set((all) => ({ ...all, [id]: variant.displayName }))
-  }
+  const variant =
+    id === "apple-foundationmodel-afm" && result === "available"
+      ? await afm.variant()
+      : id === "built-in" && result !== "unavailable"
+        ? await builtIn.variant()
+        : undefined
+  if (variant) reportedNames.set((all) => ({ ...all, [id]: variant.displayName }))
   return result
 }
 
@@ -632,7 +639,7 @@ if (typeof window !== "undefined") {
     if (m.id === "apple-foundationmodel") continue
     // Chromium for Testing has the Prompt API but says "downloading"
     // forever, with no model: only Chrome's and Edge's are offered.
-    if (m.id === "built-in" && browserModel().id === "unknown") continue
+    if (m.id === "built-in" && !PromptApiVariant.ofBrowser()) continue
     void checkAvailability(m.id)
     void checkInputs(m.id)
   }

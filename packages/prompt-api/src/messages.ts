@@ -1,14 +1,16 @@
 /**
  * The conversation as the Prompt API reads it: user messages with their
  * images and audio (loaded as Blobs), the model's messages with their tool
- * calls as Python calls in a ```tool_code block, and tool results as user
- * messages, each result in a ```tool_output block.
+ * calls, and tool results as user messages. With the browser's own tool use,
+ * calls are `tool-call` content and results `tool-response` content; else
+ * calls are Python calls in a ```tool_code block, each result in a
+ * ```tool_output block.
  */
 import type { ContentPart, ModelMessage } from "@tanstack/ai"
 
 import type { MediaInput } from "./model.js"
 import { toolCallFence, toolOutputFence } from "./tools.js"
-import type { LanguageModelContent, LanguageModelMessage } from "./types.js"
+import type { LanguageModelContent, LanguageModelMessage, LanguageModelToolClasses, LanguageModelToolResultContent } from "./types.js"
 
 /** The text of a message's content, without its images or audio. */
 export function contentText(content: ModelMessage["content"]) {
@@ -58,22 +60,75 @@ async function userContent(content: ModelMessage["content"]): Promise<LanguageMo
   )
 }
 
+/** A value without its nulls, which a `tool-response`'s `object` can't hold. */
+function withoutNulls(value: unknown): unknown {
+  if (Array.isArray(value)) return value.filter((item) => item !== null).map(withoutNulls)
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value).flatMap(([key, item]) => (item === null ? [] : [[key, withoutNulls(item)]]))
+    )
+  }
+  return value
+}
+
+/** A tool's output as a `tool-response` result: its JSON object (or array) as an object, else its text. */
+function toolResult(content: string): Array<LanguageModelToolResultContent> {
+  try {
+    const value = JSON.parse(content) as unknown
+    if (value && typeof value === "object") return [{ type: "object", value: withoutNulls(value) }]
+  } catch {
+    // Text.
+  }
+  return [{ type: "text", value: content }]
+}
+
+/** Earlier calls' arguments, as an object (the Prompt API's `LanguageModelToolCall` takes one). */
+function argumentsOf(json: string): Record<string, unknown> {
+  try {
+    const value = JSON.parse(json || "{}") as unknown
+    return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {}
+  } catch {
+    return {}
+  }
+}
+
 /**
  * The conversation as Prompt API messages, from `start` on (a kept session
- * holds the rest); a step's tool results share one message.
+ * holds the rest); a step's tool results share one message. `tools` are the
+ * browser's tool-use classes, for its own tool use; without them, calls and
+ * results are text. Tool names come from the whole conversation.
  */
 export async function toLanguageModelMessages(
   messages: ReadonlyArray<ModelMessage>,
-  start = 0
+  start = 0,
+  tools?: LanguageModelToolClasses
 ): Promise<Array<LanguageModelMessage>> {
   const out: Array<LanguageModelMessage> = []
-  let results: Array<string> | undefined
+  const toolNames = new Map<string, string>()
+  for (const m of messages) for (const call of m.toolCalls ?? []) toolNames.set(call.id, call.function.name)
+  let results: Array<string> | Array<LanguageModelContent> | undefined
   for (const m of messages.slice(start)) {
     if (m.role === "tool") {
+      const callId = m.toolCallId ?? ""
+      if (tools) {
+        const name = toolNames.get(callId) ?? "tool"
+        const value =
+          m.error !== undefined
+            ? new tools.LanguageModelToolError({ callId, callID: callId, name, errorMessage: m.error })
+            : new tools.LanguageModelToolSuccess({ callId, callID: callId, name, result: toolResult(contentText(m.content)) })
+        const part: LanguageModelContent = { type: "tool-response", value }
+        if (results) {
+          ;(results as Array<LanguageModelContent>).push(part)
+        } else {
+          results = [part]
+          out.push({ role: "user", content: results })
+        }
+        continue
+      }
       const output = toolOutputFence(contentText(m.content), m.error)
       if (results) {
-        results.push(output)
-        out[out.length - 1] = { role: "user", content: results.join("\n") }
+        ;(results as Array<string>).push(output)
+        out[out.length - 1] = { role: "user", content: (results as Array<string>).join("\n") }
       } else {
         results = [output]
         out.push({ role: "user", content: output })
@@ -82,7 +137,21 @@ export async function toLanguageModelMessages(
     }
     results = undefined
     if (m.role === "assistant") {
-      const content = [contentText(m.content), ...(m.toolCalls?.length ? [toolCallFence(m.toolCalls)] : [])]
+      const text = contentText(m.content)
+      if (tools && m.toolCalls?.length) {
+        out.push({
+          role: "assistant",
+          content: [
+            ...(text ? [{ type: "text" as const, value: text }] : []),
+            ...m.toolCalls.map((call) => ({
+              type: "tool-call" as const,
+              value: new tools.LanguageModelToolCall({ callId: call.id, callID: call.id, name: call.function.name, arguments: argumentsOf(call.function.arguments) })
+            }))
+          ]
+        })
+        continue
+      }
+      const content = [text, ...(m.toolCalls?.length ? [toolCallFence(m.toolCalls)] : [])]
         .filter(Boolean)
         .join("\n")
       if (content) out.push({ role: "assistant", content })

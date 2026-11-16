@@ -3,9 +3,10 @@
  * this package uses. TypeScript's DOM library has no types for it yet.
  * Shapes follow the spec and `@types/dom-chromium-ai`, kept here instead of
  * depending on that package: it declares `LanguageModel` as a global (in
- * every app that uses this package). Tools are left out: Chrome's tool use
- * doesn't work on web pages, so the adapter calls tools by prompt
- * (`tools.ts`). Names follow the spec: `contextUsage`,
+ * every app that uses this package). Tool use is the spec's open loop: the
+ * session declares `tools`, the model's calls come back as `tool-call`
+ * content, and results go back as `tool-response` content (where the
+ * browser has it: see `toolClasses`). Names follow the spec: `contextUsage`,
  * `contextWindow` and `contextoverflow` (web pages no longer have the old
  * `inputUsage`, `inputQuota` and `quotaoverflow`).
  */
@@ -26,7 +27,7 @@ export type SamplingMode =
   | "creative"
   | "most-creative"
 
-export type LanguageModelMessageType = "text" | "image" | "audio"
+export type LanguageModelMessageType = "text" | "image" | "audio" | "tool-call" | "tool-response"
 
 export type LanguageModelExpected = {
   type: LanguageModelMessageType
@@ -40,6 +41,14 @@ export type LanguageModelExpected = {
 export type LanguageModelContent = {
   type: LanguageModelMessageType
   value: unknown
+}
+
+/** A tool the session declares: the model's calls to it come back as `tool-call` content. */
+export type LanguageModelTool = {
+  name: string
+  description: string
+  /** A JSON Schema with `type: "object"`. */
+  inputSchema: object
 }
 
 export type LanguageModelMessage = {
@@ -60,6 +69,8 @@ export type LanguageModelCoreOptions = {
 
 export type LanguageModelCreateOptions = LanguageModelCoreOptions & {
   initialPrompts?: Array<LanguageModelMessage>
+  /** With `tool-call` in `expectedOutputs` and `tool-response` in `expectedInputs`. */
+  tools?: Array<LanguageModelTool>
   /** Aborting it destroys the session, during `create()` or after. */
   signal?: AbortSignal
   monitor?: (monitor: EventTarget) => void
@@ -90,11 +101,14 @@ export interface LanguageModelSession extends EventTarget {
     input: LanguageModelInput,
     options?: LanguageModelPromptOptions
   ): Promise<string>
-  /** The reply's text, in pieces as it's written. */
+  /**
+   * The reply in pieces as it's written: text, and with tools, a
+   * `{ type: "tool-call", value: LanguageModelToolCall }` per call.
+   */
   promptStreaming(
     input: LanguageModelInput,
     options?: LanguageModelPromptOptions
-  ): ReadableStream<string> & AsyncIterable<string>
+  ): ReadableStream<string | LanguageModelContent> & AsyncIterable<string | LanguageModelContent>
   measureContextUsage(
     input: LanguageModelInput,
     options?: LanguageModelPromptOptions
@@ -113,3 +127,33 @@ export type DownloadProgressEvent = Event & { loaded: number; total?: number }
 /** The page's `LanguageModel`, or undefined where the browser has none. */
 export const languageModel = () =>
   (globalThis as { LanguageModel?: LanguageModelStatic }).LanguageModel
+
+/** A tool call, as the browser's `LanguageModelToolCall` has it. */
+export type LanguageModelToolCall = { callId?: string; callID?: string; name: string; arguments: Record<string, unknown> }
+
+/** What a tool returned, for `LanguageModelToolSuccess`: Chrome takes `text` and `object` here. */
+export type LanguageModelToolResultContent = { type: "text"; value: string } | { type: "object"; value: unknown }
+
+/**
+ * The browser's tool-use classes: a call as input, and a tool's result or
+ * error. Members are passed as `callId` and also `callID` (the spec is
+ * renaming it; the constructors ignore a member they don't know).
+ */
+export type LanguageModelToolClasses = {
+  LanguageModelToolCall: new (init: LanguageModelToolCall) => object
+  LanguageModelToolSuccess: new (init: { callId: string; callID: string; name: string; result: Array<LanguageModelToolResultContent> }) => object
+  LanguageModelToolError: new (init: { callId: string; callID: string; name: string; errorMessage: string }) => object
+}
+
+/**
+ * The page's tool-use classes, or undefined where the browser has no tool
+ * use (Chrome without `chrome://flags/#prompt-api-tool-use`, Edge).
+ */
+export function toolClasses(): LanguageModelToolClasses | undefined {
+  const g = globalThis as Partial<LanguageModelToolClasses>
+  return typeof g.LanguageModelToolCall === "function" &&
+    typeof g.LanguageModelToolSuccess === "function" &&
+    typeof g.LanguageModelToolError === "function"
+    ? (g as LanguageModelToolClasses)
+    : undefined
+}

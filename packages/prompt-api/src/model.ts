@@ -25,16 +25,22 @@ export const DEFAULT_LANGUAGES = ["en"] as const
 
 /**
  * What every session expects: text in and out in the languages given (Chrome
- * checks its safety filters for the output language), and images or audio
- * in if the conversation has them.
+ * checks its safety filters for the output language), images or audio in if
+ * the conversation has them, and with the browser's own tool use, tool calls
+ * out and in (a conversation's earlier calls) and tools' results in.
  */
 export function baseOptions(
   languages: ReadonlyArray<string> = DEFAULT_LANGUAGES,
-  media: ReadonlyArray<MediaInput> = []
+  media: ReadonlyArray<MediaInput> = [],
+  toolUse = false
 ): LanguageModelCreateOptions {
   return {
-    expectedInputs: [{ type: "text", languages: [...languages] }, ...media.map((type) => ({ type }))],
-    expectedOutputs: [{ type: "text", languages: [...languages] }]
+    expectedInputs: [
+      { type: "text", languages: [...languages] },
+      ...media.map((type) => ({ type })),
+      ...(toolUse ? [{ type: "tool-call" as const }, { type: "tool-response" as const }] : [])
+    ],
+    expectedOutputs: [{ type: "text", languages: [...languages] }, ...(toolUse ? [{ type: "tool-call" as const }] : [])]
   }
 }
 
