@@ -157,6 +157,16 @@ test("a tool call ends the step with tool_calls while the response waits, and th
   assert.equal(native.named("respond").length, 1, "the same response")
 })
 
+test("a structured answer cut off by maximumResponseTokens fails with the bridge's code length", async () => {
+  native.replies = [[{ type: "error", code: "length", message: "The answer passed maximumResponseTokens (4) before it was complete" }]]
+  const adapter = afmText({ native })
+  await assert.rejects(
+    adapter.structuredOutput({ chatOptions: { model: "system", messages: [user("A card?")], logger, modelOptions: { maximumResponseTokens: 4 } }, outputSchema: { type: "object", properties: { name: { type: "string" } }, required: ["name"] } } as never),
+    (error: { code?: string; message?: string }) => error.code === "length" && /maximumResponseTokens/.test(error.message ?? "")
+  )
+  assert.deepEqual(native.named("respond")[0].options, { maximumResponseTokens: 4 })
+})
+
 test("each step's RUN_FINISHED carries its own pass's tokens, as an OpenAI-style API reports each call's: the calls' pass, then the answer's", async () => {
   native.replies = [[{ type: "toolCalls", calls: [{ id: "call-1", name: "get_weather", arguments: '{"city": "Paris"}' }], usage: { inputTokens: 132, outputTokens: 24 } }]]
   native.resumes = [[{ type: "done", text: "Sunny in Paris.", usage: { inputTokens: 191, outputTokens: 51 } }]]

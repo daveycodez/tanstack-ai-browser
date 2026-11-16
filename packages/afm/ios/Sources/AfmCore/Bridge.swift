@@ -22,7 +22,8 @@ import FoundationModels
 ///   `cachedTokens` only for a session without tools (see `usage()`).
 ///   `asText` when a schema's answer was written as text (a permissive session's
 ///   fallback, see `run`): not held to the schema, so the caller checks it.
-/// - `{ type: "error", code, message }`.
+/// - `{ type: "error", code, message }`. Code "length": a structured answer cut off by
+///   `maximumResponseTokens` (see `run`).
 @available(iOS 26.0, macOS 26.0, *)
 public final class AfmBridge: @unchecked Sendable {
     public typealias Emit = @Sendable ([String: Any]) -> Void
@@ -237,6 +238,11 @@ final class BridgeSession: @unchecked Sendable {
             if let schema {
                 do {
                     text = try await session.respond(to: prompt, schema: schema, includeSchemaInPrompt: includeSchemaInPrompt, options: options).content.jsonString
+                } catch where options.maximumResponseTokens != nil && Self.code(error) == "decodingFailure" && usage() == nil {
+                    // iOS/macOS 26 throws when a structured answer reaches maximumResponseTokens, and
+                    // reports no token counts to tell. Held to the schema as it's written, the answer
+                    // can't fail to decode but by being cut off.
+                    throw CutOff(cap: options.maximumResponseTokens ?? 0)
                 } catch where permissive && Self.code(error) == "guardrailViolation" {
                     // Permissive guardrails cover String responses only: Apple documents that
                     // any other response (a schema's) gets the default guardrails, which block
@@ -257,12 +263,20 @@ final class BridgeSession: @unchecked Sendable {
             }
             // A stopped response's stream may just end.
             try Task.checkCancellation()
+            // iOS/macOS 27 closes a structured answer cut off at maximumResponseTokens and returns
+            // it ({"name": ""}), passing more output tokens than the cap: it isn't the answer.
+            if schema != nil, let cap = options.maximumResponseTokens,
+               let output = lock.withLock({ passUsage() })?.usage["outputTokens"] as? Int, output >= cap {
+                throw CutOff(cap: cap)
+            }
             var done: [String: Any] = ["type": "done", "text": text]
             if asText { done["asText"] = true }
             if let pass = lock.withLock({ passUsage() }) { done["usage"] = pass.usage }
             send(done)
         } catch is CancellationError {
             send(["type": "error", "code": "cancelled", "message": "The response was stopped"])
+        } catch let cut as CutOff {
+            send(["type": "error", "code": "length", "message": "The answer passed maximumResponseTokens (\(cut.cap)) before it was complete"])
         } catch {
             send(["type": "error", "code": Self.code(error), "message": String(describing: error)])
         }
@@ -377,6 +391,12 @@ final class BridgeSession: @unchecked Sendable {
         let text = String(describing: error)
         return String(text.prefix { $0 != "(" && $0 != ":" && $0 != " " })
     }
+}
+
+/// A structured answer cut off by `maximumResponseTokens` (see `run`): code "length", as the
+/// Prompt API adapter's capped answer is.
+struct CutOff: Error {
+    let cap: Int
 }
 
 /// A tool the JavaScript side runs, as the framework sees it.
