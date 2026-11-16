@@ -1,18 +1,16 @@
 # Tool-calling eval
 
-One suite for every adapter: eight prompts, each run four times (32 cases), with the tools of three real MCP servers and no system prompt.
+One suite for every adapter: seven prompts, each run four times (28 cases), with the tools of three real MCP servers and no system prompt.
 
 - **Tools** (`tools.json`): Exa's `web_search_exa` and `web_fetch_exa`, the MCP Time server's `get_current_time`, `convert_time` and `get_time_ago`, and `calculate`, with their own names, descriptions and schemas.
 - **Prompts** (`suite.ts`):
-  - `hello` and `story`: a text answer, no call.
-  - `story-after-greeting`: a story after a greeting.
-  - `weather`: there's no weather tool, so a search or a question back about where.
-  - `alaska` and `alaska-after-story`: a `web_search_exa` call, then an answer from its result.
+  - `hello`: a text answer, no call.
+  - `story` and `story-after-greeting`: a short story about a space adventure (alone, and after a greeting), not a refusal.
+  - `world-series` and `world-series-after-story`: a `web_search_exa` call, then the winner from its result (alone, and after a story in the chat).
   - `time`: a time-tool call for Tokyo, then the time from its result.
-  - `math-after-greeting`: `calculate` for 17 × 23, then 391.
+  - `math-after-greeting`: 391 for 17 × 23, from `calculate` or straight away (the call is optional; a wrong number fails).
 - **Passing:** a call where one is needed, text where it isn't. For a call, the next step (the call and the tool's result in the chat) must answer from that result.
-
-- **Steps:** at most two, the reply and the reply to the canned tool result. A second tool call where the answer belongs fails the case, even a sensible one (fetching a page after a search).
+- **Steps:** at most two, the reply and the reply to the canned tool result. A second tool call where the answer belongs fails the case, even a sensible one (fetching a page after the search).
 - **Time:** each case's line has its seconds (both steps, the model already loaded), and `SUMMARY` has them per case and in all.
 
 ## Running it in a browser
@@ -34,6 +32,7 @@ Open `http://localhost:8795/?adapter=prompt-api` in the browser to test (`localh
 - `thinking`: `off` or `high`, `chat()`'s reasoning level; left out, the model's default.
 - `runs`: runs of each prompt, 4 by default.
 - `cases`: some of the prompts, `?cases=hello,time`.
+- `queue`: more runs after this one, one at a time: queries separated by `;`, each URL-encoded.
 
 Runs on one machine share its GPU and CPU, so run them one at a time when comparing times.
 

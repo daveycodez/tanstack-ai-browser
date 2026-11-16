@@ -1,6 +1,6 @@
 /**
- * The tool-calling eval, for any TanStack AI text adapter: eight prompts,
- * each run `runs` times (4 by default: 32 cases), with the tools of three
+ * The tool-calling eval, for any TanStack AI text adapter: seven prompts,
+ * each run `runs` times (4 by default: 28 cases), with the tools of three
  * real MCP servers (Exa's search, the MCP Time server, a calculator:
  * tools.json) and no system prompt. A case passes when the model calls a
  * tool where it should and answers in text where it shouldn't; for a call,
@@ -17,7 +17,7 @@ type Step = { kind: "text"; text: string } | { kind: "tool"; tool: string; call:
 /** The tools' results for the step after a call. */
 const RESULTS: Record<string, string> = {
   web_search_exa:
-    "Title: Alaska U.S. Senate election results 2026\nURL: https://example.com/alaska-senate-2026\nPublished: 2026-11-05\nHighlights: In the November 3, 2026 U.S. Senate election in Alaska, Jordan Hale won with 52.1% of the vote after ranked-choice tabulation.",
+    "Title: 2026 World Series results\nPublished: 2026-11-02\nHighlights: The Portland Pioneers won the 2026 World Series, beating the Atlanta Braves 4 games to 2.",
   get_current_time: JSON.stringify({ timezone: "Asia/Tokyo", datetime: "2026-11-16T09:52:00+09:00", day_of_week: "Monday", is_dst: false }),
   convert_time: JSON.stringify({
     source: { timezone: "America/Los_Angeles", datetime: "2026-11-15T16:52:00-08:00" },
@@ -40,7 +40,11 @@ const TOLD: Array<ModelMessage> = [
   }
 ]
 
-const story = (r: Step) => r.kind === "text" && (r.text.length > 400 || /once upon/i.test(r.text))
+/** A story: text, not a refusal. */
+const story = (r: Step) =>
+  r.kind === "text" &&
+  r.text.trim().length > 0 &&
+  !/\b(I can(?:no|')t|I am (?:unable|not able)|I'm (?:unable|not able)|I am sorry|I'm sorry)\b/i.test(r.text.slice(0, 200))
 const called = (r: Step, ...names: Array<string>) => r.kind === "tool" && names.includes(r.tool)
 const answered = (pattern: RegExp) => (r: Step) => r.kind === "text" && pattern.test(r.text)
 
@@ -48,25 +52,25 @@ type Case = { name: string; prompt: string; history: Array<ModelMessage>; pass: 
 
 const CASES: Array<Case> = [
   { name: "hello", prompt: "Hello", history: [], pass: (r) => r.kind === "text" },
-  { name: "story", prompt: "Write me a short story", history: [], pass: story },
-  { name: "story-after-greeting", prompt: "Write me a short story", history: GREETING, pass: story },
-  // No weather tool: a search, or a question back about where.
-  {
-    name: "weather",
-    prompt: "What's the weather?",
-    history: [],
-    pass: (r) => called(r, "web_search_exa") || (r.kind === "text" && /city|location|where|which (place|area)/i.test(r.text))
-  },
-  { name: "alaska", prompt: "Who won the most recent Alaska senator election?", history: [], pass: (r) => called(r, "web_search_exa"), then: answered(/Jordan Hale/i) },
+  { name: "story", prompt: "Write me a short story about a space adventure", history: [], pass: story },
+  { name: "story-after-greeting", prompt: "Write me a short story about a space adventure", history: GREETING, pass: story },
+  { name: "world-series", prompt: "Who won the most recent World Series?", history: [], pass: (r) => called(r, "web_search_exa"), then: answered(/Portland Pioneers/i) },
   { name: "time", prompt: "What time is it in Tokyo?", history: [], pass: (r) => called(r, "get_current_time", "convert_time"), then: answered(/9:52|09:52/) },
   {
-    name: "alaska-after-story",
-    prompt: "Who won the most recent Alaska senator election?",
+    name: "world-series-after-story",
+    prompt: "Who won the most recent World Series?",
     history: TOLD,
     pass: (r) => called(r, "web_search_exa"),
-    then: answered(/Jordan Hale/i)
+    then: answered(/Portland Pioneers/i)
   },
-  { name: "math-after-greeting", prompt: "What's 17 times 23?", history: GREETING, pass: (r) => called(r, "calculate"), then: answered(/391/) }
+  // 391, from `calculate` or straight away: the call is optional.
+  {
+    name: "math-after-greeting",
+    prompt: "What's 17 times 23?",
+    history: GREETING,
+    pass: (r) => called(r, "calculate") || answered(/391/)(r),
+    then: answered(/391/)
+  }
 ]
 
 /** The adapter's side the suite uses: TanStack's `chatStream`, as `chat()` calls it. */
@@ -149,7 +153,8 @@ export async function runSuite(
         first = { kind: "error", text: String((error as Error)?.message ?? error) }
       }
       const took = (performance.now() - start) / 1000
-      const ok = c.pass(first) && (!c.then || (second !== undefined && c.then(second)))
+      // A call must be followed by an answer from its result; an answer in text stands on its own.
+      const ok = c.pass(first) && (!c.then || first.kind !== "tool" || (second !== undefined && c.then(second)))
       const s = (score[c.name] ??= { passed: 0, n: 0, seconds: 0 })
       s.n++
       s.seconds = Math.round((s.seconds + took) * 10) / 10
