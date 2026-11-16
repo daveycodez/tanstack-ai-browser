@@ -36,9 +36,9 @@ export function toolSystemPrompt(system: string, tools: ReadonlyArray<Tool>): st
     description: tool.description ?? "No description provided.",
     parameters: tool.inputSchema ?? { type: "object", properties: {} }
   }))
-  const instructions = `You are a helpful AI assistant with access to tools.
-
-# Available Tools
+  // How tools are called here (by prompt): the tools, and the format of a call and
+  // of its result. When to call one is the caller's to say, in its system prompt.
+  const instructions = `# Available Tools
 ${JSON.stringify(definitions, null, 2)}
 
 # Tool Calling Instructions
@@ -59,8 +59,7 @@ Use the \`result\` payload (and treat \`error\` as a boolean flag) when continui
 Important:
 - Use exact tool and parameter names from the schema above
 - Arguments must be a valid JSON object matching the tool's parameters
-- You can include brief reasoning before or after the tool call
-- If no tool is needed, respond directly without tool_call fences`
+- A reply without a tool call is plain text, without tool_call fences`
   return system.trim() ? `${system.trim()}\n\n${instructions}` : instructions
 }
 
