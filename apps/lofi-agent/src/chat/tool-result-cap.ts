@@ -33,32 +33,50 @@ function shorten(text: string, limit: number): string {
   return kept + note(kept.length, text.length)
 }
 
-const isTextPart = (part: unknown): part is { type: "text"; text: string } =>
-  !!part && typeof part === "object" && (part as { type?: unknown }).type === "text" && typeof (part as { text?: unknown }).text === "string"
+/** A content part, as a tool result's list holds them: TanStack's (`{ type: "text", content }`, images, audio, …) or MCP's own text (`{ type: "text", text }`). */
+type Part = { type: string } & Record<string, unknown>
+
+const isPart = (part: unknown): part is Part => !!part && typeof part === "object" && typeof (part as { type?: unknown }).type === "string"
+
+/** Where a text part keeps its text, or undefined for a part that isn't text (an image, say). */
+const textField = (part: Part) => (part.type !== "text" ? undefined : typeof part.content === "string" ? "content" : typeof part.text === "string" ? "text" : undefined)
 
 /**
  * A tool's result within the cap, or `undefined` for one already within it
- * (left as it is). Text is shortened; a list of content parts keeps the
- * parts that fit, the one that crosses the cap shortened; anything else is
- * shortened as its JSON.
+ * (left as it is). Text is shortened. In a list of content parts the cap is
+ * on the text: text parts keep what fits, the one that crosses the cap
+ * shortened and later text dropped, and every other part (an image, audio,
+ * a file) is kept as it is. Anything else is shortened as its JSON.
  */
 export function capToolResult(result: unknown, limit = MAX_CHARACTERS): unknown {
   if (typeof result === "string") return result.length > limit ? shorten(result, limit) : undefined
-  if (Array.isArray(result) && result.every(isTextPart)) {
-    const total = result.reduce((sum, part) => sum + part.text.length, 0)
+  if (Array.isArray(result) && result.length > 0 && result.every(isPart)) {
+    const textOf = (part: Part) => {
+      const field = textField(part)
+      return field ? (part[field] as string) : undefined
+    }
+    const total = result.reduce((sum, part) => sum + (textOf(part)?.length ?? 0), 0)
     if (total <= limit) return undefined
-    const kept: Array<{ type: "text"; text: string }> = []
+    const kept: Array<Part> = []
     let room = limit
+    let full = false
     for (const part of result) {
-      if (part.text.length <= room) {
+      const field = textField(part)
+      if (!field) {
         kept.push(part)
-        room -= part.text.length
         continue
       }
-      // The part that crosses the cap: its start, with the note counting the whole result.
-      const start = part.text.slice(0, room).trimEnd()
-      kept.push({ ...part, text: start + note(limit - room + start.length, total) })
-      break
+      if (full) continue
+      const text = part[field] as string
+      if (text.length <= room) {
+        kept.push(part)
+        room -= text.length
+        continue
+      }
+      // The part that crosses the cap: its start, with the note counting the result's whole text.
+      const start = text.slice(0, room).trimEnd()
+      kept.push({ ...part, [field]: start + note(limit - room + start.length, total) })
+      full = true
     }
     return kept
   }
