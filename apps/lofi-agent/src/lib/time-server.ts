@@ -1,12 +1,14 @@
 /**
- * The built-in time tools: the official MCP reference Time server's tools
- * (modelcontextprotocol/servers, src/time: `get_current_time`,
- * `convert_time` and `get_time_ago`), run in the page with the browser's
- * clock and time zones, so they work offline. Names, descriptions, argument
- * schemas, results and error messages are the server's; where the server
- * names its own time zone, these name the browser's. That server runs as a
- * local process (stdio), which a page can't start, and no official one is
- * hosted. Read-only, so they never ask first.
+ * The built-in time tool: the official MCP reference Time server's
+ * `get_current_time` (modelcontextprotocol/servers, src/time), run in the
+ * page with the browser's clock and time zones, so it works offline. Its
+ * name, description, argument schema, result and error messages are the
+ * server's; where the server names its own time zone, this names the
+ * browser's. That server runs as a local process (stdio), which a page can't
+ * start, and no official one is hosted. Read-only, so it never asks first.
+ * The server's other two tools (`convert_time`, `get_time_ago`) are left
+ * out: a model can do both from the current time, and three time tools made
+ * small models reach for one when none was needed.
  */
 import { toolDefinition } from "@tanstack/ai"
 
@@ -102,76 +104,13 @@ export function getCurrentTime(timezone: string): TimeResult {
   return timeResult(timezone, zone(timezone), Date.now())
 }
 
-export function getTimeAgo(timezone: string, days = 0, hours = 0, minutes = 0, seconds = 0): TimeResult {
-  const format = zone(timezone)
-  // The span comes off the current instant, not the wall clock, as the server does.
-  const at = Date.now() - (((days * 24 + hours) * 60 + minutes) * 60 + seconds) * 1000
-  if (!Number.isFinite(at) || new Date(at).getUTCFullYear() < 1) {
-    throw new ToolError("Time offset out of range: the result would be before year 1")
-  }
-  return timeResult(timezone, format, at)
-}
-
-/** The server's hour difference: "+13.0h", or "+5.75h" for a fractional one. */
-function difference(minutes: number) {
-  const hours = minutes / 60
-  const sign = hours < 0 ? "-" : "+"
-  if (Number.isInteger(hours)) return `${sign}${Math.abs(hours).toFixed(1)}h`
-  return `${sign}${Math.abs(hours).toFixed(2).replace(/0+$/, "").replace(/\.$/, "")}h`
-}
-
-export type TimeConversionResult = {
-  source: TimeResult
-  target: TimeResult
-  time_difference: string
-  later_occurrence: { note: string; source: TimeResult; target: TimeResult; time_difference: string } | null
-}
-
-export function convertTime(sourceTimezone: string, time: string, targetTimezone: string): TimeConversionResult {
-  const source = zone(sourceTimezone)
-  const target = zone(targetTimezone)
-  const match = /^(\d{1,2}):(\d{1,2})$/.exec(time)
-  const hour = Number(match?.[1])
-  const minute = Number(match?.[2])
-  if (!match || hour > 23 || minute > 59) throw new ToolError("Invalid time format. Expected HH:MM [24-hour format]")
-  // Today in the source zone, at that wall time: each instant it names, the earliest first.
-  const today = wallOf(source, Date.now())
-  const date = `${pad(today.year, 4)}-${pad(today.month)}-${pad(today.day)}`
-  const wall = Date.UTC(today.year, today.month - 1, today.day, hour, minute)
-  const instants = [...new Set([-1, 0, 1].map((d) => wall - offsetOf(source, wall + d * 86_400_000) * 60_000))]
-    .filter((at) => {
-      const w = wallOf(source, at)
-      return w.day === today.day && w.hour === hour && w.minute === minute
-    })
-    .sort((a, b) => a - b)
-  if (instants.length === 0) {
-    throw new ToolError(`Invalid time: ${time} does not exist in ${sourceTimezone} on ${date} (skipped by a clock change)`)
-  }
-  const convert = (at: number) => ({
-    source: timeResult(sourceTimezone, source, at),
-    target: timeResult(targetTimezone, target, at),
-    time_difference: difference(offsetOf(target, at) - offsetOf(source, at))
-  })
-  const first = convert(instants[0])
-  const later = instants[1] === undefined ? undefined : convert(instants[1])
-  return {
-    ...first,
-    later_occurrence: later
-      ? {
-          note: `${time} occurs twice in ${sourceTimezone} on ${date} because a clock change repeats it: first at ${first.source.datetime}, then at ${later.source.datetime}. source and target are the first occurrence; this is the second.`,
-          ...later
-        }
-      : null
-  }
-}
-
 const READ_ONLY = { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }
 
-/** The server's description of a timezone argument, naming the browser's zone as the default. */
-const zoneDescription = (which: string, examples: string) =>
-  `${which}IANA timezone name (e.g., ${examples}). Optional: defaults to the server's local timezone, '${localTimezone()}', when omitted.`
+/** The server's description of the timezone argument, naming the browser's zone as the default. */
+const zoneDescription = () =>
+  `IANA timezone name (e.g., 'America/New_York', 'Europe/London'). Optional: defaults to the server's local timezone, '${localTimezone()}', when omitted.`
 
-/** The tools models see, run in the page by `chat()` (see chat/connection.ts); made per run, with the browser's zone. */
+/** The time tool models see, run in the page by `chat()` (see chat/connection.ts); made per run, with the browser's zone. */
 export function timeTools() {
   const local = localTimezone()
   return [
@@ -181,51 +120,13 @@ export function timeTools() {
       inputSchema: {
         type: "object",
         properties: {
-          timezone: { type: "string", default: local, description: zoneDescription("", "'America/New_York', 'Europe/London'") }
+          timezone: { type: "string", default: local, description: zoneDescription() }
         }
       },
       metadata: { annotations: READ_ONLY }
     }).server((args) => {
       const { timezone = local } = args as { timezone?: unknown }
       return getCurrentTime(required("timezone", timezone))
-    }),
-    toolDefinition({
-      name: "convert_time",
-      description: "Convert time between timezones",
-      inputSchema: {
-        type: "object",
-        properties: {
-          source_timezone: { type: "string", default: local, description: zoneDescription("Source ", "'America/New_York', 'Europe/London'") },
-          time: { type: "string", description: "Time to convert in 24-hour format (HH:MM)" },
-          target_timezone: { type: "string", default: local, description: zoneDescription("Target ", "'Asia/Tokyo', 'America/San_Francisco'") }
-        },
-        required: ["time"]
-      },
-      metadata: { annotations: READ_ONLY }
-    }).server((args) => {
-      const { source_timezone = local, time, target_timezone = local } = args as Record<string, unknown>
-      return convertTime(required("source_timezone", source_timezone), required("time", time), required("target_timezone", target_timezone))
-    }),
-    toolDefinition({
-      name: "get_time_ago",
-      description: "Get the time a given number of days, hours, minutes and seconds ago in a specific timezone",
-      inputSchema: {
-        type: "object",
-        properties: {
-          timezone: { type: "string", default: local, description: zoneDescription("", "'America/New_York', 'Europe/London'") },
-          days_ago: { type: "integer", default: 0, minimum: 0, description: "Whole days before now" },
-          hours_ago: { type: "integer", default: 0, minimum: 0, description: "Whole hours before now" },
-          minutes_ago: { type: "integer", default: 0, minimum: 0, description: "Whole minutes before now" },
-          seconds_ago: { type: "integer", default: 0, minimum: 0, description: "Whole seconds before now" }
-        }
-      },
-      metadata: { annotations: READ_ONLY }
-    }).server((args) => {
-      const { timezone = local, days_ago = 0, hours_ago = 0, minutes_ago = 0, seconds_ago = 0 } = args as Record<string, unknown>
-      for (const [name, value] of Object.entries({ days_ago, hours_ago, minutes_ago, seconds_ago })) {
-        if (!Number.isInteger(value) || (value as number) < 0) throw new ToolError(`${name} must be a whole number of 0 or more`)
-      }
-      return getTimeAgo(required("timezone", timezone), days_ago as number, hours_ago as number, minutes_ago as number, seconds_ago as number)
     })
   ]
 }
