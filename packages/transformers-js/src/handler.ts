@@ -27,6 +27,7 @@ import type { DynamicCache, PreTrainedModel, PreTrainedTokenizer, Processor, Pro
 import { StructuredOutputProcessor } from "@huggingface/transformers-structured-output"
 
 import type { Device, GenerateRequest, LoadSettings, WorkerReply, WorkerRequest } from "./protocol.js"
+import { endOfTurnIds, finishReasonOf } from "./finish.js"
 import { shownText } from "./tool-calls.js"
 
 type Loaded = { tokenizer: PreTrainedTokenizer; processor: Processor | null; model: PreTrainedModel }
@@ -217,11 +218,10 @@ export class TransformersJsWorkerHandler {
       output = await model.generate({ ...settings, ...constraint() })
     }
     const { sequences, past_key_values } = output as { sequences: Tensor; past_key_values?: DynamicCache }
-    // Out of tokens, or ended: by the last token written, not by the count (which takes in the end-of-turn token).
+    // Out of tokens, or ended on the end-of-turn ids generate() itself used (see finish.ts).
     const ids = tokenIds(sequences)
-    const eos = [model.generation_config?.eos_token_id ?? tokenizer.eos_token_id].flat().filter((id): id is number => typeof id === "number")
-    const ended = outputTokens > 0 && eos.includes(ids.at(-1) ?? -1)
-    const finishReason = !ended && outputTokens >= request.options.max_new_tokens ? "length" : "stop"
+    const eos = endOfTurnIds(request.options.eos_token_id, model.generation_config?.eos_token_id, tokenizer.eos_token_id)
+    const finishReason = finishReasonOf(ids, outputTokens, request.options.max_new_tokens, eos)
     if (withImages) await past_key_values?.dispose().catch(() => undefined)
     this.reuse = past_key_values && !withImages ? { cache: past_key_values, tokens: ids } : null
     this.post({
