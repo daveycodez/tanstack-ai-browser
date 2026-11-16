@@ -8,6 +8,7 @@
  */
 import { toolDefinition } from "@tanstack/ai"
 
+import { currentLocation, locationToolSetting } from "#/lib/location"
 import { setting } from "#/lib/settings"
 
 export const WEATHER_TOOL = "get_weather"
@@ -279,8 +280,6 @@ export const weatherTool = toolDefinition({
   const city = typeof given === "string" ? given.trim() : ""
   if (!city) throw new Error(`A city is needed, or "${HERE}" for where the user is.`)
   if (city.toLowerCase() !== HERE) return lookUpWeather(city, signal)
-  // Loaded here: lib/location.ts reads this file's setting and tool name.
-  const { currentLocation, locationToolSetting } = await import("#/lib/location")
   if (!locationToolSetting.get()) throw new Error("A city is needed: ask the user for one.")
   const where = await currentLocation(signal)
   return weatherAt({ latitude: where.latitude, longitude: where.longitude, name: where.place ?? where.city ?? "Your location" }, signal)

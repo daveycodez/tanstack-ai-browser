@@ -10,7 +10,6 @@ import { toolDefinition } from "@tanstack/ai"
 
 import { nearestCity, onlineCity, placeName } from "#/lib/places"
 import { setting } from "#/lib/settings"
-import { WEATHER_TOOL, weatherToolSetting } from "#/lib/weather"
 
 export const LOCATION_TOOL = "get_current_location"
 
@@ -25,7 +24,7 @@ export type CurrentLocation = {
   place?: string
   /**
    * The user's city, town or village from OpenStreetMap, or else the nearest
-   * listed city, however far: for get_weather.
+   * listed city, however far.
    */
   city?: string
   /** The device's time zone, such as "America/Los_Angeles". */
@@ -75,18 +74,14 @@ const position = () =>
   })
 
 /**
- * The location as the model reads it: a sentence, and what to do with the
- * city. Small models act on this more reliably than on the same fields as
- * JSON: asked for the weather where they are, LFM3's GGUF went on to call
- * get_weather 12 times in 12, against none with JSON, where it stopped to
- * ask whether to look the weather up.
+ * The location as the model reads it: a sentence. Small models read this
+ * more reliably than the same fields as JSON.
  */
 export function describeLocation(where: CurrentLocation) {
   const at = `latitude ${where.latitude}, longitude ${where.longitude}, time zone ${where.timeZone}`
   const place = where.place ? `The user is in ${where.place}. ` : ""
   if (!where.city) return `${place}The user is at ${at}.`
-  const weather = weatherToolSetting.get() ? ` For the weather there, call ${WEATHER_TOOL} with this city.` : ""
-  return `${place}The nearest city is ${where.city} (${at}).${weather}`
+  return `${place}The nearest city is ${where.city} (${at}).`
 }
 
 /**

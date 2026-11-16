@@ -2,10 +2,12 @@
  * The built-in time tool: the official MCP reference Time server's
  * `get_current_time` (modelcontextprotocol/servers, src/time), run in the
  * page with the browser's clock and time zones, so it works offline. Its
- * name, description, argument schema, result and error messages are the
- * server's; where the server names its own time zone, this names the
- * browser's. That server runs as a local process (stdio), which a page can't
- * start, and no official one is hosted. Read-only, so it never asks first.
+ * name, argument, result and error messages are the server's. Its
+ * description and its argument's are the app's own: they say it gives the
+ * date too (it's the only way a model learns today's), and that the default
+ * is the user's time zone, where the server's say "the server's". That
+ * server runs as a local process (stdio), which a page can't start, and no
+ * official one is hosted. Read-only, so it never asks first.
  * The server's other two tools (`convert_time`, `get_time_ago`) are left
  * out: a model can do both from the current time, and three time tools made
  * small models reach for one when none was needed.
@@ -106,9 +108,9 @@ export function getCurrentTime(timezone: string): TimeResult {
 
 const READ_ONLY = { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }
 
-/** The server's description of the timezone argument, naming the browser's zone as the default. */
+/** The timezone argument's description, naming the user's zone (the browser's) as the default. */
 const zoneDescription = () =>
-  `IANA timezone name (e.g., 'America/New_York', 'Europe/London'). Optional: defaults to the server's local timezone, '${localTimezone()}', when omitted.`
+  `IANA timezone name (e.g., 'America/New_York', 'Europe/London'). Optional: defaults to the user's time zone, '${localTimezone()}'.`
 
 /** The time tool models see, run in the page by `chat()` (see chat/connection.ts); made per run, with the browser's zone. */
 export function timeTools() {
@@ -116,7 +118,7 @@ export function timeTools() {
   return [
     toolDefinition({
       name: "get_current_time",
-      description: "Get current time in a specific timezone",
+      description: "Get the current date and time, in the user's time zone or another one",
       inputSchema: {
         type: "object",
         properties: {

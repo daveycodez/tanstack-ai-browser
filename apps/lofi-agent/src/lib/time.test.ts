@@ -29,12 +29,12 @@ test("get_current_time: the time in a zone, as the Time server writes it", () =>
   assert.throws(() => getCurrentTime("Mars/Base"), { message: "Invalid timezone: 'No time zone found with key Mars/Base'" })
 })
 
-test("the time tool is the Time server's get_current_time, with the browser's zone as the default", () => {
+test("the time tool is the Time server's get_current_time, described as giving the date too, with the user's zone as the default", () => {
   const tools = timeTools()
   assert.deepEqual(tools.map((tool) => tool.name), ["get_current_time"])
-  assert.equal(tools[0].description, "Get current time in a specific timezone")
+  assert.equal(tools[0].description, "Get the current date and time, in the user's time zone or another one")
   const zone = Intl.DateTimeFormat().resolvedOptions().timeZone
   const timezone = (tools[0].inputSchema as { properties: { timezone: { description: string; default: string } } }).properties.timezone
   assert.equal(timezone.default, zone)
-  assert.equal(timezone.description, `IANA timezone name (e.g., 'America/New_York', 'Europe/London'). Optional: defaults to the server's local timezone, '${zone}', when omitted.`)
+  assert.equal(timezone.description, `IANA timezone name (e.g., 'America/New_York', 'Europe/London'). Optional: defaults to the user's time zone, '${zone}'.`)
 })

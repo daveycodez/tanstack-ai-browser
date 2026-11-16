@@ -33,7 +33,7 @@ const FIXED: Record<string, string> = {
   // Lofi Agent's own tools, as they answer.
   // The location tool answers in a sentence (apps/lofi-agent/src/lib/location.ts, describeLocation), the weather tool in JSON.
   get_current_location:
-    "The user is in Long Beach, California, United States. The nearest city is Long Beach (latitude 33.77, longitude -118.19, time zone America/Los_Angeles). For the weather there, call get_weather with this city.",
+    "The user is in Long Beach, California, United States. The nearest city is Long Beach (latitude 33.77, longitude -118.19, time zone America/Los_Angeles).",
   get_weather: JSON.stringify({
     location: "Long Beach, California, United States",
     unit: "°F",
