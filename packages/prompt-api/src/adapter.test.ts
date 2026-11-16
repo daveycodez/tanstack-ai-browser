@@ -436,13 +436,13 @@ test("variant guesses the model from the browser and Chrome's tool-use classes, 
   const creates = control.creates.length
   try {
     browser(["Not)A;Brand", "Microsoft Edge", "Chromium"])
-    assert.equal(await promptApiText().variant(), PromptApiVariant.phi4Mini)
+    assert.equal(await promptApiText().variant(), PromptApiVariant.aion1_1)
     browser(["Google Chrome", "Chromium"])
     assert.equal((await promptApiText().variant())?.displayName, "Gemini Nano")
     g.LanguageModelToolCall = class {}
     assert.equal(await promptApiText().variant(), PromptApiVariant.gemma4)
     browser([], "Mozilla/5.0 (Macintosh) AppleWebKit/537.36 Chrome/157.0.0.0 Safari/537.36 Edg/159.0.0.0")
-    assert.equal(await promptApiText().variant(), PromptApiVariant.phi4Mini, "the user agent, without client hints")
+    assert.equal(await promptApiText().variant(), PromptApiVariant.aion1_1, "the user agent, without client hints")
     delete g.LanguageModelToolCall
     browser(["Chromium"])
     assert.equal(await promptApiText().variant(), undefined, "a browser it can't tell")

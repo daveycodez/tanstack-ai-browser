@@ -290,12 +290,12 @@ export const MODELS = [
   {
     id: "built-in",
     /**
-     * The browser's own model: Gemini Nano or Gemma 4 in Chrome, Phi-4-mini in
+     * The browser's own model: Gemini Nano or Gemma 4 in Chrome, Aion-1.1-Instruct in
      * Edge, named by the adapter's variant() once checked (see reportedNames).
      */
     name: "Built-in model",
     icon:
-      PromptApiVariant.ofBrowser() === PromptApiVariant.phi4Mini
+      PromptApiVariant.ofBrowser() === PromptApiVariant.aion1_1
         ? "/icons/microsoft.svg"
         : "/icons/gemini.svg",
     adapter: builtIn,
@@ -613,7 +613,7 @@ const availabilities = createStore<Partial<Record<ModelId, Availability>>>({})
  * Names models give themselves, over their entries': Apple's framework says
  * which model it runs ("AFM 3 Core Advanced", "AFM 2 Core"), once it can run;
  * the Prompt API adapter, which model the browser runs ("Gemini Nano",
- * "Gemma 4", "Phi-4-mini").
+ * "Gemma 4", "Aion-1.1-Instruct").
  */
 const reportedNames = createStore<Partial<Record<ModelId, string>>>({})
 

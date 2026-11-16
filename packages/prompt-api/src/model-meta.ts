@@ -1,6 +1,6 @@
 /**
  * The model the Prompt API gives: the browser's own text model ("text", as other Prompt API libraries name it), Gemini
- * Nano in Chrome and Phi-4-mini in Edge, with what it supports.
+ * Nano in Chrome and Aion-1.1-Instruct in Edge, with what it supports.
  */
 
 /** What the browser's model supports. */

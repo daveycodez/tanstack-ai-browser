@@ -1,6 +1,6 @@
 /**
  * TanStack AI adapter for the browser's built-in language model, through
- * the Prompt API: Gemini Nano in Chrome, Phi-4-mini in Edge. The model
+ * the Prompt API: Gemini Nano in Chrome, Aion-1.1-Instruct in Edge. The model
  * catalog (model-meta.ts) is exported here too.
  */
 export { PromptApiTextAdapter, promptApiText } from "./adapter.js"

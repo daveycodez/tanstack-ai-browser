@@ -1,6 +1,6 @@
 # @tanstack-ai-browser/prompt-api
 
-A [TanStack AI](https://tanstack.com/ai) adapter for the browser's built-in language model, through the [Prompt API](https://developer.chrome.com/docs/ai/prompt-api) (`LanguageModel`): Gemini Nano in Chrome, Phi-4-mini in Edge. The browser downloads the model once for every site and runs it on the device; the page downloads nothing and nothing leaves the device.
+A [TanStack AI](https://tanstack.com/ai) adapter for the browser's built-in language model, through the [Prompt API](https://developer.chrome.com/docs/ai/prompt-api) (`LanguageModel`): Gemini Nano in Chrome, Aion-1.1-Instruct in Edge. The browser downloads the model once for every site and runs it on the device; the page downloads nothing and nothing leaves the device.
 
 ```sh
 npm install @tanstack-ai-browser/prompt-api @tanstack/ai
@@ -44,7 +44,7 @@ Pass tools to `chat({ tools })` as with any adapter; `chat()` runs them.
 
 Where the browser has the Prompt API's own tool use (its `LanguageModelToolCall`, `LanguageModelToolSuccess` and `LanguageModelToolError` classes: Chrome with `chrome://flags/#prompt-api-tool-use`, which also switches Chrome to Gemma 4), the adapter uses it: the session declares the tools (`name`, `description` and `inputSchema`, as given), the system prompt is the caller's alone, and the model's calls come back as `tool-call` content. The turn runs to its end, so the session holds the calls; a turn can make several, each a tool call with the browser's `callId` (or the adapter's, where the browser gives none). Earlier calls go back as `tool-call` content and results as `tool-response` content: a `LanguageModelToolSuccess` with the tool's JSON output as an `object` (nulls left out, which Chrome refuses) or its text, or a `LanguageModelToolError` with the error.
 
-Elsewhere (Chrome's default Gemini Nano, Edge's Phi-4-mini), the Prompt API has no tool use, so tools go by prompt, in [browser-ai](https://github.com/jakobhoeg/browser-ai)'s format, exactly as browser-ai builds it (`packages/vercel/shared/src/tool-calling`). After the caller's system prompt, the adapter adds browser-ai's tool prompt:
+Elsewhere (Chrome's default Gemini Nano, Edge's Aion-1.1-Instruct), the Prompt API has no tool use, so tools go by prompt, in [browser-ai](https://github.com/jakobhoeg/browser-ai)'s format, exactly as browser-ai builds it (`packages/vercel/shared/src/tool-calling`). After the caller's system prompt, the adapter adds browser-ai's tool prompt:
 
 ````
 You are a helpful AI assistant with access to tools.
@@ -80,7 +80,7 @@ Important:
 - If no tool is needed, respond directly without tool_call fences
 ````
 
-The reply streams as text until a ```` ```tool_call ```` fence starts (```` ```tool-call ````, ```` ```tool_code ````, `<tool_call>…</tool_call>`, `<|tool_call>…<tool_call|>`, `<|tool_call_start|>…<|tool_call_end|>` and a Python-style `[name(key="value")]` work too); the fence is held back, and the first one that closes with a call in it ends the reply: the generation stops (text after the fence, in the piece that closed it, is shown after the call), and the step ends with `TOOL_CALL_START`, `TOOL_CALL_ARGS`, `TOOL_CALL_END` and `RUN_FINISHED` `finishReason: "tool_calls"`. One call per step. A call reads `name` and `arguments` (or `parameters`), as an object or a JSON string; Python-style calls (maybe in `print(…)`, positional arguments taking the parameters in the schema's order, the required ones first) and `call:name{key:value}` are read too. A fence without a call to one of the tools is shown as text and the reply goes on. A fence still open when the reply ends is the call if it holds a whole one (Phi-4-mini ends its reply without closing the fence), else text; other code fences are text.
+The reply streams as text until a ```` ```tool_call ```` fence starts (```` ```tool-call ````, ```` ```tool_code ````, `<tool_call>…</tool_call>`, `<|tool_call>…<tool_call|>`, `<|tool_call_start|>…<|tool_call_end|>` and a Python-style `[name(key="value")]` work too); the fence is held back, and the first one that closes with a call in it ends the reply: the generation stops (text after the fence, in the piece that closed it, is shown after the call), and the step ends with `TOOL_CALL_START`, `TOOL_CALL_ARGS`, `TOOL_CALL_END` and `RUN_FINISHED` `finishReason: "tool_calls"`. One call per step. A call reads `name` and `arguments` (or `parameters`), as an object or a JSON string; Python-style calls (maybe in `print(…)`, positional arguments taking the parameters in the schema's order, the required ones first) and `call:name{key:value}` are read too. A fence without a call to one of the tools is shown as text and the reply goes on. A fence still open when the reply ends is the call if it holds a whole one (Edge's Aion ends its reply without closing the fence), else text; other code fences are text.
 
 The call is emitted as written: `chat()` checks the tool's name and arguments, and reports a bad call back to the model as the tool's result. The step stopped at the call isn't in the thread's session (Chrome drops a stopped turn), so the next step sends the call along with its result.
 

@@ -98,7 +98,7 @@ test("other ways small models write a call are read too: tags, delimiters, Pytho
   assert.deepEqual(read(["<|tool_call>call:get_weather{days:3,metric:true}<tool_call|>"]).call?.arguments, { days: 3, metric: true })
 })
 
-test("a fence still open when the reply ends is the call if it holds a whole one (Phi-4-mini leaves it open)", () => {
+test("a fence still open when the reply ends is the call if it holds a whole one (Edge's Aion leaves it open)", () => {
   assert.deepEqual(read(['Sure.\n```tool_call\n{"name": "get_weather", "arguments": {"city": "Paris"}}']), {
     shown: "Sure.\n",
     call: { name: "get_weather", arguments: { city: "Paris" } }

@@ -1,6 +1,6 @@
 /**
  * Tool calls by prompt, where the browser has no tool use of its own
- * (Chrome's default Gemini Nano, Edge's Phi-4-mini): browser-ai's format,
+ * (Chrome's default Gemini Nano, Edge's Aion-1.1-Instruct): browser-ai's format,
  * exactly as browser-ai builds it (github.com/jakobhoeg/browser-ai,
  * packages/vercel/shared/src/tool-calling). The system prompt lists the tools
  * as JSON and asks for a call as JSON in a ```tool_call fence; earlier calls

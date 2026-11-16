@@ -1,7 +1,7 @@
 /**
  * A TanStack AI text adapter for the browser's built-in language model,
  * through the Prompt API (`LanguageModel`): Gemini Nano in Chrome,
- * Phi-4-mini in Edge. The browser downloads and runs the model itself;
+ * Aion-1.1-Instruct in Edge. The browser downloads and runs the model itself;
  * nothing leaves the device. Hand it to `chat()` like any hosted model's
  * adapter: `chat()` runs tools and the agent loop, and each `chatStream`
  * call here is one step of the model, streamed back as AG-UI events.
@@ -228,7 +228,7 @@ export class PromptApiTextAdapter extends BaseTextAdapter<
 
   /**
    * Which model the browser's Prompt API runs ("Gemini Nano", "Gemma 4",
-   * "Phi-4-mini" as `displayName`), compared by identity:
+   * "Aion-1.1-Instruct" as `displayName`), compared by identity:
    * `variant === PromptApiVariant.gemma4`. An informed guess from the browser
    * and Chrome's tool-use classes (see PromptApiVariant), before or after the
    * download: nothing is downloaded or run. Undefined where the Prompt API
@@ -668,7 +668,7 @@ export class PromptApiTextAdapter extends BaseTextAdapter<
 
 /**
  * A TanStack AI text adapter for the browser's built-in model, through the
- * Prompt API: Gemini Nano in Chrome, Phi-4-mini in Edge. The model is
+ * Prompt API: Gemini Nano in Chrome, Aion-1.1-Instruct in Edge. The model is
  * whichever the browser has ("text", as other Prompt API libraries name it), so naming it is optional.
  *
  * @example
