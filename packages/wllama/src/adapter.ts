@@ -212,6 +212,21 @@ const loadSettings = ({ contextLength, wasmUrl, compat, threads, gpu, debug }: W
   ...(debug && { debug })
 })
 
+/**
+ * The request's tools as given: each tool's own JSON Schema, as the chat
+ * template and the tool-call grammar read it. TanStack's Chat Completions
+ * base writes them for OpenAI's strict mode (`additionalProperties: false`,
+ * `strict: true`), which OpenAI needs to hold arguments to a schema and
+ * this engine doesn't.
+ */
+const toolsAsGiven = ({ tools }: TextOptions) =>
+  tools && {
+    tools: tools.map(({ name, description, inputSchema }) => ({
+      type: "function" as const,
+      function: { name, description, parameters: inputSchema ?? { type: "object", properties: {} } }
+    }))
+  }
+
 export class WllamaTextAdapter<TModel extends WllamaModel> extends OpenAIBaseChatCompletionsTextAdapter<
   TModel,
   WllamaTextModelOptions,
@@ -271,7 +286,7 @@ export class WllamaTextAdapter<TModel extends WllamaModel> extends OpenAIBaseCha
     await unloadModel(this.model)
   }
 
-  /** The request, with `modelOptions` as given over the model card's sampling, and the chat template's thinking switch. */
+  /** The request, with `modelOptions` as given over the model card's sampling, the tools as given, and the chat template's thinking switch. */
   protected override mapOptionsToRequest(options: TextOptions): CreateParams & { stream: true } {
     const modelOptions = options.modelOptions as WllamaTextModelOptions | undefined
     const settings = {
@@ -280,7 +295,7 @@ export class WllamaTextAdapter<TModel extends WllamaModel> extends OpenAIBaseCha
       ...(options.promptCache?.retention === "none" && { cache_prompt: false })
     }
     const request = super.mapOptionsToRequest({ ...options, modelOptions: settings, reasoning: undefined })
-    return Object.assign(request, thinkingKwargs(options.reasoning, this.model, modelOptions?.chat_template_kwargs))
+    return Object.assign(request, toolsAsGiven(options), thinkingKwargs(options.reasoning, this.model, modelOptions?.chat_template_kwargs))
   }
 
   /** llama.cpp streams thinking as `reasoning_content`. */
@@ -307,9 +322,13 @@ export class WllamaTextAdapter<TModel extends WllamaModel> extends OpenAIBaseCha
     return { type: "audio_url", audio_url: { url } } as unknown as ReturnType<ConvertContentPart>
   }
 
-  /** Schemas as given: llama.cpp's grammar takes any JSON Schema, without OpenAI's strict-mode rewrite. */
-  protected override makeStructuredOutputCompatible(schema: Record<string, unknown>) {
-    return schema
+  /**
+   * Schemas as given (llama.cpp's grammar takes any JSON Schema): no OpenAI strict-mode
+   * rewrite of the output schema, and so no widened nulls to undo in tool
+   * calls' arguments.
+   */
+  protected override makeStructuredOutputCompatibleWithMap(schema: Record<string, unknown>) {
+    return { schema, nullWideningMap: undefined }
   }
 }
 

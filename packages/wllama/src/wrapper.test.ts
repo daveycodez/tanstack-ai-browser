@@ -118,6 +118,12 @@ test("parallel_tool_calls goes to llama.cpp as given; the request asks for usage
   assert.deepEqual(request.stream_options, { include_usage: true })
 })
 
+test("tools go as given: their own schemas, without OpenAI's strict mode", async () => {
+  const lookup = { name: "lookup", description: "Look up", inputSchema: { type: "object", properties: { q: { type: "string" }, n: { type: "number" } }, required: ["q"] } }
+  const request = (await run({ tools: [lookup] })).request
+  assert.deepEqual(request.tools, [{ type: "function", function: { name: "lookup", description: "Look up", parameters: lookup.inputSchema } }])
+})
+
 test("reasoning: the chat template's enable_thinking, a budget when thinking, nothing when not asked", async () => {
   const off = (await run({ reasoning: { level: "off", summary: false } })).request
   assert.deepEqual(off.chat_template_kwargs, { enable_thinking: false })

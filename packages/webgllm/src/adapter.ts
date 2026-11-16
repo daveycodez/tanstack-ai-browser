@@ -169,6 +169,21 @@ type MetadataByModality = { text: unknown; image: unknown; audio: unknown; video
 type CreateParams = Parameters<OpenAIClientLike["chat"]["completions"]["create"]>[0]
 
 
+/**
+ * The request's tools as given: each tool's own JSON Schema, as the chat
+ * template and the tool-call grammar read it. TanStack's Chat Completions
+ * base writes them for OpenAI's strict mode (`additionalProperties: false`,
+ * `strict: true`), which OpenAI needs to hold arguments to a schema and
+ * this engine doesn't.
+ */
+const toolsAsGiven = ({ tools }: TextOptions) =>
+  tools && {
+    tools: tools.map(({ name, description, inputSchema }) => ({
+      type: "function" as const,
+      function: { name, description, parameters: inputSchema ?? { type: "object", properties: {} } }
+    }))
+  }
+
 export class WebGllmTextAdapter<TModel extends WebGllmModel> extends OpenAIBaseChatCompletionsTextAdapter<
   TModel,
   WebGllmTextModelOptions,
@@ -237,12 +252,12 @@ export class WebGllmTextAdapter<TModel extends WebGllmModel> extends OpenAIBaseC
     return this.engine.webgllm.unloadModel(this.model).catch(() => undefined)
   }
 
-  /** The request, with `modelOptions` as given, the thinking budget and the prompt cache. */
+  /** The request, with `modelOptions` and the tools as given, the thinking budget and the prompt cache. */
   protected override mapOptionsToRequest(options: TextOptions): CreateParams & { stream: true } {
     const request = super.mapOptionsToRequest(options)
     const resolved = resolveReasoning(options.reasoning, this.modelReasoning(this.model))
     const budget = resolved?.value === "high" ? resolved.budgetTokens : undefined
-    return Object.assign(request, {
+    return Object.assign(request, toolsAsGiven(options), {
       ...(budget !== undefined && { reasoning: { max_tokens: budget } }),
       ...(options.promptCache?.retention === "none" && { cache_prompt: false })
     })
@@ -259,9 +274,13 @@ export class WebGllmTextAdapter<TModel extends WebGllmModel> extends OpenAIBaseC
     return text ? { text } : undefined
   }
 
-  /** Schemas as given: webgllm constrains to any JSON Schema, without OpenAI's strict-mode rewrite. */
-  protected override makeStructuredOutputCompatible(schema: Record<string, unknown>) {
-    return schema
+  /**
+   * Schemas as given (webgllm constrains to any JSON Schema): no OpenAI strict-mode
+   * rewrite of the output schema, and so no widened nulls to undo in tool
+   * calls' arguments.
+   */
+  protected override makeStructuredOutputCompatibleWithMap(schema: Record<string, unknown>) {
+    return { schema, nullWideningMap: undefined }
   }
 }
 

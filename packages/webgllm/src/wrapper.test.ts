@@ -38,10 +38,10 @@ test("a call loads the model, then streams thinking, text and tool calls as AG-U
   const body = lastBody() as unknown as Record<string, unknown>
   assert.equal(body.model, MODEL)
   assert.equal(body.stream, true)
-  // The schema as given, without OpenAI's strict-mode rewrite (TanStack only closes it to undeclared fields).
-  assert.deepEqual((body.tools as Array<{ function: { parameters: unknown } }>)[0]?.function.parameters, {
-    ...lookup.inputSchema,
-    additionalProperties: false
+  // The tool as given: its own schema, without OpenAI's strict mode (no rewrite, no additionalProperties, no strict flag).
+  assert.deepEqual((body.tools as Array<unknown>)[0], {
+    type: "function",
+    function: { name: "lookup", description: "Look up", parameters: lookup.inputSchema }
   })
 })
 
