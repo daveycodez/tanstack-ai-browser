@@ -66,7 +66,7 @@ Models download their repository's latest version (main). Models whose thinking 
 - Attachments, for models that read them: images, and audio for the browser's built-in model and the wllama audio models (LFM3-Omni, LFM3-Audio and LFM2.5-Audio), which transcribe a recording or answer questions about it. Each shows as a chip that opens the image, or a player for audio. Audio that llama.cpp can't decode (what phones and browsers record) is decoded in the page first.
 - Voice input through the browser's speech recognition, where available
 - The browser's built-in model (the Prompt API section: Gemini Nano in Chrome, Phi-4-mini in Edge), through the Prompt API, where the browser has it and the device can run it. The browser downloads it once for every site, with its progress shown in the reply; follow-ups and tool steps reuse its session, and web search works through guided generation
-- Settings: the system prompt sent with every session (a short default about when to use tools, which you can edit, clear or reset), the weather tool on or off, and deleting every session
+- Settings: a system prompt sent with every session (none by default), the weather tool on or off, and deleting every session
 - Light, dark and system themes
 - Add to Home Screen: installs as an app with its own icon, and keeps the downloaded model more reliably than a Safari tab
 - GGUF models (the wllama section) run with llama.cpp's WebAssembly build: download once to the Origin Private File System, reuse what they've read across follow-ups and tool calls, and need no WebGPU
@@ -117,11 +117,17 @@ Deploying needs a Cloudflare account (`wrangler login`). No environment variable
 Both apps wrap the prerendered site that `vite build` writes to `dist/client`.
 
 ```sh
-pnpm nx electron:dev lofi-agent      # build the site, open it in an Electron window
+pnpm nx electron:dev lofi-agent      # an Electron window on the dev server (pnpm nx dev lofi-agent), with hot reload
 pnpm nx electron:package lofi-agent  # unsigned macOS app in dist/electron-app/mac-arm64
 pnpm nx ios:sync lofi-agent          # build the site, copy it into the Xcode project
 pnpm nx ios:dev lofi-agent           # sync, then build and run on a simulator you pick
 pnpm nx ios:open lofi-agent          # open ios/App in Xcode
+```
+
+**Dev builds with hot reload.** `electron:dev` opens the window on the dev server at `http://localhost:3000` (`LOFI_DEV_SERVER`) instead of the built site; Apple's model and the location tool work there as in the packaged app. On an iPhone or iPad, the app loads the dev server through an HTTPS tunnel: start one with `cloudflared tunnel --url http://localhost:3000`, sync with its address, then build and install once from Xcode (or `xcodebuild` and `devicectl`). Edits then show up on the device without reinstalling. A new tunnel address needs a new sync and install; a plain `ios:sync` goes back to the bundled site.
+
+```sh
+CAP_SERVER_URL=https://<tunnel>.trycloudflare.com pnpm exec cap sync ios
 ```
 
 The Electron window loads the site from `app://lofi-agent/`, a scheme the main process (`electron/main.ts`) serves from `dist/client` with the cross-origin isolation headers, so it has WebGPU, OPFS and SharedArrayBuffer as on the web. The iOS app needs Xcode; its web view loads the site from `capacitor://localhost`, which isn't cross-origin isolated, so models on the CPU run on one thread there.

@@ -2,13 +2,22 @@
  * Capacitor wraps the prerendered site (dist/client) in a native iOS app.
  * `pnpm ios:sync` builds the site and copies it into ios/App/App/public,
  * where the app's web view loads it from capacitor://localhost.
+ *
+ * A dev build loads the Vite dev server instead, with hot reload: sync with
+ * `CAP_SERVER_URL` set to its HTTPS address (a tunnel to port 3000, such as
+ * `cloudflared tunnel --url http://localhost:3000`), then build and install
+ * once. The app's plugins, Apple's model among them, work there too. A sync
+ * without it goes back to the bundled site.
  */
 import type { CapacitorConfig } from "@capacitor/cli"
+
+const devServer = process.env.CAP_SERVER_URL
 
 const config: CapacitorConfig = {
   appId: "dev.lofiagent.app",
   appName: "lofi-agent",
-  webDir: "dist/client"
+  webDir: "dist/client",
+  ...(devServer && { server: { url: devServer } })
 }
 
 export default config

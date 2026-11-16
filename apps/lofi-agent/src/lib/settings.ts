@@ -43,13 +43,8 @@ export function setting<K extends SettingKey>(key: K, initial: Settings[K]) {
   return { get, set, use }
 }
 
-/**
- * The system prompt a conversation starts with until the user writes their
- * own: it names no tool and no kind of request, only when to use a tool.
- * Without it, small models call a tool on a plain "Hello".
- */
-export const DEFAULT_SYSTEM_PROMPT =
-  "You are a helpful assistant in a conversation with a person. Reply directly when you can. Use a tool only when the person asks for something you cannot answer without it. When a tool gives you its result, use it to answer."
+/** The system prompt a conversation starts with until the user writes their own: none. */
+export const DEFAULT_SYSTEM_PROMPT = ""
 
 /**
  * The system prompt, sent to every model at the start of each conversation:

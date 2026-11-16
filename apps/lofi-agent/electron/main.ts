@@ -27,6 +27,14 @@ const HOST = "lofi-agent"
 const ORIGIN = `${SCHEME}://${HOST}`
 
 /**
+ * A dev build's page: the Vite dev server (`pnpm electron:dev` sets it), with
+ * hot reload, instead of the prerendered site. Apple's model and the location
+ * tool answer it as they answer app://.
+ */
+const DEV_SERVER = process.env.LOFI_DEV_SERVER?.replace(/\/$/, "")
+const PAGE_ORIGIN = DEV_SERVER ?? ORIGIN
+
+/**
  * The static site. app.getAppPath() is this package's folder when run with
  * `electron .`, and the root of the app's archive once packaged, which holds
  * the same dist/client folder (see electron-builder.yml).
@@ -180,11 +188,12 @@ function createWindow() {
     // Not `origin`: a URL on a custom scheme has the origin "null".
     const { protocol, host } = new URL(url)
     if (protocol === `${SCHEME}:` && host === HOST) return
+    if (DEV_SERVER && url.startsWith(`${DEV_SERVER}/`)) return
     event.preventDefault()
     if (url.startsWith("https:") || url.startsWith("http:")) void shell.openExternal(url)
   })
 
-  void window.loadURL(`${ORIGIN}/`)
+  void window.loadURL(`${PAGE_ORIGIN}/`)
 }
 
 void app.whenReady().then(() => {
@@ -196,7 +205,7 @@ void app.whenReady().then(() => {
   // files in (electron:afm).
   serveAfm({
     directory: path.join(app.getAppPath(), "dist", "electron", "afm"),
-    allow: (url) => url.startsWith(`${ORIGIN}/`)
+    allow: (url) => url.startsWith(`${PAGE_ORIGIN}/`)
   })
   // The location tool: macOS decides, not Electron (see location.ts).
   serveLocation()
