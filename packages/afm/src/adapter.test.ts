@@ -134,6 +134,18 @@ test("a reply streams as text from a new session holding the instructions and to
   assert.equal(native.named("deleteSession").length, 0, "kept for the thread's next step")
 })
 
+test("token counts the native side estimated (before iOS/macOS 27) are reported as estimates", async () => {
+  native.replies = [[{ type: "done", text: "Hi", usage: { inputTokens: 317, outputTokens: 16, estimated: true } }]]
+  const chunks = await run(afmText({ native }), { threadId: "estimated" })
+  const usage = chunks.at(-1)?.usage as Record<string, unknown>
+  assert.deepEqual([usage.promptTokens, usage.completionTokens, usage.totalTokens], [317, 16, 333])
+  assert.deepEqual(usage.providerUsageDetails, { estimated: true })
+  // The framework's own counts carry no such mark.
+  native.replies = [[{ type: "done", text: "Hi", usage: { inputTokens: 317, outputTokens: 16 } }]]
+  const counted = await run(afmText({ native }), { threadId: "counted" })
+  assert.equal((counted.at(-1)?.usage as Record<string, unknown>).providerUsageDetails, undefined)
+})
+
 test("a tool call ends the step with tool_calls while the response waits, and the next step resumes it with the result", async () => {
   native.replies = [[{ type: "toolCalls", calls: [{ id: "call-1", name: "get_weather", arguments: '{"city": "Paris"}' }] }]]
   native.resumes = [[{ type: "delta", text: "Sunny in Paris." }, { type: "done", text: "Sunny in Paris." }]]

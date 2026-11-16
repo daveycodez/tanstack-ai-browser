@@ -17,9 +17,12 @@ import FoundationModels
 /// - `{ type: "toolCalls", calls: [{ id, name, arguments }], usage }`: `arguments` in
 ///   JSON, and the tokens of the pass of the model that made the calls (see `done`).
 /// - `{ type: "done", text, usage }`: the response, and the tokens of its
-///   last pass of the model (iOS/macOS 27; a response that called tools made one pass
-///   per batch of calls, then the answer's): `inputTokens`, `outputTokens`, and
-///   `cachedTokens` only for a session without tools (see `usage()`).
+///   last pass of the model (a response that called tools made one pass per batch of
+///   calls, then the answer's): `inputTokens`, `outputTokens`, and `cachedTokens` only
+///   for a session without tools (see `usage()`). On iOS/macOS 27 they're the
+///   framework's counts. Before, the framework reports none, and they're counted from
+///   the transcript: by the model from 26.4, else estimated, with `estimated: true`
+///   (see `countedPass`).
 /// - `{ type: "error", code, message }`. Code "length": a structured answer cut off by
 ///   `maximumResponseTokens` (see `run`).
 @available(iOS 26.0, macOS 26.0, *)
@@ -120,8 +123,10 @@ public final class AfmBridge: @unchecked Sendable {
             tools: tools.map { Transcript.ToolDefinition(tool: $0) },
             messages: options["messages"] as? [Any] ?? []
         )
-        state.session = LanguageModelSession(model: Self.model(options), tools: tools, transcript: transcript)
+        state.model = Self.model(options)
+        state.session = LanguageModelSession(model: state.model, tools: tools, transcript: transcript)
         state.hasTools = !tools.isEmpty
+        state.toolTexts = tools.map { TokenEstimate.text(ofTool: $0.name, description: $0.description, parameters: $0.parameters) }
         state.permissive = (options["guardrails"] as? String) == "permissiveContentTransformations"
         lock.withLock { sessions[id] = state }
     }
@@ -192,7 +197,11 @@ public final class AfmBridge: @unchecked Sendable {
 final class BridgeSession: @unchecked Sendable {
     let id: String
     var session: LanguageModelSession!
+    /// The session's model: it counts the session's tokens before iOS/macOS 27 (see `countedPass`).
+    var model = SystemLanguageModel.default
     var hasTools = false
+    /// Each tool's definition as text, for the token estimate (see `TokenEstimate`).
+    var toolTexts: [String] = []
     /// Permissive guardrails: structured answers come as text (see `AfmBridge.respond`).
     var permissive = false
 
@@ -264,12 +273,18 @@ final class BridgeSession: @unchecked Sendable {
             try Task.checkCancellation()
             // iOS/macOS 27 closes a structured answer cut off at maximumResponseTokens and returns
             // it ({"name": ""}), passing more output tokens than the cap: it isn't the answer.
+            // (The session's own count: a count from the transcript is a few tokens off.)
             if schema != nil, let cap = options.maximumResponseTokens,
-               let output = lock.withLock({ passUsage() })?.usage["outputTokens"] as? Int, output >= cap {
+               let usage = lock.withLock({ passUsage() })?.usage,
+               let output = usage["outputTokens"] as? Int, output >= cap {
                 throw CutOff(cap: cap)
             }
             var done: [String: Any] = ["type": "done", "text": text]
-            if let pass = lock.withLock({ passUsage() }) { done["usage"] = pass.usage }
+            if let pass = lock.withLock({ passUsage() }) {
+                done["usage"] = pass.usage
+            } else if let counted = await countedPass(lock.withLock { Array(session.transcript) }) {
+                done["usage"] = counted
+            }
             send(done)
         } catch is CancellationError {
             send(["type": "error", "code": "cancelled", "message": "The response was stopped"])
@@ -321,14 +336,26 @@ final class BridgeSession: @unchecked Sendable {
             event["usage"] = pass.usage
             // The next pass, which reads the results, starts here.
             passStart = pass.now
+            send(event)
+            return
         }
-        send(event)
+        // Before iOS/macOS 27: the pass's tokens counted from the transcript, which takes
+        // a moment. The model waits for these calls' results meanwhile, so nothing else is
+        // sent before them; calls stopped while they're counted aren't sent.
+        let entries = Array(session.transcript)
+        let ids = Set(calls.map { waiting[$0].id })
+        Task { [self, event] in
+            var event = event
+            if let counted = await countedPass(entries) { event["usage"] = counted }
+            guard lock.withLock({ waiting.contains { ids.contains($0.id) } }) else { return }
+            send(event)
+        }
     }
 
     /// The current pass's tokens so far, as an event's `usage`, and the session's
     /// totals now. Called holding the lock.
     private func passUsage() -> (usage: [String: Any], now: (input: Int, cached: Int, output: Int))? {
-        guard let start = passStart, let now = usage() else { return nil }
+        guard let now = usage(), let start = passStart else { return nil }
         var usage: [String: Any] = ["inputTokens": now.input - start.input, "outputTokens": now.output - start.output]
         if !hasTools { usage["cachedTokens"] = now.cached - start.cached }
         return (usage, now)
@@ -364,6 +391,35 @@ final class BridgeSession: @unchecked Sendable {
         event["sessionId"] = id
         event["turn"] = turn
         emit(event)
+    }
+
+    /// Before iOS/macOS 27, where a session reports no tokens: the current pass's, from
+    /// the transcript. What the model wrote is its last entry (its response, or its tool
+    /// calls), and what it read is everything before. From 26.4 the model counts them
+    /// itself: the input exactly as the session would, the output within a few tokens.
+    /// Before that, an estimate (see `TokenEstimate`), marked `estimated`. No cached count.
+    private func countedPass(_ entries: [Transcript.Entry]) async -> [String: Any]? {
+        guard let last = entries.last else { return nil }
+        switch last {
+        case .response, .toolCalls: break
+        default: return nil
+        }
+        // A session without instructions reads the framework's own all the same: an
+        // empty instructions entry counts them.
+        var read = Array(entries.dropLast())
+        if !read.contains(where: { if case .instructions = $0 { true } else { false } }) {
+            read.insert(.instructions(Transcript.Instructions(segments: [], toolDefinitions: [])), at: 0)
+        }
+        if #available(iOS 26.4, macOS 26.4, *),
+           let input = try? await model.tokenCount(for: read),
+           let output = try? await model.tokenCount(for: [last]) {
+            return ["inputTokens": input, "outputTokens": output]
+        }
+        return [
+            "inputTokens": TokenEstimate.inputTokens(entries.dropLast(), tools: toolTexts),
+            "outputTokens": TokenEstimate.outputTokens(last),
+            "estimated": true
+        ]
     }
 
     /// The session's tokens so far (iOS/macOS 27), over every pass of the model:

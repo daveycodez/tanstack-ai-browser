@@ -173,7 +173,9 @@ const usageOf = (usage: NativeUsage | undefined): TokenUsage | undefined =>
       totalTokens: usage.inputTokens + usage.outputTokens
     }),
     // The prompt tokens the framework reused, as TanStack reports them: left out for none, or where the framework can't say.
-    ...(usage.cachedTokens ? { promptTokensDetails: { cachedTokens: usage.cachedTokens } } : {})
+    ...(usage.cachedTokens ? { promptTokensDetails: { cachedTokens: usage.cachedTokens } } : {}),
+    // Before iOS/macOS 26.4 the native side can only estimate the tokens: said to be an estimate.
+    ...(usage.estimated && { providerUsageDetails: { estimated: true } })
   }
 
 let ids = 0

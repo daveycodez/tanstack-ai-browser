@@ -56,9 +56,12 @@ export type NativeMessage =
 /**
  * The tokens of one pass of the model: a `toolCalls` event's for the pass that
  * made the calls, `done`'s for the last. `cachedTokens` only where the
- * framework counts it right: for a session without tools.
+ * framework counts it right: for a session without tools. Before iOS/macOS
+ * 27, where the framework reports no tokens, the native side counts them from
+ * the transcript: with the model's own count from 26.4, else an estimate
+ * (`estimated`).
  */
-export type NativeUsage = { inputTokens: number; cachedTokens?: number; outputTokens: number }
+export type NativeUsage = { inputTokens: number; cachedTokens?: number; outputTokens: number; estimated?: boolean }
 
 /** What a session sends while it responds, for the `turn` of the `respond` call. */
 export type NativeEvent = { sessionId: string; turn: number } & (
