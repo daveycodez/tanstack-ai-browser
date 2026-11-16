@@ -33,7 +33,7 @@ export type NativeAvailability = {
 export type NativeSchema =
   | { kind: "object"; name: string; description?: string; properties: Array<NativeProperty> }
   | { kind: "array"; items: NativeSchema; minimumElements?: number; maximumElements?: number }
-  | { kind: "string"; choices?: Array<string>; constant?: string; /** A described enum (choices) no property holds: its name and description, which the bridge keeps as a described choice of constants. */ name?: string; description?: string }
+  | { kind: "string"; choices?: Array<string>; constant?: string }
   | { kind: "integer" | "number"; minimum?: number; maximum?: number }
   | { kind: "boolean" }
   | { kind: "null" }
@@ -64,8 +64,7 @@ export type NativeUsage = { inputTokens: number; cachedTokens?: number; outputTo
 export type NativeEvent = { sessionId: string; turn: number } & (
   | { type: "delta"; text: string }
   | { type: "toolCalls"; calls: Array<{ id: string; name: string; arguments: string }>; usage?: NativeUsage }
-  /** `asText`: a schema's answer written as text (permissive guardrails' fallback), not held to the schema. */
-  | { type: "done"; text: string; usage?: NativeUsage; asText?: boolean }
+  | { type: "done"; text: string; usage?: NativeUsage }
   | { type: "error"; code: string; message: string }
 )
 

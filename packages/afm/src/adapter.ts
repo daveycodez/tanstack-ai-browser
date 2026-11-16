@@ -27,10 +27,6 @@ import { Afm } from "./native.js"
 import type { AfmGuardrails, AfmNative, AfmSampling, NativeEvent, NativeMessage, NativeUsage, UnavailableReason } from "./native.js"
 import { toNativeSchema } from "./schema.js"
 import * as SystemLanguageModel from "./system-language-model.js"
-import { parseJsonValue } from "./json-value.js"
-import { schemaErrors } from "./validate.js"
-import { orderedForm } from "./ordered.js"
-import type { OrderedForm } from "./ordered.js"
 
 export type AfmConfig = {
   /**
@@ -185,33 +181,6 @@ const nextId = (prefix: string) => `${prefix}_${Date.now().toString(36)}_${(ids+
 
 const signalOf = (options: TextOptions<AfmTextModelOptions>) =>
   options.abortController?.signal ?? (options.request as RequestInit | undefined)?.signal ?? undefined
-
-/**
- * A structured answer's value in the caller's shape (see ordered.ts), if it
- * fits the caller's schema. The framework holds a guided answer to the schema
- * Apple's model got, but not to all of it (it has left out required
- * properties and written fewer items than minItems), and an answer written as
- * text (permissive guardrails' fallback) to none of it. chat() validates only
- * schemas with a Standard Schema validator, not plain JSON Schema, so the
- * adapter checks every answer here.
- */
-function checkedAnswer(text: string, asText: boolean, schema: unknown, form: OrderedForm): unknown {
-  const how = asText ? ", written as text past its guardrails," : ""
-  let data: unknown
-  try {
-    data = asText ? parseJsonValue(text) : JSON.parse(text)
-  } catch (error) {
-    const failure = new Error(`Apple's model wrote no JSON for the schema (its answer${how} was ${JSON.stringify(text.slice(0, 120))})`, { cause: error })
-    // A guided answer keeps TanStack's code for a parse failure (structured-output-parse-failed, from the cause).
-    throw asText ? Object.assign(failure, { code: "invalidJson" }) : failure
-  }
-  const value = form.restore(data)
-  const problems = schemaErrors(schema, value)
-  if (problems.length > 0) {
-    throw Object.assign(new Error(`Apple's model's answer${how} doesn't fit the schema: ${problems.slice(0, 5).join("; ")}`), { code: "schemaMismatch" })
-  }
-  return value
-}
 
 const parse = (json: string): unknown => {
   try {
@@ -650,8 +619,7 @@ export class AfmTextAdapter extends BaseTextAdapter<
   /**
    * A JSON answer for `chat({ outputSchema })`: a session holding the
    * conversation answers its last message, held to the schema by the
-   * framework (an answer written as text, past permissive guardrails, is
-   * checked here instead).
+   * framework, and the answer comes back as the framework wrote it.
    */
   async structuredOutput(
     options: StructuredOutputOptions<AfmTextModelOptions>
@@ -670,13 +638,11 @@ export class AfmTextAdapter extends BaseTextAdapter<
       this.queues.set(thread.sessionId, thread)
       const { temperature, maximumResponseTokens } = chatOptions.modelOptions ?? {}
       const include = chatOptions.modelOptions?.includeSchemaInPrompt ?? this.includeSchemaInPrompt
-      // Objects of uniform properties as ordered arrays (see ordered.ts).
-      const form = orderedForm(outputSchema)
       await this.native.respond({
         sessionId: thread.sessionId,
         turn: 1,
         prompt: prompted ? contentText(last.content) : "",
-        schema: toNativeSchema(form.schema, "Answer"),
+        schema: toNativeSchema(outputSchema, "Answer"),
         options: {
           ...(temperature !== undefined && { temperature }),
           ...(maximumResponseTokens !== undefined && { maximumResponseTokens }),
@@ -688,10 +654,8 @@ export class AfmTextAdapter extends BaseTextAdapter<
         const event = await thread.queue.next(signal)
         if (event.type === "done") {
           const usage = usageOf(event.usage)
-          const data = checkedAnswer(event.text, event.asText === true, outputSchema, form)
-          // (The answer as the caller's schema has it, where the model wrote another form.)
-          const rawText = form.changed ? JSON.stringify(data) : event.text
-          return { data, rawText, model: this.model, ...(usage && { usage }) }
+          // The answer as the framework held it to the schema (a SyntaxError, TanStack's parse failure, if it isn't JSON).
+          return { data: JSON.parse(event.text) as unknown, rawText: event.text, model: this.model, ...(usage && { usage }) }
         }
         if (event.type === "error") throw Object.assign(new Error(event.message), { code: event.code })
       }
