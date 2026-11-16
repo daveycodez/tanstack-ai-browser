@@ -326,11 +326,27 @@ test("a worker error ends with RUN_ERROR", async () => {
   assert.equal(chunks[1].message, "out of memory")
 })
 
-test("structured output is refused", async () => {
-  await assert.rejects(
-    transformersJsText(MODEL).structuredOutput(),
-    /not supported/
-  )
+const schema = { type: "object", properties: { city: { type: "string" } }, required: ["city"] }
+const structured = (extra: Partial<TextOptions> = {}) =>
+  transformersJsText(MODEL).structuredOutput({ chatOptions: options(extra), outputSchema: schema } as never)
+
+test("structured output sends the schema to the worker, without tools or thinking, and parses the answer", async () => {
+  FakeWorker.reply = (worker) => worker.stream(['{"city": ', '"Tokyo"}'])
+  const result = await structured({ tools: [{ name: "get_weather", description: "Weather" }], reasoning: "high" as never })
+  assert.deepEqual(result.data, { city: "Tokyo" })
+  assert.equal(result.rawText, '{"city": "Tokyo"}')
+  assert.equal(result.usage?.promptTokens, 12)
+  const request = generateRequests().at(-1) as Generate
+  assert.deepEqual(request.outputSchema, schema)
+  assert.equal(request.enableThinking, false)
+  assert.equal("tools" in request, false)
+})
+
+test("structured output cut off at max_new_tokens fails with code length; a worker error rejects", async () => {
+  FakeWorker.reply = (worker) => worker.stream(['{"city": "To'], 5)
+  await assert.rejects(structured({ modelOptions: { max_new_tokens: 5 } } as never), (error: Error & { code?: string }) => error.code === "length")
+  FakeWorker.reply = (worker) => worker.send({ status: "error", message: "String pattern is not supported" })
+  await assert.rejects(structured(), /pattern/)
 })
 
 test("availability, create and destroy", async () => {

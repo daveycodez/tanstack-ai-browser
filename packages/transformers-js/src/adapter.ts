@@ -14,7 +14,7 @@ import { buildBaseUsage, EventType, normalizeSystemPrompts } from "@tanstack/ai"
 import type { AdapterYieldChunk, ModelReasoning, TextOptions } from "@tanstack/ai"
 import { resolveReasoning } from "@tanstack/ai/adapter-internals"
 import { BaseTextAdapter } from "@tanstack/ai/adapters"
-import type { StructuredOutputResult } from "@tanstack/ai/adapters"
+import type { StructuredOutputOptions, StructuredOutputResult } from "@tanstack/ai/adapters"
 
 import { clientFor } from "./client.js"
 import type { Availability, Client, DownloadProgressCallback } from "./client.js"
@@ -212,16 +212,7 @@ export class TransformersJsTextAdapter<TModel extends string> extends BaseTextAd
       ...(options.parentRunId && { parentRunId: options.parentRunId })
     }
     try {
-      const prompt = toTemplateMessages(
-        normalizeSystemPrompts(options.systemPrompts)
-          .map((p) => p.content)
-          .join("\n\n"),
-        options.messages,
-        // A model the config calls a vision model: its template reads every message as parts.
-        !!this.settings.vision
-      )
-      // The vision encoder loads once the conversation has an image.
-      const vision = prompt.images.length > 0
+      const { prompt, vision } = this.promptOf(options)
       // The tools the model may call: none for "none", only the named one for a tool choice.
       const choice = options.toolChoice
       const tools =
@@ -352,9 +343,65 @@ export class TransformersJsTextAdapter<TModel extends string> extends BaseTextAd
     }
   }
 
-  /** Not supported: Transformers.js has no JSON output mode here. */
-  async structuredOutput(): Promise<StructuredOutputResult<unknown>> {
-    throw new Error("Structured output (outputSchema) is not supported by the transformers-js adapter.")
+  /** The conversation as the chat template reads it, and whether it needs the vision encoder (it has an image). */
+  private promptOf(options: TextOptions<TransformersJsTextModelOptions>) {
+    const prompt = toTemplateMessages(
+      normalizeSystemPrompts(options.systemPrompts)
+        .map((p) => p.content)
+        .join("\n\n"),
+      options.messages,
+      // A model the config calls a vision model: its template reads every message as parts.
+      !!this.settings.vision
+    )
+    return { prompt, vision: prompt.images.length > 0 }
+  }
+
+  /**
+   * A JSON answer for `chat({ outputSchema })`: the model answers the
+   * conversation held to the schema by Hugging Face's structured-output
+   * processor (`@huggingface/transformers-structured-output`), which masks
+   * every token that would break it, so the answer parses and matches. No
+   * tools, and no thinking: the processor holds the whole reply. Fails with
+   * the processor's error for a schema it can't enforce (string `pattern`,
+   * `format`), and with code "length" for an answer cut off at
+   * `max_new_tokens`.
+   */
+  async structuredOutput(options: StructuredOutputOptions<TransformersJsTextModelOptions>): Promise<StructuredOutputResult<unknown>> {
+    const { chatOptions, outputSchema } = options
+    const signal = signalOf(chatOptions)
+    const { prompt, vision } = this.promptOf(chatOptions)
+    const generation = generationOptions(chatOptions.modelOptions, listed(this.model)?.sampling, false)
+    let rawText = ""
+    let counts: { inputTokens: number; cachedTokens?: number; outputTokens: number } = { inputTokens: 0, outputTokens: 0 }
+    const events = this.client.generate(
+      { ...this.settings, ...(vision && { vision }) },
+      {
+        messages: prompt.messages,
+        ...(vision && { images: prompt.images }),
+        options: generation,
+        enableThinking: false,
+        outputSchema: outputSchema as Record<string, unknown>
+      },
+      { onDownloadProgress: this.onDownloadProgress, ...(signal && { signal }) }
+    )
+    for await (const event of events) {
+      if (event.type === "done") counts = event
+      else rawText += event.text
+    }
+    signal?.throwIfAborted()
+    if (counts.outputTokens >= generation.max_new_tokens) {
+      throw Object.assign(new Error(`The structured answer was cut off at max_new_tokens (${generation.max_new_tokens}) before its JSON was complete`), { code: "length" })
+    }
+    const data = JSON.parse(rawText) as unknown
+    return {
+      data,
+      rawText,
+      model: this.model,
+      usage: {
+        ...buildBaseUsage({ promptTokens: counts.inputTokens, completionTokens: counts.outputTokens, totalTokens: counts.inputTokens + counts.outputTokens }),
+        ...(counts.cachedTokens !== undefined && { promptTokensDetails: { cachedTokens: counts.cachedTokens } })
+      }
+    }
   }
 }
 

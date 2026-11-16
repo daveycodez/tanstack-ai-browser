@@ -24,6 +24,7 @@ import {
   TextStreamer
 } from "@huggingface/transformers"
 import type { DynamicCache, PreTrainedModel, PreTrainedTokenizer, Processor, ProgressInfo, Tensor } from "@huggingface/transformers"
+import { StructuredOutputProcessor } from "@huggingface/transformers-structured-output"
 
 import type { Device, GenerateRequest, LoadSettings, WorkerReply, WorkerRequest } from "./protocol.js"
 import { shownText } from "./tool-calls.js"
@@ -199,15 +200,19 @@ export class TransformersJsWorkerHandler {
       stopping_criteria: stoppingCriteria,
       return_dict_in_generate: true
     }
+    // A schema: Hugging Face's processor masks every token that would break it (a new one each attempt: it holds the generation's state).
+    const schema = request.outputSchema
+    const constraint = () =>
+      schema ? { logits_processor: new StructuredOutputProcessor(tokenizer, { type: "json_schema", json_schema: schema as never }) } : {}
     let output: unknown
     try {
-      output = await model.generate({ ...settings, ...(this.reuse && { past_key_values: this.reuse.cache }) })
+      output = await model.generate({ ...settings, ...constraint(), ...(this.reuse && { past_key_values: this.reuse.cache }) })
     } catch (error) {
       // A cache the model won't take: once more without it.
       if (!this.reuse || outputTokens > 0) throw error
       await this.dropCache()
       cachedTokens = 0
-      output = await model.generate(settings)
+      output = await model.generate({ ...settings, ...constraint() })
     }
     const { sequences, past_key_values } = output as { sequences: Tensor; past_key_values?: DynamicCache }
     if (withImages) await past_key_values?.dispose().catch(() => undefined)

@@ -89,7 +89,7 @@ const { text } = await generateTranscription({ adapter: transformersJsTranscript
 
 **Events:** `RUN_STARTED`, the text as `TEXT_MESSAGE_*`, a tool call as `TOOL_CALL_*`, then `RUN_FINISHED` with `finishReason` (`"stop"`, `"tool_calls"`, or `"length"` when the reply used every token it could) and `usage` (prompt and completion tokens). A failure or an abort ends with `RUN_ERROR` (`code: "aborted"` for an abort).
 
-**Structured output** (`outputSchema`) isn't supported: `structuredOutput` rejects.
+**Structured output** (`chat({ outputSchema })`) holds the answer to the schema with Hugging Face's [`@huggingface/transformers-structured-output`](https://www.npmjs.com/package/@huggingface/transformers-structured-output) (4.3.2, matching the core package): its `StructuredOutputProcessor` goes to `generate()` as the `logits_processor` and masks every token that would break the schema, so the answer parses and matches. The schema's profile is that package's (JSON Schema 2020-12 for the most part); string `pattern` and `format` can't be enforced token by token, and fail with its error. The answer is generated without tools and without thinking, since the processor holds the whole reply. An answer cut off at `max_new_tokens` fails with the code `length`.
 
 ## Loading
 

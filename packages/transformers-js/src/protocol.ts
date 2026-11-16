@@ -84,6 +84,11 @@ export type GenerateRequest = {
   enableThinking: boolean
   /** The conversation's images, in order (data or http URLs): one for each image part. */
   images?: Array<string>
+  /**
+   * A JSON Schema the reply is held to, token by token, by Hugging Face's
+   * structured-output processor (`@huggingface/transformers-structured-output`).
+   */
+  outputSchema?: Record<string, unknown>
 }
 
 export type WorkerRequest =

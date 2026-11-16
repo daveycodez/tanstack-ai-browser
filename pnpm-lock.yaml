@@ -649,6 +649,9 @@ importers:
       '@huggingface/transformers':
         specifier: 4.3.2
         version: 4.3.2(@types/node@26.6.6)
+      '@huggingface/transformers-structured-output':
+        specifier: 4.3.2
+        version: 4.3.2(@huggingface/transformers@4.3.2(@types/node@26.6.6))
     devDependencies:
       '@tanstack/ai':
         specifier: 1.4.0
@@ -1701,6 +1704,11 @@ packages:
 
   '@huggingface/tokenizers@0.2.0':
     resolution: {integrity: sha512-LidMHe1FpcSYH4vcSjXooda34pC0M8m1gmDOv7SQi6Iv+ib1zX7J3sHBCC9/3FPCkn2k1b55FneVqMRxrr99pg==}
+
+  '@huggingface/transformers-structured-output@4.3.2':
+    resolution: {integrity: sha512-grWV7i/8Dn/UPoXL02IAjTfRKlCIaCf9ioQCJsAcxcJLPuJnHkYbbuJ4ARId0x9HCufbWlap3ZILKQB+pi3LbQ==}
+    peerDependencies:
+      '@huggingface/transformers': ^4.3.2
 
   '@huggingface/transformers@4.3.2':
     resolution: {integrity: sha512-V3+dqf3iWlRYJ9I9GreM3zGQd0lAXnnoPeddmkOQYWAEE4l/+Fi6p7tx/qVUJlKQgLXGim2W76rTOzz+eC0i7g==}
@@ -7717,6 +7725,10 @@ snapshots:
   '@huggingface/jinja@0.5.12': {}
 
   '@huggingface/tokenizers@0.2.0': {}
+
+  '@huggingface/transformers-structured-output@4.3.2(@huggingface/transformers@4.3.2(@types/node@26.6.6))':
+    dependencies:
+      '@huggingface/transformers': 4.3.2(@types/node@26.6.6)
 
   '@huggingface/transformers@4.3.2(@types/node@26.6.6)':
     dependencies:
