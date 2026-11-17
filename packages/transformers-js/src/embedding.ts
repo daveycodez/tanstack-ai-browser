@@ -12,10 +12,11 @@ import { requireTextOnlyEmbeddingInput } from "@tanstack/ai"
 import type { EmbeddingOptions, EmbeddingResult } from "@tanstack/ai"
 import { toRunErrorPayload } from "@tanstack/ai/adapter-internals"
 import { BaseEmbeddingAdapter } from "@tanstack/ai/adapters"
-import type { FeatureExtractionPipeline, ProgressInfo, Tensor } from "@huggingface/transformers"
+import type { FeatureExtractionPipeline, Tensor } from "@huggingface/transformers"
 
 import type { Availability, DownloadProgressCallback } from "./client.js"
 import type { Device, Dtype } from "./protocol.js"
+import { setUpTransformers, startLoad } from "./storage.js"
 
 export type TransformersJsEmbeddingConfig = {
   /** "webgpu" or "wasm" (the CPU): Transformers.js's default otherwise. */
@@ -99,19 +100,21 @@ export class TransformersJsEmbeddingAdapter<TModel extends string> extends BaseE
       return this.extractor
     }
     const { device, dtype } = this.loadConfig
-    const extractor = import("@huggingface/transformers").then(async ({ pipeline, mean_pooling, quantize_embeddings }) => ({
-      extractor: (await pipeline("feature-extraction", this.model, {
-        ...(device && { device }),
-        ...(dtype && { dtype }),
-        progress_callback: (info: ProgressInfo) => {
-          if (info.status === "progress_total" && info.total) {
-            for (const listener of listeners) listener(Math.min(1, info.loaded / info.total))
-          }
-        }
-      })) as FeatureExtractionPipeline,
-      mean_pooling,
-      quantize_embeddings
-    }))
+    const extractor = import("@huggingface/transformers").then(async ({ env, pipeline, mean_pooling, quantize_embeddings }) => {
+      setUpTransformers(env)
+      const load = startLoad((value) => listeners.forEach((listener) => listener(value)))
+      try {
+        const extractor = (await pipeline("feature-extraction", this.model, {
+          ...(device && { device }),
+          ...(dtype && { dtype })
+        })) as FeatureExtractionPipeline
+        load.end(true)
+        return { extractor, mean_pooling, quantize_embeddings }
+      } catch (error) {
+        load.end(false)
+        throw error
+      }
+    })
     this.extractor = extractor
     extractor.then(
       () => {

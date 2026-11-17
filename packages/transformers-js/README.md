@@ -93,11 +93,19 @@ const { text } = await generateTranscription({ adapter: transformersJsTranscript
 
 ## Loading
 
-- `adapter.availability()`: `"unavailable"` where the model can't run (without WebGPU for a listed model without CPU weights, or on a server that isn't Node.js), `"downloading"` while it loads, `"available"` once it's loaded or when its weights are in Transformers.js's cache, else `"downloadable"`.
+- `adapter.availability()`: `"unavailable"` where the model can't run (without WebGPU for a listed model without CPU weights, or on a server that isn't Node.js), `"downloading"` while it loads, `"available"` once it's loaded or when its weights are kept (below), else `"downloadable"`.
 - `adapter.create({ onDownloadProgress?, signal? })` loads the model ahead of time (`chat()` loads it otherwise). Aborting `signal` stops that wait, not the load. Resolves to the adapter.
 - `adapter.destroy()` ends the package's worker if it holds this model, freeing its memory; its files stay cached. A worker of your own, or a server, frees the model and stays.
 
 The page has one worker with one model (and each worker of your own has one): loading another replaces it. A call whose prompt continues the previous call's (its tokens start with every token the last generation held) reuses that generation's cache.
+
+In a browser, two of Transformers.js's own settings are set before the first model loads (the chat, embedding and transcription adapters alike), until Transformers.js does this itself ([#27](https://github.com/daveycodez/tanstack-ai-browser/issues/27) tracks it):
+
+- Downloads are kept in the origin's private file system (OPFS), through `env.customCache`. Transformers.js 4.3.2 holds a downloaded file in memory about twice before caching it, so the first download of LFM2.5 1.2B's 760 MB of weights killed an iPhone Safari tab ([huggingface/transformers.js#1827](https://github.com/huggingface/transformers.js/issues/1827)). Here each ONNX file is written to OPFS piece by piece, and Transformers.js reads it from there. Models already in Transformers.js's own Cache Storage are read from it, not downloaded again. A cache of your own (`env.useCustomCache`) is left as it is.
+- When a load ends, the weights Transformers.js read into memory are freed (their buffers detached). Safari doesn't garbage-collect that copy, so an iPhone tab held the weights twice, in memory and on the GPU, and was killed at the first reply. For this, models load without Transformers.js's progress callback: `onDownloadProgress` follows the downloads of the ONNX files, and reaches 1 when the model is ready.
+- Where the browser has JSPI (Chrome, Safari 27), ONNX Runtime runs its JSPI WebAssembly build in place of the Asyncify build Transformers.js picks ([huggingface/transformers.js#1835](https://github.com/huggingface/transformers.js/issues/1835)), from the same release: less memory, and faster in Safari. `wasmPaths` of your own are left as they are.
+
+On an iPhone (2 GB a tab), LFM2.5 1.2B (760 MB of weights) loads and answers. Models with more than about 1 GB of weights (LFM3 1.7B) still don't load: the copy in memory and the one on the GPU are both there until the load ends. Long prompts are limited by the model's export: without a `num_logits_to_keep` input (LFM2.5's ONNX has none), a prompt's pass returns logits for every token, about 1.35 GB of GPU memory for 2,048 tokens, and the tab is killed.
 
 The worker is started with `new Worker(new URL("./worker.js", import.meta.url))`, which Vite and webpack 5 bundle for you. With Vite, set `worker: { format: "es" }` and leave the package out of dependency pre-bundling (`optimizeDeps.exclude`).
 

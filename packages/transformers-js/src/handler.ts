@@ -23,11 +23,12 @@ import {
   StoppingCriteriaList,
   TextStreamer
 } from "@huggingface/transformers"
-import type { DynamicCache, PreTrainedModel, PreTrainedTokenizer, Processor, ProgressInfo, Tensor } from "@huggingface/transformers"
+import type { DynamicCache, PreTrainedModel, PreTrainedTokenizer, Processor, Tensor } from "@huggingface/transformers"
 import { StructuredOutputProcessor } from "@huggingface/transformers-structured-output"
 
 import type { Device, GenerateRequest, LoadSettings, WorkerReply, WorkerRequest } from "./protocol.js"
 import { endOfTurnIds, finishReasonOf } from "./finish.js"
+import { setUpTransformers, startLoad } from "./storage.js"
 import { shownText } from "./tool-calls.js"
 
 type Loaded = { tokenizer: PreTrainedTokenizer; processor: Processor | null; model: PreTrainedModel }
@@ -130,39 +131,37 @@ export class TransformersJsWorkerHandler {
     await previous?.model.dispose()
   }
 
-  /** Transformers.js's progress across the model's files, as 0 to 1, at most every 100 ms. */
-  private progressReporter() {
-    let last = 0
-    return (info: ProgressInfo) => {
-      if (info.status !== "progress_total" || !info.total) return
-      const now = performance.now()
-      if (now - last < 100 && info.loaded < info.total) return
-      last = now
-      this.post({ status: "progress", progress: Math.min(1, info.loaded / info.total) })
-    }
-  }
-
   private async load({ model: id, device, dtype, vision, localModelPath, cacheDir }: LoadSettings) {
     await this.unload()
+    setUpTransformers(env)
     if (localModelPath !== undefined) env.localModelPath = localModelPath
     if (cacheDir !== undefined) env.cacheDir = cacheDir
     const picked = device ?? (await pickDevice())
     // The CPU is "wasm" in a browser and "cpu" on a server.
     const on = picked === "webgpu" ? picked : onNode() ? "cpu" : "wasm"
+    // The download's progress, as 0 to 1; the weights read are freed when it ends (storage.ts).
+    const load = startLoad((value) => this.post({ status: "progress", progress: value }))
     const options = {
       device: on,
       // fp16 activations on the GPU; the CPU kernels want fp32 ones.
       dtype: dtype ?? (on === "webgpu" ? "q4f16" : "q4"),
-      progress_callback: this.progressReporter(),
       // ONNX Runtime's constant folding copies a tied embedding table read
       // through a Reshape or Transpose (LFM's) into a second, full copy.
       session_options: { extra: { "optimization.disable_specified_optimizers": "ConstantFolding" } }
     } as const
-    const [processor, tokenizer, model] = vision
-      ? await Promise.all([AutoProcessor.from_pretrained(id), null, AutoModelForImageTextToText.from_pretrained(id, options)]).then(
-          ([processor, , model]) => [processor, processor.tokenizer as PreTrainedTokenizer, model] as const
-        )
-      : await Promise.all([null, AutoTokenizer.from_pretrained(id), AutoModelForCausalLM.from_pretrained(id, options)])
+    let loaded: readonly [Processor | null, PreTrainedTokenizer, PreTrainedModel]
+    try {
+      loaded = vision
+        ? await Promise.all([AutoProcessor.from_pretrained(id), null, AutoModelForImageTextToText.from_pretrained(id, options)]).then(
+            ([processor, , model]) => [processor, processor.tokenizer as PreTrainedTokenizer, model] as const
+          )
+        : await Promise.all([null, AutoTokenizer.from_pretrained(id), AutoModelForCausalLM.from_pretrained(id, options)])
+      load.end(true)
+    } catch (error) {
+      load.end(false)
+      throw error
+    }
+    const [processor, tokenizer, model] = loaded
     tokenizer.chat_template ??= await standaloneTemplate(id)
     this.loaded = { tokenizer, processor, model }
     this.post({ status: "ready" })
