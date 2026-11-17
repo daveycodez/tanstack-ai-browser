@@ -103,7 +103,8 @@ export class TransformersJsWorkerHandler {
    * Whether the loaded model failed a prompt pass: its prompts are then read in one pass. Transformers.js
    * 4.3.2 can't run Qwen3.5's text-only decoder over several tokens on top of a cache: its
    * prepare_inputs_for_generation sets `pixel_values` to null there, which the image forward takes for
-   * an image and calls the vision encoder a text-only load doesn't have.
+   * an image and calls the vision encoder a text-only load doesn't have (huggingface/transformers.js#1949;
+   * daveycodez/tanstack-ai-browser#27 tracks it).
    */
   private passesFail = false
   /** The loaded model's prompt speed so far, in milliseconds a token (prompt-passes.ts sizes passes by it). */
