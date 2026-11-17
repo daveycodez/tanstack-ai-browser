@@ -23,6 +23,18 @@
  *   (it does when it's given no progress callback), and when the load ends
  *   those buffers are detached (`ArrayBuffer.prototype.transfer(0)`), which
  *   frees them at once.
+ * - In a worker, a model's external weights files (`.onnx_data`) are read
+ *   from OPFS as ONNX Runtime asks for each tensor, and never held whole in
+ *   memory (onDemandWeights): Transformers.js would hold the whole file in
+ *   memory while ONNX Runtime puts it on the GPU, which for LFM3 1.7B
+ *   (1.09 GB) is over an iPhone tab's 2 GB. They go to ONNX Runtime through
+ *   public options (`use_external_data_format: false`,
+ *   `session_options.externalData`) as OnDemandWeights, a Uint8Array whose
+ *   subarray() reads the range from the file. This relies on ONNX Runtime
+ *   reading external data only through byteLength and subarray(), one tensor
+ *   at a time, copying each before asking for the next (onnxruntime-web
+ *   1.31, the version Transformers.js 4.3.2 pins): anything else it asks for
+ *   throws, and the load falls back to Transformers.js's own reading.
  * - ONNX Runtime's JSPI WebAssembly build where the browser has JSPI,
  *   through `env.backends.onnx.wasm.wasmPaths`, in place of the Asyncify
  *   build Transformers.js always picks (huggingface/transformers.js#1835):
@@ -34,6 +46,8 @@ type TransformersEnv = {
   customCache: unknown
   cacheKey: string
   fetch: (url: string) => Promise<Response>
+  remoteHost: string
+  remotePathTemplate: string
   backends: { onnx: { wasm?: { wasmPaths?: unknown } } }
 }
 
@@ -90,7 +104,17 @@ const responseOf = (key: string, file: Blob, type: string) => {
   return ONNX_FILE.test(new URL(key, "file:").pathname) ? new WeightsResponse(file, init) : new Response(file, init)
 }
 
-type SyncAccessHandle = { write(data: Uint8Array, options: { at: number }): number; truncate(size: number): void; flush(): void; close(): void }
+/** On-demand weights files of loads under way, by URL: downloaded and opened when their graph is asked for. */
+const onDemandFiles = new Map<string, OnDemandWeights>()
+
+type SyncAccessHandle = {
+  write(data: Uint8Array, options: { at: number }): number
+  read(into: Uint8Array, options: { at: number }): number
+  getSize(): number
+  truncate(size: number): void
+  flush(): void
+  close(): void
+}
 type Writable = { write(data: Uint8Array): Promise<void>; close(): Promise<void>; abort(): Promise<void> }
 
 /**
@@ -172,6 +196,22 @@ function opfsCache(env: TransformersEnv) {
   return {
     async match(key: string): Promise<Response | undefined> {
       const dir = await folder()
+      // A graph whose session reads on-demand weights: those files are downloaded and opened first.
+      if (key.endsWith(".onnx")) {
+        for (const [url, weights] of onDemandFiles) {
+          if (!url.startsWith(`${key}_data`) || weights.opened) continue
+          const dataName = await nameOf(url)
+          if (!(await stored(dir, dataName))) {
+            let pending = downloading.get(url)
+            if (!pending) {
+              pending = download(url, dir, dataName).finally(() => downloading.delete(url))
+              downloading.set(url, pending)
+            }
+            await (await pending)?.body?.cancel().catch(() => undefined)
+          }
+          await weights.open((await dir.getFileHandle(`${dataName}.bin`)) as never)
+        }
+      }
       const name = await nameOf(key)
       const kept = await stored(dir, name)
       if (kept) return responseOf(key, kept.file, kept.entry.type)
@@ -219,6 +259,9 @@ async function writeEntry(dir: FileSystemDirectoryHandle, name: string, entry: E
   }
 }
 
+/** The OPFS cache set up here, if it is (setUpTransformers). */
+let opfs: object | undefined
+
 let set = false
 
 /**
@@ -245,7 +288,7 @@ export function setUpTransformers(env: TransformersEnv): void {
     wasm.wasmPaths = { mjs: paths.mjs.replace(/\.asyncify\.mjs$/, ".jspi.mjs"), wasm: paths.wasm.replace(/\.asyncify\.wasm$/, ".jspi.wasm") }
   }
   if (env.useCustomCache || typeof navigator === "undefined" || !navigator.storage?.getDirectory || !globalThis.crypto?.subtle) return
-  env.customCache = opfsCache(env)
+  env.customCache = opfs = opfsCache(env)
   env.useCustomCache = true
 }
 
@@ -305,5 +348,110 @@ export async function keptInOpfs(model: string): Promise<boolean> {
     return false
   } catch {
     return false
+  }
+}
+
+const misuse = (what: string) => () => {
+  throw new Error(`On-demand weights were read through ${what}, not subarray(): load them whole.`)
+}
+
+/**
+ * A model's external weights file in OPFS, as ONNX Runtime takes external
+ * data: a Uint8Array of the file's length, whose subarray(begin, end) reads
+ * that range from the file (synchronously, in a worker) into one buffer
+ * reused for every read, grown to the largest tensor. Anything else that
+ * reads it as a whole throws (see the top of this file).
+ */
+class OnDemandWeights extends Uint8Array {
+  /** Its path in the repo (`onnx/model_q4f16.onnx_data`). */
+  readonly file: string
+  #reader: SyncAccessHandle | undefined
+  #size = 0
+  #scratch = new ArrayBuffer(0)
+
+  constructor(file: string) {
+    super(0)
+    this.file = file
+  }
+
+  get opened() {
+    return this.#reader !== undefined
+  }
+
+  async open(handle: { createSyncAccessHandle(): Promise<SyncAccessHandle> }) {
+    if (this.#reader) return
+    this.#reader = await handle.createSyncAccessHandle()
+    this.#size = this.#reader.getSize()
+  }
+
+  #opened() {
+    if (!this.#reader) throw new Error(`${this.file} wasn't downloaded before its session read it.`)
+    return this.#reader
+  }
+
+  override get byteLength() {
+    this.#opened()
+    return this.#size
+  }
+
+  override get length() {
+    return this.byteLength
+  }
+
+  override subarray(begin = 0, end?: number): Uint8Array<ArrayBuffer> {
+    const reader = this.#opened()
+    const stop = end ?? this.#size
+    if (begin < 0 || stop < begin || stop > this.#size) throw new RangeError(`${this.file}: bytes ${begin} to ${stop} of ${this.#size}`)
+    const length = stop - begin
+    if (this.#scratch.byteLength < length) this.#scratch = new ArrayBuffer(length)
+    const bytes = new Uint8Array(this.#scratch, 0, length)
+    if (reader.read(bytes, { at: begin }) !== length) throw new Error(`${this.file}: a short read at byte ${begin}`)
+    return bytes
+  }
+
+  close() {
+    this.#reader?.close()
+    this.#reader = undefined
+    this.#scratch = new ArrayBuffer(0)
+  }
+}
+for (const name of ["buffer", "byteOffset"]) Object.defineProperty(OnDemandWeights.prototype, name, { get: misuse(name) })
+for (const name of ["slice", "set", "at", "fill", "copyWithin", "values", "keys", "entries", "forEach", "map", "filter", "reduce", "join", "indexOf", "includes", "toString"] as const) {
+  Object.defineProperty(OnDemandWeights.prototype, name, { value: misuse(name) })
+}
+Object.defineProperty(OnDemandWeights.prototype, Symbol.iterator, { value: misuse("its iterator") })
+
+/**
+ * A load's external weights read on demand (see the top of this file): the
+ * files Transformers.js lists for the model, dtype and device
+ * (`listFiles`: `ModelRegistry.get_model_files`, public), as `externalData` for
+ * `session_options` with `use_external_data_format: false`. Each file is
+ * downloaded and opened only when its session's graph is asked for, so files
+ * a load doesn't use (a vision encoder in a text-only load) never are.
+ * `close()` after the load. Undefined where it doesn't apply: no OPFS cache
+ * here, not in a worker (OPFS reads synchronously only in one), or a model
+ * without external data.
+ */
+export async function onDemandWeights(
+  env: TransformersEnv,
+  model: string,
+  listFiles: () => Promise<Array<string>>
+): Promise<{ externalData: Array<{ path: string; data: Uint8Array }>; close: () => void } | undefined> {
+  const inWorker = typeof (globalThis as { WorkerGlobalScope?: unknown }).WorkerGlobalScope !== "undefined"
+  const handles = (globalThis as { FileSystemFileHandle?: { prototype: object } }).FileSystemFileHandle
+  if (!opfs || env.customCache !== opfs || !inWorker || !handles || !("createSyncAccessHandle" in handles.prototype)) return undefined
+  const files = (await listFiles().catch(() => [])).filter((file) => /\.onnx_data(_\d+)?$/.test(file))
+  if (files.length === 0) return undefined
+  const base = `${env.remoteHost}${env.remotePathTemplate.replaceAll("{model}", model).replaceAll("{revision}", "main")}`
+  const entries = files.map((file) => ({ url: `${base}${file}`, weights: new OnDemandWeights(file) }))
+  for (const { url, weights } of entries) onDemandFiles.set(url, weights)
+  return {
+    externalData: entries.map(({ weights }) => ({ path: weights.file.slice(weights.file.lastIndexOf("/") + 1), data: weights })),
+    close() {
+      for (const { url, weights } of entries) {
+        weights.close()
+        onDemandFiles.delete(url)
+      }
+    }
   }
 }

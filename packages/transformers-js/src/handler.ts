@@ -19,6 +19,7 @@ import {
   InterruptableStoppingCriteria,
   Lfm2VlProcessor,
   Lfm3VlProcessor,
+  ModelRegistry,
   RawImage,
   StoppingCriteriaList,
   TextStreamer
@@ -28,8 +29,8 @@ import { StructuredOutputProcessor } from "@huggingface/transformers-structured-
 
 import type { Device, GenerateRequest, LoadSettings, WorkerReply, WorkerRequest } from "./protocol.js"
 import { endOfTurnIds, finishReasonOf } from "./finish.js"
-import { readInPasses } from "./prompt-passes.js"
-import { setUpTransformers, startLoad } from "./storage.js"
+import { LOGITS_PASS, MIN_PASS, readInPasses } from "./prompt-passes.js"
+import { onDemandWeights, setUpTransformers, startLoad } from "./storage.js"
 import { shownText } from "./tool-calls.js"
 
 type Loaded = { tokenizer: PreTrainedTokenizer; processor: Processor | null; model: PreTrainedModel }
@@ -98,6 +99,8 @@ function cacheLength(cache: DynamicCache): number | undefined {
 export class TransformersJsWorkerHandler {
   private loaded: Loaded | null = null
   private readonly stopping = new InterruptableStoppingCriteria()
+  /** The loaded model's prompt speed so far, in milliseconds a token (prompt-passes.ts sizes passes by it). */
+  private msPerToken: number | undefined
   /** The cache of a prompt being read in passes (readPrompt), until generate() takes it. */
   private reading: DynamicCache | undefined
   /** The last generation's cache, and the tokens in it (prompt and reply). */
@@ -152,36 +155,57 @@ export class TransformersJsWorkerHandler {
       // through a Reshape or Transpose (LFM's) into a second, full copy.
       session_options: { extra: { "optimization.disable_specified_optimizers": "ConstantFolding" } }
     } as const
-    let loaded: readonly [Processor | null, PreTrainedTokenizer, PreTrainedModel]
-    try {
-      loaded = vision
-        ? await Promise.all([AutoProcessor.from_pretrained(id), null, AutoModelForImageTextToText.from_pretrained(id, options)]).then(
+    const fromPretrained = (modelOptions: Parameters<typeof AutoModelForCausalLM.from_pretrained>[1]) =>
+      vision
+        ? Promise.all([AutoProcessor.from_pretrained(id), null, AutoModelForImageTextToText.from_pretrained(id, modelOptions)]).then(
             ([processor, , model]) => [processor, processor.tokenizer as PreTrainedTokenizer, model] as const
           )
-        : await Promise.all([null, AutoTokenizer.from_pretrained(id), AutoModelForCausalLM.from_pretrained(id, options)])
+        : Promise.all([null, AutoTokenizer.from_pretrained(id), AutoModelForCausalLM.from_pretrained(id, modelOptions)])
+    // The external weights read from OPFS as ONNX Runtime asks for them, where they can be (storage.ts).
+    const onDemand = await onDemandWeights(env, id, () => ModelRegistry.get_model_files(id, { dtype: options.dtype as never, device: on }))
+    let loaded: readonly [Processor | null, PreTrainedTokenizer, PreTrainedModel]
+    try {
+      try {
+        loaded = await fromPretrained(
+          onDemand
+            ? { ...options, use_external_data_format: false, session_options: { ...options.session_options, externalData: onDemand.externalData } }
+            : options
+        )
+      } catch (error) {
+        // On-demand weights ONNX Runtime didn't read as they're meant to be: Transformers.js's own reading.
+        if (!onDemand) throw error
+        console.warn("[transformers-js] loading with on-demand weights failed; loading them whole:", error)
+        onDemand.close()
+        loaded = await fromPretrained(options)
+      }
       load.end(true)
     } catch (error) {
       load.end(false)
       throw error
+    } finally {
+      onDemand?.close()
     }
     const [processor, tokenizer, model] = loaded
     tokenizer.chat_template ??= await standaloneTemplate(id)
     this.loaded = { tokenizer, processor, model }
+    this.msPerToken = undefined
     this.post({ status: "ready" })
   }
 
   /**
    * A prompt read into the cache in passes first (prompt-passes.ts): the
-   * cache for generate(). Not for a decoder that takes `num_logits_to_keep`
-   * (looked up as Transformers.js does): its pass returns the last token's
-   * logits only, so the whole prompt is read in one pass, which is faster.
+   * cache for generate(). A decoder that takes `num_logits_to_keep` (looked
+   * up as Transformers.js does) returns the last token's logits only, so its
+   * passes are sized by time alone; another's are LOGITS_PASS tokens at most.
    */
   private async readPrompt(model: PreTrainedModel, inputs: { input_ids: Tensor; [name: string]: unknown }, cache: DynamicCache | undefined) {
     const sessions = (model as unknown as { sessions: Record<string, { inputNames?: ReadonlyArray<string> } | undefined> }).sessions
     const decoder = sessions["decoder_model_merged"] ?? sessions["model"]
-    if (decoder?.inputNames?.includes("num_logits_to_keep")) return cache
     const mask = inputs.attention_mask as Tensor | undefined
     return readInPasses(inputs.input_ids.dims.at(-1) ?? 0, cache, {
+      cap: decoder?.inputNames?.includes("num_logits_to_keep") ? Number.POSITIVE_INFINITY : LOGITS_PASS,
+      msPerToken: this.msPerToken,
+      measured: (msPerToken) => (this.msPerToken = msPerToken),
       lengthOf: cacheLength,
       // A generate() of one token, which is dropped: the cache holds the tokens it read.
       read: async (end, held) => {
@@ -217,6 +241,8 @@ export class TransformersJsWorkerHandler {
     if (!request.outputSchema && /<think>\s*$/.test(tokenizer.decode(prompt.slice(-8)))) this.post({ status: "update", output: "<think>" })
 
     let outputTokens = 0
+    /** When generate() started reading what's left of the prompt, and how many tokens that is: its first token gives the prompt speed. */
+    let promptRead: { started: number; tokens: number } | undefined
     const specialTokens = new Set(tokenizer.all_special_tokens)
     const streamer = new TextStreamer(tokenizer, {
       skip_prompt: true,
@@ -225,7 +251,9 @@ export class TransformersJsWorkerHandler {
         const output = shownText(text, specialTokens)
         if (output) this.post({ status: "update", output })
       },
-      token_callback_function: () => outputTokens++
+      token_callback_function: () => {
+        if (outputTokens++ === 0 && promptRead && promptRead.tokens >= MIN_PASS) this.msPerToken = (performance.now() - promptRead.started) / promptRead.tokens
+      }
     })
     const stoppingCriteria = new StoppingCriteriaList()
     stoppingCriteria.push(this.stopping)
@@ -244,6 +272,7 @@ export class TransformersJsWorkerHandler {
     const answer = async (cache: DynamicCache | undefined) => {
       const read = withImages ? cache : await this.readPrompt(model, inputs, cache)
       if (this.stopping.interrupted) return null
+      promptRead = withImages ? undefined : { started: performance.now(), tokens: prompt.length - ((read && cacheLength(read)) ?? 0) }
       return model.generate({ ...settings, ...constraint(), ...(read && { past_key_values: read }) })
     }
     let output: unknown
