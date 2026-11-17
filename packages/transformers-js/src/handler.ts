@@ -28,6 +28,7 @@ import { StructuredOutputProcessor } from "@huggingface/transformers-structured-
 
 import type { Device, GenerateRequest, LoadSettings, WorkerReply, WorkerRequest } from "./protocol.js"
 import { endOfTurnIds, finishReasonOf } from "./finish.js"
+import { readInPasses } from "./prompt-passes.js"
 import { setUpTransformers, startLoad } from "./storage.js"
 import { shownText } from "./tool-calls.js"
 
@@ -97,6 +98,8 @@ function cacheLength(cache: DynamicCache): number | undefined {
 export class TransformersJsWorkerHandler {
   private loaded: Loaded | null = null
   private readonly stopping = new InterruptableStoppingCriteria()
+  /** The cache of a prompt being read in passes (readPrompt), until generate() takes it. */
+  private reading: DynamicCache | undefined
   /** The last generation's cache, and the tokens in it (prompt and reply). */
   private reuse: { cache: DynamicCache; tokens: Array<number> } | null = null
   private readonly post: (reply: WorkerReply) => void
@@ -167,6 +170,29 @@ export class TransformersJsWorkerHandler {
     this.post({ status: "ready" })
   }
 
+  /** A prompt read into the cache in passes first (prompt-passes.ts): the cache for generate(). */
+  private readPrompt(model: PreTrainedModel, inputs: { input_ids: Tensor; [name: string]: unknown }, cache: DynamicCache | undefined) {
+    const mask = inputs.attention_mask as Tensor | undefined
+    return readInPasses(inputs.input_ids.dims.at(-1) ?? 0, cache, {
+      lengthOf: cacheLength,
+      // A generate() of one token, which is dropped: the cache holds the tokens it read.
+      read: async (end, held) => {
+        const output = (await model.generate({
+          input_ids: inputs.input_ids.slice(null, [0, end]),
+          ...(mask && { attention_mask: mask.slice(null, [0, end]) }),
+          ...(held && { past_key_values: held }),
+          max_new_tokens: 1,
+          do_sample: false,
+          return_dict_in_generate: true
+        } as never)) as { past_key_values?: DynamicCache }
+        this.reading = output.past_key_values
+        return output.past_key_values
+      },
+      dispose: (held) => held.dispose(),
+      stopped: () => this.stopping.interrupted
+    })
+  }
+
   private async generate(request: GenerateRequest) {
     const loaded = this.loaded
     if (!loaded) throw new Error("No model is loaded.")
@@ -206,15 +232,30 @@ export class TransformersJsWorkerHandler {
     const schema = request.outputSchema
     const constraint = () =>
       schema ? { logits_processor: new StructuredOutputProcessor(tokenizer, { type: "json_schema", json_schema: schema as never }) } : {}
+    /** The answer, the prompt read first in passes (readPrompt) into `cache`. */
+    const answer = async (cache: DynamicCache | undefined) => {
+      const read = withImages ? cache : await this.readPrompt(model, inputs, cache)
+      if (this.stopping.interrupted) return null
+      return model.generate({ ...settings, ...constraint(), ...(read && { past_key_values: read }) })
+    }
     let output: unknown
     try {
-      output = await model.generate({ ...settings, ...constraint(), ...(this.reuse && { past_key_values: this.reuse.cache }) })
+      output = await answer(this.reuse?.cache)
     } catch (error) {
       // A cache the model won't take: once more without it.
       if (!this.reuse || outputTokens > 0) throw error
       await this.dropCache()
       cachedTokens = 0
-      output = await model.generate({ ...settings, ...constraint() })
+      output = await answer(undefined)
+    }
+    const reading = this.reading
+    this.reading = undefined
+    // Stopped while the prompt was read: nothing generated.
+    if (output === null) {
+      await reading?.dispose().catch(() => undefined)
+      await this.dropCache()
+      this.post({ status: "complete", inputTokens: prompt.length, outputTokens: 0, finishReason: "stop" })
+      return
     }
     const { sequences, past_key_values } = output as { sequences: Tensor; past_key_values?: DynamicCache }
     // Out of tokens, or ended on the end-of-turn ids generate() itself used (see finish.ts).
