@@ -130,9 +130,17 @@ export class TransformersJsWorkerHandler {
     await cache?.dispose().catch(() => undefined)
   }
 
+  /** Frees the cache of a prompt read in passes that no generation took. */
+  private async dropReading() {
+    const reading = this.reading
+    this.reading = undefined
+    await reading?.dispose().catch(() => undefined)
+  }
+
   private async unload() {
     const previous = this.loaded
     this.loaded = null
+    await this.dropReading()
     await this.dropCache()
     await previous?.model.dispose()
   }
@@ -146,7 +154,7 @@ export class TransformersJsWorkerHandler {
     // The CPU is "wasm" in a browser and "cpu" on a server.
     const on = picked === "webgpu" ? picked : onNode() ? "cpu" : "wasm"
     // The download's progress, as 0 to 1; the weights read are freed when it ends (storage.ts).
-    const load = startLoad((value) => this.post({ status: "progress", progress: value }))
+    const load = startLoad(id, (value) => this.post({ status: "progress", progress: value }))
     const options = {
       device: on,
       // fp16 activations on the GPU; the CPU kernels want fp32 ones.
@@ -270,20 +278,30 @@ export class TransformersJsWorkerHandler {
       schema ? { logits_processor: new StructuredOutputProcessor(tokenizer, { type: "json_schema", json_schema: schema as never }) } : {}
     /** The answer, the prompt read first in passes (readPrompt) into `cache`. */
     const answer = async (cache: DynamicCache | undefined) => {
+      // The schema's processor first: a schema it can't hold fails before any of the prompt is read.
+      const constrained = constraint()
       const read = withImages ? cache : await this.readPrompt(model, inputs, cache)
       if (this.stopping.interrupted) return null
       promptRead = withImages ? undefined : { started: performance.now(), tokens: prompt.length - ((read && cacheLength(read)) ?? 0) }
-      return model.generate({ ...settings, ...constraint(), ...(read && { past_key_values: read }) })
+      return model.generate({ ...settings, ...constrained, ...(read && { past_key_values: read }) })
     }
+    await this.dropReading()
     let output: unknown
     try {
       output = await answer(this.reuse?.cache)
     } catch (error) {
+      // A cache read in passes that no generation took is freed, whatever failed.
+      await this.dropReading()
       // A cache the model won't take: once more without it.
       if (!this.reuse || outputTokens > 0) throw error
       await this.dropCache()
       cachedTokens = 0
-      output = await answer(undefined)
+      try {
+        output = await answer(undefined)
+      } catch (retryError) {
+        await this.dropReading()
+        throw retryError
+      }
     }
     const reading = this.reading
     this.reading = undefined

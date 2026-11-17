@@ -43,6 +43,7 @@
 /** The parts of Transformers.js's `env` used here. */
 type TransformersEnv = {
   useCustomCache: boolean
+  allowRemoteModels: boolean
   customCache: unknown
   cacheKey: string
   fetch: (url: string) => Promise<Response>
@@ -87,6 +88,8 @@ async function stored(dir: FileSystemDirectoryHandle, name: string) {
 
 /** Loads under way here (startLoad), and the buffers of ONNX files read during them, detached when the last ends. */
 let loading = 0
+/** The models of loads under way here, with how many loads of each: the only ones the cache downloads files for. */
+const loadingModels = new Map<string, number>()
 const readDuringLoads = new Set<ArrayBuffer>()
 
 /** A response whose `arrayBuffer()` is kept track of during a load, to be detached when it ends. */
@@ -173,6 +176,14 @@ async function write(dir: FileSystemDirectoryHandle, name: string, body: Readabl
 function opfsCache(env: TransformersEnv) {
   const downloading = new Map<string, Promise<Response | undefined>>()
 
+  /**
+   * Whether a lookup may download `url` itself: only during a load of this package's (startLoad)
+   * of the model it belongs to, and only where Transformers.js may load remote models. Anything
+   * else is a plain lookup, and Transformers.js downloads (or refuses) under its own rules.
+   */
+  const mayDownload = (url: string) =>
+    env.allowRemoteModels && /^https?:\/\//.test(url) && [...loadingModels.keys()].some((model) => url.includes(`/${model}/`))
+
   /** Transformers.js's own Cache Storage, where it kept files before; not created here. */
   const before = async () =>
     typeof caches !== "undefined" && (await caches.has(env.cacheKey).catch(() => false)) ? caches.open(env.cacheKey) : undefined
@@ -196,20 +207,29 @@ function opfsCache(env: TransformersEnv) {
   return {
     async match(key: string): Promise<Response | undefined> {
       const dir = await folder()
-      // A graph whose session reads on-demand weights: those files are downloaded and opened first.
+      // A graph whose session reads on-demand weights: those files are put in OPFS (copied from
+      // Transformers.js's own Cache Storage if it has them, else downloaded where allowed) and opened
+      // first. One that isn't there stays unopened: its session's read fails, and the load falls back
+      // to Transformers.js's own reading, under its own rules.
       if (key.endsWith(".onnx")) {
         for (const [url, weights] of onDemandFiles) {
           if (!url.startsWith(`${key}_data`) || weights.opened) continue
           const dataName = await nameOf(url)
           if (!(await stored(dir, dataName))) {
-            let pending = downloading.get(url)
-            if (!pending) {
-              pending = download(url, dir, dataName).finally(() => downloading.delete(url))
-              downloading.set(url, pending)
+            const old = await (await before())?.match(url)
+            if (old?.body) {
+              const size = await write(dir, dataName, old.body)
+              await writeEntry(dir, dataName, { key: url, size, type: old.headers.get("content-type") ?? "application/octet-stream" })
+            } else if (mayDownload(url)) {
+              let pending = downloading.get(url)
+              if (!pending) {
+                pending = download(url, dir, dataName).finally(() => downloading.delete(url))
+                downloading.set(url, pending)
+              }
+              await (await pending)?.body?.cancel().catch(() => undefined)
             }
-            await (await pending)?.body?.cancel().catch(() => undefined)
           }
-          await weights.open((await dir.getFileHandle(`${dataName}.bin`)) as never)
+          if (await stored(dir, dataName)) await weights.open((await dir.getFileHandle(`${dataName}.bin`)) as never)
         }
       }
       const name = await nameOf(key)
@@ -217,7 +237,7 @@ function opfsCache(env: TransformersEnv) {
       if (kept) return responseOf(key, kept.file, kept.entry.type)
       const old = await (await before())?.match(key)
       if (old) return responseOf(key, await old.blob(), old.headers.get("content-type") ?? "application/octet-stream")
-      if (!/^https?:\/\//.test(key) || !ONNX_FILE.test(new URL(key).pathname)) return undefined
+      if (!ONNX_FILE.test(new URL(key, "file:").pathname) || !mayDownload(key)) return undefined
       let pending = downloading.get(key)
       if (!pending) {
         pending = download(key, dir, name).finally(() => downloading.delete(key))
@@ -293,15 +313,18 @@ export function setUpTransformers(env: TransformersEnv): void {
 }
 
 /**
- * Starts a model load here: `report` hears the OPFS cache's downloads, as
+ * Starts a load of `model` here (the cache downloads its ONNX files into
+ * OPFS during it, where Transformers.js may load remote models): `report`
+ * hears the OPFS cache's downloads, as
  * the load's progress over them, 0 to 1 (at most every 100 ms, never going
  * back), and 1 when it ends well. `end()` ends it; when no other load is
  * under way, the ONNX files' buffers read during the loads are detached,
  * freeing them (see the top of this file). Load with no Transformers.js
  * `progress_callback`, so it reads the files with `arrayBuffer()`.
  */
-export function startLoad(report?: (progress: number) => void): { end: (loaded: boolean) => void } {
+export function startLoad(model: string, report?: (progress: number) => void): { end: (loaded: boolean) => void } {
   loading++
+  loadingModels.set(model, (loadingModels.get(model) ?? 0) + 1)
   const downloads = new Map<string, { loaded: number; total: number }>()
   let reported = 0
   let last = Number.NEGATIVE_INFINITY
@@ -327,6 +350,9 @@ export function startLoad(report?: (progress: number) => void): { end: (loaded: 
       if (ended) return
       ended = true
       listeners.delete(listener)
+      const left = (loadingModels.get(model) ?? 1) - 1
+      if (left > 0) loadingModels.set(model, left)
+      else loadingModels.delete(model)
       if (loaded && reported < 1) report?.(1)
       if (--loading > 0) return
       for (const buffer of readDuringLoads) (buffer as ArrayBuffer & { transfer?: (length: number) => ArrayBuffer }).transfer?.(0)

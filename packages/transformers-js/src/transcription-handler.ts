@@ -37,7 +37,7 @@ export class TransformersJsTranscriptionWorkerHandler {
   private async load({ model, device, dtype }: TranscriptionLoadSettings) {
     await this.unload()
     setUpTransformers(env)
-    const load = startLoad((value) => this.post({ status: "progress", progress: value }))
+    const load = startLoad(model, (value) => this.post({ status: "progress", progress: value }))
     try {
       this.recognizer = (await pipeline("automatic-speech-recognition", model, {
         ...(device && { device }),

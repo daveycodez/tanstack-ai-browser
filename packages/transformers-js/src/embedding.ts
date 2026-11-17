@@ -102,7 +102,7 @@ export class TransformersJsEmbeddingAdapter<TModel extends string> extends BaseE
     const { device, dtype } = this.loadConfig
     const extractor = import("@huggingface/transformers").then(async ({ env, pipeline, mean_pooling, quantize_embeddings }) => {
       setUpTransformers(env)
-      const load = startLoad((value) => listeners.forEach((listener) => listener(value)))
+      const load = startLoad(this.model, (value) => listeners.forEach((listener) => listener(value)))
       try {
         const extractor = (await pipeline("feature-extraction", this.model, {
           ...(device && { device }),
