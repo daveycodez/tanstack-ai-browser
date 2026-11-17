@@ -99,6 +99,13 @@ function cacheLength(cache: DynamicCache): number | undefined {
 export class TransformersJsWorkerHandler {
   private loaded: Loaded | null = null
   private readonly stopping = new InterruptableStoppingCriteria()
+  /**
+   * Whether the loaded model failed a prompt pass: its prompts are then read in one pass. Transformers.js
+   * 4.3.2 can't run Qwen3.5's text-only decoder over several tokens on top of a cache: its
+   * prepare_inputs_for_generation sets `pixel_values` to null there, which the image forward takes for
+   * an image and calls the vision encoder a text-only load doesn't have.
+   */
+  private passesFail = false
   /** The loaded model's prompt speed so far, in milliseconds a token (prompt-passes.ts sizes passes by it). */
   private msPerToken: number | undefined
   /** The cache of a prompt being read in passes (readPrompt), until generate() takes it. */
@@ -197,6 +204,7 @@ export class TransformersJsWorkerHandler {
     tokenizer.chat_template ??= await standaloneTemplate(id)
     this.loaded = { tokenizer, processor, model }
     this.msPerToken = undefined
+    this.passesFail = false
     this.post({ status: "ready" })
   }
 
@@ -207,6 +215,20 @@ export class TransformersJsWorkerHandler {
    * passes are sized by time alone; another's are LOGITS_PASS tokens at most.
    */
   private async readPrompt(model: PreTrainedModel, inputs: { input_ids: Tensor; [name: string]: unknown }, cache: DynamicCache | undefined) {
+    if (this.passesFail) return cache
+    try {
+      return await this.readInPasses(model, inputs, cache)
+    } catch (error) {
+      // A pass the model can't run: this prompt and the model's next ones in one pass, from no cache.
+      console.warn("[transformers-js] reading the prompt in passes failed; reading it in one pass:", error)
+      this.passesFail = true
+      await this.dropReading()
+      await this.dropCache()
+      return undefined
+    }
+  }
+
+  private async readInPasses(model: PreTrainedModel, inputs: { input_ids: Tensor; [name: string]: unknown }, cache: DynamicCache | undefined) {
     const sessions = (model as unknown as { sessions: Record<string, { inputNames?: ReadonlyArray<string> } | undefined> }).sessions
     const decoder = sessions["decoder_model_merged"] ?? sessions["model"]
     const mask = inputs.attention_mask as Tensor | undefined
@@ -281,6 +303,8 @@ export class TransformersJsWorkerHandler {
       // The schema's processor first: a schema it can't hold fails before any of the prompt is read.
       const constrained = constraint()
       const read = withImages ? cache : await this.readPrompt(model, inputs, cache)
+      // A cache given up on (a pass that failed): nothing of the prompt was cached after all.
+      if (cache && !read) cachedTokens = 0
       if (this.stopping.interrupted) return null
       promptRead = withImages ? undefined : { started: performance.now(), tokens: prompt.length - ((read && cacheLength(read)) ?? 0) }
       return model.generate({ ...settings, ...constrained, ...(read && { past_key_values: read }) })

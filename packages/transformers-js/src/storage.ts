@@ -377,6 +377,16 @@ export async function keptInOpfs(model: string): Promise<boolean> {
   }
 }
 
+/**
+ * The one buffer every on-demand file's subarray() reads into, grown to the
+ * largest tensor read: ONNX Runtime creates sessions one at a time and copies
+ * each tensor before reading the next, so a model's sessions (Qwen3.5's
+ * embedding and decoder, each with a ~250 MB tensor) share it. Detached when
+ * the last load using it closes: Safari doesn't garbage-collect it otherwise.
+ */
+let scratch = new ArrayBuffer(0)
+let openWeights = 0
+
 const misuse = (what: string) => () => {
   throw new Error(`On-demand weights were read through ${what}, not subarray(): load them whole.`)
 }
@@ -384,8 +394,8 @@ const misuse = (what: string) => () => {
 /**
  * A model's external weights file in OPFS, as ONNX Runtime takes external
  * data: a Uint8Array of the file's length, whose subarray(begin, end) reads
- * that range from the file (synchronously, in a worker) into one buffer
- * reused for every read, grown to the largest tensor. Anything else that
+ * that range from the file (synchronously, in a worker) into the shared
+ * scratch buffer. Anything else that
  * reads it as a whole throws (see the top of this file).
  */
 class OnDemandWeights extends Uint8Array {
@@ -393,7 +403,6 @@ class OnDemandWeights extends Uint8Array {
   readonly file: string
   #reader: SyncAccessHandle | undefined
   #size = 0
-  #scratch = new ArrayBuffer(0)
 
   constructor(file: string) {
     super(0)
@@ -429,8 +438,11 @@ class OnDemandWeights extends Uint8Array {
     const stop = end ?? this.#size
     if (begin < 0 || stop < begin || stop > this.#size) throw new RangeError(`${this.file}: bytes ${begin} to ${stop} of ${this.#size}`)
     const length = stop - begin
-    if (this.#scratch.byteLength < length) this.#scratch = new ArrayBuffer(length)
-    const bytes = new Uint8Array(this.#scratch, 0, length)
+    if (scratch.byteLength < length) {
+      ;(scratch as ArrayBuffer & { transfer?: (length: number) => ArrayBuffer }).transfer?.(0)
+      scratch = new ArrayBuffer(length)
+    }
+    const bytes = new Uint8Array(scratch, 0, length)
     if (reader.read(bytes, { at: begin }) !== length) throw new Error(`${this.file}: a short read at byte ${begin}`)
     return bytes
   }
@@ -438,7 +450,6 @@ class OnDemandWeights extends Uint8Array {
   close() {
     this.#reader?.close()
     this.#reader = undefined
-    this.#scratch = new ArrayBuffer(0)
   }
 }
 for (const name of ["buffer", "byteOffset"]) Object.defineProperty(OnDemandWeights.prototype, name, { get: misuse(name) })
@@ -471,13 +482,20 @@ export async function onDemandWeights(
   const base = `${env.remoteHost}${env.remotePathTemplate.replaceAll("{model}", model).replaceAll("{revision}", "main")}`
   const entries = files.map((file) => ({ url: `${base}${file}`, weights: new OnDemandWeights(file) }))
   for (const { url, weights } of entries) onDemandFiles.set(url, weights)
+  openWeights++
+  let closed = false
   return {
     externalData: entries.map(({ weights }) => ({ path: weights.file.slice(weights.file.lastIndexOf("/") + 1), data: weights })),
     close() {
+      if (closed) return
+      closed = true
       for (const { url, weights } of entries) {
         weights.close()
         onDemandFiles.delete(url)
       }
+      if (--openWeights > 0) return
+      ;(scratch as ArrayBuffer & { transfer?: (length: number) => ArrayBuffer }).transfer?.(0)
+      scratch = new ArrayBuffer(0)
     }
   }
 }
