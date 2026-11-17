@@ -5,7 +5,11 @@
  * of GPU buffers (fp16 logits, their fp32 cast and the copy read back),
  * which an iPhone tab doesn't have. So a prompt longer than PROMPT_PASS
  * tokens is read into the cache PROMPT_PASS tokens a pass first, and
- * generate() reads the rest and answers. huggingface/transformers.js#1836
+ * generate() reads the rest and answers. A model whose export has the input
+ * reads the prompt in one pass (the handler checks), as passes cost speed:
+ * each is a forward pass of its own (on a Mac, Chrome, LFM2.5 1.2B, 2,060
+ * tokens: 3,493 prompt tokens/s in passes against 4,034 in one).
+ * huggingface/transformers.js#1836
  * asks for this in generate() itself; remove this once it does
  * (daveycodez/tanstack-ai-browser#27 tracks it).
  */

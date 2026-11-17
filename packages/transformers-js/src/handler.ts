@@ -170,8 +170,16 @@ export class TransformersJsWorkerHandler {
     this.post({ status: "ready" })
   }
 
-  /** A prompt read into the cache in passes first (prompt-passes.ts): the cache for generate(). */
-  private readPrompt(model: PreTrainedModel, inputs: { input_ids: Tensor; [name: string]: unknown }, cache: DynamicCache | undefined) {
+  /**
+   * A prompt read into the cache in passes first (prompt-passes.ts): the
+   * cache for generate(). Not for a decoder that takes `num_logits_to_keep`
+   * (looked up as Transformers.js does): its pass returns the last token's
+   * logits only, so the whole prompt is read in one pass, which is faster.
+   */
+  private async readPrompt(model: PreTrainedModel, inputs: { input_ids: Tensor; [name: string]: unknown }, cache: DynamicCache | undefined) {
+    const sessions = (model as unknown as { sessions: Record<string, { inputNames?: ReadonlyArray<string> } | undefined> }).sessions
+    const decoder = sessions["decoder_model_merged"] ?? sessions["model"]
+    if (decoder?.inputNames?.includes("num_logits_to_keep")) return cache
     const mask = inputs.attention_mask as Tensor | undefined
     return readInPasses(inputs.input_ids.dims.at(-1) ?? 0, cache, {
       lengthOf: cacheLength,
