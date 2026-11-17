@@ -44,6 +44,7 @@
 type TransformersEnv = {
   useCustomCache: boolean
   allowRemoteModels: boolean
+  allowLocalModels: boolean
   customCache: unknown
   cacheKey: string
   fetch: (url: string) => Promise<Response>
@@ -178,11 +179,16 @@ function opfsCache(env: TransformersEnv) {
 
   /**
    * Whether a lookup may download `url` itself: only during a load of this package's (startLoad)
-   * of the model it belongs to, and only where Transformers.js may load remote models. Anything
-   * else is a plain lookup, and Transformers.js downloads (or refuses) under its own rules.
+   * of the model it belongs to, only where Transformers.js may load remote models, and not where it
+   * may load local ones (it looks for a local file before downloading, after this lookup, so a
+   * download here would override one). Anything else is a plain lookup, and Transformers.js loads,
+   * downloads or refuses under its own rules.
    */
   const mayDownload = (url: string) =>
-    env.allowRemoteModels && /^https?:\/\//.test(url) && [...loadingModels.keys()].some((model) => url.includes(`/${model}/`))
+    env.allowRemoteModels &&
+    !env.allowLocalModels &&
+    /^https?:\/\//.test(url) &&
+    [...loadingModels.keys()].some((model) => url.includes(`/${model}/`))
 
   /** Transformers.js's own Cache Storage, where it kept files before; not created here. */
   const before = async () =>
