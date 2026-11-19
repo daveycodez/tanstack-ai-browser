@@ -38,6 +38,7 @@ What does leave your device: calls to MCP servers (Exa's web search, if it's on,
 | LFM2.5 350M GGUF          | LFM2.5 350M's GGUF build (229 MB): on the CPU, the quickest of all.                                                                                                                         |
 | Apple Foundation Model    | Apple's on-device model, served on your Mac by [apfel](https://apfel.franzai.com), through `@tanstack-ai-browser/apfel`. Shown on Apple devices only; needs a Mac (see Requirements).       |
 | Gemini Nano               | The browser's built-in model, through the Prompt API and `@tanstack-ai-browser/prompt-api` (Phi-4-mini in Edge). Chrome downloads it (about 85 s) for every site. 9,216 tokens per session. |
+| Gemini Nano (Android app) | Android's on-device model, through ML Kit's Prompt API and `@tanstack-ai-browser/mlkit`: in the Android app only, named as the device's model is (Gemini Nano 4 on a Pixel 10 Pro), with tools and thinking where it has them. Android's AICore downloads it, once for every app. |
 
 The picker's WebGLLM section runs models on `@tanstack-ai-browser/webgllm`, built on the `webgllm` engine, on WebGPU where the browser has it and on WebGL 2 elsewhere: LFM3 (Liquid AI's GGUF and onnx-community's ONNX), Liquid's vision models LFM3-VL 2B and LFM2.5-VL 3B, 1.6B and 450M (Liquid AI's GGUF and ONNX builds, which read images), LFM2.5 (Liquid AI's ONNX and GGUF builds), and Qwen3.5 2B (onnx-community's ONNX and unsloth's Q4_0 GGUF). The default is **LFM3-1.7B-GGUF** there: Liquid AI's QAD Q4_0 build (1.05 GB), which calls tools like the unquantized model. On 20 test prompts that need a tool, its first reply token is a tool call on all 20, against 16 for onnx-community's ONNX ([the bench](../../packages/webgllm/bench/README.md)).
 
@@ -112,9 +113,9 @@ pnpm nx deploy lofi-agent      # build, then wrangler deploy to Cloudflare Worke
 
 Deploying needs a Cloudflare account (`wrangler login`). No environment variables or API keys are required.
 
-### Desktop (Electron) and iOS (Capacitor)
+### Desktop (Electron), iOS and Android (Capacitor)
 
-Both apps wrap the prerendered site that `vite build` writes to `dist/client`.
+The apps wrap the prerendered site that `vite build` writes to `dist/client`.
 
 ```sh
 pnpm nx electron:dev lofi-agent      # an Electron window on the dev server (pnpm nx dev lofi-agent), with hot reload
@@ -122,6 +123,9 @@ pnpm nx electron:package lofi-agent  # unsigned macOS app in dist/electron-app/m
 pnpm nx ios:sync lofi-agent          # build the site, copy it into the Xcode project
 pnpm nx ios:dev lofi-agent           # sync, then build and run on a simulator you pick
 pnpm nx ios:open lofi-agent          # open ios/App in Xcode
+pnpm nx android:sync lofi-agent      # build the site, copy it into the Android project
+pnpm nx android:dev lofi-agent       # sync, then build and run on a device you pick
+pnpm nx android:open lofi-agent      # open android/ in Android Studio
 ```
 
 **Dev builds with hot reload.** `electron:dev` opens the window on the dev server at `http://localhost:3000` (`LOFI_DEV_SERVER`) instead of the built site; Apple's model and the location tool work there as in the packaged app. On an iPhone or iPad, the app loads the dev server through an HTTPS tunnel: start one with `cloudflared tunnel --url http://localhost:3000`, sync with its address, then build and install once from Xcode (or `xcodebuild` and `devicectl`). Edits then show up on the device without reinstalling. A new tunnel address needs a new sync and install; a plain `ios:sync` goes back to the bundled site.
@@ -131,6 +135,14 @@ CAP_SERVER_URL=https://<tunnel>.trycloudflare.com pnpm exec cap sync ios
 ```
 
 The Electron window loads the site from `app://lofi-agent/`, a scheme the main process (`electron/main.ts`) serves from `dist/client` with the cross-origin isolation headers, so it has WebGPU, OPFS and SharedArrayBuffer as on the web. The iOS app needs Xcode; its web view loads the site from `capacitor://localhost`, which isn't cross-origin isolated, so models on the CPU run on one thread there.
+
+The Android app needs the Android SDK and a JDK 21 (Android Studio's, say: `JAVA_HOME="/Applications/Android Studio.app/Contents/jbr/Contents/Home"`); its web view loads the site from `https://localhost`. It adds Gemini Nano through ML Kit to the picker, on a phone whose AICore has the model (not an emulator). Without Android Studio, build and install it from `android/`:
+
+```sh
+pnpm nx android:sync lofi-agent
+cd apps/lofi-agent/android && ./gradlew assembleDebug
+adb install -r app/build/outputs/apk/debug/app-debug.apk
+```
 
 ## Project structure
 
@@ -154,8 +166,9 @@ apps/lofi-agent/           the app (Nx project "lofi-agent")
                            dictation, Markdown helpers
   electron/main.ts         Electron main process: a window serving dist/client
   electron-builder.yml     macOS app packaging
-  capacitor.config.ts      Capacitor config (iOS)
+  capacitor.config.ts      Capacitor config (iOS and Android)
   ios/                     the Xcode project Capacitor generated
+  android/                 the Android project Capacitor generated
   wrangler.jsonc           Cloudflare Worker config
 ```
 
@@ -168,6 +181,7 @@ apps/lofi-agent/           the app (Nx project "lofi-agent")
 - [`@tanstack-ai-browser/wllama`](../../packages/wllama): the official wllama 3.13.0 (llama.cpp in WebAssembly), for the GGUF models, on WebGPU or the CPU
 - [`@tanstack-ai-browser/apfel`](../../packages/apfel): Apple's on-device model through apfel
 - [`@tanstack-ai-browser/prompt-api`](../../packages/prompt-api): the browser's built-in model through the Prompt API
+- [`@tanstack-ai-browser/mlkit`](../../packages/mlkit): Gemini Nano in the Android app, through ML Kit's Prompt API
 - [HeroUI](https://heroui.com) v3, Tailwind CSS v4 and Gravity UI icons
 - TanStack Markdown, tanstack-markdown-math (KaTeX) and TanStack Highlight
 - use-stick-to-bottom for following the reply, and TanStack Devtools in development

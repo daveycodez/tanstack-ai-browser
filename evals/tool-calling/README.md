@@ -50,9 +50,9 @@ Open `http://localhost:8795/?adapter=prompt-api` in the browser to test (`localh
 
 Runs on one machine share its GPU and CPU, so run them one at a time when comparing times.
 
-## Running it in an app (AFM)
+## Running it in an app (AFM, ML Kit)
 
-Apple's model runs only in an app with the afm package's native side: lofi-agent's Electron build on a Mac, its Capacitor build on an iPhone or iPad. `inject.mjs` runs the suite inside the app's own page and prints its lines the same way:
+Apple's model runs only in an app with the afm package's native side: lofi-agent's Electron build on a Mac, its Capacitor build on an iPhone or iPad. Android's Gemini Nano runs only in an app with the mlkit package's native side: lofi-agent's Capacitor build on an Android phone (`adapter=mlkit`). `inject.mjs` runs the suite inside the app's own page and prints its lines the same way:
 
 ```sh
 node evals/tool-calling/inject.mjs <webSocketDebuggerUrl> [query]
@@ -62,6 +62,7 @@ The query is the page's (`adapter=afm` by default; `runs`, `cases`).
 
 - **Electron:** start the app with `--remote-debugging-port=9229`; `curl -s localhost:9229/json` lists its page.
 - **iPhone or iPad** (a debug build, over USB, Web Inspector on): `ios_webkit_debug_proxy -c <udid>:9333 --no-frontend`; `curl -s localhost:9333/json` lists the app's page (`capacitor://localhost`).
+- **Android phone** (a debug build, over USB, the app open and in front: ML Kit answers only the foreground app): `adb shell cat /proc/net/unix | grep webview_devtools_remote` names the app's socket, `adb forward tcp:9477 localabstract:webview_devtools_remote_<pid>` forwards it, and `curl -s localhost:9477/json` lists the app's page (`https://localhost`). Pass `adapter=mlkit` (and `stage=preview` or `preference=fast` for another of ML Kit's models).
 
 ## The suite's own tests
 

@@ -15,6 +15,8 @@ import type { webLlmText, WebLlmChatModel } from "@tanstack-ai-browser/web-llm"
 import type { webLlmModel as WebLlmModel } from "./web-llm-models.ts"
 import { apfelText } from "@tanstack-ai-browser/apfel"
 import { afmText } from "@tanstack-ai-browser/afm"
+import { mlkitText, MLKIT_MODEL_REASONING } from "@tanstack-ai-browser/mlkit"
+import type { MlKitFeature } from "@tanstack-ai-browser/mlkit"
 import { PromptApiTextAdapter, PromptApiVariant, promptApiText } from "@tanstack-ai-browser/prompt-api"
 import type { Availability } from "@tanstack-ai-browser/prompt-api"
 import { useSyncExternalStore } from "react"
@@ -68,6 +70,7 @@ export type ModelId =
   | "qwen3.5-2b-gguf-webgl"
   | `web-llm:${WebLlmChatModel}`
   | "built-in"
+  | "gemini-nano-mlkit"
 
 /** The app reaches apfel on this Mac at its default address. */
 const APPLE_MODEL = "apple-foundationmodel"
@@ -102,6 +105,7 @@ type ModelEntry = {
     | ReturnType<typeof transformersJsText>
     | ReturnType<typeof apfelText>
     | ReturnType<typeof afmText>
+    | ReturnType<typeof mlkitText>
     | ReturnType<typeof wllamaText>
     | ReturnType<typeof promptApiText>
     | ReturnType<typeof webgllmText>
@@ -255,6 +259,13 @@ const afm = afmText()
 /** The browser's own model, through the Prompt API. */
 const builtIn = promptApiText({ onDownloadProgress: builtInStatus.onDownloadProgress })
 
+/** Android's own model's status, and its download's progress. */
+const mlkitStatus = statusStore()
+/** Gemini Nano through ML Kit (the Android app's plugin): also asked which Gemini Nano it runs. */
+const mlkit = mlkitText({ onDownloadProgress: mlkitStatus.onDownloadProgress })
+/** What the device's Gemini Nano can do, as ML Kit says once it's checked: tools and thinking need Gemini Nano 4. */
+const mlkitFeatures = createStore<ReadonlyArray<MlKitFeature>>([])
+
 export const MODELS = [
   {
     id: "apple-foundationmodel",
@@ -305,6 +316,28 @@ export const MODELS = [
     /** The browser's model doesn't reason. */
     reasoning: undefined,
     callsTools: true
+  },
+  {
+    id: "gemini-nano-mlkit",
+    /**
+     * Android's own model, through ML Kit's Prompt API: in the Android app
+     * (the Capacitor plugin). Offered where it says the model can run, named
+     * as ML Kit names the one on the device (see reportedNames).
+     */
+    name: "Gemini Nano",
+    icon: "/icons/gemini.svg",
+    adapter: mlkit,
+    /** Android's AICore downloads it, once for every app, with progress. */
+    status: mlkitStatus.status as ModelStatusStore | null,
+    needsWebGpu: false,
+    /** Thinking mode, where the device's model has it. */
+    get reasoning() {
+      return mlkitFeatures.get().includes("thinkingMode") ? MLKIT_MODEL_REASONING["gemini-nano"] : undefined
+    },
+    /** ML Kit's function calling, where the device's model has it. */
+    get callsTools() {
+      return mlkitFeatures.get().includes("functionCalling")
+    }
   },
   local("lfm3", "onnx-community/LFM3-1.7B-ONNX"),
   local("lfm3-vl", "onnx-community/LFM3-VL-2B-ONNX"),
@@ -384,6 +417,7 @@ const allModels = (): ReadonlyArray<ModelEntry> => [...MODELS, ...webLlmModels.g
 export const PROVIDERS = [
   { id: "apfel", name: "apfel" },
   { id: "afm", name: "AFM" },
+  { id: "mlkit", name: "ML Kit" },
   { id: "prompt-api", name: "Prompt API" },
   { id: "transformers-js", name: "Transformers.js" },
   { id: "webgllm", name: "WebGLLM" },
@@ -613,7 +647,8 @@ const availabilities = createStore<Partial<Record<ModelId, Availability>>>({})
  * Names models give themselves, over their entries': Apple's framework says
  * which model it runs ("AFM 3 Core Advanced", "AFM 2 Core"), once it can run;
  * the Prompt API adapter, which model the browser runs ("Gemini Nano",
- * "Gemma 4", "Aion-1.1-Instruct").
+ * "Gemma 4", "Aion-1.1-Instruct"); ML Kit, which Gemini Nano the Android
+ * device has ("Gemini Nano 4").
  */
 const reportedNames = createStore<Partial<Record<ModelId, string>>>({})
 
@@ -629,7 +664,10 @@ async function checkAvailability(id: ModelId) {
       ? await afm.variant()
       : id === "built-in" && result !== "unavailable"
         ? await builtIn.variant()
-        : undefined
+        : id === "gemini-nano-mlkit" && result === "available"
+          ? await mlkit.variant()
+          : undefined
+  if (id === "gemini-nano-mlkit") mlkitFeatures.set(await mlkit.features())
   if (variant) reportedNames.set((all) => ({ ...all, [id]: variant.displayName }))
   return result
 }
@@ -656,13 +694,19 @@ export const useAvailabilities = () => {
 
 /**
  * Whether `id` can run here, as its availability says: models are offered
- * until their check says otherwise, except the built-in model and the
- * WebGL ones, which wait for it (most browsers have neither).
+ * until their check says otherwise, except the built-in model, Apple's and
+ * Android's through their frameworks, and the WebGL ones, which wait for it
+ * (most browsers have none of them).
  */
 const isAvailable = (id: ModelId) => {
   const availability = availabilities.get()[id]
   if (availability === undefined) {
-    return id !== "built-in" && id !== "apple-foundationmodel-afm" && modelInfo(id).adapter.name !== "webgllm"
+    return (
+      id !== "built-in" &&
+      id !== "apple-foundationmodel-afm" &&
+      id !== "gemini-nano-mlkit" &&
+      modelInfo(id).adapter.name !== "webgllm"
+    )
   }
   return availability !== "unavailable"
 }

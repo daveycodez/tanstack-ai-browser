@@ -1,0 +1,63 @@
+// The Capacitor plugin's Android library: ML Kit's GenAI Prompt API (Gemini Nano, through
+// Android's AICore) for the package's adapter. ML Kit's classes are compiled with Kotlin 2.4,
+// which a Kotlin compiler reads from 2.3 on, and need Android 8 (API 26).
+
+ext {
+    junitVersion = project.hasProperty('junitVersion') ? rootProject.ext.junitVersion : '4.13.2'
+    mlkitGenAiPromptVersion = project.hasProperty('mlkitGenAiPromptVersion') ? rootProject.ext.mlkitGenAiPromptVersion : '1.0.0-beta5'
+}
+
+buildscript {
+    ext.kotlinVersion = project.hasProperty('kotlin_version') ? rootProject.ext.kotlin_version : '2.4.21'
+    repositories {
+        google()
+        mavenCentral()
+    }
+    dependencies {
+        classpath 'com.android.tools.build:gradle:8.13.0'
+        classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlinVersion"
+    }
+}
+
+apply plugin: 'com.android.library'
+apply plugin: 'org.jetbrains.kotlin.android'
+
+android {
+    namespace = "io.github.daveycodez.mlkit"
+    compileSdk = project.hasProperty('compileSdkVersion') ? rootProject.ext.compileSdkVersion : 36
+    defaultConfig {
+        minSdkVersion Math.max(project.hasProperty('minSdkVersion') ? rootProject.ext.minSdkVersion : 26, 26)
+        targetSdkVersion project.hasProperty('targetSdkVersion') ? rootProject.ext.targetSdkVersion : 36
+        versionCode 1
+        versionName "1.0"
+    }
+    buildTypes {
+        release {
+            minifyEnabled false
+        }
+    }
+    lintOptions {
+        abortOnError = false
+    }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_21
+        targetCompatibility JavaVersion.VERSION_21
+    }
+}
+
+kotlin {
+    compilerOptions {
+        jvmTarget = org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_21
+    }
+}
+
+repositories {
+    google()
+    mavenCentral()
+}
+
+dependencies {
+    implementation project(':capacitor-android')
+    implementation "com.google.mlkit:genai-prompt:$mlkitGenAiPromptVersion"
+    testImplementation "junit:junit:$junitVersion"
+}

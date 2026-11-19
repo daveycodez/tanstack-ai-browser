@@ -26,6 +26,9 @@
     },
     {
       "path": "./packages/afm"
+    },
+    {
+      "path": "./packages/mlkit"
     }
   ],
   "compilerOptions": {}
