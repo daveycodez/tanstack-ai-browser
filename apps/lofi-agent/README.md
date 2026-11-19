@@ -7,7 +7,7 @@ A chat app that runs small language models entirely in your browser. Models are 
 ## Why it's different
 
 - **Private.** In-browser models run on your device. The app has no backend and no accounts: the Cloudflare Worker only serves the pages, prerendered or rendered without any of your data. Sessions, settings and MCP server details stay in your browser's IndexedDB.
-- **Runs on iPhone.** The default model runs on the WebGL engine, which needs no WebGPU, and the runtimes are tuned to stay inside iPhone Safari's memory and GPU limits. The wllama and WebGL models hold their whole context window per session, prompt and reply together; on iPhone and iPad, 8,192 tokens.
+- **Runs on iPhone.** The default model runs on webgllm, on WebGPU where the browser has it and on WebGL 2 elsewhere, and the runtimes are tuned to stay inside iPhone Safari's memory and GPU limits. The wllama and WebGLLM models hold their whole context window per session, prompt and reply together; on iPhone and iPad, 8,192 tokens.
 - **Download once.** Model weights (about 0.8 to 1.1 GB per model) are saved to the browser's Origin Private File System and loaded from disk on later visits.
 - **Reuses work between runs.** The model keeps what it has already read, so a follow-up message, the next step after a tool call, or a new session with the same system prompt only reads what's new. The system prompt and tools are also saved to disk, so they aren't read again after a reload.
 
@@ -39,7 +39,7 @@ What does leave your device: calls to MCP servers (Exa's web search, if it's on,
 | Apple Foundation Model    | Apple's on-device model, served on your Mac by [apfel](https://apfel.franzai.com), through `@tanstack-ai-browser/apfel`. Shown on Apple devices only; needs a Mac (see Requirements).       |
 | Gemini Nano               | The browser's built-in model, through the Prompt API and `@tanstack-ai-browser/prompt-api` (Phi-4-mini in Edge). Chrome downloads it (about 85 s) for every site. 9,216 tokens per session. |
 
-The picker's WebGL section runs models on `@tanstack-ai-browser/webgllm`, built on the `webgllm` WebGL 2 engine, with or without WebGPU: LFM3 (Liquid AI's GGUF and onnx-community's ONNX), Liquid's vision models LFM3-VL 2B and LFM2.5-VL 3B, 1.6B and 450M (Liquid AI's GGUF and ONNX builds, which read images), LFM2.5 (Liquid AI's ONNX and GGUF builds), and Qwen3.5 2B (onnx-community's ONNX and unsloth's Q4_0 GGUF). The default is **LFM3-1.7B-GGUF** there: Liquid AI's QAD Q4_0 build (1.05 GB), which calls tools like the unquantized model. On 20 test prompts that need a tool, its first reply token is a tool call on all 20, against 16 for onnx-community's ONNX ([the bench](../../packages/webgllm/bench/README.md)).
+The picker's WebGLLM section runs models on `@tanstack-ai-browser/webgllm`, built on the `webgllm` engine, on WebGPU where the browser has it and on WebGL 2 elsewhere: LFM3 (Liquid AI's GGUF and onnx-community's ONNX), Liquid's vision models LFM3-VL 2B and LFM2.5-VL 3B, 1.6B and 450M (Liquid AI's GGUF and ONNX builds, which read images), LFM2.5 (Liquid AI's ONNX and GGUF builds), and Qwen3.5 2B (onnx-community's ONNX and unsloth's Q4_0 GGUF). The default is **LFM3-1.7B-GGUF** there: Liquid AI's QAD Q4_0 build (1.05 GB), which calls tools like the unquantized model. On 20 test prompts that need a tool, its first reply token is a tool call on all 20, against 16 for onnx-community's ONNX ([the bench](../../packages/webgllm/bench/README.md)).
 
 The GGUF models are in the picker's wllama section. They run on the CPU, WebGPU or not: on half the cores (wllama's default) where the page is cross-origin isolated (see `src/start.ts`), in every browser, Safari and Firefox included, since the site's headers use `Cross-Origin-Embedder-Policy: require-corp`.
 
@@ -70,13 +70,13 @@ Models download their repository's latest version (main). Models whose thinking 
 - Light, dark and system themes
 - Add to Home Screen: installs as an app with its own icon, and keeps the downloaded model more reliably than a Safari tab
 - GGUF models (the wllama section) run with llama.cpp's WebAssembly build: download once to the Origin Private File System, reuse what they've read across follow-ups and tool calls, and need no WebGPU
-- Without WebGPU (Firefox on Android, for one), the WebGL models still run on the GPU, the default among them. The Transformers.js models run on the CPU through WebAssembly, on their CPU (`q4`) weights, with nothing to set. Where WebGL 2 isn't available either, the picker starts on LFM2 1.2B Tool. Much slower than the GPU, especially while generating.
+- Without WebGPU (Firefox on Android, for one), the WebGLLM models still run on the GPU, on WebGL 2, the default among them. The Transformers.js models run on the CPU through WebAssembly, on their CPU (`q4`) weights, with nothing to set. Where WebGL 2 isn't available either, the picker starts on LFM2 1.2B Tool. Much slower than the GPU, especially while generating.
 - Pages render on the server (the home page is prerendered), with skeletons for what comes from IndexedDB until it opens
 - TanStack Devtools in development, with the AI and Router panels (no button: open them with Ctrl + ~)
 
 ## Requirements
 
-- A browser with WebGL 2 or WebGPU for GPU speed: the WebGL models (the default among them) need WebGL 2, the Transformers.js models WebGPU. Where the browser has JavaScript Promise Integration (Safari 27 and recent Chrome), a smaller, faster ONNX Runtime build is used. Without WebGPU, the CPU models above still run, slowly.
+- A browser with WebGL 2 or WebGPU for GPU speed: the WebGLLM models (the default among them) need WebGL 2 and run on WebGPU where there's one, the Transformers.js models need WebGPU. Where the browser has JavaScript Promise Integration (Safari 27 and recent Chrome), a smaller, faster ONNX Runtime build is used. Without WebGPU, the CPU models above still run, slowly.
 - Around 1 GB of free storage per model.
 - For the built-in model: desktop Chrome or Edge with the Prompt API, on a device that can run it (Chrome asks for 22 GB free, and a GPU with more than 4 GB or 16 GB of RAM). Other browsers, Chromium for Testing included, don't show it.
 - WebGPU needs a secure context: `localhost` during development, HTTPS otherwise.

@@ -203,9 +203,9 @@ const gguf = (id: ModelId, model: WllamaChatModel) => {
 }
 
 /**
- * LFM3, LFM2.5 and Qwen3.5 on the package's own WebGL 2 engine, which runs
- * with or without WebGPU. Where there's no WebGPU it still reads prompts on
- * the GPU: about three times as fast as the CPU on a Pixel 10 Pro.
+ * LFM3, LFM2.5 and Qwen3.5 on webgllm, on WebGPU where the browser has it
+ * and on WebGL 2 elsewhere. Where there's no WebGPU it still reads prompts
+ * on the GPU: about three times as fast as the CPU on a Pixel 10 Pro.
  */
 const webgl = (id: ModelId, model: WebGllmChatModel) => {
   const { status, onDownloadProgress } = statusStore()
@@ -446,7 +446,7 @@ export function effortButtonLabel(id: ModelId, level: ReasoningLevel) {
 
 /**
  * The model to start with, and to fall back on: Liquid AI's QAD Q4_0 GGUF of
- * LFM3 1.7B on the WebGL engine, which runs with or without WebGPU (iPhone
+ * LFM3 1.7B on webgllm, which runs with or without WebGPU (iPhone
  * Safari included), thinking at high effort (see ./model.ts). Of the LFM3
  * builds it calls tools most like the unquantized model: on 20 test prompts
  * that need a tool, its first reply token is a tool call on all 20, against
@@ -586,16 +586,16 @@ const useWllamaOnWebGpu = () =>
 
 /**
  * Which backend a provider's models run on here, for the picker: WebGPU or
- * Wasm (the CPU, in WebAssembly) for Transformers.js and wllama, WebGPU for
- * WebLLM and WebGL 2 for WebGLLM (their only ones); nothing for the others
- * (apfel and the Prompt API aren't ours).
+ * Wasm (the CPU, in WebAssembly) for Transformers.js and wllama, WebGPU or
+ * WebGL 2 for WebGLLM, WebGPU for WebLLM (its only one); nothing for the
+ * others (apfel and the Prompt API aren't ours).
  */
 export function useBackends(): Partial<Record<string, string>> {
   const webGpu = useHasWebGpu()
   const wllama = useWllamaOnWebGpu()
   return {
     "transformers-js": webGpu ? "WebGPU" : "Wasm",
-    webgllm: "WebGL 2",
+    webgllm: webGpu ? "WebGPU" : "WebGL 2",
     "web-llm": "WebGPU",
     ...(wllama !== null && { wllama: wllama ? "WebGPU" : "Wasm" })
   }
