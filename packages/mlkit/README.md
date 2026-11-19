@@ -78,7 +78,17 @@ chat({ adapter, threadId, messages, modelOptions: { temperature: 0.7, topK: 40, 
 
 Each tool's JSON Schema is read into ML Kit's `FunctionSchema`, which holds a type, a description, an object's properties and required ones, a string's enum, format, lengths and pattern, a number's range, an array's items and length, `nullable` and `anyOf`. What it has nothing for is written with what it has: a `$ref` in place, a string `const` as an enum of one, `oneOf` as `anyOf`, `allOf` merged, a null type as `nullable`; keywords such as `additionalProperties` and `default` are left out. A schema that refers to itself throws, since nothing in `FunctionSchema` can hold it.
 
-`toolChoice: "none"` sends no tools, and a named tool sends only that one. ML Kit has no way to require a call, so `"required"` is the same as `"auto"`.
+`toolChoice: "none"` sends no tools.
+
+ML Kit's function calling leaves the call to the model: it has no setting that requires one. So `toolChoice: "required"` and a named tool are made with its structured output instead (see Structured output below), where the model has it:
+
+- a named tool, or the only tool offered: one answer held to that tool's parameters is the call's arguments;
+- `"required"` with several tools: one answer held to the tools' names picks the tool, then one held to its parameters is the arguments (two passes of the model);
+- a tool without parameters is called without asking the model for anything.
+
+On a Pixel 10 Pro, "Hi there" with four tools got a greeting with `"auto"` and a call with `"required"`; a named tool's call took about 0.5 s, and `"required"` among four tools about 1 s (2.6 s for the first after the app started).
+
+The call comes whole, as one tool call a step, without text or thinking before it. Where it can't be held (a model without structured output, or a tool whose parameters ML Kit's structured output can't describe), the model decides as with `"auto"`, with a named tool the only one sent.
 
 A tool's result goes back as ML Kit's function response, a map: a JSON object as it is, any other output as `{ result }`, and a tool's error as `{ error }`.
 
@@ -94,7 +104,21 @@ The model reads images in a user message, as data or a URL the adapter fetches. 
 
 ### Structured output
 
-ML Kit holds an answer only to a schema compiled into the app (a Kotlin class annotated `@Generable`), not to one given at run time. So for `chat({ outputSchema })` the adapter adds the schema to the system instruction, after your system prompts ("Answer with one JSON value that is valid for this JSON Schema, and nothing else:"), and reads the answer as JSON, without the code fence the model puts around it. Nothing holds the model to the schema: check the answer with a Standard Schema validator (`chat()` does, for one). An answer that isn't JSON fails as TanStack's parse failure, and one cut off by `maxOutputTokens` fails with the code `length`.
+`chat({ outputSchema })` is held to the schema by ML Kit's own structured output, where the model has it (`features()` lists `"structuredOutput"`) and the schema is one it can hold.
+
+ML Kit's API takes a schema only as a Kotlin class compiled into the app (one annotated `@Generable`, which its compiler plugin describes to ML Kit). The plugin stands a schema given at run time in such a class's place: it registers sixteen empty classes with ML Kit, and describes the request's schema as theirs, the root object as the first and each object inside it as the next. So ML Kit holds the answer to what such a class can describe:
+
+- an object with named properties, which are strings (with an `enum` or a `pattern`), integers and numbers (with a `minimum` and `maximum`), booleans, objects like it, and arrays of those (with `minItems` and `maxItems`);
+- up to sixteen objects in all;
+- every property in the answer: one the schema doesn't require may be null there, and the adapter leaves it out, unless the schema lets it be null.
+
+A schema outside that (a choice of types with `anyOf`, an array of arrays, a property of any type, an object of any properties, a schema that refers to itself) isn't held, and neither is any schema where the model has no structured output. Then the adapter adds the schema to the system instruction, after your system prompts ("Answer with one JSON value that is valid for this JSON Schema, and nothing else:"), and reads the answer as JSON, without the code fence the model puts around it. Nothing holds the model to the schema there: check the answer with a Standard Schema validator (`chat()` does, for one).
+
+On a Pixel 10 Pro (Gemini Nano 4) the hold is real: asked for "one sentence of plain English prose, no JSON" with a city's schema held and left out of the prompt, the model still answered `{"city":"sea","country":"ocean",...}`. Held answers with nested objects, arrays, enums and booleans took 0.8 to 1.7 s there (3.4 s for the first after the app started).
+
+ML Kit also writes a held schema into the model's prompt. `includeSchemaInPrompt: false` (the adapter's, or a request's `modelOptions`) leaves it out: ML Kit still holds the answer to it, but the model doesn't read its descriptions, so the prompt should say what's wanted. One structured answer runs at a time, since the sixteen classes are the app's. A held answer comes whole, not as it's written.
+
+An answer that isn't JSON fails as TanStack's parse failure, and one cut off by `maxOutputTokens` fails with the code `length`.
 
 ML Kit's own wording for its compiled schemas ("you MUST output ONLY in the following JSON schema") isn't used: given a JSON Schema, it made Gemini Nano 4 fill in the schema itself (`{"type":"object","properties":{"city":"Paris"}}`).
 

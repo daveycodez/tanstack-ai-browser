@@ -12,6 +12,7 @@ import com.google.mlkit.genai.prompt.Feature
 import com.google.mlkit.genai.prompt.FunctionCallPart
 import com.google.mlkit.genai.prompt.FunctionResponsePart
 import com.google.mlkit.genai.prompt.GenerateContentRequest
+import com.google.mlkit.genai.prompt.GenerateTypedContentRequest
 import com.google.mlkit.genai.prompt.Generation
 import com.google.mlkit.genai.prompt.GenerationConfig
 import com.google.mlkit.genai.prompt.GenerativeModel
@@ -22,6 +23,7 @@ import com.google.mlkit.genai.prompt.ModelReleaseStage
 import com.google.mlkit.genai.prompt.Part
 import com.google.mlkit.genai.prompt.SystemInstruction
 import com.google.mlkit.genai.prompt.TextPart
+import com.google.mlkit.genai.prompt.TypedCandidate
 import com.google.mlkit.genai.schema.tools.FunctionDeclaration
 import com.google.mlkit.genai.schema.tools.FunctionSchema
 import com.google.mlkit.genai.schema.tools.FunctionType
@@ -36,6 +38,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.takeWhile
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.withLock
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -193,6 +196,11 @@ class MlKitBridge(private val emit: (JSONObject) -> Unit) {
     private suspend fun run(id: String, model: GenerativeModel, options: JSONObject) {
         fun send(event: JSONObject) = emit(event.put("requestId", id))
         try {
+            val schema = options.optJSONObject("schema")
+            if (schema != null) {
+                send(held(model, options, schema))
+                return
+            }
             val text = StringBuilder()
             val calls = ArrayList<FunctionCall>()
             var finish: Int? = null
@@ -243,6 +251,30 @@ class MlKitBridge(private val emit: (JSONObject) -> Unit) {
             send(JSONObject().put("type", "error").put("code", code(error)).put("message", error.message ?: error.toString()))
         }
     }
+
+    /**
+     * An answer held to a `schema` by ML Kit's structured output (see `SchemaSlots`), as a
+     * `done` event with the answer in JSON. ML Kit gives it whole, not as it's written.
+     * `options.includeSchemaInPrompt` false keeps the schema out of the model's prompt
+     * (ML Kit still holds the answer to it).
+     */
+    private suspend fun held(model: GenerativeModel, options: JSONObject, schema: JSONObject): JSONObject =
+        SchemaSlots.mutex.withLock {
+            SchemaSlots.assign(schema)
+            val typed = GenerateTypedContentRequest.Builder(request(model, options), Slot0::class).apply {
+                includeSchemaInPrompt = options.optJSONObject("options")?.optBoolean("includeSchemaInPrompt", true) ?: true
+            }.build()
+            val candidate = model.generateContent(typed).candidates.firstOrNull()
+            val answer = candidate?.response ?: throw BridgeError("responseProcessingError", "ML Kit gave no answer")
+            JSONObject().put("type", "done").put("text", JSONObject(answer as Map<*, *>).toString()).put(
+                "finishReason",
+                when (candidate.finishReason) {
+                    TypedCandidate.TypedFinishReason.STOP -> "stop"
+                    TypedCandidate.TypedFinishReason.MAX_TOKENS -> "length"
+                    else -> "other"
+                }
+            )
+        }
 
     /**
      * ML Kit's request for a call's options: `contents` ([{ role: "user" | "model", parts }],
@@ -388,6 +420,9 @@ class MlKitBridge(private val emit: (JSONObject) -> Unit) {
             GenAiException.ErrorCode.AICORE_INCOMPATIBLE to "aicoreIncompatible",
             GenAiException.ErrorCode.INVALID_INPUT_IMAGE to "invalidInputImage",
             GenAiException.ErrorCode.CACHE_PROCESSING_ERROR to "cacheProcessingError",
+            GenAiException.ErrorCode.STRUCTURED_OUTPUT_REQUEST_ERROR to "structuredOutputRequestError",
+            GenAiException.ErrorCode.STRUCTURED_OUTPUT_RESPONSE_ERROR to "structuredOutputResponseError",
+            GenAiException.ErrorCode.STRUCTURED_OUTPUT_MAX_TOKENS_ERROR to "structuredOutputMaxTokensError",
             GenAiException.ErrorCode.MAX_TURNS_EXCEEDED to "maxTurnsExceeded"
         )
 

@@ -17,11 +17,12 @@ import { BaseTextAdapter } from "@tanstack/ai/adapters"
 import type { StructuredOutputOptions, StructuredOutputResult } from "@tanstack/ai/adapters"
 
 import { callTextFilter } from "./call-text.js"
+import { heldSchema, withoutUnaskedNulls } from "./held-schema.js"
 import { toNativeContents } from "./messages.js"
 import { MLKIT_MODEL_REASONING } from "./model-meta.js"
 import type { MlKitChatModel } from "./model-meta.js"
 import { MlKit } from "./native.js"
-import type { MlKitFeature, MlKitModelConfig, MlKitNative, NativeAvailability, NativeEvent, NativeRequest } from "./native.js"
+import type { MlKitFeature, MlKitModelConfig, MlKitNative, NativeAvailability, NativeEvent, NativeRequest, NativeSchema } from "./native.js"
 import { toNativeSchema } from "./schema.js"
 import { variantOf } from "./variant.js"
 import type { MlKitVariant } from "./variant.js"
@@ -34,6 +35,14 @@ export type MlKitConfig = MlKitModelConfig & {
   native?: MlKitNative
   /** Hears the model's download, 0 to 1, however it started. */
   onDownloadProgress?: DownloadProgressCallback
+  /**
+   * Whether a structured answer's schema is also written into the model's
+   * prompt (ML Kit's `includeSchemaInPrompt`): true by default. False leaves
+   * it out, which saves its tokens; ML Kit still holds the answer to the
+   * schema, but the model doesn't read its descriptions, so the prompt
+   * should say what's wanted. A request's `modelOptions` overrides it.
+   */
+  includeSchemaInPrompt?: boolean
 }
 
 /** Per-call `modelOptions`: ML Kit's sampling settings and reply length. */
@@ -48,6 +57,8 @@ export type MlKitTextModelOptions = {
   maxOutputTokens?: number
   /** Thinking mode, over `chat()`'s `reasoning`: where the model has it (Gemini Nano 4). */
   enableThinking?: boolean
+  /** Whether this structured answer's schema is written into the prompt, over the adapter's `includeSchemaInPrompt`. */
+  includeSchemaInPrompt?: boolean
 }
 
 export type Availability = "unavailable" | "downloadable" | "downloading" | "available"
@@ -114,6 +125,10 @@ const instructionOf = (systemPrompts: ReadonlyArray<SystemPrompt | string> | und
 const schemaInstruction = (schema: unknown) =>
   `Answer with one JSON value that is valid for this JSON Schema, and nothing else:\n${JSON.stringify(schema)}`
 
+/** A structured answer that ran out of tokens: the code the other adapters' capped answers have. */
+const cutOff = () =>
+  Object.assign(new Error("The answer was cut off before it was complete (maxOutputTokens, or the model's own limit)"), { code: "length" })
+
 /** The word Gemini Nano's thinking opens with, on a line of its own: the channel's name, not a thought. */
 const THOUGHT_LABEL = "thought\n"
 
@@ -169,7 +184,10 @@ export class MlKitTextAdapter extends BaseTextAdapter<
         ? { ...(config.releaseStage && { releaseStage: config.releaseStage }), ...(config.preference && { preference: config.preference }) }
         : undefined
     this.onDownloadProgress = config.onDownloadProgress
+    this.includeSchemaInPrompt = config.includeSchemaInPrompt
   }
+
+  private readonly includeSchemaInPrompt: boolean | undefined
 
   private get modelOption() {
     return this.modelConfig ? { model: this.modelConfig } : {}
@@ -352,6 +370,36 @@ export class MlKitTextAdapter extends BaseTextAdapter<
       await this.listen()
       const request = await this.request(options, options.messages)
       signal?.throwIfAborted()
+      const callEvents = function* (calls: ReadonlyArray<{ id: string; name: string; arguments: string }>): Generator<AdapterYieldChunk> {
+        for (const [index, call] of calls.entries()) {
+          yield {
+            type: EventType.TOOL_CALL_START,
+            toolCallId: call.id,
+            toolCallName: call.name,
+            parentMessageId: messageId,
+            index,
+            model,
+            timestamp: timestamp()
+          }
+          yield { type: EventType.TOOL_CALL_ARGS, toolCallId: call.id, delta: call.arguments, args: call.arguments, model, timestamp: timestamp() }
+          yield {
+            type: EventType.TOOL_CALL_END,
+            toolCallId: call.id,
+            toolCallName: call.name,
+            args: call.arguments,
+            input: parse(call.arguments),
+            model,
+            timestamp: timestamp()
+          }
+        }
+      }
+      // A step that must call a tool: the call is made with ML Kit's structured output.
+      const must = await this.mustCall(options)
+      if (must) {
+        yield* callEvents([await this.forcedCall(request, must, options, signal)])
+        yield { type: EventType.RUN_FINISHED, runId, threadId, model, timestamp: timestamp(), finishReason: "tool_calls" }
+        return
+      }
       const queue = new EventQueue()
       this.queues.set(requestId, queue)
       started = true
@@ -408,27 +456,7 @@ export class MlKitTextAdapter extends BaseTextAdapter<
           yield* textEvents(answer.end(calls.length > 0))
           yield* closeReasoning()
           if (text) yield { type: EventType.TEXT_MESSAGE_END, messageId, model, timestamp: timestamp() }
-          for (const [index, call] of calls.entries()) {
-            yield {
-              type: EventType.TOOL_CALL_START,
-              toolCallId: call.id,
-              toolCallName: call.name,
-              parentMessageId: messageId,
-              index,
-              model,
-              timestamp: timestamp()
-            }
-            yield { type: EventType.TOOL_CALL_ARGS, toolCallId: call.id, delta: call.arguments, args: call.arguments, model, timestamp: timestamp() }
-            yield {
-              type: EventType.TOOL_CALL_END,
-              toolCallId: call.id,
-              toolCallName: call.name,
-              args: call.arguments,
-              input: parse(call.arguments),
-              model,
-              timestamp: timestamp()
-            }
-          }
+          yield* callEvents(calls)
           yield {
             type: EventType.RUN_FINISHED,
             runId,
@@ -476,25 +504,41 @@ export class MlKitTextAdapter extends BaseTextAdapter<
     signal?.throwIfAborted()
     await this.listen()
     const asked = await this.request({ systemPrompts: chatOptions.systemPrompts }, chatOptions.messages)
-    const request = { ...asked, systemInstruction: [asked.systemInstruction, schemaInstruction(outputSchema)].filter(Boolean).join("\n\n") }
+    // (Thinking stays off: the answer is the JSON alone.)
+    const settings = this.settings(chatOptions, false)
+    // Held by ML Kit where the model has structured output and its schemas can say this one.
+    const held = heldSchema(outputSchema)
+    const holds = !!held && (await this.features()).includes("structuredOutput")
+    const include = chatOptions.modelOptions?.includeSchemaInPrompt ?? this.includeSchemaInPrompt
+    const request: NativeRequest = holds
+      ? { ...asked, schema: held, options: { ...settings, ...(include === false && { includeSchemaInPrompt: false }) } }
+      : { ...asked, systemInstruction: [asked.systemInstruction, schemaInstruction(outputSchema)].filter(Boolean).join("\n\n"), options: settings }
     signal?.throwIfAborted()
+    const text = await this.whole(request, signal)
+    if (holds) {
+      const data = withoutUnaskedNulls(JSON.parse(text), held)
+      return { data, rawText: JSON.stringify(data), model: this.model }
+    }
+    const rawText = unfenced(text)
+    // A SyntaxError, TanStack's parse failure, if it isn't JSON.
+    return { data: JSON.parse(rawText) as unknown, rawText, model: this.model }
+  }
+
+  /** A response awaited whole: its text. One cut off at the token limit fails with the code `length`. */
+  private async whole(request: NativeRequest, signal: AbortSignal | undefined): Promise<string> {
     const requestId = nextId("request")
     const queue = new EventQueue()
     this.queues.set(requestId, queue)
     try {
-      // (Thinking stays off: the answer is the JSON alone.)
-      await this.native.generate({ requestId, ...request, options: this.settings(chatOptions, false) })
+      await this.native.generate({ requestId, ...request })
       for (;;) {
         const event = await queue.next(signal)
         if (event.type === "done") {
-          if (event.finishReason === "length") {
-            throw Object.assign(new Error("The answer was cut off before it was complete (maxOutputTokens, or the model's own limit)"), { code: "length" })
-          }
-          const rawText = unfenced(event.text)
-          // A SyntaxError, TanStack's parse failure, if it isn't JSON.
-          return { data: JSON.parse(rawText) as unknown, rawText, model: this.model }
+          if (event.finishReason === "length") throw cutOff()
+          return event.text
         }
-        if (event.type === "error") throw Object.assign(new Error(event.message), { code: event.code })
+        // ML Kit's own word for a held answer cut off at the token limit.
+        if (event.type === "error") throw event.code === "structuredOutputMaxTokensError" ? cutOff() : Object.assign(new Error(event.message), { code: event.code })
       }
     } catch (error) {
       if (signal?.aborted) void this.native.cancel({ requestId }).catch(() => undefined)
@@ -502,6 +546,68 @@ export class MlKitTextAdapter extends BaseTextAdapter<
     } finally {
       this.queues.delete(requestId)
     }
+  }
+
+  /**
+   * The tools a step must call one of (`toolChoice: "required"`, or a tool
+   * named), each with its parameters as ML Kit's structured output holds
+   * them (none for a tool without parameters). Undefined where the step
+   * isn't held to a call: no such `toolChoice`, a model without structured
+   * output, or a tool whose parameters ML Kit can't hold. Then the model
+   * decides, as ML Kit's function calling has it.
+   */
+  private async mustCall(options: TextOptions<MlKitTextModelOptions>): Promise<Array<{ tool: Tool; parameters: NativeSchema | undefined }> | undefined> {
+    if (options.toolChoice !== "required" && typeof options.toolChoice !== "object") return undefined
+    const tools = offeredTools(options)
+    if (tools.length === 0) return undefined
+    const held: Array<{ tool: Tool; parameters: NativeSchema | undefined }> = []
+    for (const tool of tools) {
+      let bare: boolean
+      try {
+        bare = Object.keys(toNativeSchema(tool.inputSchema ?? {}).properties ?? {}).length === 0
+      } catch {
+        return undefined
+      }
+      const parameters = bare ? undefined : heldSchema(tool.inputSchema)
+      if (!bare && !parameters) return undefined
+      held.push({ tool, parameters })
+    }
+    return (await this.features()).includes("structuredOutput") ? held : undefined
+  }
+
+  /**
+   * A call the step must make. ML Kit's function calling leaves the call to
+   * the model, so it's made with its structured output instead: an answer
+   * held to the tools' names picks the tool (where there's more than one),
+   * and an answer held to that tool's parameters is the call's arguments.
+   */
+  private async forcedCall(
+    request: NativeRequest,
+    tools: Array<{ tool: Tool; parameters: NativeSchema | undefined }>,
+    options: TextOptions<MlKitTextModelOptions>,
+    signal: AbortSignal | undefined
+  ): Promise<{ id: string; name: string; arguments: string }> {
+    // (Thinking stays off: each answer is the JSON alone.)
+    const settings = this.settings(options, false)
+    let chosen = tools[0]
+    if (tools.length > 1) {
+      const pick: NativeSchema = {
+        type: "object",
+        properties: { tool: { type: "string", enum: tools.map(({ tool }) => tool.name), description: "The function to call" } },
+        required: ["tool"]
+      }
+      const name = (JSON.parse(await this.whole({ ...request, schema: pick, options: settings }, signal)) as { tool?: unknown }).tool
+      const picked = tools.find(({ tool }) => tool.name === name)
+      if (!picked) throw new Error(`The model picked "${String(name)}", which isn't one of the tools`)
+      chosen = picked
+      signal?.throwIfAborted()
+    }
+    const { tool, parameters } = chosen
+    if (!parameters) return { id: nextId("call"), name: tool.name, arguments: "{}" }
+    // The arguments, with only the chosen tool declared beside its schema.
+    const declared = (request.tools ?? []).filter((declaration) => declaration.name === tool.name)
+    const answer = await this.whole({ ...request, tools: declared, schema: parameters, options: settings }, signal)
+    return { id: nextId("call"), name: tool.name, arguments: JSON.stringify(withoutUnaskedNulls(JSON.parse(answer), parameters)) }
   }
 }
 

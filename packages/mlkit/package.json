@@ -45,6 +45,7 @@
     "src",
     "dist",
     "android/build.gradle",
+    "android/consumer-rules.pro",
     "android/src",
     "!**/*.tsbuildinfo"
   ],

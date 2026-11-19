@@ -80,7 +80,14 @@ export type NativeRequest = {
     maxOutputTokens?: number
     /** Thinking mode, where the model has it. */
     enableThinking?: boolean
+    /** With a `schema`, false: it stays out of the model's prompt (ML Kit still holds the answer to it). */
+    includeSchemaInPrompt?: boolean
   }
+  /**
+   * Holds the answer to this schema with ML Kit's structured output: an object
+   * as held-schema.ts allows. The answer comes whole, in `done`, as JSON.
+   */
+  schema?: NativeSchema
 }
 
 /** What the native side sends: a response's events (`requestId`), and a download's progress (`downloadId`). */
