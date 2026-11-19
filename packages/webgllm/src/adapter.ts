@@ -1,21 +1,22 @@
 /**
- * A TanStack AI text adapter for webgllm: LFM3, LFM2.5 and Qwen3.5 on
- * WebGL 2 in a Web Worker, for browsers without WebGPU, reading images
- * where the model has a vision encoder. webgllm answers
+ * A TanStack AI text adapter for webgllm: LFM3, LFM2.5 and Qwen3.5 in a Web
+ * Worker, on WebGPU where the browser has it and WebGL 2 elsewhere (Firefox
+ * on Android, for one), reading images where the model has a vision
+ * encoder. webgllm answers
  * OpenAI's Chat Completions API in the page, so this is TanStack's Chat
  * Completions adapter with the page's `WebGLLM` instance as its client (or
  * the one for the adapter's own `worker`):
  * messages, tools, structured output and the stream (text, thinking, tool
  * calls) are TanStack's. This file adds what's webgllm's own: loading the
  * model before each request (in its client, as the wllama adapter does),
- * and its reasoning levels and thinking budget.
+ * its reasoning levels and thinking budget, and its speed prediction.
  */
 import type { ModelReasoning, TextOptions } from "@tanstack/ai"
 import { resolveReasoning } from "@tanstack/ai/adapter-internals"
 import { OpenAIBaseChatCompletionsTextAdapter } from "@tanstack/openai-base"
 import type { OpenAIClientLike } from "@tanstack/openai-base"
-import { WebGLLM } from "webgllm"
-import type { ChatCompletionCreateParamsBase, LoadProgress } from "webgllm"
+import { predictSpeed, WebGLLM } from "webgllm"
+import type { ChatCompletionCreateParamsBase, LoadProgress, PredictSpeedOptions, SpeedPrediction } from "webgllm"
 
 import { modelMeta, WEBGLLM_MODEL_META } from "./catalog.js"
 import type { WebGllmChatModel, WebGllmModelReasoningByName } from "./catalog.js"
@@ -29,9 +30,12 @@ export type Availability = "unavailable" | "downloadable" | "downloading" | "ava
 /** A download's progress, from 0 to 1. */
 export type DownloadProgressCallback = (progress: number) => void
 
-/** A `WebGLLM` (running in `worker`, if given), and the models downloading in it, from its events. */
-function createEngine(worker?: Worker) {
-  const webgllm = new WebGLLM(worker && { worker })
+/** Where models run: webgllm's `webgpu` option ("auto", the default: WebGPU where the browser has it; false: WebGL 2). */
+export type WebGllmBackend = "auto" | false
+
+/** A `WebGLLM` (running in `worker`, if given, and on `webgpu`'s backend), and the models downloading in it, from its events. */
+function createEngine(worker?: Worker, webgpu?: WebGllmBackend) {
+  const webgllm = new WebGLLM({ ...(worker && { worker }), ...(webgpu !== undefined && { webgpu }) })
   const downloading = new Set<string>()
   webgllm.addEventListener("progress", ({ model, phase, cached }) => {
     if (phase === "download" && !cached) downloading.add(model)
@@ -44,22 +48,41 @@ function createEngine(worker?: Worker) {
 
 type Engine = ReturnType<typeof createEngine>
 
-/** The page's engine, shared by every adapter without a worker of its own. */
+/** The page's engine, shared by every adapter without a worker of its own (and on the default backend). */
 const pageEngine = createEngine()
 
 /** The page's `WebGLLM`. Exported for tests. */
 export const webgllm = pageEngine.webgllm
 
-/** The engines in the callers' own workers: one a worker, as each worker's handler holds one model. */
-const workerEngines = new WeakMap<Worker, Engine>()
+/** The page's engines by backend: webgllm reads `webgpu` once, so adapters set to WebGL 2 share one of their own. */
+const pageEngines = new Map<WebGllmBackend, Engine>([["auto", pageEngine]])
 
-/** An adapter's engine: its own worker's (shared by every adapter given that worker), else the page's. */
-function engineFor(worker?: Worker): Engine {
-  if (!worker) return pageEngine
-  let engine = workerEngines.get(worker)
-  if (!engine) workerEngines.set(worker, (engine = createEngine(worker)))
+/** The engines in the callers' own workers, with their backend: one a worker, as each worker's handler holds one model. */
+const workerEngines = new WeakMap<Worker, { engine: Engine; webgpu: WebGllmBackend }>()
+
+/**
+ * An adapter's engine: its own worker's (shared by every adapter given that
+ * worker, which must agree on `webgpu`), else the page's for its backend.
+ */
+function engineFor(worker: Worker | undefined, webgpu: WebGllmBackend = "auto"): Engine {
+  if (!worker) {
+    let engine = pageEngines.get(webgpu)
+    if (!engine) pageEngines.set(webgpu, (engine = createEngine(undefined, webgpu)))
+    return engine
+  }
+  const held = workerEngines.get(worker)
+  if (held) {
+    if (held.webgpu !== webgpu)
+      throw new Error(`Adapters given the same worker share its WebGLLM: one asked for webgpu ${JSON.stringify(held.webgpu)}, this one for ${JSON.stringify(webgpu)}.`)
+    return held.engine
+  }
+  const engine = createEngine(worker, webgpu)
+  workerEngines.set(worker, { engine, webgpu })
   return engine
 }
+
+/** webgllm's `predictSpeed`, as adapters call it. Exported for tests. */
+export const speed = { predict: predictSpeed }
 
 let supported: boolean | undefined
 /** Whether the engine runs here, checked once: webgllm's check makes a WebGL context. */
@@ -146,7 +169,18 @@ export type WebGllmConfig = {
    * with progress, see `create`.
    */
   onDownloadProgress?: DownloadProgressCallback
+  /**
+   * Where the model runs (webgllm's `webgpu` option): "auto", the default,
+   * on WebGPU where the browser has it and WebGL 2 elsewhere; false, on
+   * WebGL 2 even where there's WebGPU. Anything else throws. Adapters set to
+   * WebGL 2 share a `WebGLLM` of their own in the page; adapters given the
+   * same `worker` must agree on it. `predictSpeed` measures on it too.
+   */
+  webgpu?: WebGllmBackend
 }
+
+/** Options for an adapter's `predictSpeed`: webgllm's, its backend the adapter's `webgpu`. */
+export type WebGllmPredictSpeedOptions = Omit<PredictSpeedOptions, "webgpu">
 
 /** A model's reasoning levels: a listed model's, none for a listed one that doesn't reason, else the switch. */
 type ResolveReasoning<TModel extends string> = TModel extends keyof WebGllmModelReasoningByName
@@ -205,9 +239,11 @@ export class WebGllmTextAdapter<TModel extends WebGllmModel> extends OpenAIBaseC
   private readonly load: (signal?: AbortSignal | null, progress?: DownloadProgressCallback) => Promise<void>
   /** The `WebGLLM` the model loads in: the page's, or the adapter's own worker's. */
   private readonly engine: Engine
+  /** The adapter's backend (`webgpu`), for `predictSpeed`. */
+  private readonly webgpu: WebGllmBackend | undefined
 
   constructor(config: WebGllmConfig, model: TModel) {
-    const engine = engineFor(config.worker)
+    const engine = engineFor(config.worker, config.webgpu)
     const onDownloadProgress = config.onDownloadProgress
     const load = (signal?: AbortSignal | null, progress?: DownloadProgressCallback) =>
       loadIn(engine, model, config.contextLength, signal, (value) => {
@@ -217,6 +253,7 @@ export class WebGllmTextAdapter<TModel extends WebGllmModel> extends OpenAIBaseC
     super(model, "webgllm", clientFor(engine, load), { strictFallbackWarning: false })
     this.load = load
     this.engine = engine
+    this.webgpu = config.webgpu
     this.inputModalities = listed(model) ? modelMeta(model).supports.input : undefined
   }
 
@@ -245,6 +282,19 @@ export class WebGllmTextAdapter<TModel extends WebGllmModel> extends OpenAIBaseC
     const ready = this.load(options.signal, options.onDownloadProgress).then(() => this)
     ready.catch(() => undefined)
     return ready
+  }
+
+  /**
+   * How fast the model reads prompts and writes on this device, in tokens
+   * per second (webgllm's `predictSpeed`), on the adapter's backend: timed
+   * on synthetic weights of the model's shape before its weights download,
+   * so an app can pick a local model or a cloud one first. The answer is
+   * remembered for this device and engine version (`force` measures again);
+   * `decode: false` times the prompt alone, faster. Rejects where the
+   * engine can't run, or if `signal` aborts.
+   */
+  predictSpeed(options: WebGllmPredictSpeedOptions = {}): Promise<SpeedPrediction> {
+    return speed.predict(this.model, { ...options, ...(this.webgpu !== undefined && { webgpu: this.webgpu }) })
   }
 
   /** Unloads the model, freeing its GPU memory. Its files stay. Never rejects. */
@@ -285,8 +335,8 @@ export class WebGllmTextAdapter<TModel extends WebGllmModel> extends OpenAIBaseC
 }
 
 /**
- * A TanStack AI text adapter for a webgllm model on WebGL 2, for browsers
- * without WebGPU (Firefox on Android, for one).
+ * A TanStack AI text adapter for a webgllm model, on WebGPU where the
+ * browser has it and WebGL 2 elsewhere (Firefox on Android, for one).
  *
  * @example
  * ```ts

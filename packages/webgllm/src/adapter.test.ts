@@ -1,13 +1,14 @@
 /**
  * The adapter's runtime methods over webgllm: availability, create with
- * its download progress, destroy, and the catalog's reasoning data.
+ * its download progress, destroy, the backend option, predictSpeed, and the
+ * catalog's reasoning data.
  */
 import assert from "node:assert/strict"
 import { beforeEach, test } from "node:test"
 import { WebGLLM } from "webgllm"
 import type { LoadProgress } from "webgllm"
 
-import { webgllmText } from "./adapter.js"
+import { speed, webgllm, webgllmText } from "./adapter.js"
 import { WEBGLLM_MODEL_REASONING } from "./catalog.js"
 import { fake, MODEL } from "./fake-webgllm.test.js"
 
@@ -97,4 +98,45 @@ test("a worker of your own has a WebGLLM of its own, shared by the adapters give
   assert.equal(first.engine.webgllm, second.engine.webgllm)
   assert.notEqual(first.engine.webgllm, page.engine.webgllm)
   assert.ok(first.engine.webgllm instanceof WebGLLM)
+})
+
+test("webgpu: adapters on WebGL 2 share a WebGLLM of their own in the page; \"auto\" is the default one; anything else throws", () => {
+  type WithEngine = { engine: { webgllm: unknown } }
+  const auto = webgllmText(MODEL, { webgpu: "auto" }) as unknown as WithEngine
+  const plain = webgllmText(MODEL) as unknown as WithEngine
+  const gl = webgllmText(MODEL, { webgpu: false }) as unknown as WithEngine
+  const gl2 = webgllmText("LiquidAI/LFM2.5-350M-GGUF", { webgpu: false }) as unknown as WithEngine
+  assert.equal(auto.engine.webgllm, webgllm)
+  assert.equal(plain.engine.webgllm, webgllm)
+  assert.equal(gl.engine.webgllm, gl2.engine.webgllm)
+  assert.notEqual(gl.engine.webgllm, webgllm)
+  assert.ok(gl.engine.webgllm instanceof WebGLLM)
+  for (const value of [true, "false", "webgl"]) assert.throws(() => webgllmText(MODEL, { webgpu: value as never }), /webgpu must be "auto" or false/)
+})
+
+test("webgpu: adapters given the same worker must agree on it", () => {
+  const worker = { postMessage: () => undefined, addEventListener: () => undefined, removeEventListener: () => undefined } as unknown as Worker
+  webgllmText(MODEL, { worker, webgpu: false })
+  assert.doesNotThrow(() => webgllmText("LiquidAI/LFM2.5-350M-GGUF", { worker, webgpu: false }))
+  assert.throws(() => webgllmText(MODEL, { worker }), /same worker/)
+})
+
+test("predictSpeed asks webgllm for the adapter's model, with its options and the adapter's backend", async () => {
+  const calls: Array<{ model: string; options: unknown }> = []
+  const original = speed.predict
+  speed.predict = (async (model: string, options: unknown) => {
+    calls.push({ model, options })
+    return { prompt: 360, decode: 42 }
+  }) as typeof speed.predict
+  try {
+    assert.deepEqual(await webgllmText(MODEL).predictSpeed(), { prompt: 360, decode: 42 })
+    const signal = new AbortController().signal
+    await webgllmText(MODEL, { webgpu: false }).predictSpeed({ decode: false, force: true, signal })
+    assert.deepEqual(calls, [
+      { model: MODEL, options: {} },
+      { model: MODEL, options: { decode: false, force: true, signal, webgpu: false } }
+    ])
+  } finally {
+    speed.predict = original
+  }
 })
