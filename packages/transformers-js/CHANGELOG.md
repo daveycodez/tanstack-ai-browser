@@ -1,3 +1,46 @@
+## 0.3.0 (2026-11-19)
+
+### 🚀 Features
+
+- **lofi-agent:** the built-in tools are real MCP servers' definitions, word for word ([323284f](https://github.com/daveycodez/tanstack-ai-browser/commit/323284f))
+- **evals:** a "Hi" case: small models call tools on it far more than on "Hello" ([75b1cb5](https://github.com/daveycodez/tanstack-ai-browser/commit/75b1cb5))
+- **evals:** Lofi Agent's weather cases, one as a real second turn; a case can check a call's input ([a8f3e09](https://github.com/daveycodez/tanstack-ai-browser/commit/a8f3e09))
+- **evals:** cases run to an answer, on Exa's recorded results; Lofi Agent's tool list ([0514d53](https://github.com/daveycodez/tanstack-ai-browser/commit/0514d53))
+- **evals:** system= runs the suite with a system prompt (run-all.mjs --system); the summary's label says so ([d153984](https://github.com/daveycodez/tanstack-ai-browser/commit/d153984))
+- **evals:** run-all.mjs runs the suite on every model and device at once; pages tag their lines with a run id; the Prompt API waits for a click to download its model ([d9371cc](https://github.com/daveycodez/tanstack-ai-browser/commit/d9371cc))
+- **evals:** the tool-calling suite for every adapter, timed, in a page or inside an app ([5378559](https://github.com/daveycodez/tanstack-ai-browser/commit/5378559))
+- **webgllm:** webgllm 0.3.7, llama.cpp parity: tool calls held to their tools, none keeps the tools, frequency_penalty, chat_template_kwargs, opt-in repair ([c521be0](https://github.com/daveycodez/tanstack-ai-browser/commit/c521be0))
+- **transformers-js:** outputSchema, with Hugging Face's structured-output package ([2e119b3](https://github.com/daveycodez/tanstack-ai-browser/commit/2e119b3))
+
+### 🩹 Fixes
+
+- **transformers-js:** the worker handlers import Transformers.js when they first load a model, not with the package, so an app's server render (lofi-agent's, on Cloudflare) no longer loads its Node build and fails ([6f97d93](https://github.com/daveycodez/tanstack-ai-browser/commit/6f97d93))
+- **lofi-agent:** the picker shows WebGPU for WebGLLM models where the browser has it; READMEs say webgllm runs on WebGPU, WebGL 2 elsewhere ([5d6b613](https://github.com/daveycodez/tanstack-ai-browser/commit/5d6b613))
+- **transformers-js:** the cache doesn't download where local models are allowed ([69f0e4b](https://github.com/daveycodez/tanstack-ai-browser/commit/69f0e4b))
+- **transformers-js:** Qwen3.5 answers prompts over 128 tokens again; one shared on-demand read buffer, detached after the load ([413caae](https://github.com/daveycodez/tanstack-ai-browser/commit/413caae))
+- **transformers-js:** cache downloads honor Transformers.js's loading rules, cached weights aren't downloaded again, partial prompt caches are freed ([26a47d2](https://github.com/daveycodez/tanstack-ai-browser/commit/26a47d2))
+- **transformers-js:** LFM3 1.7B loads and answers on an iPhone: external weights read from OPFS on demand, prompt passes sized by time ([e8b6cdd](https://github.com/daveycodez/tanstack-ai-browser/commit/e8b6cdd))
+- **transformers-js:** a model whose export takes num_logits_to_keep reads a prompt in one pass; the passes' speed corrected ([5c28978](https://github.com/daveycodez/tanstack-ai-browser/commit/5c28978))
+- **transformers-js:** prompts over 512 tokens are read into the cache 512 tokens a pass, so a long prompt fits on an iPhone ([5a0f152](https://github.com/daveycodez/tanstack-ai-browser/commit/5a0f152))
+- **transformers-js:** models load on an iPhone: downloads go to OPFS, the weights read are freed when a load ends, and ONNX Runtime's JSPI build where the browser has JSPI ([1cdc2b4](https://github.com/daveycodez/tanstack-ai-browser/commit/1cdc2b4))
+- weather units default as the schema says, the city fallback keeps to the country, local-weather evals need the location, runners exit 1 on ERROR ([ec874d4](https://github.com/daveycodez/tanstack-ai-browser/commit/ec874d4))
+- **lofi-agent:** the time tool's timezone defaults to the user's local timezone, in those words, not a server's ([935705a](https://github.com/daveycodez/tanstack-ai-browser/commit/935705a))
+- **evals:** Lofi Agent's tools get its 1,024-token cap on each result, so a web search fits a phone's context as it does in the app ([17d4e67](https://github.com/daveycodez/tanstack-ai-browser/commit/17d4e67))
+- **evals:** every tool call of a reply gets its result; a step's limit ends the wait; a reply of nothing isn't an answer ([5d23c50](https://github.com/daveycodez/tanstack-ai-browser/commit/5d23c50))
+- **lofi-agent:** the time tool says it gives the date, in the user's time zone; the location result no longer sends the model to the weather tool ([cefcb0a](https://github.com/daveycodez/tanstack-ai-browser/commit/cefcb0a))
+- **evals:** the suite we ran on the Prompt API, AFM and Transformers.js: seven prompts, the World Series for the election, a space-adventure story held to not refusing, no weather; 391 passes with or without calculate; a queue of runs ([584508f](https://github.com/daveycodez/tanstack-ai-browser/commit/584508f))
+- **transformers-js:** the finish reason reads the end-of-turn ids generate() used, a request's own first ([5407bf7](https://github.com/daveycodez/tanstack-ai-browser/commit/5407bf7))
+- transformers-js sends thinking off as off and reports why it stopped; prompt-api fingerprints native calls and sends null-bearing results as text ([a6b3d80](https://github.com/daveycodez/tanstack-ai-browser/commit/a6b3d80))
+- ⚠️  **prompt-api:** Edge's model is Aion-1.1-Instruct, not Phi-4-mini ([f9b9573](https://github.com/daveycodez/tanstack-ai-browser/commit/f9b9573))
+
+### ⚠️  Breaking Changes
+
+- **prompt-api:** Edge's model is Aion-1.1-Instruct, not Phi-4-mini  ([f9b9573](https://github.com/daveycodez/tanstack-ai-browser/commit/f9b9573))
+
+### ❤️ Thank You
+
+- daveycodez
+
 ## 0.2.8 (2026-11-15)
 
 This was a version bump only for transformers-js to align it with other projects, there were no code changes.
