@@ -105,7 +105,7 @@ chat({ adapter, threadId, messages, modelOptions: { temperature: 0.7, topK: 40, 
 
 ### Tools
 
-Each tool's JSON Schema is read into ML Kit's `FunctionSchema`, which holds a type, a description, an object's properties and required ones, a string's enum, format, lengths and pattern, a number's range, an array's items and length, `nullable` and `anyOf`. What it has nothing for is written with what it has: a `$ref` in place, a string `const` as an enum of one, `oneOf` as `anyOf`, `allOf` merged, a null type as `nullable`; keywords such as `additionalProperties` and `default` are left out. A schema that refers to itself throws, since nothing in `FunctionSchema` can hold it.
+Each tool's JSON Schema is read into ML Kit's `FunctionSchema`, which holds a type, a description, an object's properties and required ones, a string's enum, format, lengths and pattern, a number's range, an array's items and length, `nullable` and `anyOf`. What it has nothing for is written with what it has: a `$ref` in place, a string `const` as an enum of one, `oneOf` as `anyOf`, a null type as `nullable`; keywords such as `additionalProperties` and `default` are left out. `allOf` is the intersection of its members, the narrower of each limit (the larger minimum, the values both enums have, a property both declare narrowed the same way). A schema that refers to itself throws, since nothing in `FunctionSchema` can hold it, and so does an `allOf` whose members can't be one schema: two types, two patterns, enums that share no value.
 
 `toolChoice: "none"` sends no tools.
 
@@ -113,13 +113,15 @@ ML Kit's function calling leaves the call to the model: it has no setting that r
 
 - a named tool, or the only tool offered: one answer held to that tool's parameters is the call's arguments;
 - `"required"` with several tools: one answer held to the tools' names picks the tool, then one held to its parameters is the arguments (two passes of the model);
-- a tool without parameters is called without asking the model for anything.
+- a tool without parameters is called without asking the model for anything. That's a tool whose schema says so: an object without properties, not one that lets some in another way (a choice of objects at its root, `additionalProperties`, required names).
 
 On a Pixel 10 Pro, "Hi there" with four tools got a greeting with `"auto"` and a call with `"required"`; a named tool's call took about 0.5 s, and `"required"` among four tools about 1 s (2.6 s for the first after the app started).
 
 The call comes whole, as one tool call a step, without text or thinking before it. Where it can't be held (a model without structured output, or a tool whose parameters ML Kit's structured output can't describe), the model decides as with `"auto"`, with a named tool the only one sent.
 
 A tool's result goes back as ML Kit's function response, a map: a JSON object as it is, any other output as `{ result }`, and a tool's error as `{ error }`.
+
+Earlier calls go back with their arguments as ML Kit's values, which have no null. A null argument is left out, as one that wasn't given. A null inside a list (`[1, null, 3]`) can't be left out without moving the items after it, so a conversation with such a call fails with an error that says so (Gemini Nano's own calls never have one; a call another model made might).
 
 Gemini Nano writes a call as text between control tokens (`<ctrl42>call:get_weather{city:<ctrl46>Paris<ctrl46>}<ctrl43>`), and ML Kit streams that text, in the response and at the end of the thinking, beside the call it reads from it. The adapter keeps it out of both: the call is its own event. Text with the opening token that turns out not to be a call is written whole.
 
@@ -129,7 +131,7 @@ Where the model has thinking mode, `chat()`'s `reasoning` level turns it on (`"h
 
 ### Images
 
-The model reads images in a user message, as data or a URL the adapter fetches. ML Kit takes up to 10 a request and scales each down to 768 pixels on its shorter side.
+The model reads images in a user message, as data or a URL the adapter fetches (stopping the request stops the download). ML Kit takes up to 10 a request and scales each down to 768 pixels on its shorter side.
 
 ### Structured output
 
@@ -137,11 +139,11 @@ The model reads images in a user message, as data or a URL the adapter fetches. 
 
 ML Kit's API takes a schema only as a Kotlin class compiled into the app (one annotated `@Generable`, which its compiler plugin describes to ML Kit). The plugin stands a schema given at run time in such a class's place: it registers sixteen empty classes with ML Kit, and describes the request's schema as theirs, the root object as the first and each object inside it as the next. So ML Kit holds the answer to what such a class can describe:
 
-- an object with named properties, which are strings (with an `enum` or a `pattern`), integers and numbers (with a `minimum` and `maximum`), booleans, objects like it, and arrays of those (with `minItems` and `maxItems`);
+- an object with named properties, which are strings (with an `enum` or a `pattern`), integers and numbers (with a `minimum` and `maximum`), booleans, objects like it, and arrays of those (with `minItems` and `maxItems`). A list's items have fewer limits than a property: a string's `enum` or `pattern`, but no range for a number and no null;
 - up to sixteen objects in all;
 - every property in the answer: one the schema doesn't require may be null there, and the adapter leaves it out, unless the schema lets it be null.
 
-A schema outside that (a choice of types with `anyOf`, an array of arrays, a property of any type, an object of any properties, a schema that refers to itself) isn't held, and neither is any schema where the model has no structured output. Then the adapter adds the schema to the system instruction, after your system prompts ("Answer with one JSON value that is valid for this JSON Schema, and nothing else:"), and reads the answer as JSON, without the code fence the model puts around it. Nothing holds the model to the schema there: check the answer with a Standard Schema validator (`chat()` does, for one).
+A schema outside that (a choice of types with `anyOf`, an array of arrays, a list of numbers with a range or of items that may be null, a property of any type, an object of any properties, a schema that refers to itself) isn't held, and neither is any schema where the model has no structured output. Then the adapter adds the schema to the system instruction, after your system prompts ("Answer with one JSON value that is valid for this JSON Schema, and nothing else:"), and reads the answer as JSON, without the code fence the model puts around it. Nothing holds the model to the schema there: check the answer with a Standard Schema validator (`chat()` does, for one).
 
 On a Pixel 10 Pro (Gemini Nano 4) the hold is real: asked for "one sentence of plain English prose, no JSON" with a city's schema held and left out of the prompt, the model still answered `{"city":"sea","country":"ocean",...}`. Held answers with nested objects, arrays, enums and booleans took 0.8 to 1.7 s there (3.4 s for the first after the app started).
 

@@ -6,10 +6,12 @@
  * place (SchemaSlots.kt), which works for what such a class can describe: an
  * object whose properties are strings (with an enum or a pattern), integers
  * and numbers (with a range), booleans, objects like it, and arrays of those
- * (with a length). It can't describe a choice of types (`anyOf`), an array of
- * arrays, a property of any type, or an object of any properties, and it has
- * sixteen slots for objects. A schema outside that isn't held: the adapter
- * asks for it in the prompt instead.
+ * (with a length). A list's items have fewer limits than a property: a
+ * string's enum or pattern, but no range for a number and no null. It can't
+ * describe a choice of types (`anyOf`), an array of arrays, a property of any
+ * type, or an object of any properties, and it has sixteen slots for objects.
+ * A schema outside that isn't held: the adapter asks for it in the prompt
+ * instead.
  *
  * Every property of such a class is in the answer. One the schema doesn't
  * require may be null there, and `withoutUnaskedNulls` leaves it out.
@@ -44,10 +46,30 @@ export function heldSchema(schema: unknown): NativeSchema | undefined {
       if (property.type !== "array") return false
       const items = property.items
       if (!items || items.anyOf || !items.type) return false
+      // A list's items can't be null, and its numbers have no range: holding the
+      // answer to less than the schema says would pass off an answer outside it.
+      if (items.nullable || items.minimum !== undefined || items.maximum !== undefined) return false
       return VALUES.has(items.type) || (items.type === "object" && object(items))
     })
   }
   return object(native) && objects <= HELD_OBJECTS ? native : undefined
+}
+
+/**
+ * Whether a tool takes no arguments, by its schema: an object (or no schema)
+ * without properties, and nothing that lets some in after all (a choice or a
+ * reference at its root, required names, other properties allowed).
+ */
+export function parameterless(schema: unknown): boolean {
+  if (schema === undefined || schema === null) return true
+  if (typeof schema !== "object" || Array.isArray(schema)) return false
+  const json = schema as Record<string, unknown>
+  if (json.type !== undefined && json.type !== "object") return false
+  if (["anyOf", "oneOf", "allOf", "$ref", "patternProperties", "not", "if"].some((key) => key in json)) return false
+  if (json.additionalProperties !== undefined && json.additionalProperties !== false) return false
+  if (Array.isArray(json.required) && json.required.length > 0) return false
+  const properties = json.properties
+  return properties === undefined || (typeof properties === "object" && properties !== null && Object.keys(properties).length === 0)
 }
 
 /**

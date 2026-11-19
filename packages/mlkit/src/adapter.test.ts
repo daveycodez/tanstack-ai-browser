@@ -562,3 +562,84 @@ test("a structured answer that isn't JSON is a SyntaxError, and one cut off fail
   await assert.rejects(adapter.structuredOutput(structured()), SyntaxError)
   await assert.rejects(adapter.structuredOutput(structured()), (error: Error & { code?: string }) => error.code === "length")
 })
+
+test("required with a tool whose schema has no top-level properties but isn't parameterless is left to the model", async () => {
+  holding()
+  const either = {
+    ...weather,
+    name: "lookup",
+    inputSchema: { anyOf: [{ type: "object", properties: { city: { type: "string" } }, required: ["city"] }, { type: "object", properties: { id: { type: "integer" } }, required: ["id"] }] }
+  }
+  native.replies = [[{ type: "delta", text: "Which one?" }, { type: "done", text: "Which one?", finishReason: "stop" }]]
+  const chunks = await run(mlkitText({ native }), { tools: [either], toolChoice: "required" })
+  assert.deepEqual(callsIn(chunks), [])
+  assert.equal(textIn(chunks), "Which one?")
+  const [request] = native.named("generate")
+  assert.equal("schema" in request, false)
+  // A free-form object isn't parameterless either.
+  const loose = { ...weather, name: "store", inputSchema: { type: "object", additionalProperties: true } }
+  native.replies = [[{ type: "delta", text: "What?" }, { type: "done", text: "What?", finishReason: "stop" }]]
+  assert.deepEqual(callsIn(await run(mlkitText({ native }), { tools: [loose], toolChoice: "required" })), [])
+})
+
+test("a stream its reader leaves early cancels the native response", async () => {
+  native.replies = [[{ type: "delta", text: "Once " }, { type: "delta", text: "upon" }]]
+  const adapter = mlkitText({ native })
+  for await (const chunk of adapter.chatStream(chatOptions())) {
+    if ((chunk as Chunk).type === "TEXT_MESSAGE_CONTENT") break
+  }
+  const [request] = native.named("generate")
+  assert.deepEqual(native.named("cancel"), [{ requestId: request.requestId }])
+  // Nothing is left for destroy to end.
+  await adapter.destroy()
+  assert.equal(native.named("cancel").length, 1)
+})
+
+test("a response that ended isn't cancelled", async () => {
+  native.replies = [[{ type: "delta", text: "Hi" }, { type: "done", text: "Hi", finishReason: "stop" }], [{ type: "error", code: "busy", message: "Out of quota" }]]
+  const adapter = mlkitText({ native })
+  await run(adapter)
+  await run(adapter)
+  assert.deepEqual(native.named("cancel"), [])
+})
+
+test("a request stopped while the features are asked for makes no forced call", async () => {
+  holding()
+  const abortController = new AbortController()
+  const answer = native.answer
+  let release: (() => void) | undefined
+  native.availability = async () => {
+    await new Promise<void>((resolve) => (release = resolve))
+    return answer
+  }
+  const reading = run(mlkitText({ native }), { tools: [ping], toolChoice: "required", abortController })
+  await new Promise((resolve) => setTimeout(resolve, 5))
+  abortController.abort()
+  release?.()
+  const chunks = await reading
+  assert.deepEqual(callsIn(chunks), [])
+  assert.equal(chunks.at(-1)?.type, "RUN_ERROR")
+  assert.equal(chunks.at(-1)?.code, "aborted")
+})
+
+test("a stop ends a request that waits on an image's download", async () => {
+  const fetching = globalThis.fetch
+  let signalled: AbortSignal | undefined
+  globalThis.fetch = ((_url: string, init?: RequestInit) => {
+    signalled = init?.signal ?? undefined
+    return new Promise((_, reject) => init?.signal?.addEventListener("abort", () => reject(init.signal?.reason), { once: true }))
+  }) as typeof fetch
+  try {
+    const abortController = new AbortController()
+    const image = { role: "user", content: [{ type: "image", source: { type: "url", value: "https://example.com/slow.png" } }] }
+    const reading = run(mlkitText({ native }), { messages: [image], abortController })
+    await new Promise((resolve) => setTimeout(resolve, 5))
+    abortController.abort()
+    const chunks = await reading
+    assert.equal(chunks.at(-1)?.code, "aborted")
+    assert.equal(signalled, abortController.signal)
+    assert.deepEqual(native.named("generate"), [])
+  } finally {
+    globalThis.fetch = fetching
+  }
+})

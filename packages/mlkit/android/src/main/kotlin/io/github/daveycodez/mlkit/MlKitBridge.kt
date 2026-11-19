@@ -354,8 +354,9 @@ class MlKitBridge(private val emit: (JSONObject) -> Unit) {
         val parameters = tool.optJSONObject("parameters")
         val name = tool.getString("name")
         val description = tool.optString("description")
-        // A tool without parameters declares none.
-        return if (parameters == null || (parameters.optJSONObject("properties")?.length() ?: 0) == 0) {
+        // A tool without parameters declares none. (A choice of objects has no properties of
+        // its own, and is declared with its choice.)
+        return if (parameters == null || (!parameters.has("anyOf") && (parameters.optJSONObject("properties")?.length() ?: 0) == 0)) {
             FunctionDeclaration(name, description)
         } else {
             FunctionDeclaration(name, description, schema(parameters))
@@ -458,7 +459,11 @@ class MlKitBridge(private val emit: (JSONObject) -> Unit) {
 
         private fun strings(array: JSONArray?): List<String>? = array?.let { List(it.length()) { i -> it.getString(i) } }
 
-        /** A call's arguments as ML Kit holds them. It has no null: a null argument is left out. */
+        /**
+         * A call's arguments as ML Kit holds them. It has no null: a null argument is left out,
+         * as one that wasn't given, and a null in a list is refused, since leaving it out would
+         * move the items after it.
+         */
         private fun arguments(json: JSONObject): Map<String, FunctionArgValue> {
             val out = LinkedHashMap<String, FunctionArgValue>()
             for (key in json.keys()) argument(json.get(key))?.let { out[key] = it }
@@ -472,7 +477,12 @@ class MlKitBridge(private val emit: (JSONObject) -> Unit) {
                 is Int -> FunctionArgValue.IntValue(value)
                 is Long -> FunctionArgValue.LongValue(value)
                 is Number -> FunctionArgValue.DoubleValue(value.toDouble())
-                is JSONArray -> FunctionArgValue.ListValue((0 until value.length()).mapNotNull { argument(value.get(it)) })
+                is JSONArray -> FunctionArgValue.ListValue(
+                    (0 until value.length()).map {
+                        argument(value.get(it))
+                            ?: throw IllegalArgumentException("A function call's arguments have a null in a list, which ML Kit's function calls can't hold")
+                    }
+                )
                 is JSONObject -> FunctionArgValue.MapValue(arguments(value))
                 else -> null
             }

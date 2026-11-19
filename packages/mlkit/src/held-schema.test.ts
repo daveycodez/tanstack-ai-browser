@@ -1,7 +1,7 @@
 import assert from "node:assert/strict"
 import { test } from "node:test"
 
-import { HELD_OBJECTS, heldSchema, withoutUnaskedNulls } from "./held-schema.js"
+import { HELD_OBJECTS, heldSchema, parameterless, withoutUnaskedNulls } from "./held-schema.js"
 
 const place = { type: "object", properties: { city: { type: "string" }, population: { type: "integer", minimum: 0 } }, required: ["city"] }
 
@@ -82,4 +82,34 @@ test("a null the model wrote for a property that isn't required is left out, unl
     withoutUnaskedNulls({ city: "Paris", nickname: null, note: null, stops: [{ name: "Louvre", rating: null }, { name: "Orsay", rating: 5 }] }, schema),
     { city: "Paris", note: null, stops: [{ name: "Louvre" }, { name: "Orsay", rating: 5 }] }
   )
+})
+
+test("an array whose items have a range, or may be null, isn't held: a list's items have no such limits", () => {
+  const list = (items: unknown) => ({ type: "object", properties: { values: { type: "array", items } } })
+  assert.equal(heldSchema(list({ type: "integer", minimum: 1, maximum: 5 })), undefined)
+  assert.equal(heldSchema(list({ type: "number", maximum: 1 })), undefined)
+  assert.equal(heldSchema(list({ type: ["string", "null"] })), undefined)
+  assert.equal(heldSchema(list({ type: ["integer", "null"] })), undefined)
+  // What a list's items can have: a string's enum and pattern.
+  assert.notEqual(heldSchema(list({ type: "string", enum: ["a", "b"] })), undefined)
+  assert.notEqual(heldSchema(list({ type: "string", pattern: "^[a-z]+$" })), undefined)
+  assert.notEqual(heldSchema(list({ type: "integer" })), undefined)
+})
+
+test("a schema whose allOf can't be one schema isn't held", () => {
+  assert.equal(heldSchema({ type: "object", properties: { id: { allOf: [{ type: "string" }, { type: "integer" }] } } }), undefined)
+})
+
+test("a tool is parameterless only when its schema says so", () => {
+  assert.equal(parameterless(undefined), true)
+  assert.equal(parameterless({}), true)
+  assert.equal(parameterless({ type: "object" }), true)
+  assert.equal(parameterless({ type: "object", properties: {}, additionalProperties: false }), true)
+  assert.equal(parameterless({ type: "object", properties: { city: { type: "string" } } }), false)
+  assert.equal(parameterless({ anyOf: [{ type: "object", properties: { city: { type: "string" } } }, { type: "object", properties: { id: { type: "integer" } } }] }), false)
+  assert.equal(parameterless({ $ref: "#/$defs/Args", $defs: { Args: { type: "object", properties: { city: { type: "string" } } } } }), false)
+  assert.equal(parameterless({ type: "object", additionalProperties: true }), false)
+  assert.equal(parameterless({ type: "object", additionalProperties: { type: "string" } }), false)
+  assert.equal(parameterless({ type: "object", required: ["city"] }), false)
+  assert.equal(parameterless({ type: "string" }), false)
 })

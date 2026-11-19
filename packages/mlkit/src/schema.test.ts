@@ -130,3 +130,45 @@ test("a schema without a type takes the one its keywords show, or none", () => {
   assert.deepEqual(toNativeSchema({ description: "Anything" }), { description: "Anything" })
   assert.deepEqual(toNativeSchema(undefined), {})
 })
+
+test("allOf's members are intersected: the narrower range, length and enum, whichever comes first", () => {
+  const age = (a: unknown, b: unknown) => toNativeSchema({ type: "object", properties: { age: { allOf: [a, b] } } }).properties?.age
+  assert.deepEqual(age({ type: "integer", minimum: 10 }, { type: "integer", minimum: 1 }), { type: "integer", minimum: 10 })
+  assert.deepEqual(age({ type: "integer", minimum: 1 }, { type: "integer", minimum: 10 }), { type: "integer", minimum: 10 })
+  assert.deepEqual(age({ type: "number", minimum: 0, maximum: 9 }, { type: "integer", maximum: 5 }), { type: "integer", minimum: 0, maximum: 5 })
+  assert.deepEqual(toNativeSchema({ allOf: [{ type: "string", minLength: 2, maxLength: 9 }, { type: "string", minLength: 4, maxLength: 20 }] }), {
+    type: "string",
+    minLength: 4,
+    maxLength: 9
+  })
+  assert.deepEqual(toNativeSchema({ allOf: [{ enum: ["a", "b", "c"] }, { enum: ["b", "c", "d"] }] }), { type: "string", enum: ["b", "c"] })
+  assert.deepEqual(toNativeSchema({ allOf: [{ type: "array", items: { type: "integer", minimum: 0 }, minItems: 1 }, { type: "array", items: { type: "integer", maximum: 9 }, maxItems: 3 }] }), {
+    type: "array",
+    items: { type: "integer", minimum: 0, maximum: 9 },
+    minItems: 1,
+    maxItems: 3
+  })
+})
+
+test("allOf beside a schema's own keywords narrows them, and a shared property is intersected too", () => {
+  assert.deepEqual(toNativeSchema({ type: "integer", minimum: 10, allOf: [{ minimum: 1, maximum: 50 }] }), { type: "integer", minimum: 10, maximum: 50 })
+  assert.deepEqual(
+    toNativeSchema({
+      allOf: [
+        { type: "object", properties: { age: { type: "integer", minimum: 10 }, name: { type: "string" } }, required: ["age"] },
+        { type: "object", properties: { age: { type: "integer", maximum: 99 } }, required: ["name"] }
+      ]
+    }),
+    { type: "object", properties: { age: { type: "integer", minimum: 10, maximum: 99 }, name: { type: "string" } }, required: ["age", "name"] }
+  )
+  // Null is allowed only where every member allows it.
+  assert.deepEqual(toNativeSchema({ allOf: [{ type: ["string", "null"] }, { type: "string" }] }), { type: "string" })
+  assert.deepEqual(toNativeSchema({ allOf: [{ type: ["string", "null"] }, { type: ["string", "null"] }] }), { type: "string", nullable: true })
+})
+
+test("allOf's members that can't be one schema throw", () => {
+  assert.throws(() => toNativeSchema({ allOf: [{ type: "string" }, { type: "integer" }] }), /allOf/)
+  assert.throws(() => toNativeSchema({ allOf: [{ enum: ["a"] }, { enum: ["b"] }] }), /allOf/)
+  assert.throws(() => toNativeSchema({ allOf: [{ type: "string", pattern: "^a" }, { type: "string", pattern: "z$" }] }), /allOf/)
+  assert.throws(() => toNativeSchema({ allOf: [{ anyOf: [{ type: "string" }, { type: "integer" }] }, { type: "string" }] }), /allOf/)
+})

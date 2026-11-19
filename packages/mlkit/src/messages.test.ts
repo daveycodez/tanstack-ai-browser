@@ -116,3 +116,33 @@ test("a tool's output that isn't a JSON object is its result, and an error its e
     [{ result: [1, 2] }, { result: 42 }, { error: "No such city" }]
   )
 })
+
+test("an image's download takes the request's signal", async () => {
+  const fetching = globalThis.fetch
+  let signalled: AbortSignal | undefined
+  globalThis.fetch = (async (_url: string, init?: RequestInit) => {
+    signalled = init?.signal ?? undefined
+    return new Response(new Uint8Array([65]))
+  }) as typeof fetch
+  try {
+    const controller = new AbortController()
+    await toNativeContents(messages([{ role: "user", content: [{ type: "image", source: { type: "url", value: "https://example.com/a.png" } }] }]), controller.signal)
+    assert.equal(signalled, controller.signal)
+  } finally {
+    globalThis.fetch = fetching
+  }
+})
+
+test("an earlier call with a null in a list throws: ML Kit's arguments have no null, and dropping it would move the others", async () => {
+  const call = (args: string) =>
+    messages([
+      { role: "user", content: "Go" },
+      { role: "assistant", content: "", toolCalls: [{ id: "a", type: "function", function: { name: "plot", arguments: args } }] },
+      { role: "tool", toolCallId: "a", content: "ok" }
+    ])
+  await assert.rejects(toNativeContents(call('{"points":[1,null,3]}')), /null in a list/)
+  await assert.rejects(toNativeContents(call('{"rows":[{"cells":["a",null]}]}')), /null in a list/)
+  // A null property is left out, as an argument that wasn't given.
+  const [, model] = await toNativeContents(call('{"city":"Paris","unit":null,"points":[1,2]}'))
+  assert.deepEqual(model.parts, [{ functionCall: { id: "a", name: "plot", arguments: { city: "Paris", points: [1, 2] } } }])
+})

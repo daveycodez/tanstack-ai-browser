@@ -17,7 +17,7 @@ import { BaseTextAdapter } from "@tanstack/ai/adapters"
 import type { StructuredOutputOptions, StructuredOutputResult } from "@tanstack/ai/adapters"
 
 import { callTextFilter } from "./call-text.js"
-import { heldSchema, withoutUnaskedNulls } from "./held-schema.js"
+import { heldSchema, parameterless, withoutUnaskedNulls } from "./held-schema.js"
 import { hasImages, toNativeContents } from "./messages.js"
 import { MLKIT_MODEL_REASONING } from "./model-meta.js"
 import type { MlKitChatModel } from "./model-meta.js"
@@ -321,17 +321,21 @@ export class MlKitTextAdapter extends BaseTextAdapter<
     return this.listening
   }
 
-  /** ML Kit's request for a step: the whole conversation, the system instruction, the tools. */
+  /**
+   * ML Kit's request for a step: the whole conversation, the system
+   * instruction, the tools. `signal` stops the download of an image given by URL.
+   */
   private async request(
     options: Pick<TextOptions<MlKitTextModelOptions>, "systemPrompts" | "tools" | "toolChoice">,
-    messages: ReadonlyArray<ModelMessage>
+    messages: ReadonlyArray<ModelMessage>,
+    signal?: AbortSignal
   ): Promise<NativeRequest> {
     const systemInstruction = instructionOf(options.systemPrompts)
     const tools = offeredTools(options)
     return {
       ...this.modelOption,
       ...(systemInstruction && { systemInstruction }),
-      contents: await toNativeContents(messages),
+      contents: await toNativeContents(messages, signal),
       ...(tools.length > 0 && {
         tools: tools.map((tool) => ({
           name: tool.name,
@@ -377,12 +381,14 @@ export class MlKitTextAdapter extends BaseTextAdapter<
       ...(options.parentRunId && { parentRunId: options.parentRunId })
     }
 
+    /** The native response: started, and ended (its done or its error came). */
     let started = false
+    let ended = false
     try {
       // A stopped request starts no native work (and one stopped meanwhile ends here).
       signal?.throwIfAborted()
       await this.listen()
-      const request = await this.request(options, options.messages)
+      const request = await this.request(options, options.messages, signal)
       signal?.throwIfAborted()
       const callEvents = function* (calls: ReadonlyArray<{ id: string; name: string; arguments: string }>): Generator<AdapterYieldChunk> {
         for (const [index, call] of calls.entries()) {
@@ -409,20 +415,24 @@ export class MlKitTextAdapter extends BaseTextAdapter<
       }
       // A step that must call a tool: the call is made with ML Kit's structured output.
       const must = await this.mustCall(options)
+      // (Stopped while the model's features were asked for, or while the call was made: no call.)
+      signal?.throwIfAborted()
       if (must) {
-        yield* callEvents([await this.forcedCall(request, must, options, signal)])
+        const call = await this.forcedCall(request, must, options, signal)
+        signal?.throwIfAborted()
+        yield* callEvents([call])
         yield { type: EventType.RUN_FINISHED, runId, threadId, model, timestamp: timestamp(), finishReason: "tool_calls" }
         return
       }
       const queue = new EventQueue()
       this.queues.set(requestId, queue)
-      started = true
       const settings = this.settings(options)
       // ML Kit caches the tools, and the system instruction with them, for a request without
       // thinking or an image. (For a system instruction alone AICore refuses to make the
       // cache, and every request waits about 0.2 s for the refusal.)
       const cached = this.prefixCaching && !settings.enableThinking && !hasImages(options.messages) && !!request.tools
       await this.native.generate({ requestId, ...request, options: { ...settings, ...(cached && { cachePrefix: true }) } })
+      started = true
 
       let text = ""
       let reasoningOpen = false
@@ -468,6 +478,7 @@ export class MlKitTextAdapter extends BaseTextAdapter<
         } else if (event.type === "delta") {
           yield* textEvents(answer.push(event.text))
         } else if (event.type === "done") {
+          ended = true
           const calls = event.toolCalls ?? []
           yield* reasoningEvents(thought(thinking.end(calls.length > 0)))
           // Thinking that was only the start of its label, after all.
@@ -486,12 +497,12 @@ export class MlKitTextAdapter extends BaseTextAdapter<
           }
           return
         } else {
+          ended = true
           throw Object.assign(new Error(event.message), { code: event.code })
         }
       }
     } catch (error) {
       const aborted = !!signal?.aborted
-      if (started && aborted) void this.native.cancel({ requestId }).catch(() => undefined)
       options.logger.errors("mlkit chatStream failed", { error, source: "mlkit.chatStream" })
       const message = error instanceof Error ? error.message : String(error)
       const code = aborted ? "aborted" : (error as { code?: unknown })?.code
@@ -507,6 +518,8 @@ export class MlKitTextAdapter extends BaseTextAdapter<
       }
     } finally {
       this.queues.delete(requestId)
+      // A stream that ends before its response does (stopped, failed, or left by its reader) stops the response.
+      if (started && !ended) void this.native.cancel({ requestId }).catch(() => undefined)
     }
   }
 
@@ -522,7 +535,7 @@ export class MlKitTextAdapter extends BaseTextAdapter<
     const signal = signalOf(chatOptions)
     signal?.throwIfAborted()
     await this.listen()
-    const asked = await this.request({ systemPrompts: chatOptions.systemPrompts }, chatOptions.messages)
+    const asked = await this.request({ systemPrompts: chatOptions.systemPrompts }, chatOptions.messages, signal)
     // (Thinking stays off: the answer is the JSON alone.)
     const settings = this.settings(chatOptions, false)
     // Held by ML Kit where the model has structured output and its schemas can say this one.
@@ -548,22 +561,28 @@ export class MlKitTextAdapter extends BaseTextAdapter<
     const requestId = nextId("request")
     const queue = new EventQueue()
     this.queues.set(requestId, queue)
+    let started = false
+    let ended = false
     try {
       await this.native.generate({ requestId, ...request })
+      started = true
       for (;;) {
         const event = await queue.next(signal)
         if (event.type === "done") {
+          ended = true
           if (event.finishReason === "length") throw cutOff()
           return event.text
         }
-        // ML Kit's own word for a held answer cut off at the token limit.
-        if (event.type === "error") throw event.code === "structuredOutputMaxTokensError" ? cutOff() : Object.assign(new Error(event.message), { code: event.code })
+        if (event.type === "error") {
+          ended = true
+          // ML Kit's own word for a held answer cut off at the token limit.
+          throw event.code === "structuredOutputMaxTokensError" ? cutOff() : Object.assign(new Error(event.message), { code: event.code })
+        }
       }
-    } catch (error) {
-      if (signal?.aborted) void this.native.cancel({ requestId }).catch(() => undefined)
-      throw error
     } finally {
       this.queues.delete(requestId)
+      // A wait that ends before the response does stops the response.
+      if (started && !ended) void this.native.cancel({ requestId }).catch(() => undefined)
     }
   }
 
@@ -581,12 +600,8 @@ export class MlKitTextAdapter extends BaseTextAdapter<
     if (tools.length === 0) return undefined
     const held: Array<{ tool: Tool; parameters: NativeSchema | undefined }> = []
     for (const tool of tools) {
-      let bare: boolean
-      try {
-        bare = Object.keys(toNativeSchema(tool.inputSchema ?? {}).properties ?? {}).length === 0
-      } catch {
-        return undefined
-      }
+      // Without parameters by its schema, not for want of top-level properties: a choice of objects has none either.
+      const bare = parameterless(tool.inputSchema)
       const parameters = bare ? undefined : heldSchema(tool.inputSchema)
       if (!bare && !parameters) return undefined
       held.push({ tool, parameters })

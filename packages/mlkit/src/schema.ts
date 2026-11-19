@@ -11,7 +11,10 @@
  *   refers to itself can't be, and throws);
  * - a string `const` is an enum of one, a number `const` a range of itself;
  * - an enum of numbers is `anyOf` their ranges;
- * - `oneOf` is `anyOf`, and `allOf`'s members are merged into one schema;
+ * - `oneOf` is `anyOf`;
+ * - `allOf`'s members are intersected into one schema, the narrower of each
+ *   limit (members that can't be one schema, such as two types or two
+ *   patterns, throw);
  * - a null among the types or choices is `nullable`.
  * Keywords it has nothing for (`additionalProperties`, `default`, ...) are left out.
  */
@@ -42,6 +45,68 @@ function constant(value: unknown): NativeSchema {
   return { type: "null" }
 }
 
+const largest = (a: number | undefined, b: number | undefined) => (a === undefined ? b : b === undefined ? a : Math.max(a, b))
+const smallest = (a: number | undefined, b: number | undefined) => (a === undefined ? b : b === undefined ? a : Math.min(a, b))
+
+/** Why two of `allOf`'s members can't be one schema. */
+const apart = (what: string) => new Error(`allOf with ${what} can't be one schema for ML Kit's FunctionSchema`)
+
+/** One of two members' values that must agree: the one given, or theirs if they're the same. */
+function agreed<T>(a: T | undefined, b: T | undefined, what: string): T | undefined {
+  if (a === undefined || b === undefined || a === b) return a ?? b
+  throw apart(`two ${what} (${JSON.stringify(a)} and ${JSON.stringify(b)})`)
+}
+
+/** The schema both `a` and `b` hold: each limit the narrower of theirs, each property in both narrowed the same way. */
+function intersect(a: NativeSchema, b: NativeSchema): NativeSchema {
+  const choice = a.anyOf ? a : b.anyOf ? b : undefined
+  if (choice) {
+    // A choice stands beside a member that says nothing but what it's for.
+    const other = choice === a ? b : a
+    if (Object.keys(other).some((key) => key !== "description" && key !== "title")) throw apart("a choice (anyOf) beside other members")
+    return defined({ ...choice, description: a.description ?? b.description, title: a.title ?? b.title })
+  }
+  const numbers = (type: NativeSchema["type"]) => type === "integer" || type === "number"
+  // A number and an integer: an integer. Any other two types have nothing in common.
+  const type = numbers(a.type) && numbers(b.type) ? (a.type === b.type ? a.type : "integer") : agreed(a.type, b.type, "types")
+  let enumeration = a.enum ?? b.enum
+  if (a.enum && b.enum) {
+    enumeration = a.enum.filter((value) => b.enum?.includes(value))
+    if (enumeration.length === 0) throw apart("enums that share no value")
+  }
+  const names = [...Object.keys(a.properties ?? {}), ...Object.keys(b.properties ?? {}).filter((name) => !(name in (a.properties ?? {})))]
+  const required = [...new Set([...(a.required ?? []), ...(b.required ?? [])])]
+  // Null fits only where both take it (a member without a type takes anything).
+  const takesNull = (schema: NativeSchema) => schema.nullable === true || schema.type === undefined
+  return defined({
+    type,
+    description: a.description ?? b.description,
+    title: a.title ?? b.title,
+    properties:
+      a.properties || b.properties
+        ? Object.fromEntries(
+            names.map((name) => {
+              const mine = a.properties?.[name]
+              const theirs = b.properties?.[name]
+              return [name, mine && theirs ? intersect(mine, theirs) : ((mine ?? theirs) as NativeSchema)]
+            })
+          )
+        : undefined,
+    required: required.length > 0 ? required : undefined,
+    enum: enumeration,
+    format: agreed(a.format, b.format, "formats"),
+    pattern: agreed(a.pattern, b.pattern, "patterns"),
+    nullable: takesNull(a) && takesNull(b) && (a.nullable || b.nullable) ? true : undefined,
+    items: a.items && b.items ? intersect(a.items, b.items) : (a.items ?? b.items),
+    minItems: largest(a.minItems, b.minItems),
+    maxItems: smallest(a.maxItems, b.maxItems),
+    minimum: largest(a.minimum, b.minimum),
+    maximum: smallest(a.maximum, b.maximum),
+    minLength: largest(a.minLength, b.minLength),
+    maxLength: smallest(a.maxLength, b.maxLength)
+  })
+}
+
 /** The schema ML Kit takes for a JSON Schema: a tool's parameters. */
 export function toNativeSchema(schema: unknown): NativeSchema {
   const json = isObject(schema) ? schema : {}
@@ -67,19 +132,14 @@ export function toNativeSchema(schema: unknown): NativeSchema {
       }
     }
     if (Array.isArray(value.allOf) && value.allOf.length > 0) {
+      // Every member holds at once, and the schema's own keywords beside them.
       const { allOf, ...rest } = value
-      const merged: Json = { ...rest }
-      for (const member of allOf) {
-        if (!isObject(member)) continue
-        const resolved = typeof member.$ref === "string" ? defs[member.$ref.split("/").at(-1) ?? ""] : member
-        if (!isObject(resolved)) continue
-        const properties = { ...(isObject(merged.properties) ? merged.properties : {}), ...(isObject(resolved.properties) ? resolved.properties : {}) }
-        const required = [...(Array.isArray(merged.required) ? merged.required : []), ...(Array.isArray(resolved.required) ? resolved.required : [])]
-        Object.assign(merged, resolved, rest)
-        if (Object.keys(properties).length > 0) merged.properties = properties
-        if (required.length > 0) merged.required = [...new Set(required)]
-      }
-      return convert(merged)
+      const all = [convert(rest), ...allOf.map(convert)].reduce(intersect)
+      // A member may require a property another one declares.
+      const required = [rest, ...allOf]
+        .flatMap((member) => (isObject(member) && Array.isArray(member.required) ? member.required : []))
+        .filter((name): name is string => typeof name === "string" && name in (all.properties ?? {}))
+      return described(defined({ ...all, required: required.length > 0 ? [...new Set([...(all.required ?? []), ...required])] : all.required }))
     }
     if ("const" in value) return described(constant(value.const))
     if (Array.isArray(value.enum)) {
@@ -168,7 +228,19 @@ export function toNativeSchema(schema: unknown): NativeSchema {
       case "null":
         return described({ type: "null" as const })
       default:
-        return described({})
+        // No type: the limits it names still narrow whatever it's intersected with.
+        return described(
+          defined({
+            minimum: number(value.minimum) ?? number(value.exclusiveMinimum),
+            maximum: number(value.maximum) ?? number(value.exclusiveMaximum),
+            minLength: number(value.minLength),
+            maxLength: number(value.maxLength),
+            minItems: number(value.minItems),
+            maxItems: number(value.maxItems),
+            pattern: string(value.pattern),
+            format: string(value.format)
+          })
+        )
     }
   }
 
