@@ -10,28 +10,22 @@
  * (`self.onmessage = (event) => handler.onmessage(event)`), or on a server
  * in the page's own process, where the client hands it the replies' way back.
  */
-import {
-  AutoModelForCausalLM,
-  AutoModelForImageTextToText,
-  AutoProcessor,
-  AutoTokenizer,
-  env,
+import type {
+  DynamicCache,
   InterruptableStoppingCriteria,
-  Lfm2VlProcessor,
-  Lfm3VlProcessor,
-  ModelRegistry,
-  RawImage,
-  StoppingCriteriaList,
-  TextStreamer
+  PreTrainedModel,
+  PreTrainedTokenizer,
+  Processor,
+  Tensor
 } from "@huggingface/transformers"
-import type { DynamicCache, PreTrainedModel, PreTrainedTokenizer, Processor, Tensor } from "@huggingface/transformers"
-import { StructuredOutputProcessor } from "@huggingface/transformers-structured-output"
 
 import type { Device, GenerateRequest, LoadSettings, WorkerReply, WorkerRequest } from "./protocol.js"
 import { endOfTurnIds, finishReasonOf } from "./finish.js"
 import { LOGITS_PASS, MIN_PASS, readInPasses } from "./prompt-passes.js"
 import { onDemandWeights, setUpTransformers, startLoad } from "./storage.js"
 import { shownText } from "./tool-calls.js"
+import { transformers } from "./transformers.js"
+import type { Transformers } from "./transformers.js"
 
 type Loaded = { tokenizer: PreTrainedTokenizer; processor: Processor | null; model: PreTrainedModel }
 
@@ -54,6 +48,7 @@ async function pickDevice(): Promise<Device | "cpu"> {
 
 /** A repo's `chat_template.jinja`, for tokenizers whose config has no template. */
 async function standaloneTemplate(model: string): Promise<string | null> {
+  const { env } = await transformers()
   const path = env.remotePathTemplate.replaceAll("{model}", model).replaceAll("{revision}", "main")
   const response = await fetch(`${env.remoteHost}${path}chat_template.jinja`).catch(() => null)
   return response?.ok ? response.text() : null
@@ -82,6 +77,7 @@ async function promptInputs(
   }
   if (!processor) throw new Error("The model was loaded without its vision encoder.")
   const text = tokenizer.apply_chat_template(messages as never, { ...template, tokenize: false }) as string
+  const { RawImage, Lfm2VlProcessor, Lfm3VlProcessor } = await transformers()
   const pixels = await Promise.all(images.map((url) => RawImage.read(url)))
   const imagesFirst = processor instanceof Lfm2VlProcessor || processor instanceof Lfm3VlProcessor
   return (await (imagesFirst ? processor(pixels, text, { add_special_tokens: false }) : processor(text, pixels))) as never
@@ -98,7 +94,8 @@ function cacheLength(cache: DynamicCache): number | undefined {
 
 export class TransformersJsWorkerHandler {
   private loaded: Loaded | null = null
-  private readonly stopping = new InterruptableStoppingCriteria()
+  /** Stops a generation (interrupt): made at the first load, with Transformers.js (see transformers.ts). */
+  private stopping: InterruptableStoppingCriteria | null = null
   /**
    * Whether the loaded model failed a prompt pass: its prompts are then read in one pass. Transformers.js
    * 4.3.2 can't run Qwen3.5's text-only decoder over several tokens on top of a cache: its
@@ -124,10 +121,10 @@ export class TransformersJsWorkerHandler {
   onmessage({ data }: { data: WorkerRequest }): void {
     const fail = (error: unknown) => this.post({ status: "error", message: error instanceof Error ? error.message : String(error) })
     if (data.type === "load") void this.load(data.settings).catch(fail)
-    else if (data.type === "interrupt") this.stopping.interrupt()
+    else if (data.type === "interrupt") this.stopping?.interrupt()
     else if (data.type === "unload") void this.unload().then(() => this.post({ status: "unloaded" }), fail)
     else {
-      this.stopping.reset()
+      this.stopping?.reset()
       void this.generate(data).catch(fail)
     }
   }
@@ -155,6 +152,9 @@ export class TransformersJsWorkerHandler {
 
   private async load({ model: id, device, dtype, vision, localModelPath, cacheDir }: LoadSettings) {
     await this.unload()
+    const { env, AutoModelForCausalLM, AutoModelForImageTextToText, AutoProcessor, AutoTokenizer, InterruptableStoppingCriteria, ModelRegistry } =
+      await transformers()
+    this.stopping ??= new InterruptableStoppingCriteria()
     setUpTransformers(env)
     if (localModelPath !== undefined) env.localModelPath = localModelPath
     if (cacheDir !== undefined) env.cacheDir = cacheDir
@@ -171,7 +171,7 @@ export class TransformersJsWorkerHandler {
       // through a Reshape or Transpose (LFM's) into a second, full copy.
       session_options: { extra: { "optimization.disable_specified_optimizers": "ConstantFolding" } }
     } as const
-    const fromPretrained = (modelOptions: Parameters<typeof AutoModelForCausalLM.from_pretrained>[1]) =>
+    const fromPretrained = (modelOptions: Parameters<Transformers["AutoModelForCausalLM"]["from_pretrained"]>[1]) =>
       vision
         ? Promise.all([AutoProcessor.from_pretrained(id), null, AutoModelForImageTextToText.from_pretrained(id, modelOptions)]).then(
             ([processor, , model]) => [processor, processor.tokenizer as PreTrainedTokenizer, model] as const
@@ -252,14 +252,15 @@ export class TransformersJsWorkerHandler {
         return output.past_key_values
       },
       dispose: (held) => held.dispose(),
-      stopped: () => this.stopping.interrupted
+      stopped: () => this.stopping?.interrupted ?? false
     })
   }
 
   private async generate(request: GenerateRequest) {
-    const loaded = this.loaded
-    if (!loaded) throw new Error("No model is loaded.")
+    const { loaded, stopping } = this
+    if (!loaded || !stopping) throw new Error("No model is loaded.")
     const { tokenizer, model } = loaded
+    const { TextStreamer, StoppingCriteriaList } = await transformers()
     const withImages = !!request.images?.length
     const inputs = await promptInputs(request, loaded)
     const prompt = tokenIds(inputs.input_ids)
@@ -287,7 +288,7 @@ export class TransformersJsWorkerHandler {
       }
     })
     const stoppingCriteria = new StoppingCriteriaList()
-    stoppingCriteria.push(this.stopping)
+    stoppingCriteria.push(stopping)
     const settings = {
       ...inputs,
       ...request.options,
@@ -297,8 +298,9 @@ export class TransformersJsWorkerHandler {
     }
     // A schema: Hugging Face's processor masks every token that would break it (a new one each attempt: it holds the generation's state).
     const schema = request.outputSchema
+    const structured = schema && (await import("@huggingface/transformers-structured-output"))
     const constraint = () =>
-      schema ? { logits_processor: new StructuredOutputProcessor(tokenizer, { type: "json_schema", json_schema: schema as never }) } : {}
+      structured ? { logits_processor: new structured.StructuredOutputProcessor(tokenizer, { type: "json_schema", json_schema: schema as never }) } : {}
     /** The answer, the prompt read first in passes (readPrompt) into `cache`. */
     const answer = async (cache: DynamicCache | undefined) => {
       // The schema's processor first: a schema it can't hold fails before any of the prompt is read.
@@ -306,7 +308,7 @@ export class TransformersJsWorkerHandler {
       const read = withImages ? cache : await this.readPrompt(model, inputs, cache)
       // A cache given up on (a pass that failed): nothing of the prompt was cached after all.
       if (cache && !read) cachedTokens = 0
-      if (this.stopping.interrupted) return null
+      if (stopping.interrupted) return null
       promptRead = withImages ? undefined : { started: performance.now(), tokens: prompt.length - ((read && cacheLength(read)) ?? 0) }
       return model.generate({ ...settings, ...constrained, ...(read && { past_key_values: read }) })
     }

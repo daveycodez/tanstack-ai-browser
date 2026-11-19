@@ -5,11 +5,11 @@
  * it at its first use) or in a Web Worker of your own
  * (`self.onmessage = (event) => handler.onmessage(event)`).
  */
-import { env, pipeline } from "@huggingface/transformers"
 import type { AutomaticSpeechRecognitionPipeline } from "@huggingface/transformers"
 
 import type { TranscriptionLoadSettings, TranscriptionReply, TranscriptionRequest } from "./protocol.js"
 import { setUpTransformers, startLoad } from "./storage.js"
+import { transformers } from "./transformers.js"
 
 export class TransformersJsTranscriptionWorkerHandler {
   private recognizer: AutomaticSpeechRecognitionPipeline | null = null
@@ -36,6 +36,7 @@ export class TransformersJsTranscriptionWorkerHandler {
 
   private async load({ model, device, dtype }: TranscriptionLoadSettings) {
     await this.unload()
+    const { env, pipeline } = await transformers()
     setUpTransformers(env)
     const load = startLoad(model, (value) => this.post({ status: "progress", progress: value }))
     try {
