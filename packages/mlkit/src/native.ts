@@ -80,6 +80,12 @@ export type NativeRequest = {
     maxOutputTokens?: number
     /** Thinking mode, where the model has it. */
     enableThinking?: boolean
+    /**
+     * ML Kit's prefix caching for the start every request of a conversation
+     * shares, the tools and the system instruction, where the model has it:
+     * the model's state after reading them is kept on disk and read back.
+     */
+    cachePrefix?: boolean
     /** With a `schema`, false: it stays out of the model's prompt (ML Kit still holds the answer to it). */
     includeSchemaInPrompt?: boolean
   }

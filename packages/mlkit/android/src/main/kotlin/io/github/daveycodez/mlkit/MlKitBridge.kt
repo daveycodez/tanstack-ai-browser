@@ -21,6 +21,7 @@ import com.google.mlkit.genai.prompt.ModelConfig
 import com.google.mlkit.genai.prompt.ModelPreference
 import com.google.mlkit.genai.prompt.ModelReleaseStage
 import com.google.mlkit.genai.prompt.Part
+import com.google.mlkit.genai.prompt.PromptPrefix
 import com.google.mlkit.genai.prompt.SystemInstruction
 import com.google.mlkit.genai.prompt.TextPart
 import com.google.mlkit.genai.prompt.TypedCandidate
@@ -281,7 +282,11 @@ class MlKitBridge(private val emit: (JSONObject) -> Unit) {
      * a part being `{ text }`, `{ image }` (base64), `{ functionCall: { id, name, arguments } }`
      * or `{ functionResponse: { id, name, response } }`), `systemInstruction`, `tools`
      * ([{ name, description, parameters }], see `schema`) and `options` (`temperature`, `topK`,
-     * `seed`, `maxOutputTokens`, `enableThinking`).
+     * `seed`, `maxOutputTokens`, `enableThinking`, `cachePrefix`).
+     *
+     * `cachePrefix` asks for ML Kit's prefix caching of the tools and the system instruction,
+     * for a request with tools, where the model has it: their state is written to the app's
+     * storage on the first request with them, and read back on the next ones.
      *
      * Where the model takes no system instruction (Gemini Nano 2), it opens the first user
      * turn instead. `enableThinking` is left off where the model has no thinking mode.
@@ -290,7 +295,8 @@ class MlKitBridge(private val emit: (JSONObject) -> Unit) {
         val system = options.optString("systemInstruction")
         val settings = options.optJSONObject("options")
         val thinking = settings?.optBoolean("enableThinking") == true
-        val available = if (system.isNotEmpty() || thinking) featuresOf(model) else emptySet()
+        val caching = settings?.optBoolean("cachePrefix") == true
+        val available = if (system.isNotEmpty() || thinking || caching) featuresOf(model) else emptySet()
         var inFirstTurn = system.isNotEmpty() && Feature.SYSTEM_PROMPT !in available
 
         val items = options.optJSONArray("contents") ?: JSONArray()
@@ -318,8 +324,16 @@ class MlKitBridge(private val emit: (JSONObject) -> Unit) {
         }
         if (thinking && Feature.THINKING_MODE in available) builder.enableThinking = true
         val tools = options.optJSONArray("tools")
-        if (tools != null && tools.length() > 0) {
+        val hasTools = tools != null && tools.length() > 0
+        if (tools != null && hasTools) {
             builder.setTools(List(tools.length()) { declaration(tools.getJSONObject(it)) })
+        }
+        // ML Kit's prefix caching for what every request of a conversation starts with: the
+        // tools, and the system instruction with them (it wants each one that's there named).
+        // Not for a system instruction alone: AICore refuses that cache (BAD_REQUEST), and
+        // every request waits for the refusal.
+        if (caching && Feature.PREFIX_CACHING in available && hasTools) {
+            builder.promptPrefix = PromptPrefix(builder.systemInstruction != null, true)
         }
         return builder.build()
     }

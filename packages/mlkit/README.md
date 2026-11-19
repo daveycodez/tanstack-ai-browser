@@ -40,6 +40,35 @@ ML Kit keeps no conversation, so every step sends all of it: the system prompts 
 
 ML Kit reports no token counts with a response, so a run's `usage` is left out. `countTokens({ messages, systemPrompts, tools })` counts a conversation's input as ML Kit would; it's a call of its own to AICore (about 0.1 s for a short prompt on a Pixel 10 Pro), so the adapter doesn't make it for you.
 
+### Caching
+
+ML Kit keeps nothing between requests on its own. On a Pixel 10 Pro, a 4,600-token conversation took about 1.5 s to its first token each time it was sent, the second time as the first, and its next step the same again; 2,300 tokens took 0.9 s. AICore's own log gives the rate: about 3,800 tokens a second, over 0.25 s for a short prompt.
+
+What it can keep is the start every request shares. Its prefix caching writes the model's state after the tools and the system instruction to the app's storage, and reads it back on the next request that starts with the same ones. The adapter asks for it on every request with tools, where the model has it (`features()` lists `"prefixCaching"`); `prefixCaching: false` turns it off.
+
+```ts
+const adapter = mlkitText({ prefixCaching: false })
+```
+
+On a Pixel 10 Pro, the time to the first token:
+
+| Tools and system instruction | Without the cache | First request (it writes the cache) | Next ones (they read it) |
+|---|---|---|---|
+| 110 tokens (one tool, no system instruction) | 0.26 s | 0.58 s | 0.36 s |
+| 685 tokens | 0.42 s | 0.75 s | 0.38 s |
+| 1,216 tokens (five tools) | 0.48 to 0.59 s | 1.1 s | 0.37 to 0.46 s |
+| 3,036 tokens | 1.1 s | 1.4 s | 0.52 to 0.56 s |
+
+A request that reads the cache takes 0.35 to 0.55 s whatever the prefix's size, so the cache pays from about 500 tokens up, and costs a tenth of a second under that. Each cache is a file in the app's storage (`files/.mlkit_prefix_cache`), 6 MB for 1,216 tokens and 8 MB for 3,036; ML Kit keeps the most recently used and deletes the rest.
+
+Its limits are ML Kit's and AICore's:
+
+- **The conversation isn't cached.** A prefix is the tools, the system instruction and one text at the very start: there's no place in it for the turns that follow, which are read again on every step. So a long chat or a long agent run gets slower with its length, at the rate above.
+- **A prefix that has grown starts from nothing.** A 3,439-token prefix that began with a cached 3,036-token one took as long the first time (1.6 s) as a new prefix of its size (1.5 s), and longer than with no cache (1.2 s). So writing the conversation into the prefix on each step would only add a cache to write, and its file, to every step.
+- **Not for a system instruction without tools.** AICore refuses to make that cache (`BAD_REQUEST`), ML Kit carries on without it, and each request takes about 0.2 s longer for the refusal. The adapter doesn't ask for the cache there.
+- **Not with thinking or an image.** ML Kit skips the cache for a request with either, so the adapter doesn't ask for it there.
+- **Not for a held answer or a forced call** (`outputSchema`, `toolChoice: "required"`): the adapter asks for it only on a streamed reply.
+
 ### Which Gemini Nano
 
 The model depends on the device and on two settings, ML Kit's `ModelConfig`:

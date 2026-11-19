@@ -18,7 +18,7 @@ import type { StructuredOutputOptions, StructuredOutputResult } from "@tanstack/
 
 import { callTextFilter } from "./call-text.js"
 import { heldSchema, withoutUnaskedNulls } from "./held-schema.js"
-import { toNativeContents } from "./messages.js"
+import { hasImages, toNativeContents } from "./messages.js"
 import { MLKIT_MODEL_REASONING } from "./model-meta.js"
 import type { MlKitChatModel } from "./model-meta.js"
 import { MlKit } from "./native.js"
@@ -43,6 +43,17 @@ export type MlKitConfig = MlKitModelConfig & {
    * should say what's wanted. A request's `modelOptions` overrides it.
    */
   includeSchemaInPrompt?: boolean
+  /**
+   * ML Kit's prefix caching for the tools and the system instruction, which
+   * every step of a conversation starts with: on by default for a request
+   * with tools, where the model has it. The model's state after reading them
+   * is written to the app's storage on their first request and read back on
+   * the next ones. False turns it off. ML Kit has none for a request with
+   * thinking or an image, AICore makes none for a system instruction
+   * without tools, and there's none for the conversation itself, which is
+   * read again each step.
+   */
+  prefixCaching?: boolean
 }
 
 /** Per-call `modelOptions`: ML Kit's sampling settings and reply length. */
@@ -185,7 +196,10 @@ export class MlKitTextAdapter extends BaseTextAdapter<
         : undefined
     this.onDownloadProgress = config.onDownloadProgress
     this.includeSchemaInPrompt = config.includeSchemaInPrompt
+    this.prefixCaching = config.prefixCaching !== false
   }
+
+  private readonly prefixCaching: boolean
 
   private readonly includeSchemaInPrompt: boolean | undefined
 
@@ -403,7 +417,12 @@ export class MlKitTextAdapter extends BaseTextAdapter<
       const queue = new EventQueue()
       this.queues.set(requestId, queue)
       started = true
-      await this.native.generate({ requestId, ...request, options: this.settings(options) })
+      const settings = this.settings(options)
+      // ML Kit caches the tools, and the system instruction with them, for a request without
+      // thinking or an image. (For a system instruction alone AICore refuses to make the
+      // cache, and every request waits about 0.2 s for the refusal.)
+      const cached = this.prefixCaching && !settings.enableThinking && !hasImages(options.messages) && !!request.tools
+      await this.native.generate({ requestId, ...request, options: { ...settings, ...(cached && { cachePrefix: true }) } })
 
       let text = ""
       let reasoningOpen = false

@@ -101,9 +101,29 @@ test("a reply streams as text, from a request holding the system instruction, th
   assert.deepEqual(request.tools, [
     { name: "get_weather", description: "Weather for a city", parameters: { type: "object", properties: { city: { type: "string" } }, required: ["city"] } }
   ])
-  assert.deepEqual(request.options, { temperature: 0.2, topK: 10, seed: 7, maxOutputTokens: 64 })
+  // (The tools and the system instruction are cached: see the prefix caching test.)
+  assert.deepEqual(request.options, { temperature: 0.2, topK: 10, seed: 7, maxOutputTokens: 64, cachePrefix: true })
   // ML Kit's default model: none named.
   assert.equal("model" in request, false)
+})
+
+test("the tools and the system instruction are cached, unless the request has no tools, thinks, has an image, or caching is off", async () => {
+  const optionsOf = async (adapter: ReturnType<typeof mlkitText>, extra: Record<string, unknown>) => {
+    await run(adapter, extra)
+    return native.named("generate").at(-1)?.options
+  }
+  const adapter = mlkitText({ native })
+  assert.deepEqual(await optionsOf(adapter, { systemPrompts: ["Be brief."], tools: [weather] }), { cachePrefix: true })
+  assert.deepEqual(await optionsOf(adapter, { tools: [weather] }), { cachePrefix: true })
+  // AICore makes no cache for a system instruction without tools, and none is asked for.
+  assert.deepEqual(await optionsOf(adapter, { systemPrompts: ["Be brief."] }), {})
+  assert.deepEqual(await optionsOf(adapter, { systemPrompts: ["Be brief."], tools: [weather], toolChoice: "none" }), {})
+  assert.deepEqual(await optionsOf(adapter, {}), {})
+  // ML Kit caches nothing for a request with thinking, or with an image.
+  assert.deepEqual(await optionsOf(adapter, { tools: [weather], reasoning: { level: "high" } }), { enableThinking: true })
+  const image = { role: "user", content: [{ type: "text", content: "What's this?" }, { type: "image", source: { type: "data", value: "QUJD", mimeType: "image/png" } }] }
+  assert.deepEqual(await optionsOf(adapter, { tools: [weather], messages: [image] }), {})
+  assert.deepEqual(await optionsOf(mlkitText({ native, prefixCaching: false }), { systemPrompts: ["Be brief."], tools: [weather] }), {})
 })
 
 const CALL_TEXT = "<ctrl42>call:get_weather{city:<ctrl46>Paris<ctrl46>}<ctrl43>"
