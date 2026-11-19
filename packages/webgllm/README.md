@@ -1,6 +1,6 @@
 # @tanstack-ai-browser/webgllm
 
-A [TanStack AI](https://tanstack.com/ai) adapter for [webgllm](https://webgllm.dev): LFM3 1.7B, LFM2.5, Liquid's vision models (LFM3-VL and LFM2.5-VL) and Qwen3.5 2B running in the browser on WebGL 2, in a Web Worker on an OffscreenCanvas. It runs with or without WebGPU; where there's no WebGPU (Firefox on Android, older iPhones) it still reads prompts on the GPU.
+A [TanStack AI](https://tanstack.com/ai) adapter for [webgllm](https://webgllm.dev): LFM3 1.7B, LFM2.5, Liquid's vision models (LFM3-VL and LFM2.5-VL) and Qwen3.5 2B running in the browser, in a Web Worker: on WebGPU where the browser has it, and on WebGL 2 elsewhere (Firefox on Android, older iPhones), still on the GPU.
 
 ```sh
 npm install @tanstack-ai-browser/webgllm @tanstack/ai
@@ -17,18 +17,20 @@ const stream = chat({
 })
 ```
 
-It needs WebGL 2 with float render targets (`EXT_color_buffer_float`) and OffscreenCanvas in workers, which current Chrome, Firefox and Safari have; an adapter's `availability()` says `"unavailable"` where they're missing.
+It needs WebGL 2 with float render targets (`EXT_color_buffer_float`) and OffscreenCanvas in workers, which current Chrome, Firefox and Safari have, also where models run on WebGPU (webgllm's support check); an adapter's `availability()` says `"unavailable"` where they're missing.
 
-The package is shaped like `@tanstack/ai-openai`'s text adapter. The root has `webgllmText(model, config?)`, `WebGllmTextAdapter` (with the runtime methods `availability`, `create` and `destroy`) and the types `WebGllmConfig`, `WebGllmModel`, `WebGllmTextModelOptions`, `Availability` and `DownloadProgressCallback`, and the catalog (below).
+The package is shaped like `@tanstack/ai-openai`'s text adapter. The root has `webgllmText(model, config?)`, `WebGllmTextAdapter` (with the runtime methods `availability`, `create`, `predictSpeed` and `destroy`) and the types `WebGllmConfig`, `WebGllmBackend`, `WebGllmModel`, `WebGllmTextModelOptions`, `WebGllmPredictSpeedOptions`, `SpeedPrediction`, `Availability` and `DownloadProgressCallback`, and the catalog (below).
 
-The engine is the [`webgllm`](https://www.npmjs.com/package/webgllm) package, behind OpenAI's Chat Completions API in the page. The adapter is TanStack's Chat Completions adapter (`@tanstack/openai-base`) with the shared `WebGLLM` instance as its client, so messages, tools, structured output and the stream are TanStack's; it adds loading the model, webgllm's reasoning levels and thinking budget, and its options. Tool-call parsing and repair, thinking, guided tool choice and schema-constrained answers are webgllm's own. See [webgllm.dev](https://webgllm.dev) and its README for how the engine works, its memory and speed.
+The engine is the [`webgllm`](https://www.npmjs.com/package/webgllm) package, behind OpenAI's Chat Completions API in the page. The adapter is TanStack's Chat Completions adapter (`@tanstack/openai-base`) with the shared `WebGLLM` instance as its client, so messages, tools, structured output and the stream are TanStack's; it adds loading the model, webgllm's reasoning levels and thinking budget, and its options. Tool calls held to their tools while they're written (as llama.cpp's grammars hold them), their parsing and optional repair, thinking and schema-constrained answers are webgllm's own, with llama.cpp's request semantics. See [webgllm.dev](https://webgllm.dev) and its README for how the engine works, its memory and speed.
 
 ## The adapter
 
 `webgllmText(model, config?)` takes:
 
 - `contextLength`: most tokens a chat may hold, prompt and reply together; the model's whole context by default (LFM3: 262,144), never more. Smaller takes less memory. Changing it loads the model again.
+- `webgpu`: where the model runs (webgllm's `webgpu` option). `"auto"`, the default, runs it on WebGPU where the browser has it and on WebGL 2 elsewhere; `false` keeps it on WebGL 2 even where there's WebGPU. Anything else throws. Adapters set to `false` share a `WebGLLM` of their own in the page; adapters given the same `worker` must agree on it. `predictSpeed` measures on it too.
 - `worker`: a Web Worker of your own to run the model in (see A worker of your own).
+- `onDownloadProgress`: the model's download progress, 0 to 1, when a call (a chat, say) starts its download, then 1 once it's ready (see Models and loading).
 
 There are no callbacks of its own: thinking, text, tool calls and structured output all come back as TanStack's standard stream events, so an app can swap this adapter for TanStack's OpenAI or OpenRouter adapter without other changes.
 
@@ -38,13 +40,13 @@ What maps to what:
 | ------------------------------------------------- | ------------------------------------------------------------------------ |
 | `systemPrompts`, `messages` (tool calls, results, thinking) | `messages` (a failed tool's error as its result)                |
 | `tools` (their `inputSchema`)                     | `tools` (function `parameters`)                                          |
-| `toolChoice` (`auto`, `none`, `required`, a tool) | `tool_choice`; with `none` webgllm offers the model no tools            |
+| `toolChoice` (`auto`, `none`, `required`, a tool) | `tool_choice`, as llama.cpp takes it (`none` keeps the tools in the prompt and reads no calls; a tool is a required call to it) |
 | `outputSchema`                                    | `response_format: { type: "json_schema" }`                              |
 | `reasoning` level / `budgetTokens`                | `reasoning_effort` (`none` or `high`) / `reasoning.max_tokens`          |
 | `promptCache: "none"`                             | `cache_prompt: false`                                                    |
 | `modelOptions`                                    | see below                                                                |
 
-`modelOptions` are webgllm's own request fields, sent as given, as TanStack's adapters do with their provider's fields: OpenAI's names (`max_completion_tokens`, thinking included; `temperature`, `top_p`, `presence_penalty`, `stop`, `seed`, `parallel_tool_calls`, false keeping only the first tool call) and webgllm's own (`top_k`, `min_p`, `repetition_penalty`, and `repair_tool_calls`, false skipping its tool-call repair). `frequency_penalty` isn't supported: anything but 0 throws webgllm's `unsupported-parameter` error. Their type is webgllm's `ChatCompletionCreateParamsBase`, without the fields the adapter writes from `chat()`'s own options (messages, tools, the output schema, streaming, reasoning).
+`modelOptions` are webgllm's own request fields, sent as given, as TanStack's adapters do with their provider's fields: OpenAI's names (`max_completion_tokens`, thinking included; `temperature`, `top_p`, `presence_penalty`, `frequency_penalty`, `stop`, `seed`, `parallel_tool_calls`, false allowing one tool call per reply) and llama.cpp's (`top_k`, `min_p`, `repetition_penalty`, `repeat_last_n`, `chat_template_kwargs`, `reasoning_budget_tokens`), plus webgllm's `repair_tool_calls` (true to check tool calls against their tools and generate bad ones again; off by default, as llama.cpp has no repair). Their type is webgllm's `ChatCompletionCreateParamsBase`, without the fields the adapter writes from `chat()`'s own options (messages, tools, the output schema, streaming, reasoning).
 
 ```ts
 chat({ adapter: webgllmText("LiquidAI/LFM3-1.7B-GGUF"), messages, modelOptions: { max_completion_tokens: 1024, temperature: 0.2 } })
@@ -56,11 +58,11 @@ Unset sampling fields take the model card's values (webgllm's), and there's no o
 
 webgllm reads only what's new in a prompt that starts with what it read before: the same chat one message on, or a system prompt (with its tools) it has read before, even after chats with other system prompts, and after the page loads again (it keeps them on disk too; see webgllm's README). `RUN_FINISHED`'s usage says how many prompt tokens came from the cache (`promptTokensDetails.cachedTokens`, 0 when none did), for text and structured answers alike.
 
-`prefill()` reads a prompt ahead of time, generating nothing (webgllm's `max_tokens: 0`), so the next `chat()` that starts with it reads only the rest: the system prompt and the messages so far while the user types, or a system prompt the app will use soon. Pass the parts of `chat()`'s options that make the prompt (`systemPrompts`, `messages`, `tools`, `toolChoice`, `reasoning`, `modelOptions`), the same as `chat()` will get. It loads the model first if it isn't, and resolves to `{ promptTokens, cachedTokens }`.
+To read a prompt ahead of time (the system prompt and the messages so far while the user types, say), send it as the next `chat()` will, with webgllm's `max_completion_tokens: 0`: nothing is generated, and the `chat()` that starts with that prompt reads only the rest.
 
 ```ts
 const adapter = webgllmText("LiquidAI/LFM3-1.7B-GGUF", { contextLength: 8192 })
-await adapter.prefill({ systemPrompts: [PLANNER], tools, messages })
+for await (const _ of chat({ adapter, systemPrompts: [PLANNER], tools, messages, modelOptions: { max_completion_tokens: 0 } }));
 chat({ adapter, systemPrompts: [PLANNER], tools, messages: [...messages, question], threadId })
 ```
 
@@ -81,7 +83,7 @@ const worker = new Worker(new URL("./worker.ts", import.meta.url), { type: "modu
 const adapter = webgllmText("LiquidAI/LFM3-1.7B-GGUF", { worker })
 ```
 
-`WebGLLMWorkerHandler` is webgllm's own, exported here too. The worker holds one model: adapters given the same worker share it, and loading another model replaces the one there once its running reply ends. `destroy()` frees the model's GPU memory and leaves the worker running. If the worker fails (its script doesn't load, or it crashes), the call waiting on it rejects with webgllm's `worker-failed` error (webgllm 0.3.1 and later). Without a worker, webgllm keeps several models loaded at once, a worker each, up to its memory budget.
+`WebGLLMWorkerHandler` is webgllm's own, exported here too. The worker holds one model: adapters given the same worker share it, and loading another model replaces the one there once its running reply ends. `destroy()` frees the model's GPU memory and leaves the worker running. If the worker fails (its script doesn't load, or it crashes), the call waiting on it rejects with webgllm's `worker-failed` error (webgllm 0.3.1 and later). Without a worker, webgllm keeps several models loaded at once, a worker each, up to its memory budget; a model's worker is kept 30 s after it's unloaded, and the next model loads there (webgllm 0.3.8 and later).
 
 ## Thinking and structured output
 
@@ -125,9 +127,21 @@ await adapter.destroy() // frees its GPU memory
 
 The methods have the Prompt API's values and meanings. `availability()` is `"unavailable"` where the engine can't run (checked once per page: webgllm's check makes a WebGL context), `"downloading"` while this page downloads the model (however the load started: `create` or an adapter's first chat), `"available"` when the model is loaded or every file it loads is in webgllm's storage (`webgllm.models.downloaded()`, which reads the Origin Private File System only), else `"downloadable"`. It makes no request (no `webgllm.models.retrieve()`, which asks Hugging Face for file sizes) and starts no worker. `create({ onDownloadProgress?, signal }?)` reports the download, 0 to 1, then 1 once the model is ready (at once if it already is); it resolves to the adapter, and rejects on failure (fine to leave unawaited). Aborting `signal` rejects that call at once with an `AbortError` and stops its progress reports; when no other caller (another call, or a chat waiting for the model) still waits on the load, webgllm cancels it and the model is left unloaded (`availability()` is back to `"downloadable"`). The config's `onDownloadProgress` hears a download the first chat starts too. Adapters for the same model share it, so `destroy()` on one unloads it for all of them.
 
+## Speed before downloading
+
+`predictSpeed(options?)` guesses how fast the model reads prompts and writes on this device, in tokens per second, before its weights download (webgllm's `predictSpeed`, webgllm 0.3.8 and later), so an app can choose a local model or a cloud one first:
+
+```ts
+const adapter = webgllmText("LiquidAI/LFM3-1.7B-GGUF")
+const { prompt, decode } = await adapter.predictSpeed() // e.g. { prompt: 365, decode: 42 }
+const quick = await adapter.predictSpeed({ decode: false }) // the prompt alone: faster, no decode
+```
+
+It times the model's own shapes on synthetic weights in a worker of its own, on the adapter's backend (`webgpu`). The answer is remembered for this device, model and engine version, so later calls answer at once; `force: true` measures again, and `signal` cancels. It rejects where the engine can't run. Its options' type is `WebGllmPredictSpeedOptions` (webgllm's `PredictSpeedOptions`, without `webgpu`), and its answer's `SpeedPrediction` (`decode` is absent with `decode: false`).
+
 ## Memory
 
-The page shares one `WebGLLM` instance, which keeps models loaded while they fit its memory budget and unloads the least recently used past it. See webgllm's README for its budget.
+The page shares one `WebGLLM` instance (one more for adapters set to `webgpu: false`), which keeps models loaded while they fit its memory budget and unloads the least recently used past it. See webgllm's README for its budget.
 
 ## License
 

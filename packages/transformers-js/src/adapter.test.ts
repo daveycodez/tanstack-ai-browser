@@ -39,10 +39,10 @@ class FakeWorker {
   send(data: WorkerReply) {
     this.onmessage?.({ data })
   }
-  /** Sends text pieces, then completes with these counts. */
-  stream(pieces: Array<string>, outputTokens = pieces.length) {
+  /** Sends text pieces, then completes with these counts and finish reason. */
+  stream(pieces: Array<string>, outputTokens = pieces.length, finishReason: "stop" | "length" = "stop") {
     for (const output of pieces) this.send({ status: "update", output })
-    this.send({ status: "complete", inputTokens: 12, outputTokens })
+    this.send({ status: "complete", inputTokens: 12, outputTokens, finishReason })
   }
   terminate() {
     this.terminated = true
@@ -120,7 +120,8 @@ test("the conversation and tools go to the chat template, with the model card's 
   ])
   // LFM3's card: its repo's generation_config.json doesn't carry it.
   assert.deepEqual(request.options, { max_new_tokens: 4096, do_sample: true, temperature: 0.1, top_k: 50, repetition_penalty: 1.1 })
-  assert.equal(request.enableThinking, false)
+  // No reasoning asked for: the chat template's own default (LFM3's thinks).
+  assert.equal("enableThinking" in request, false)
 })
 
 test("a model the catalog doesn't list gets no sampling from the adapter: its repo's generation_config.json applies", async () => {
@@ -150,6 +151,9 @@ test("modelOptions go to generate() as given, over the card's sampling; reasonin
   })
   const request = generateRequests().at(-1) as Generate
   assert.equal(request.enableThinking, true)
+  // Off is sent as off, so a template that thinks by default (LFM3's) doesn't.
+  await run({ reasoning: { level: "off", summary: false } } as never)
+  assert.equal((generateRequests().at(-1) as Generate).enableThinking, false)
   assert.deepEqual(request.options, {
     max_new_tokens: 100,
     do_sample: false,
@@ -282,7 +286,7 @@ test("a request aborted while it waits for the worker never starts its generatio
     // The first generation waits for `finish`; any later one completes at once.
     if (finish) return worker.stream(["Second"])
     worker.send({ status: "update", output: "First" })
-    finish = () => worker.send({ status: "complete", inputTokens: 1, outputTokens: 1 })
+    finish = () => worker.send({ status: "complete", inputTokens: 1, outputTokens: 1, finishReason: "stop" })
   }
   const first = run()
   // Wait until the first request is generating.
@@ -299,10 +303,14 @@ test("a request aborted while it waits for the worker never starts its generatio
   assert.equal(generateRequests().length, before)
 })
 
-test("a reply that uses every token finishes with length", async () => {
-  FakeWorker.reply = (worker) => worker.stream(["long"], 5)
+test("the finish reason is the worker's: length when it ran out of tokens, stop when it ended on the last one", async () => {
+  FakeWorker.reply = (worker) => worker.stream(["long"], 5, "length")
   const chunks = await run({ modelOptions: { max_new_tokens: 5 } })
   assert.equal((chunks.at(-1) as Chunk).finishReason, "length")
+  // The end-of-turn token as the last allowed one: a stop.
+  FakeWorker.reply = (worker) => worker.stream(["done"], 5, "stop")
+  const ended = await run({ modelOptions: { max_new_tokens: 5 } })
+  assert.equal((ended.at(-1) as Chunk).finishReason, "stop")
 })
 
 test("an abort interrupts the worker and ends with RUN_ERROR", async () => {
@@ -310,7 +318,7 @@ test("an abort interrupts the worker and ends with RUN_ERROR", async () => {
   FakeWorker.reply = (worker) => {
     worker.send({ status: "update", output: "Hel" })
     controller.abort()
-    setTimeout(() => worker.send({ status: "complete", inputTokens: 12, outputTokens: 1 }), 0)
+    setTimeout(() => worker.send({ status: "complete", inputTokens: 12, outputTokens: 1, finishReason: "stop" }), 0)
   }
   const chunks = await run({ abortController: controller })
   const error = chunks.at(-1) as Chunk
@@ -326,11 +334,30 @@ test("a worker error ends with RUN_ERROR", async () => {
   assert.equal(chunks[1].message, "out of memory")
 })
 
-test("structured output is refused", async () => {
-  await assert.rejects(
-    transformersJsText(MODEL).structuredOutput(),
-    /not supported/
-  )
+const schema = { type: "object", properties: { city: { type: "string" } }, required: ["city"] }
+const structured = (extra: Partial<TextOptions> = {}) =>
+  transformersJsText(MODEL).structuredOutput({ chatOptions: options(extra), outputSchema: schema } as never)
+
+test("structured output sends the schema to the worker, without tools or thinking, and parses the answer", async () => {
+  FakeWorker.reply = (worker) => worker.stream(['{"city": ', '"Tokyo"}'])
+  const result = await structured({ tools: [{ name: "get_weather", description: "Weather" }], reasoning: "high" as never })
+  assert.deepEqual(result.data, { city: "Tokyo" })
+  assert.equal(result.rawText, '{"city": "Tokyo"}')
+  assert.equal(result.usage?.promptTokens, 12)
+  const request = generateRequests().at(-1) as Generate
+  assert.deepEqual(request.outputSchema, schema)
+  assert.equal(request.enableThinking, false)
+  assert.equal("tools" in request, false)
+})
+
+test("structured output cut off at max_new_tokens fails with code length; a worker error rejects", async () => {
+  FakeWorker.reply = (worker) => worker.stream(['{"city": "To'], 5, "length")
+  await assert.rejects(structured({ modelOptions: { max_new_tokens: 5 } } as never), (error: Error & { code?: string }) => error.code === "length")
+  // A whole answer whose end-of-turn token was the last one allowed: not cut off.
+  FakeWorker.reply = (worker) => worker.stream(["{}"], 2, "stop")
+  assert.deepEqual((await structured({ modelOptions: { max_new_tokens: 2 } } as never)).data, {})
+  FakeWorker.reply = (worker) => worker.send({ status: "error", message: "String pattern is not supported" })
+  await assert.rejects(structured(), /pattern/)
 })
 
 test("availability, create and destroy", async () => {
@@ -402,7 +429,7 @@ class OwnWorker {
       else if (request.type === "unload") this.send({ status: "unloaded" })
       else if (request.type === "generate") {
         this.send({ status: "update", output: "Mine" })
-        this.send({ status: "complete", inputTokens: 3, outputTokens: 1 })
+        this.send({ status: "complete", inputTokens: 3, outputTokens: 1, finishReason: "stop" })
       }
     }, 0)
   }

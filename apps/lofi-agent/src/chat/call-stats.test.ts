@@ -136,3 +136,15 @@ test("prompt speed counts every step's input tokens over its time to first token
   assert.ok(throughChat)
   assert.ok(recordedValue(throughChat.promptTokensPerSecond) > 0)
 })
+
+test("a step that calls a client tool keeps its token counts when the reply pauses for the tool", async () => {
+  // A client tool (Lofi Agent's location tool) is only a definition here: the reply pauses for the browser to run it.
+  const where = toolDefinition({ name: "where", description: "Where the user is" })
+  const usage = { promptTokens: 20, completionTokens: 5, totalTokens: 25 }
+  const recorded = await reply(new FakeAdapter(usage, "where"), { tools: [where as unknown as ReturnType<typeof clock>] })
+  const stats = recorded.get("run:0")
+  assert.ok(stats)
+  assert.equal(stats.inputTokens, 20)
+  assert.equal(stats.outputTokens, 5)
+  assert.ok(recordedValue(stats.firstTokenMs) > 0)
+})

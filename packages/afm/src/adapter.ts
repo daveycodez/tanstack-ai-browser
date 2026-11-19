@@ -26,10 +26,7 @@ import type { AfmChatModel } from "./model-meta.js"
 import { Afm } from "./native.js"
 import type { AfmGuardrails, AfmNative, AfmSampling, NativeEvent, NativeMessage, NativeUsage, UnavailableReason } from "./native.js"
 import { toNativeSchema } from "./schema.js"
-import { parseJsonValue } from "./json-value.js"
-import { schemaErrors } from "./validate.js"
-import { orderedForm } from "./ordered.js"
-import type { OrderedForm } from "./ordered.js"
+import * as SystemLanguageModel from "./system-language-model.js"
 
 export type AfmConfig = {
   /**
@@ -148,27 +145,14 @@ function offeredTools(options: TextOptions<AfmTextModelOptions>): ReadonlyArray<
   return tools
 }
 
-/**
- * When to call tools, added to the instructions of a session that has some.
- * Given tools and no word on when to use them, Apple's model on an iPhone
- * (iOS 27.2) calls one for every prompt, "Hi" and "What is 2 + 2?" included;
- * on a Mac it doesn't. With this, the iPhone's answered greetings, small talk,
- * math, explanations and writing itself, and called the weather, location and
- * web search tools for the weather, "here", current facts and the news. Told
- * only to answer such requests "directly", it refused to write poems ("I
- * cannot write a haiku"); naming poems, stories and emails as its own work
- * keeps it writing.
- */
-const TOOL_USE =
-  "Most requests need no tool: greetings and small talk, math, writing (poems, stories, emails), explanations and general knowledge. Answer those yourself, without calling a tool. Call a tool only for what you can't do yourself: information that changes or that you don't have, or something only a tool can do."
-
 /** The framework's tool-calling mode for a step: "required" when a tool must be called ("required", or the one tool named). */
 const toolCallingModeOf = (options: TextOptions<AfmTextModelOptions>) =>
   options.toolChoice === "required" || typeof options.toolChoice === "object" ? ("required" as const) : undefined
 
-/** The system prompts, and when to call tools if the session has some. */
-const instructionsOf = (options: TextOptions<AfmTextModelOptions>, tools: ReadonlyArray<Tool>) =>
-  [...normalizeSystemPrompts(options.systemPrompts).map((p) => p.content), ...(tools.length > 0 ? [TOOL_USE] : [])]
+/** The session's instructions: the caller's system prompts, as given (when to call tools is the caller's to say). */
+const instructionsOf = (options: TextOptions<AfmTextModelOptions>) =>
+  normalizeSystemPrompts(options.systemPrompts)
+    .map((p) => p.content)
     .filter(Boolean)
     .join("\n\n")
 
@@ -188,8 +172,10 @@ const usageOf = (usage: NativeUsage | undefined): TokenUsage | undefined =>
       completionTokens: usage.outputTokens,
       totalTokens: usage.inputTokens + usage.outputTokens
     }),
-    // 0 too: nothing was cached. Left out where the framework can't say.
-    ...(usage.cachedTokens !== undefined && { promptTokensDetails: { cachedTokens: usage.cachedTokens } })
+    // The prompt tokens the framework reused, as TanStack reports them: left out for none, or where the framework can't say.
+    ...(usage.cachedTokens ? { promptTokensDetails: { cachedTokens: usage.cachedTokens } } : {}),
+    // Before iOS/macOS 26.4 the native side can only estimate the tokens: said to be an estimate.
+    ...(usage.estimated && { providerUsageDetails: { estimated: true } })
   }
 
 let ids = 0
@@ -197,33 +183,6 @@ const nextId = (prefix: string) => `${prefix}_${Date.now().toString(36)}_${(ids+
 
 const signalOf = (options: TextOptions<AfmTextModelOptions>) =>
   options.abortController?.signal ?? (options.request as RequestInit | undefined)?.signal ?? undefined
-
-/**
- * A structured answer's value in the caller's shape (see ordered.ts), if it
- * fits the caller's schema. The framework holds a guided answer to the schema
- * Apple's model got, but not to all of it (it has left out required
- * properties and written fewer items than minItems), and an answer written as
- * text (permissive guardrails' fallback) to none of it. chat() validates only
- * schemas with a Standard Schema validator, not plain JSON Schema, so the
- * adapter checks every answer here.
- */
-function checkedAnswer(text: string, asText: boolean, schema: unknown, form: OrderedForm): unknown {
-  const how = asText ? ", written as text past its guardrails," : ""
-  let data: unknown
-  try {
-    data = asText ? parseJsonValue(text) : JSON.parse(text)
-  } catch (error) {
-    const failure = new Error(`Apple's model wrote no JSON for the schema (its answer${how} was ${JSON.stringify(text.slice(0, 120))})`, { cause: error })
-    // A guided answer keeps TanStack's code for a parse failure (structured-output-parse-failed, from the cause).
-    throw asText ? Object.assign(failure, { code: "invalidJson" }) : failure
-  }
-  const value = form.restore(data)
-  const problems = schemaErrors(schema, value)
-  if (problems.length > 0) {
-    throw Object.assign(new Error(`Apple's model's answer${how} doesn't fit the schema: ${problems.slice(0, 5).join("; ")}`), { code: "schemaMismatch" })
-  }
-  return value
-}
 
 const parse = (json: string): unknown => {
   try {
@@ -287,10 +246,25 @@ export class AfmTextAdapter extends BaseTextAdapter<
     }
   }
 
-  /** Tokens a session holds, where the OS says (26.4 and later). */
+  /** Tokens a session holds (iOS/macOS 26.0 and later). */
   async contextSize(): Promise<number | undefined> {
     try {
       return (await this.native.availability(this.guardrails ? { guardrails: this.guardrails } : undefined)).contextSize
+    } catch {
+      return undefined
+    }
+  }
+
+  /**
+   * Which Apple model runs here, as Apple's guide "Detecting available Apple
+   * Foundation Models" checks it (natively, on iOS and in Electron): one of
+   * `SystemLanguageModel.Variant`'s constants, so `===` compares like Swift's
+   * `==`. Undefined when the model can't run here.
+   */
+  async variant(): Promise<SystemLanguageModel.Variant | undefined> {
+    try {
+      const answer = await this.native.availability(this.guardrails ? { guardrails: this.guardrails } : undefined)
+      return answer.available ? SystemLanguageModel.Variant.fromNative(answer) : undefined
     } catch {
       return undefined
     }
@@ -363,7 +337,7 @@ export class AfmTextAdapter extends BaseTextAdapter<
       waiting: new Set(),
       busy: true
     }
-    const instructions = instructionsOf(options, tools)
+    const instructions = instructionsOf(options)
     await this.native.createSession({
       sessionId: thread.sessionId,
       ...(instructions && { instructions }),
@@ -390,7 +364,7 @@ export class AfmTextAdapter extends BaseTextAdapter<
     const tools = offeredTools(options)
     const { temperature, maximumResponseTokens } = options.modelOptions ?? {}
     const settings = JSON.stringify([
-      instructionsOf(options, tools),
+      instructionsOf(options),
       tools.map((tool) => [tool.name, tool.description, tool.inputSchema]),
       temperature,
       maximumResponseTokens,
@@ -647,8 +621,7 @@ export class AfmTextAdapter extends BaseTextAdapter<
   /**
    * A JSON answer for `chat({ outputSchema })`: a session holding the
    * conversation answers its last message, held to the schema by the
-   * framework (an answer written as text, past permissive guardrails, is
-   * checked here instead).
+   * framework, and the answer comes back as the framework wrote it.
    */
   async structuredOutput(
     options: StructuredOutputOptions<AfmTextModelOptions>
@@ -667,13 +640,11 @@ export class AfmTextAdapter extends BaseTextAdapter<
       this.queues.set(thread.sessionId, thread)
       const { temperature, maximumResponseTokens } = chatOptions.modelOptions ?? {}
       const include = chatOptions.modelOptions?.includeSchemaInPrompt ?? this.includeSchemaInPrompt
-      // Objects of uniform properties as ordered arrays (see ordered.ts).
-      const form = orderedForm(outputSchema)
       await this.native.respond({
         sessionId: thread.sessionId,
         turn: 1,
         prompt: prompted ? contentText(last.content) : "",
-        schema: toNativeSchema(form.schema, "Answer"),
+        schema: toNativeSchema(outputSchema, "Answer"),
         options: {
           ...(temperature !== undefined && { temperature }),
           ...(maximumResponseTokens !== undefined && { maximumResponseTokens }),
@@ -685,10 +656,8 @@ export class AfmTextAdapter extends BaseTextAdapter<
         const event = await thread.queue.next(signal)
         if (event.type === "done") {
           const usage = usageOf(event.usage)
-          const data = checkedAnswer(event.text, event.asText === true, outputSchema, form)
-          // (The answer as the caller's schema has it, where the model wrote another form.)
-          const rawText = form.changed ? JSON.stringify(data) : event.text
-          return { data, rawText, model: this.model, ...(usage && { usage }) }
+          // The answer as the framework held it to the schema (a SyntaxError, TanStack's parse failure, if it isn't JSON).
+          return { data: JSON.parse(event.text) as unknown, rawText: event.text, model: this.model, ...(usage && { usage }) }
         }
         if (event.type === "error") throw Object.assign(new Error(event.message), { code: event.code })
       }

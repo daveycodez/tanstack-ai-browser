@@ -17,8 +17,12 @@ export type UnavailableReason =
 export type NativeAvailability = {
   available: boolean
   reason?: UnavailableReason
-  /** Tokens a session holds (iOS/macOS 26.4 and later). */
+  /** Tokens a session holds. */
   contextSize?: number
+  /** Which Apple model runs, when it can (see system-language-model.ts): a key per branch of Apple's check. */
+  variant?: "core3" | "coreAdvanced3" | "core2_1" | "core2"
+  /** A 27 variant the bridge has no key for: its display name. */
+  variantName?: string
 }
 
 /**
@@ -29,7 +33,7 @@ export type NativeAvailability = {
 export type NativeSchema =
   | { kind: "object"; name: string; description?: string; properties: Array<NativeProperty> }
   | { kind: "array"; items: NativeSchema; minimumElements?: number; maximumElements?: number }
-  | { kind: "string"; choices?: Array<string>; constant?: string; /** A described enum (choices) no property holds: its name and description, which the bridge keeps as a described choice of constants. */ name?: string; description?: string }
+  | { kind: "string"; choices?: Array<string>; constant?: string }
   | { kind: "integer" | "number"; minimum?: number; maximum?: number }
   | { kind: "boolean" }
   | { kind: "null" }
@@ -52,16 +56,18 @@ export type NativeMessage =
 /**
  * The tokens of one pass of the model: a `toolCalls` event's for the pass that
  * made the calls, `done`'s for the last. `cachedTokens` only where the
- * framework counts it right: for a session without tools.
+ * framework counts it right: for a session without tools. Before iOS/macOS
+ * 27, where the framework reports no tokens, the native side counts them from
+ * the transcript: with the model's own count from 26.4, else an estimate
+ * (`estimated`).
  */
-export type NativeUsage = { inputTokens: number; cachedTokens?: number; outputTokens: number }
+export type NativeUsage = { inputTokens: number; cachedTokens?: number; outputTokens: number; estimated?: boolean }
 
 /** What a session sends while it responds, for the `turn` of the `respond` call. */
 export type NativeEvent = { sessionId: string; turn: number } & (
   | { type: "delta"; text: string }
   | { type: "toolCalls"; calls: Array<{ id: string; name: string; arguments: string }>; usage?: NativeUsage }
-  /** `asText`: a schema's answer written as text (permissive guardrails' fallback), not held to the schema. */
-  | { type: "done"; text: string; usage?: NativeUsage; asText?: boolean }
+  | { type: "done"; text: string; usage?: NativeUsage }
   | { type: "error"; code: string; message: string }
 )
 

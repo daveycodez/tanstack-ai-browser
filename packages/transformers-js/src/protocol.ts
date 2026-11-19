@@ -80,10 +80,15 @@ export type GenerateRequest = {
   messages: Array<TemplateMessage>
   options: GenerationOptions
   tools?: Array<TemplateTool>
-  /** The chat template's `enable_thinking`. */
-  enableThinking: boolean
+  /** The chat template's `enable_thinking`: the template's own default where left out. */
+  enableThinking?: boolean
   /** The conversation's images, in order (data or http URLs): one for each image part. */
   images?: Array<string>
+  /**
+   * A JSON Schema the reply is held to, token by token, by Hugging Face's
+   * structured-output processor (`@huggingface/transformers-structured-output`).
+   */
+  outputSchema?: Record<string, unknown>
 }
 
 export type WorkerRequest =
@@ -107,7 +112,14 @@ export type WorkerReply =
    * (not read again), and the reply. `cachedTokens` is left out where the
    * cache's length can't be told.
    */
-  | { status: "complete"; inputTokens: number; cachedTokens?: number; outputTokens: number }
+  | {
+      status: "complete"
+      inputTokens: number
+      cachedTokens?: number
+      outputTokens: number
+      /** "length": it ran out of `max_new_tokens` before an end-of-turn token; else "stop". */
+      finishReason: "stop" | "length"
+    }
   | { status: "error"; message: string }
 
 /** The Whisper model to load, and how: Transformers.js's defaults where left out. */

@@ -1,5 +1,6 @@
 /**
- * The Settings modal: a custom system prompt for every model, the built-in
+ * The Settings modal: the system prompt for every model (the default, or the
+ * user's own, with a button to put the default back), the built-in
  * weather and location tools, and deleting every session.
  */
 import TrashBin from "@gravity-ui/icons/TrashBin"
@@ -17,8 +18,9 @@ import { useLiveQuery, useOptionalDbClient } from "@tanstack/react-db"
 import { useState } from "react"
 
 import { threadsCollection } from "#/lib/db"
-import { systemPromptSetting } from "#/lib/settings"
+import { DEFAULT_SYSTEM_PROMPT, systemPromptSetting } from "#/lib/settings"
 import { locationToolSetting } from "#/lib/location"
+import { timeToolsSetting } from "#/lib/time"
 import { weatherToolSetting } from "#/lib/weather"
 import { deleteAllThreads } from "#/lib/threads"
 
@@ -64,8 +66,9 @@ function SettingsForm({
   onAllDeleted: () => void
 }) {
   const [systemPrompt, setSystemPrompt] = useState(systemPromptSetting.get)
-  const [weatherTool, setWeatherTool] = useState(weatherToolSetting.get)
+  const [timeTools, setTimeTools] = useState(timeToolsSetting.get)
   const [locationTool, setLocationTool] = useState(locationToolSetting.get)
+  const [weatherTool, setWeatherTool] = useState(weatherToolSetting.get)
   return (
     <>
       <Modal.CloseTrigger />
@@ -85,17 +88,27 @@ function SettingsForm({
             className="resize-y"
           />
           <Description>
-            Sent to every model at the start of each session, before
-            today&apos;s date. Kept in this browser only.
+            Sent to every model at the start of each session. Kept in this
+            browser only.
           </Description>
         </TextField>
-        <Switch isSelected={weatherTool} onChange={setWeatherTool}>
+        {/* The default prompt back in the field: saved with the rest. */}
+        <Button
+          size="sm"
+          variant="tertiary"
+          isDisabled={systemPrompt === DEFAULT_SYSTEM_PROMPT}
+          onPress={() => setSystemPrompt(DEFAULT_SYSTEM_PROMPT)}
+          className="-mt-4 self-start"
+        >
+          Reset to default
+        </Button>
+        <Switch isSelected={timeTools} onChange={setTimeTools}>
           <Switch.Content className="w-full justify-between gap-4">
             <div className="flex min-w-0 flex-col gap-0.5">
-              <Label>Weather</Label>
+              <Label>Current time</Label>
               <Description>
-                Lets models look up the weather. The city asked about is sent
-                to <span className="whitespace-nowrap">Open-Meteo</span>.
+                Lets models read the current date and time, here or in another
+                time zone. Works offline.
               </Description>
             </div>
             <Switch.Control className="shrink-0">
@@ -117,6 +130,20 @@ function SettingsForm({
             </Switch.Control>
           </Switch.Content>
         </Switch>
+        <Switch isSelected={weatherTool} onChange={setWeatherTool}>
+          <Switch.Content className="w-full justify-between gap-4">
+            <div className="flex min-w-0 flex-col gap-0.5">
+              <Label>Weather</Label>
+              <Description>
+                Lets models look up the weather. The city asked about is sent
+                to <span className="whitespace-nowrap">Open-Meteo</span>.
+              </Description>
+            </div>
+            <Switch.Control className="shrink-0">
+              <Switch.Thumb />
+            </Switch.Control>
+          </Switch.Content>
+        </Switch>
         <DeleteAllSessions onDeleted={onAllDeleted} />
       </Modal.Body>
       <Modal.Footer>
@@ -126,8 +153,9 @@ function SettingsForm({
         <Button
           onPress={() => {
             systemPromptSetting.set(systemPrompt)
-            weatherToolSetting.set(weatherTool)
+            timeToolsSetting.set(timeTools)
             locationToolSetting.set(locationTool)
+            weatherToolSetting.set(weatherTool)
             onDone()
           }}
         >

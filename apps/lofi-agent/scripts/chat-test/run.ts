@@ -11,7 +11,7 @@ import { ChatClient, stream } from "@tanstack/ai-client"
 import type { UIMessage } from "@tanstack/ai-client"
 import { createMCPClient } from "@tanstack/ai-mcp"
 
-import { currentSystemPrompt } from "#/lib/settings"
+import { systemPromptSetting } from "#/lib/settings"
 import { describeLocation, locationToolDefinition } from "#/lib/location"
 import { weatherTool } from "#/lib/weather"
 
@@ -78,7 +78,7 @@ export async function run({ name, adapter, reasoning, progress, ask }: Args) {
         runId: params.runId,
         ...(params.parentRunId && { parentRunId: params.parentRunId }),
         ...(params.resume && { resume: params.resume }),
-        systemPrompts: [currentSystemPrompt()],
+        systemPrompts: [systemPromptSetting.get().trim()].filter(Boolean),
         tools: [weatherTool, locationToolDefinition],
         mcp: { clients: [exa], connection: "keep-alive" },
         ...(reasoning && { reasoning }),

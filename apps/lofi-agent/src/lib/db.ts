@@ -39,16 +39,18 @@ export type ChatRecord = { id: string; state: ChatPersistedState }
 
 /** Every setting, by key, with its value's type. */
 export type Settings = {
-  /** A system prompt the user wrote, sent before the date. Empty means none. */
+  /** The system prompt the user saved (the default until then). Empty means none. */
   systemPrompt: string
   model: ModelId
   /** How hard models think, clamped to each model's levels. */
   effort: ReasoningLevel
   sidebarOpen: boolean
-  /** Whether models get the built-in weather tool (lib/weather.ts). */
-  weatherTool: boolean
+  /** Whether models get the built-in time tools (lib/time.ts). */
+  timeTools: boolean
   /** Whether models get the built-in location tool (lib/location.ts). */
   locationTool: boolean
+  /** Whether models get the built-in weather tool (lib/weather.ts). */
+  weatherTool: boolean
 }
 
 export type SettingKey = keyof Settings

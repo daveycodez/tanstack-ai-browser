@@ -10,11 +10,13 @@ import type { StreamChunk } from "@tanstack/ai"
 import { stream } from "@tanstack/ai-react"
 
 import { getMcpClients, reportMcpDiscoveryError } from "#/lib/mcp"
-import { currentSystemPrompt } from "#/lib/settings"
+import { systemPromptSetting } from "#/lib/settings"
 import { locationToolDefinition, locationToolSetting } from "#/lib/location"
+import { timeTools, timeToolsSetting } from "#/lib/time"
 import { weatherTool, weatherToolSetting } from "#/lib/weather"
 import { recordGeneration, startReply } from "./generation-stats"
 import { replyStatsMiddleware } from "./call-stats"
+import { toolResultCapMiddleware } from "./tool-result-cap"
 import { ABORTED, untilAborted } from "./abortable"
 import {
   confirmDownload,
@@ -112,18 +114,21 @@ async function* reply(
     runId: params.runId,
     ...(params.parentRunId && { parentRunId: params.parentRunId }),
     ...(params.resume && { resume: params.resume }),
-    // The user's system prompt from Settings, then the date.
-    systemPrompts: [currentSystemPrompt()],
+    // The system prompt from Settings: the default, or the user's own (none
+    // if they saved it empty). Models read the date and time with the time tools.
+    systemPrompts: [systemPromptSetting.get().trim()].filter(Boolean),
     // Tools, for a model that calls them (LFM2.5-Audio doesn't, and gets
-    // none). The built-in ones, unless turned off in Settings: the location
-    // tool is a client tool, only its definition here, so the run pauses
-    // for useChat to run its browser part (components/chat/thread.tsx).
-    // Then the MCP servers' tools, Exa's web search first: the clients stay
-    // open between runs; a server that fails to list its tools is left out.
+    // none). The built-in ones, unless turned off in Settings: current time,
+    // location, then weather. The location tool is a client tool, only its
+    // definition here, so the run pauses for useChat to run its browser part
+    // (components/chat/thread.tsx). Then the MCP servers' tools, Exa's web
+    // search first: the clients stay open between runs; a server that fails
+    // to list its tools is left out.
     ...(modelInfo(model).callsTools && {
       tools: [
-        ...(weatherToolSetting.get() ? [weatherTool] : []),
-        ...(locationToolSetting.get() ? [locationToolDefinition] : [])
+        ...(timeToolsSetting.get() ? timeTools() : []),
+        ...(locationToolSetting.get() ? [locationToolDefinition] : []),
+        ...(weatherToolSetting.get() ? [weatherTool] : [])
       ],
       mcp: {
         clients: getMcpClients(),
@@ -137,10 +142,12 @@ async function* reply(
     ...(reasoning && { reasoning: reasoning as "off" | "high" }),
     interrupts: [confirmDownload],
     // The download confirmation, then each call's usage and its timings
-    // measured from the stream, to the stats line, for this reply only.
+    // measured from the stream, to the stats line, for this reply only; and
+    // a cap on each tool result, so it fits the model's context.
     middleware: [
       confirmDownloadMiddleware(download),
-      replyStatsMiddleware(recordGeneration)
+      replyStatsMiddleware(recordGeneration),
+      toolResultCapMiddleware()
     ],
     abortController
   })

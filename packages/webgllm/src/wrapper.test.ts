@@ -38,10 +38,10 @@ test("a call loads the model, then streams thinking, text and tool calls as AG-U
   const body = lastBody() as unknown as Record<string, unknown>
   assert.equal(body.model, MODEL)
   assert.equal(body.stream, true)
-  // The schema as given, without OpenAI's strict-mode rewrite (TanStack only closes it to undeclared fields).
-  assert.deepEqual((body.tools as Array<{ function: { parameters: unknown } }>)[0]?.function.parameters, {
-    ...lookup.inputSchema,
-    additionalProperties: false
+  // The tool as given: its own schema, without OpenAI's strict mode (no rewrite, no additionalProperties, no strict flag).
+  assert.deepEqual((body.tools as Array<unknown>)[0], {
+    type: "function",
+    function: { name: "lookup", description: "Look up", parameters: lookup.inputSchema }
   })
 })
 
@@ -62,6 +62,15 @@ test("modelOptions go to webgllm as given", async () => {
   await collect(webgllmText(MODEL).chatStream(textOptions({ modelOptions: given })))
   const body = lastBody() as unknown as Record<string, unknown>
   for (const [key, value] of Object.entries(given)) assert.deepEqual(body[key], value, key)
+})
+
+test("a 0-token budget reaches webgllm, to read a prompt ahead of time", async () => {
+  fake.script = () => [chunk({}, "length"), usageChunk({ prompt: 2371, completion: 0, cached: 2346 })]
+  const events = (await collect(webgllmText(MODEL).chatStream(textOptions({ modelOptions: { max_completion_tokens: 0 } })))) as Array<Event>
+  assert.equal((lastBody() as unknown as Record<string, unknown>).max_completion_tokens, 0)
+  const usage = events.find((e) => e.type === "RUN_FINISHED")?.usage as { promptTokens: number; promptTokensDetails?: unknown }
+  assert.equal(usage.promptTokens, 2371)
+  assert.deepEqual(usage.promptTokensDetails, { cachedTokens: 2346 })
 })
 
 test("reasoning: off and high as webgllm's reasoning_effort, a budget as reasoning.max_tokens", async () => {
@@ -101,10 +110,15 @@ test("structured output: the schema as given in response_format, the system prom
   assert.ok(types(events).includes("RUN_FINISHED"))
 })
 
-test("a model that can't load rejects with webgllm's error, before any request", async () => {
+test("a model that can't load ends the stream with RUN_ERROR and webgllm's error, before any request", async () => {
   fake.loadError = new WebGLLMError("storage-full", "No room for the model.")
-  await assert.rejects(collect(webgllmText(MODEL).chatStream(textOptions())), (error) => error instanceof WebGLLMError && error.code === "storage-full")
+  const events = (await collect(webgllmText(MODEL).chatStream(textOptions()))) as Array<Event>
+  const failure = events.find((e) => e.type === "RUN_ERROR") as (Event & { message?: string; error?: { code?: string } }) | undefined
+  assert.match(String(failure?.message), /No room for the model/)
+  assert.equal(failure?.error?.code, "storage-full")
   assert.equal(fake.requests.length, 0)
+  // create() still rejects with it.
+  await assert.rejects(webgllmText(MODEL).create(), (error) => error instanceof WebGLLMError && error.code === "storage-full")
 })
 
 test("the caller's signal reaches webgllm, which stops the generation", async () => {
@@ -135,41 +149,14 @@ test("images: a model with a vision encoder reads them, sent as OpenAI image_url
   ])
 })
 
-test("usage keeps webgllm's cached count, 0 included (TanStack's conversion leaves a 0 out)", async () => {
-  for (const cached of [0, 352]) {
+test("usage is TanStack's conversion of webgllm's: its cached count, and none for 0", async () => {
+  for (const [cached, details] of [[352, { cachedTokens: 352 }], [0, undefined]] as const) {
     fake.script = () => [chunk({ role: "assistant", content: "Hi" }), chunk({}, "stop"), usageChunk({ prompt: 371, completion: 2, cached })]
     const events = (await collect(webgllmText(MODEL).chatStream(textOptions()))) as Array<Event>
     const usage = events.find((e) => e.type === "RUN_FINISHED")?.usage as { promptTokens: number; promptTokensDetails?: unknown }
     assert.equal(usage.promptTokens, 371)
-    assert.deepEqual(usage.promptTokensDetails, { cachedTokens: cached })
+    assert.deepEqual(usage.promptTokensDetails, details)
   }
-})
-
-test("prefill sends chat()'s request with nothing generated, and says what was cached", async () => {
-  const adapter = webgllmText(MODEL)
-  fake.script = () => [chunk({}, "length"), usageChunk({ prompt: 2371, completion: 0, cached: 2346 })]
-  const tools = [{ name: "lookup", description: "Looks a word up", inputSchema: { type: "object", properties: { word: { type: "string" } } } }]
-  const prompt = { systemPrompts: ["Plan decks."], messages: [{ role: "user" as const, content: "Water cycle" }], tools, modelOptions: { temperature: 0.2, max_tokens: 64 } }
-  const usage = await adapter.prefill(prompt as never)
-  assert.deepEqual(usage, { promptTokens: 2371, cachedTokens: 2346 })
-  const prefill = lastBody() as unknown as Record<string, unknown>
-  assert.equal(prefill.max_tokens, 0)
-  assert.equal(prefill.max_completion_tokens, 0)
-  assert.equal(prefill.stream, undefined)
-  assert.equal(prefill.stream_options, undefined)
-  // The prompt as chat() writes it: the same messages and tools.
-  fake.script = () => [chunk({ role: "assistant", content: "Hi" }), chunk({}, "stop"), usageChunk()]
-  await collect(adapter.chatStream(textOptions(prompt as never)))
-  const chat = lastBody() as unknown as Record<string, unknown>
-  assert.deepEqual(prefill.messages, chat.messages)
-  assert.deepEqual(prefill.tools, chat.tools)
-  assert.equal(chat.max_tokens, 64)
-  // The model loads first; the signal reaches webgllm.
-  assert.equal(fake.loads[0]?.model, MODEL)
-  const controller = new AbortController()
-  await adapter.prefill({ systemPrompts: ["Plan decks."], signal: controller.signal })
-  assert.equal(fake.requests.at(-1)?.options.signal, controller.signal)
-  assert.deepEqual((lastBody() as unknown as { messages: unknown }).messages, [{ role: "system", content: "Plan decks." }])
 })
 
 test("structured answers carry webgllm's cached count too, streamed or not", async () => {
@@ -181,28 +168,4 @@ test("structured answers carry webgllm's cached count too, streamed or not", asy
     webgllmText(MODEL).structuredOutputStream({ chatOptions: textOptions(), outputSchema: schema })
   )) as Array<{ type: string; usage?: { promptTokensDetails?: unknown } }>
   assert.deepEqual(events.find((e) => e.type === "RUN_FINISHED")?.usage?.promptTokensDetails, { cachedTokens: 2349 })
-})
-
-test("prefill with a forced tool choice sends the same prompt as auto, so the engine has no answer to hold to a schema", async () => {
-  const adapter = webgllmText(MODEL)
-  fake.script = () => [chunk({}, "length"), usageChunk({ prompt: 120, completion: 0 })]
-  const tools = [
-    { name: "lookup", description: "Looks a word up", inputSchema: { type: "object", properties: { word: { type: "string" } } } },
-    { name: "define", description: "Defines a word", inputSchema: { type: "object", properties: { word: { type: "string" } } } }
-  ]
-  const bodies: Array<Record<string, unknown>> = []
-  for (const toolChoice of ["required", { type: "function", name: "lookup" }, "auto"] as const) {
-    await adapter.prefill({ systemPrompts: ["Use the tools."], tools, toolChoice } as never)
-    bodies.push(lastBody() as unknown as Record<string, unknown>)
-  }
-  const reference = bodies[2]
-  assert.ok(reference)
-  for (const body of bodies) {
-    assert.equal(body.tool_choice, undefined)
-    assert.deepEqual(body.tools, reference.tools)
-    assert.deepEqual(body.messages, reference.messages)
-  }
-  // "none" renders no tools: kept, as chat() sends it.
-  await adapter.prefill({ systemPrompts: ["Use the tools."], tools, toolChoice: "none" } as never)
-  assert.equal((lastBody() as unknown as Record<string, unknown>).tool_choice, "none")
 })

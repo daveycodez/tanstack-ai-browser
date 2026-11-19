@@ -6,6 +6,7 @@ import type { TextOptions } from "@tanstack/ai"
 
 import { promptApiText } from "./adapter.js"
 import type { PromptApiConfig } from "./adapter.js"
+import { PromptApiVariant } from "./variant.js"
 
 type Chunk = { type: string; [key: string]: unknown }
 type Prompt = { kind: "prompt" | "stream"; input: unknown; options: Record<string, unknown>; session: EventTarget }
@@ -17,8 +18,8 @@ const logger = { request: noop, provider: noop, errors: noop, warn: noop } as un
 const control = {
   creates: [] as Array<Record<string, unknown>>,
   prompts: [] as Array<Prompt>,
-  /** The streamed reply, in these pieces. */
-  pieces: ["Hello ", "there"] as Array<string>,
+  /** The streamed reply, in these pieces (text, or content such as a native tool call). */
+  pieces: ["Hello ", "there"] as Array<string | { type: string; value: unknown }>,
   /** A structured answer (a prompt under responseConstraint). */
   answer: '{"city":"Tokyo"}',
   /** Structured answers in pieces, one list per prompt, before `answer`. */
@@ -65,7 +66,7 @@ class FakeSession extends EventTarget {
     let index = 0
     // Under a schema, the structured answer; else the reply's pieces.
     const pieces = options.responseConstraint ? (control.answers.shift() ?? [control.answer]) : control.pieces
-    return new ReadableStream<string>({
+    return new ReadableStream<string | { type: string; value: unknown }>({
       pull(controller) {
         // An aborted signal first, as prompt() rejects: then the browser's own failure.
         if (signal?.aborted && index === 0) return controller.error(signal.reason)
@@ -153,7 +154,8 @@ test("a reply streams as text, on a session the thread keeps", async () => {
 test("tools go in the system prompt; a fenced call ends the step with TOOL_CALL events and tool_calls", async () => {
   control.pieces = ["Checking. ", "```tool_call\n", '{"name": "get_weather", ', '"arguments": {"city": "Paris"}}\n', "```", "never read", "never read"]
   const chunks = await run({ tools: [weather], systemPrompts: ["Be brief."] })
-  assert.match(String((control.creates[0].initialPrompts as Array<{ content: string }>)[0].content), /^Be brief\.\n\nYou are a helpful AI assistant with access to tools\.\n\n# Available Tools\n\[/)
+  const system = String((control.creates[0].initialPrompts as Array<{ content: string }>)[0].content)
+  assert.match(system, /^Be brief\.\n\n# Tools\n\{"name":"get_weather"/)
   assert.deepEqual(typesOf(chunks), [
     "RUN_STARTED",
     "TEXT_MESSAGE_START",
@@ -185,7 +187,7 @@ test("toolChoice none leaves the tools out of the prompt", async () => {
   assert.deepEqual(control.creates[0].initialPrompts, [{ role: "system", content: "Be brief." }])
 })
 
-test("earlier calls are tool_call fences and their results one tool_result message", async () => {
+test("earlier calls are a tool_call fence and their results one tool_result message", async () => {
   await run({
     tools: [weather],
     messages: [
@@ -206,15 +208,128 @@ test("earlier calls are tool_call fences and their results one tool_result messa
     { role: "user", content: "Weather in Paris and Rome?" },
     {
       role: "assistant",
-      content:
-        'Checking.\n```tool_call\n{"name":"get_weather","arguments":{"city":"Paris"},"id":"c1"}\n{"name":"get_weather","arguments":{"city":"Rome"},"id":"c2"}\n```'
+      content: 'Checking.\n```tool_call\n{"name":"get_weather","arguments":{"city":"Paris"},"id":"c1"}\n{"name":"get_weather","arguments":{"city":"Rome"},"id":"c2"}\n```'
     },
     {
       role: "user",
-      content:
-        '```tool_result\n{"name":"get_weather","result":{"temp":12},"error":false,"id":"c1"}\n{"name":"get_weather","result":"offline","error":true,"id":"c2"}\n```'
+      content: '```tool_result\n{"name":"get_weather","result":{"temp":12},"error":false,"id":"c1"}\n{"name":"get_weather","result":"offline","error":true,"id":"c2"}\n```'
     }
   ])
+})
+
+/** The browser's tool-use classes, as Chrome has them behind its tool-use flag: each keeps what it was made with. */
+class FakeToolCall {
+  constructor(readonly init: Record<string, unknown>) {}
+  get name() {
+    return this.init.name
+  }
+  get arguments() {
+    return this.init.arguments
+  }
+  get callId() {
+    return this.init.callId
+  }
+}
+class FakeToolSuccess {
+  constructor(readonly init: Record<string, unknown>) {}
+}
+class FakeToolError {
+  constructor(readonly init: Record<string, unknown>) {}
+}
+
+/** Runs `body` in a browser with its own tool use. */
+async function withToolUse(body: () => Promise<void>) {
+  const g = globalThis as Record<string, unknown>
+  Object.assign(g, { LanguageModelToolCall: FakeToolCall, LanguageModelToolSuccess: FakeToolSuccess, LanguageModelToolError: FakeToolError })
+  try {
+    await body()
+  } finally {
+    delete g.LanguageModelToolCall
+    delete g.LanguageModelToolSuccess
+    delete g.LanguageModelToolError
+  }
+}
+
+test("with the browser's own tool use, the session declares the tools and the system prompt is the caller's alone", async () => {
+  await withToolUse(async () => {
+    control.pieces = ["Checking. ", { type: "tool-call", value: new FakeToolCall({ callId: "", name: "get_weather", arguments: { city: "Paris" } }) }]
+    const chunks = await run({ tools: [weather], systemPrompts: ["Be brief."] })
+    const [create] = control.creates
+    assert.deepEqual(create.tools, [{ name: "get_weather", description: "Weather for a city", inputSchema: weather.inputSchema }])
+    assert.deepEqual(create.initialPrompts, [{ role: "system", content: "Be brief." }], "no tool_code prompt")
+    assert.deepEqual(create.expectedInputs, [{ type: "text", languages: ["en"] }, { type: "tool-call" }, { type: "tool-response" }])
+    assert.deepEqual(create.expectedOutputs, [{ type: "text", languages: ["en"] }, { type: "tool-call" }])
+    assert.deepEqual(typesOf(chunks), [
+      "RUN_STARTED",
+      "TEXT_MESSAGE_START",
+      "TEXT_MESSAGE_CONTENT",
+      "TEXT_MESSAGE_END",
+      "TOOL_CALL_START",
+      "TOOL_CALL_ARGS",
+      "TOOL_CALL_END",
+      "RUN_FINISHED"
+    ])
+    assert.equal(textIn(chunks), "Checking. ")
+    const end = chunks.find((c) => c.type === "TOOL_CALL_END")
+    assert.equal(end?.toolCallName, "get_weather")
+    assert.deepEqual(end?.input, { city: "Paris" })
+    assert.ok(String(end?.toolCallId).length > 0, "an id where the browser gave none")
+    assert.equal(chunks.at(-1)?.finishReason, "tool_calls")
+    assert.equal((control.prompts[0].options.signal as AbortSignal).aborted, false, "the turn runs to its end, so the session holds the call")
+  })
+})
+
+test("the browser's own calls in one turn are each a tool call, with its id when it gives one", async () => {
+  await withToolUse(async () => {
+    control.pieces = [
+      { type: "tool-call", value: new FakeToolCall({ callId: "b1", name: "get_weather", arguments: { city: "Paris" } }) },
+      { type: "tool-call", value: new FakeToolCall({ callId: "b2", name: "get_weather", arguments: { city: "Rome" } }) }
+    ]
+    const chunks = await run({ tools: [weather] })
+    const starts = chunks.filter((c) => c.type === "TOOL_CALL_START")
+    assert.deepEqual(starts.map((c) => [c.toolCallId, c.index]), [["b1", 0], ["b2", 1]])
+  })
+})
+
+test("with the browser's own tool use, earlier calls are tool-call content and results one message of tool-response content", async () => {
+  await withToolUse(async () => {
+    await run({
+      tools: [weather],
+      messages: [
+        { role: "user", content: "Weather in Paris and Rome?" },
+        {
+          role: "assistant",
+          content: "Checking.",
+          toolCalls: [
+            { id: "c1", type: "function", function: { name: "get_weather", arguments: '{"city":"Paris"}' } },
+            { id: "c2", type: "function", function: { name: "get_weather", arguments: '{"city":"Rome"}' } }
+          ]
+        },
+        { role: "tool", toolCallId: "c1", content: '{"temp":12,"wind":null}' },
+        { role: "tool", toolCallId: "c2", content: "", error: "offline" }
+      ]
+    })
+    const [question, call, results] = control.prompts[0].input as Array<{ role: string; content: Array<{ type: string; value: { init: Record<string, unknown> } }> }>
+    assert.deepEqual(question, { role: "user", content: "Weather in Paris and Rome?" })
+    assert.equal(call.role, "assistant")
+    assert.deepEqual(call.content[0], { type: "text", value: "Checking." })
+    assert.ok(call.content[1].value instanceof FakeToolCall)
+    assert.deepEqual(call.content[1].value.init, { callId: "c1", callID: "c1", name: "get_weather", arguments: { city: "Paris" } })
+    assert.equal(results.role, "user")
+    assert.deepEqual(results.content.map((part) => part.type), ["tool-response", "tool-response"])
+    assert.ok(results.content[0].value instanceof FakeToolSuccess)
+    // JSON with a null goes as its text, as written: an object can't hold the null, and dropping it would lose it.
+    assert.deepEqual(results.content[0].value.init, { callId: "c1", callID: "c1", name: "get_weather", result: [{ type: "text", value: '{"temp":12,"wind":null}' }] })
+    assert.ok(results.content[1].value instanceof FakeToolError)
+    assert.deepEqual(results.content[1].value.init, { callId: "c2", callID: "c2", name: "get_weather", errorMessage: "offline" })
+  })
+})
+
+test("without the browser's own tool use, tools go by prompt", async () => {
+  control.pieces = ['```tool_call\n{"name":"get_weather","arguments":{"city":"Paris"}}\n```']
+  const chunks = await run({ tools: [weather] })
+  assert.equal("tools" in control.creates[0], false)
+  assert.equal(chunks.find((c) => c.type === "TOOL_CALL_END")?.toolCallName, "get_weather")
 })
 
 test("images are loaded as Blobs, and the session expects them", async () => {
@@ -309,6 +424,38 @@ test("availability is the browser's answer for the adapter's languages and input
     assert.deepEqual(asked, { expectedInputs: [{ type: "text", languages: ["ja"] }, { type: "audio" }], expectedOutputs: [{ type: "text", languages: ["ja"] }] })
   } finally {
     api.availability = original
+  }
+})
+
+test("variant guesses the model from the browser and Chrome's tool-use classes, without making a session", async () => {
+  const g = globalThis as unknown as { navigator?: unknown; LanguageModelToolCall?: unknown }
+  const original = Object.getOwnPropertyDescriptor(globalThis, "navigator")
+  const browser = (brands: Array<string>, userAgent = "Mozilla/5.0") =>
+    Object.defineProperty(globalThis, "navigator", { value: { userAgent, userAgentData: { brands: brands.map((brand) => ({ brand })) } }, configurable: true })
+  const api = (globalThis as unknown as { LanguageModel: { availability: () => Promise<string> } }).LanguageModel
+  const availability = api.availability
+  const creates = control.creates.length
+  try {
+    browser(["Not)A;Brand", "Microsoft Edge", "Chromium"])
+    assert.equal(await promptApiText().variant(), PromptApiVariant.aion1_1)
+    browser(["Google Chrome", "Chromium"])
+    assert.equal((await promptApiText().variant())?.displayName, "Gemini Nano")
+    g.LanguageModelToolCall = class {}
+    assert.equal(await promptApiText().variant(), PromptApiVariant.gemma4)
+    browser([], "Mozilla/5.0 (Macintosh) AppleWebKit/537.36 Chrome/157.0.0.0 Safari/537.36 Edg/159.0.0.0")
+    assert.equal(await promptApiText().variant(), PromptApiVariant.aion1_1, "the user agent, without client hints")
+    delete g.LanguageModelToolCall
+    browser(["Chromium"])
+    assert.equal(await promptApiText().variant(), undefined, "a browser it can't tell")
+    browser(["Google Chrome"])
+    api.availability = async () => "unavailable"
+    assert.equal(await promptApiText().variant(), undefined, "the Prompt API can't run here")
+    assert.equal(control.creates.length, creates, "no session")
+  } finally {
+    api.availability = availability
+    delete g.LanguageModelToolCall
+    if (original) Object.defineProperty(globalThis, "navigator", original)
+    else delete g.navigator
   }
 })
 
@@ -541,8 +688,8 @@ test("a reply reports its tokens: what the session held, and the prompt and the 
   const prompt = 120 + measured(first)
   // Less an empty message's count: the turn markers a session counts around any message.
   const reply = measured("Hello there") - measured("")
-  // A new session read what it holds in this step: nothing cached.
-  assert.deepEqual(await step(first), { promptTokens: prompt, completionTokens: reply, totalTokens: prompt + reply, promptTokensDetails: { cachedTokens: 0 } })
+  // A new session read what it holds in this step: nothing cached, so no cached count (as TanStack reports it).
+  assert.deepEqual(await step(first), { promptTokens: prompt, completionTokens: reply, totalTokens: prompt + reply })
 
   // The thread's kept session doesn't read what it holds again: only the new message.
   Object.assign(control.sessions[0], { contextUsage: 300 })
@@ -685,4 +832,23 @@ test("maxOutputTokens cuts a structured answer off with code length; the adapter
     promptApiText("text", { maxOutputTokens: 20 }).structuredOutput({ chatOptions: chatOptions(), outputSchema: { type: "object" } } as never),
     (e: Error & { code?: string }) => e.code === "length" && /maxOutputTokens \(20\)/.test(e.message)
   )
+})
+
+test("the browser's own call stays the thread's history only as it was made: an edited call starts the session over", async () => {
+  await withToolUse(async () => {
+    const adapter = promptApiText("text")
+    const first = [{ role: "user", content: "Weather in Paris?" }]
+    control.pieces = [{ type: "tool-call", value: new FakeToolCall({ callId: "b1", name: "get_weather", arguments: { city: "Paris" } }) }]
+    await step(adapter, first, { tools: [weather] })
+    control.pieces = ["Sunny."]
+    const call = (city: string) => ({ role: "assistant", content: "", toolCalls: [{ id: "b1", type: "function", function: { name: "get_weather", arguments: JSON.stringify({ city }) } }] })
+    // The call as made: the kept session goes on, with only the result.
+    await step(adapter, [...first, call("Paris"), { role: "tool", toolCallId: "b1", content: "18C" }], { tools: [weather] })
+    assert.equal(control.creates.length, 1, "the same session")
+    assert.equal((control.prompts[1].input as Array<unknown>).length, 1, "only the result")
+    // The call edited (Rome): what the session holds isn't the conversation, so it starts over.
+    await step(adapter, [...first, call("Rome"), { role: "tool", toolCallId: "b1", content: "21C" }], { tools: [weather] })
+    assert.equal(control.creates.length, 2, "a new session")
+    assert.equal((control.prompts[2].input as Array<unknown>).length, 3, "the whole conversation")
+  })
 })

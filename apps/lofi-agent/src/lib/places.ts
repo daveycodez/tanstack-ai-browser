@@ -1,10 +1,8 @@
 /**
- * Names a place from its coordinates. Offline: the nearest city in GeoNames'
+ * Names a place from its coordinates, offline: the nearest city in GeoNames'
  * list of cities with 15,000 people or more (public/data/cities.json, built
- * by scripts/build-cities.mjs; CC BY 4.0), which sends nothing anywhere and
- * loads the first time a place is named. Online: the city, town or village
- * from OpenStreetMap (`onlineCity`), for the weather tool, which sends the
- * point to OpenStreetMap.
+ * by scripts/build-cities.mjs; CC BY 4.0). It sends nothing anywhere, and
+ * loads the first time a place is named.
  */
 
 /** [name, region, country code, latitude, longitude] */
@@ -82,53 +80,8 @@ export async function placeName(latitude: number, longitude: number) {
   return found.km > NEAR_KM ? `Near ${label(found.city)}` : label(found.city)
 }
 
-/**
- * The listed city nearest a point, however far: the city whose weather
- * stands for the user's when OpenStreetMap names none (`onlineCity`).
- */
+/** The listed city nearest a point, however far. */
 export async function nearestCity(latitude: number, longitude: number) {
   const found = await nearest(latitude, longitude)
   return found && label(found.city)
-}
-
-/** OpenStreetMap's reverse geocoding (Nominatim): free, CORS-enabled. */
-const NOMINATIM = "https://nominatim.openstreetmap.org/reverse"
-
-type Nominatim = {
-  error?: string
-  address?: Record<string, string | undefined>
-}
-
-/**
- * The city, town or village at a point, from OpenStreetMap, such as
- * "Seattle, Washington, United States": more precise than the offline list,
- * which only has cities of 15,000 people or more. Undefined where it names
- * none (the open sea, or a county with no town in it, which the weather's
- * geocoder can't find), or when it fails. This sends the point to
- * OpenStreetMap; the offline list sends nothing.
- */
-export async function onlineCity(latitude: number, longitude: number) {
-  try {
-    const response = await fetch(
-      `${NOMINATIM}?${new URLSearchParams({
-        format: "jsonv2",
-        lat: String(latitude),
-        lon: String(longitude),
-        // Village level: a town's name rather than its neighborhood's.
-        zoom: "13",
-        "accept-language": "en"
-      })}`,
-      { signal: AbortSignal.timeout(5000) }
-    )
-    if (!response.ok) return undefined
-    const { address } = (await response.json()) as Nominatim
-    const name =
-      address?.city ?? address?.town ?? address?.village ?? address?.hamlet
-    if (!name) return undefined
-    return [name, address?.state !== name ? address?.state : undefined, address?.country]
-      .filter(Boolean)
-      .join(", ")
-  } catch {
-    return undefined
-  }
 }

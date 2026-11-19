@@ -1,10 +1,10 @@
 /**
- * Tool calls by prompt. Chrome's Prompt API has no
- * working tool use on web pages (a session that expects tool calls fails to
- * start, and `tools` alone are never called), so the system prompt lists the
- * tools as JSON and asks for a call as JSON in a ```tool_call fence; results
- * go back in a ```tool_result fence. The adapter reads calls out of the
- * streamed text; `chat()` checks them against the tools.
+ * Tool calls by prompt, where the browser has no tool use of its own
+ * (Chrome's default Gemini Nano, Edge's Aion-1.1-Instruct). The system prompt
+ * lists the tools as JSON and says how a call is written, as JSON in a
+ * ```tool_call fence, and nothing about when to call one; earlier calls go
+ * back as JSON lines in that fence, results in a ```tool_result fence. The adapter reads calls out of the streamed text; `chat()` checks
+ * them against the tools.
  */
 import type { ModelMessage, Tool } from "@tanstack/ai"
 
@@ -16,6 +16,7 @@ type Delimiter = { start: string; end: string }
 const DELIMITERS: Array<Delimiter> = [
   { start: "```tool_call", end: "```" },
   { start: "```tool-call", end: "```" },
+  { start: "```tool_code", end: "```" },
   { start: "<tool_call>", end: "</tool_call>" },
   { start: "<|tool_call>", end: "<tool_call|>" },
   { start: "<|tool_call_start|>", end: "<|tool_call_end|>" }
@@ -26,46 +27,50 @@ const PYTHON_CALL = /\[(\w+)\(/
 const isObject = (value: unknown): value is Record<string, unknown> =>
   !!value && typeof value === "object" && !Array.isArray(value)
 
+/** A tool's input schema, as far as a Python call's positional arguments need it. */
+type Schema = { properties?: Record<string, unknown>; required?: Array<string> }
+
+/** A tool's parameter names in Python signature order: the required ones, then the rest. */
+function parametersOf(tool: Pick<Tool, "inputSchema">): Array<string> {
+  const schema = (tool.inputSchema ?? {}) as Schema
+  const required = new Set(schema.required ?? [])
+  return Object.keys(schema.properties ?? {}).sort((a, b) => Number(required.has(b)) - Number(required.has(a)))
+}
+
 /**
- * The system prompt with the tools and how to call them; unchanged without
- * tools.
+ * The tools and their format, and nothing else: the tools as JSON, one a
+ * line (name, description and schema, as given), how a call is written (one a reply:
+ * the adapter reads the first) and how results come back. When to call a
+ * tool, and how to answer, are the caller's system prompt's to say, as with
+ * a model whose chat template lists its tools.
  */
-export function toolSystemPrompt(system: string, tools: ReadonlyArray<Tool>): string {
-  if (tools.length === 0) return system
-  const definitions = tools.map((tool) => ({
-    name: tool.name,
-    description: tool.description ?? "No description provided.",
-    parameters: tool.inputSchema ?? { type: "object", properties: {} }
-  }))
-  const instructions = `You are a helpful AI assistant with access to tools.
+function toolInstructions(tools: ReadonlyArray<Tool>) {
+  const definitions = tools.map((tool) => ({ name: tool.name, description: tool.description, parameters: tool.inputSchema ?? { type: "object", properties: {} } }))
+  // A tool a line, without indentation: the same list in about a fifth fewer characters.
+  return `# Tools
+${definitions.map((definition) => JSON.stringify(definition)).join("\n")}
 
-# Available Tools
-${JSON.stringify(definitions, null, 2)}
-
-# Tool Calling Instructions
-Only request one tool call at a time. Wait for tool results before asking for another tool.
-
-To call a tool, output JSON in this exact format inside a \`\`\`tool_call code fence:
+To call a tool, write one call as JSON in a \`\`\`tool_call fence:
 
 \`\`\`tool_call
 {"name": "tool_name", "arguments": {"param1": "value1", "param2": "value2"}}
 \`\`\`
 
-Tool responses will be provided in \`\`\`tool_result fences. Each line contains JSON like:
-\`\`\`tool_result
-{"id": "call_123", "name": "tool_name", "result": {...}, "error": false}
-\`\`\`
-Use the \`result\` payload (and treat \`error\` as a boolean flag) when continuing the conversation.
+Tool results come back in a \`\`\`tool_result fence, a line of JSON each:
 
-Important:
-- Use exact tool and parameter names from the schema above
-- Arguments must be a valid JSON object matching the tool's parameters
-- You can include brief reasoning before or after the tool call
-- If no tool is needed, respond directly without tool_call fences`
+\`\`\`tool_result
+{"name": "tool_name", "result": {...}, "error": false, "id": "call_123"}
+\`\`\``
+}
+
+/** The system prompt: the caller's, then the tools and their format; unchanged without tools. */
+export function toolSystemPrompt(system: string, tools: ReadonlyArray<Tool>): string {
+  if (tools.length === 0) return system
+  const instructions = toolInstructions(tools)
   return system.trim() ? `${system.trim()}\n\n${instructions}` : instructions
 }
 
-/** Earlier tool calls in the conversation, as the model would have written them. */
+/** Earlier tool calls in the conversation: JSON lines in a ```tool_call fence. */
 export function toolCallFence(calls: NonNullable<ModelMessage["toolCalls"]>): string {
   const lines = calls.map((call) => {
     let args: unknown
@@ -79,7 +84,7 @@ export function toolCallFence(calls: NonNullable<ModelMessage["toolCalls"]>): st
   return `\`\`\`tool_call\n${lines.join("\n")}\n\`\`\``
 }
 
-/** A tool's result line for a ```tool_result fence. */
+/** A tool's result, a line of the ```tool_result fence: the JSON output (or text, or the error). */
 export function toolResultLine(id: string, name: string, content: string, error?: string): string {
   let result: unknown = error ?? content
   if (error === undefined) {
@@ -92,16 +97,21 @@ export function toolResultLine(id: string, name: string, content: string, error?
   return JSON.stringify({ name, result: result ?? null, error: error !== undefined, ...(id && { id }) })
 }
 
-/** Tool results as the model reads them. */
+/** A step's tool results: a line each in one ```tool_result fence. */
 export const toolResultFence = (lines: ReadonlyArray<string>) => `\`\`\`tool_result\n${lines.join("\n")}\n\`\`\``
+
+/** Each tool's parameter names in signature order, for a Python call's positional arguments. */
+type ParameterNames = (tool: string) => ReadonlyArray<string> | undefined
 
 /**
  * The first tool call in a fence's body: a JSON object (or an array of them,
  * or one per line) with `name` and `arguments` (or `parameters`), the
- * arguments possibly a JSON string; else, as the whole body, a Python-style
- * call, `[name(key="v")]`, or `call:name{key:value}`.
+ * arguments possibly a JSON string; else, as the whole body, a Python call,
+ * `name(key="v")` (maybe in `print(…)` or brackets; positional arguments take
+ * the tool's parameters in the order its method lists them), or
+ * `call:name{key:value}`.
  */
-export function parseToolCall(body: string): ParsedToolCall | undefined {
+export function parseToolCall(body: string, parameterNames?: ParameterNames): ParsedToolCall | undefined {
   const text = body.trim()
   const candidates: Array<unknown> = []
   try {
@@ -131,8 +141,9 @@ export function parseToolCall(body: string): ParsedToolCall | undefined {
   // `call:name{key:value,…}`
   const colon = /^call:(\w+)\{([^}]*)\}$/.exec(text)
   if (colon) return { name: colon[1], arguments: parseColonArguments(colon[2]) }
-  // Python style, `[name(key="value")]` or `name(key="value")`
-  return parsePythonCall(text)
+  // Python style, `name(key="value")`, `print(name(…))` or `[name(…)]`
+  const printed = /^print\(([\s\S]*)\)$/.exec(text)
+  return parsePythonCall(printed ? printed[1].trim() : text, parameterNames)
 }
 
 /** `key:value,…` pairs, values read as numbers, booleans or null where they are. */
@@ -213,17 +224,19 @@ function pythonValue(raw: string): unknown {
 }
 
 /** `text` as one Python-style call: `name(key=value, …)`, maybe in brackets. */
-function parsePythonCall(text: string): ParsedToolCall | undefined {
+function parsePythonCall(text: string, parameterNames?: ParameterNames): ParsedToolCall | undefined {
   const match = /^(\[?\s*)(\w+)\(/.exec(text)
   if (!match) return undefined
   const open = match[0].length - 1
   const close = closing(text, open)
   if (close === -1 || text.slice(close + 1).trim() !== (match[1] ? "]" : "")) return undefined
   const args: Record<string, unknown> = {}
+  const positional = parameterNames?.(match[2]) ?? []
+  let index = 0
   for (const part of splitTopLevel(text.slice(open + 1, close))) {
-    const at = part.indexOf("=")
-    if (at <= 0) continue
-    args[part.slice(0, at).trim()] = pythonValue(part.slice(at + 1))
+    const keyword = /^(\w+)\s*=(?!=)/.exec(part)
+    if (keyword) args[keyword[1]] = pythonValue(part.slice(keyword[0].length))
+    else if (index < positional.length) args[positional[index++]] = pythonValue(part)
   }
   return { name: match[2], arguments: args }
 }
@@ -240,14 +253,21 @@ function partialFenceStart(text: string) {
 /**
  * Reads a streamed reply: `push` each piece and get back the text that can
  * be shown now; text inside a ```tool_call fence (or another call's
- * delimiters: `<tool_call>`, `<|tool_call>`, `<|tool_call_start|>`, or a
- * Python-style `[name(…)]`) is held back. The first fence that closes with
- * a call in it ends the reply (stop generating then): `call` is the call,
- * and `trailing` the text after it. A fence without a call, a call to a tool
- * not in `names` (when given), and other code fences, are text. `end` gives
- * the rest, an unclosed fence as text.
+ * delimiters: ```tool_code, `<tool_call>`, `<|tool_call>`,
+ * `<|tool_call_start|>`, or a Python-style `[name(…)]`) is held back. The
+ * first fence that closes with a call in it ends the reply (stop generating
+ * then): `call` is the call, and `trailing` the text after it. A fence without
+ * a call, a call to a tool not in `tools` (when given), and other code fences,
+ * are text. `end` gives the rest: a fence still open when the reply ends is
+ * the call if it holds a whole one (the model ended its reply there, so
+ * nothing more was coming), else text.
  */
-export function toolCallReader(names?: ReadonlyArray<string>) {
+export function toolCallReader(tools?: ReadonlyArray<Pick<Tool, "name" | "inputSchema">>) {
+  const names = tools?.map((tool) => tool.name)
+  const parameterNames: ParameterNames = (name) => {
+    const tool = tools?.find((t) => t.name === name)
+    return tool && parametersOf(tool)
+  }
   let buffer = ""
   // The delimiter of the call being read; a Python-style call is read whole.
   let start: (Delimiter & { python?: boolean }) | undefined
@@ -279,7 +299,7 @@ export function toolCallReader(names?: ReadonlyArray<string>) {
       const close = buffer.indexOf(start.end, start.start.length)
       if (close === -1) return shown
       const fence = buffer.slice(0, close + start.end.length)
-      const parsed = parseToolCall(start.python ? fence : fence.slice(start.start.length, close))
+      const parsed = parseToolCall(start.python ? fence : fence.slice(start.start.length, close), parameterNames)
       call = parsed && (!names || names.includes(parsed.name)) ? parsed : undefined
       buffer = buffer.slice(fence.length)
       start = undefined
@@ -303,6 +323,14 @@ export function toolCallReader(names?: ReadonlyArray<string>) {
     },
     end(): string {
       if (call) return ""
+      if (start && !start.python) {
+        const parsed = parseToolCall(buffer.slice(start.start.length), parameterNames)
+        if (parsed && (!names || names.includes(parsed.name))) {
+          call = parsed
+          buffer = ""
+          return ""
+        }
+      }
       const rest = buffer
       buffer = ""
       return rest

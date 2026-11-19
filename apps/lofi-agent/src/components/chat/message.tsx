@@ -20,7 +20,7 @@ import { useContext, useEffect, useMemo, useState } from "react"
 
 import { attachmentPart, toAttachments } from "#/chat/attachments"
 import { useSelectedModel } from "#/chat/model"
-import { modelInfo, useAttachableKinds, useModelStatus } from "#/chat/models"
+import { modelName, useAttachableKinds, useModelStatus } from "#/chat/models"
 import type { chatOptions } from "#/chat/options"
 import { Action, Actions } from "#/components/ai/actions"
 import {
@@ -374,7 +374,7 @@ function Working() {
   const downloading =
     loading && loading.downloading && loading.progress < 1 ? loading : null
   const label = downloading
-    ? `Downloading ${modelInfo(model).name}… ${Math.round(downloading.progress * 100)}%`
+    ? `Downloading ${modelName(model)}… ${Math.round(downloading.progress * 100)}%`
     : loading
       ? "Loading…"
       : "Processing…"

@@ -8,11 +8,10 @@
  */
 import { toolDefinition } from "@tanstack/ai"
 
-import { nearestCity, onlineCity, placeName } from "#/lib/places"
+import { nearestCity, placeName } from "#/lib/places"
 import { setting } from "#/lib/settings"
-import { WEATHER_TOOL, weatherToolSetting } from "#/lib/weather"
 
-export const LOCATION_TOOL = "get_current_location"
+export const LOCATION_TOOL = "get_my_location"
 
 /** Whether models get the location tool. On unless turned off in Settings. */
 export const locationToolSetting = setting("locationTool", true)
@@ -23,10 +22,7 @@ export type CurrentLocation = {
   longitude: number
   /** Where the user is, named offline (lib/places.ts), if it could be. */
   place?: string
-  /**
-   * The user's city, town or village from OpenStreetMap, or else the nearest
-   * listed city, however far: for get_weather.
-   */
+  /** The nearest listed city, however far. */
   city?: string
   /** The device's time zone, such as "America/Los_Angeles". */
   timeZone: string
@@ -35,8 +31,7 @@ export type CurrentLocation = {
 /** The tool's definition, which `chat()` gets: it has no code of its own. */
 export const locationToolDefinition = toolDefinition({
   name: LOCATION_TOOL,
-  description:
-    "Get where the user is from their device: the place's name, the nearest city, latitude and longitude. Only for when the user asks about where they are without naming a place, such as \"what's the weather?\": then call this instead of asking for their city, and pass the nearest city to get_weather. When the user names a place, use that place and don't call this. The browser asks the user first.",
+  description: "Get the location of the current user",
   inputSchema: { type: "object", properties: {} }
 })
 
@@ -54,8 +49,8 @@ function reason(error: GeolocationPositionError) {
   return "The device couldn't find its location."
 }
 
-/** The device's position, from the browser. */
-const position = () =>
+/** The device's position, from the browser (which asks the user first). The weather tool reads it too, for the weather where the user is. */
+export const devicePosition = () =>
   new Promise<Omit<CurrentLocation, "place" | "city">>((resolve, reject) => {
     if (typeof navigator === "undefined" || !navigator.geolocation) {
       reject(new Error("This browser can't share a location."))
@@ -75,18 +70,14 @@ const position = () =>
   })
 
 /**
- * The location as the model reads it: a sentence, and what to do with the
- * city. Small models act on this more reliably than on the same fields as
- * JSON: asked for the weather where they are, LFM3's GGUF went on to call
- * get_weather 12 times in 12, against none with JSON, where it stopped to
- * ask whether to look the weather up.
+ * The location as the model reads it: a sentence. Small models read this
+ * more reliably than the same fields as JSON.
  */
 export function describeLocation(where: CurrentLocation) {
   const at = `latitude ${where.latitude}, longitude ${where.longitude}, time zone ${where.timeZone}`
   const place = where.place ? `The user is in ${where.place}. ` : ""
   if (!where.city) return `${place}The user is at ${at}.`
-  const weather = weatherToolSetting.get() ? ` For the weather there, call ${WEATHER_TOOL} with this city.` : ""
-  return `${place}The nearest city is ${where.city} (${at}).${weather}`
+  return `${place}The nearest city is ${where.city} (${at}).`
 }
 
 /**
@@ -101,20 +92,15 @@ export const locationTool = locationToolDefinition.client(
     describeLocation(await currentLocation(context?.abortSignal))
 )
 
+/** Where the user is: the position, then its names, from the list of cities that ships with the app. */
 async function currentLocation(signal?: AbortSignal): Promise<CurrentLocation> {
-  const where = await position()
+  const where = await devicePosition()
   // The browser's prompt can't be cancelled, so a reply stopped while it was
   // open is noticed only once it answers.
   signal?.throwIfAborted()
-  // The city from OpenStreetMap, or the nearest listed one where it has
-  // none or can't be reached.
   const [place, city] = await Promise.all([
     placeName(where.latitude, where.longitude).catch(() => undefined),
-    onlineCity(where.latitude, where.longitude).then(
-      (found) =>
-        found ??
-        nearestCity(where.latitude, where.longitude).catch(() => undefined)
-    )
+    nearestCity(where.latitude, where.longitude).catch(() => undefined)
   ])
   return { ...where, ...(place && { place }), ...(city && { city }) }
 }

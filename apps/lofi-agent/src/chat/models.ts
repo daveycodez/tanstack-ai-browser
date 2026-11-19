@@ -15,9 +15,8 @@ import type { webLlmText, WebLlmChatModel } from "@tanstack-ai-browser/web-llm"
 import type { webLlmModel as WebLlmModel } from "./web-llm-models.ts"
 import { apfelText } from "@tanstack-ai-browser/apfel"
 import { afmText } from "@tanstack-ai-browser/afm"
-import { PromptApiTextAdapter, promptApiText } from "@tanstack-ai-browser/prompt-api"
+import { PromptApiTextAdapter, PromptApiVariant, promptApiText } from "@tanstack-ai-browser/prompt-api"
 import type { Availability } from "@tanstack-ai-browser/prompt-api"
-import { browserModel } from "./browser-model.ts"
 import { useSyncExternalStore } from "react"
 
 import { createStore } from "#/lib/store"
@@ -204,9 +203,9 @@ const gguf = (id: ModelId, model: WllamaChatModel) => {
 }
 
 /**
- * LFM3, LFM2.5 and Qwen3.5 on the package's own WebGL 2 engine, which runs
- * with or without WebGPU. Where there's no WebGPU it still reads prompts on
- * the GPU: about three times as fast as the CPU on a Pixel 10 Pro.
+ * LFM3, LFM2.5 and Qwen3.5 on webgllm, on WebGPU where the browser has it
+ * and on WebGL 2 elsewhere. Where there's no WebGPU it still reads prompts
+ * on the GPU: about three times as fast as the CPU on a Pixel 10 Pro.
  */
 const webgl = (id: ModelId, model: WebGllmChatModel) => {
   const { status, onDownloadProgress } = statusStore()
@@ -251,6 +250,11 @@ const webLlm = (
 /** The browser's own model's status, and its download's progress. */
 const builtInStatus = statusStore()
 
+/** Apple's framework (the iOS app's plugin, the Mac app's preload): also asked which model it runs. */
+const afm = afmText()
+/** The browser's own model, through the Prompt API. */
+const builtIn = promptApiText({ onDownloadProgress: builtInStatus.onDownloadProgress })
+
 export const MODELS = [
   {
     id: "apple-foundationmodel",
@@ -273,9 +277,10 @@ export const MODELS = [
     /**
      * The same model through Apple's framework itself, with its native tool
      * calling: in the iOS app (the Capacitor plugin), and in the Mac app
-     * (window.afm, from its preload). Offered where it says the model can run.
+     * (window.afm, from its preload). Offered where it says the model can run,
+     * named as Apple's framework names the model running (see reportedNames).
      */
-    adapter: afmText(),
+    adapter: afm,
     /** The OS keeps the model: nothing to download. */
     status: null,
     needsWebGpu: false,
@@ -284,15 +289,16 @@ export const MODELS = [
   },
   {
     id: "built-in",
-    /** The browser's own model: Gemini Nano in Chrome, Phi-4-mini in Edge. */
-    name: browserModel().name,
+    /**
+     * The browser's own model: Gemini Nano or Gemma 4 in Chrome, Aion-1.1-Instruct in
+     * Edge, named by the adapter's variant() once checked (see reportedNames).
+     */
+    name: "Built-in model",
     icon:
-      browserModel().id === "phi-4-mini"
+      PromptApiVariant.ofBrowser() === PromptApiVariant.aion1_1
         ? "/icons/microsoft.svg"
         : "/icons/gemini.svg",
-    adapter: promptApiText({
-      onDownloadProgress: builtInStatus.onDownloadProgress
-    }),
+    adapter: builtIn,
     /** The browser downloads it, once for every site, with progress. */
     status: builtInStatus.status as ModelStatusStore | null,
     needsWebGpu: false,
@@ -440,7 +446,7 @@ export function effortButtonLabel(id: ModelId, level: ReasoningLevel) {
 
 /**
  * The model to start with, and to fall back on: Liquid AI's QAD Q4_0 GGUF of
- * LFM3 1.7B on the WebGL engine, which runs with or without WebGPU (iPhone
+ * LFM3 1.7B on webgllm, which runs with or without WebGPU (iPhone
  * Safari included), thinking at high effort (see ./model.ts). Of the LFM3
  * builds it calls tools most like the unquantized model: on 20 test prompts
  * that need a tool, its first reply token is a tool call on all 20, against
@@ -580,16 +586,16 @@ const useWllamaOnWebGpu = () =>
 
 /**
  * Which backend a provider's models run on here, for the picker: WebGPU or
- * Wasm (the CPU, in WebAssembly) for Transformers.js and wllama, WebGPU for
- * WebLLM and WebGL 2 for WebGLLM (their only ones); nothing for the others
- * (apfel and the Prompt API aren't ours).
+ * Wasm (the CPU, in WebAssembly) for Transformers.js and wllama, WebGPU or
+ * WebGL 2 for WebGLLM, WebGPU for WebLLM (its only one); nothing for the
+ * others (apfel and the Prompt API aren't ours).
  */
 export function useBackends(): Partial<Record<string, string>> {
   const webGpu = useHasWebGpu()
   const wllama = useWllamaOnWebGpu()
   return {
     "transformers-js": webGpu ? "WebGPU" : "Wasm",
-    webgllm: "WebGL 2",
+    webgllm: webGpu ? "WebGPU" : "WebGL 2",
     "web-llm": "WebGPU",
     ...(wllama !== null && { wllama: wllama ? "WebGPU" : "Wasm" })
   }
@@ -603,10 +609,28 @@ export function useBackends(): Partial<Record<string, string>> {
  */
 const availabilities = createStore<Partial<Record<ModelId, Availability>>>({})
 
-/** Checks `id`'s availability again, into the store. */
+/**
+ * Names models give themselves, over their entries': Apple's framework says
+ * which model it runs ("AFM 3 Core Advanced", "AFM 2 Core"), once it can run;
+ * the Prompt API adapter, which model the browser runs ("Gemini Nano",
+ * "Gemma 4", "Aion-1.1-Instruct").
+ */
+const reportedNames = createStore<Partial<Record<ModelId, string>>>({})
+
+/** A model's name: the one it reports, else its entry's. */
+export const modelName = (id: ModelId) => reportedNames.get()[id] ?? modelInfo(id).name
+
+/** Checks `id`'s availability again, into the store (and the name of Apple's model or the browser's). */
 async function checkAvailability(id: ModelId) {
   const result = await modelInfo(id).adapter.availability()
   availabilities.set((all) => ({ ...all, [id]: result }))
+  const variant =
+    id === "apple-foundationmodel-afm" && result === "available"
+      ? await afm.variant()
+      : id === "built-in" && result !== "unavailable"
+        ? await builtIn.variant()
+        : undefined
+  if (variant) reportedNames.set((all) => ({ ...all, [id]: variant.displayName }))
   return result
 }
 
@@ -615,7 +639,7 @@ if (typeof window !== "undefined") {
     if (m.id === "apple-foundationmodel") continue
     // Chromium for Testing has the Prompt API but says "downloading"
     // forever, with no model: only Chrome's and Edge's are offered.
-    if (m.id === "built-in" && browserModel().id === "unknown") continue
+    if (m.id === "built-in" && !PromptApiVariant.ofBrowser()) continue
     void checkAvailability(m.id)
     void checkInputs(m.id)
   }
@@ -680,8 +704,10 @@ export function useModels() {
   const isMac = useIsMacOS()
   const hasGpu = useHasWebGpu()
   const all = useAvailabilities()
+  const names = reportedNames.use()
   return allModels().filter((m) => canRun(m.id, isMac, hasGpu)).map((m) => ({
     ...m,
+    name: names[m.id] ?? m.name,
     availability: all[m.id]
   }))
 }

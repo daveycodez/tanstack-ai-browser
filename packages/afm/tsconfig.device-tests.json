@@ -1,0 +1,6 @@
+{
+  "extends": "./tsconfig.lib.json",
+  "compilerOptions": { "noEmit": true, "rootDir": ".", "composite": false, "declaration": false, "declarationMap": false, "tsBuildInfoFile": null },
+  "include": ["src/**/*.ts", "device-tests/**/*.ts"],
+  "exclude": ["src/**/*.test.ts"]
+}

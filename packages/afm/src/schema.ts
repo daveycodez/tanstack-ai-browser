@@ -45,14 +45,6 @@ function constantChoices(choices: Array<unknown>): Array<string> | undefined {
   return values
 }
 
-/** A property's own description, and what its choice of constants says, together. */
-const describe = (own: string | undefined, notes: string | undefined) =>
-  own && notes ? `${own.trim()} ${notes}` : (notes ?? own)
-
-/** A described enum without its name and description (a property's description has them). */
-const plainEnum = (schema: NativeSchema): NativeSchema =>
-  schema.kind === "string" && schema.choices && (schema.description || schema.name) ? { kind: "string", choices: schema.choices } : schema
-
 /** A schema's name for the framework: letters, digits and underscores. */
 const typeName = (name: string) => name.replace(/[^A-Za-z0-9_]/g, "_") || "Value"
 
@@ -65,47 +57,6 @@ export function toNativeSchema(schema: unknown, name: string): NativeGenerationS
   const defs: Json = { ...(isObject(json.definitions) ? json.definitions : {}), ...(isObject(json.$defs) ? json.$defs : {}) }
   const definitions = new Map<string, NativeSchema>()
 
-  /** A schema with its local $refs followed. */
-  const follow = (value: unknown): unknown => {
-    for (let i = 0; i < 16 && isObject(value) && typeof value.$ref === "string"; i++) value = defs[value.$ref.split("/").at(-1) ?? ""]
-    return value
-  }
-
-  /**
-   * What a choice of string constants says of each value: "cost: what the
-   * card costs; color: …", from the values as constantChoices reads them.
-   * Undefined when no value is described. Only Apple's model reads it, in its
-   * schema: other models' prompts don't grow.
-   */
-  const choiceNotes = (choices: Array<unknown>): string | undefined => {
-    const values = constantChoices(choices)
-    if (!values || !choices.some((c) => isObject(c) && typeof c.description === "string" && c.description.trim())) return undefined
-    return values
-      .map((value, i) => {
-        const choice = choices[i] as Json
-        return typeof choice.description === "string" && choice.description.trim() ? `${value}: ${choice.description.trim()}` : value
-      })
-      .join("; ")
-  }
-
-  /**
-   * For a property: what its choice of constants says, beyond the
-   * property's own description: a referenced definition's description, then
-   * its values' notes. Undefined for any other schema.
-   */
-  const propertyNotes = (property: unknown): string | undefined => {
-    const target = follow(property)
-    if (!isObject(target)) return undefined
-    const variants = target.oneOf ?? target.anyOf
-    if (!Array.isArray(variants)) return undefined
-    const choices = variants.filter((v) => !isNull(v)).map(follow)
-    if (!constantChoices(choices)) return undefined
-    // (The property's own description is already its own; a definition's isn't.)
-    const defined = target !== property && typeof target.description === "string" && target.description.trim() ? target.description.trim() : undefined
-    const notes = choiceNotes(choices)
-    return [defined, notes && `One of: ${notes}.`].filter(Boolean).join(" ") || undefined
-  }
-
   const convert = (value: unknown, path: string): NativeSchema => {
     if (!isObject(value)) return { kind: "string" }
     if (typeof value.$ref === "string") {
@@ -116,7 +67,7 @@ export function toNativeSchema(schema: unknown, name: string): NativeGenerationS
       // Only named schemas (objects, choices) can be referred to. A described
       // enum is written in place, named for where it's used (names are unique).
       if (converted.kind === "object" || converted.kind === "anyOf") return { kind: "reference", name: typeName(target) }
-      return converted.kind === "string" && converted.description ? { ...converted, name: typeName(path) } : converted
+      return converted
     }
     if ("const" in value && typeof value.const === "string") return { kind: "string", constant: value.const }
     if (Array.isArray(value.enum)) {
@@ -147,18 +98,9 @@ export function toNativeSchema(schema: unknown, name: string): NativeGenerationS
     const variants = value.anyOf ?? value.oneOf
     if (Array.isArray(variants)) {
       const choices = variants.filter((v) => !isNull(v))
-      // A choice of string constants (each with its description, say): the
-      // framework's enum, written the same as `enum`. What it says (its own
-      // description and its values') goes into the property holding it (see
-      // propertyNotes); where none does (an array's items, the root), the
-      // string carries its name and description, and the bridge makes it a
-      // described choice of constants (the framework keeps that description).
+      // A choice of string constants: the framework's enum, written the same as `enum`.
       const constants = constantChoices(choices)
-      if (constants) {
-        const notes = choiceNotes(choices.map(follow))
-        const said = [typeof value.description === "string" && value.description.trim() ? value.description.trim() : undefined, notes && `One of: ${notes}.`].filter(Boolean).join(" ")
-        return said ? { kind: "string", choices: constants, name: typeName(path), description: said } : { kind: "string", choices: constants }
-      }
+      if (constants) return { kind: "string", choices: constants }
       if (choices.length === 1) return convert({ ...choices[0], description: value.description ?? choices[0].description }, path)
       if (choices.length > 1) {
         return defined({
@@ -177,10 +119,9 @@ export function toNativeSchema(schema: unknown, name: string): NativeGenerationS
         const properties = Object.entries(isObject(value.properties) ? value.properties : {}).map(([key, property]) =>
           defined({
             name: key,
-            description: describe(isObject(property) && typeof property.description === "string" ? property.description : undefined, propertyNotes(property)),
+            description: isObject(property) && typeof property.description === "string" ? property.description : undefined,
             optional: !required.includes(key) || nullable(property),
-            // (Its notes are in the property's description: the enum itself stays plain.)
-            schema: plainEnum(convert(property, `${path}_${key}`))
+            schema: convert(property, `${path}_${key}`)
           })
         )
         return defined({
@@ -196,8 +137,7 @@ export function toNativeSchema(schema: unknown, name: string): NativeGenerationS
         // rest's, if a schema is given for them). Its length is what the
         // schema says, no more: prefixItems describes positions, it doesn't
         // require them (minItems does), and more may follow unless the rest
-        // is false (then no more than the positions). Which goes where is
-        // checked once the answer is in.
+        // is false (then no more than the positions).
         const prefix = Array.isArray(value.prefixItems) ? value.prefixItems : Array.isArray(value.items) ? value.items : undefined
         if (prefix && prefix.length > 0) {
           const rest = Array.isArray(value.items) ? value.additionalItems : value.items

@@ -9,6 +9,7 @@
 import { givenWorker, inProcess } from "./port.js"
 import type { Open, Port } from "./port.js"
 import type { GenerateRequest, LoadSettings, WorkerReply, WorkerRequest } from "./protocol.js"
+import { keptInOpfs } from "./storage.js"
 
 /**
  * Where a model stands in this browser, with the Prompt API's values
@@ -21,7 +22,7 @@ export type DownloadProgressCallback = (progress: number) => void
 
 export type GenerationEvent =
   | { type: "text"; text: string }
-  | { type: "done"; inputTokens: number; cachedTokens?: number; outputTokens: number }
+  | { type: "done"; inputTokens: number; cachedTokens?: number; outputTokens: number; finishReason: "stop" | "length" }
 
 /** Whether this is Node.js: no Web Worker, so the handler runs in this process. */
 const onServer = () =>
@@ -235,7 +236,8 @@ function createClient(open: Open<WorkerRequest, WorkerReply>, owned: boolean) {
             type: "done",
             inputTokens: reply.inputTokens,
             ...(reply.cachedTokens !== undefined && { cachedTokens: reply.cachedTokens }),
-            outputTokens: reply.outputTokens
+            outputTokens: reply.outputTokens,
+            finishReason: reply.finishReason
           }
           return
         }
@@ -285,8 +287,9 @@ function hasWebGpu(): Promise<boolean> {
   return webGpu
 }
 
-/** Whether Transformers.js's browser cache holds ONNX weights of `model`. A server's file cache isn't read. */
+/** Whether ONNX weights of `model` are kept here: in OPFS (storage.ts), or Transformers.js's own browser cache. A server's file cache isn't read. */
 async function inCache(model: string): Promise<boolean> {
+  if (await keptInOpfs(model)) return true
   try {
     if (typeof caches === "undefined" || !(await caches.has("transformers-cache"))) return false
     const keys = await (await caches.open("transformers-cache")).keys()

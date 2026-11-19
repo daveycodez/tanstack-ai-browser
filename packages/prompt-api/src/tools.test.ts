@@ -1,14 +1,7 @@
 import assert from "node:assert/strict"
 import { test } from "node:test"
 
-import {
-  parseToolCall,
-  toolCallFence,
-  toolCallReader,
-  toolResultFence,
-  toolResultLine,
-  toolSystemPrompt
-} from "./tools.js"
+import { parseToolCall, toolCallFence, toolCallReader, toolResultFence, toolResultLine, toolSystemPrompt } from "./tools.js"
 
 const weather = {
   name: "get_weather",
@@ -28,31 +21,28 @@ function read(pieces: Array<string>) {
   return { shown, call: reader.call }
 }
 
-test("the system prompt lists the tools as JSON after the caller's prompt, with the fence formats", () => {
-  const prompt = toolSystemPrompt("Be brief.", [weather, { name: "clock", description: "" }])
-  assert.ok(prompt.startsWith("Be brief.\n\nYou are a helpful AI assistant with access to tools.\n\n# Available Tools\n"))
-  const json = prompt.slice(prompt.indexOf("["), prompt.indexOf("\n]\n") + 2)
-  assert.deepEqual(JSON.parse(json), [
-    { name: "get_weather", description: "Weather for a city", parameters: weather.inputSchema },
-    { name: "clock", description: "", parameters: { type: "object", properties: {} } }
-  ])
-  assert.match(prompt, /```tool_call\n\{"name": "tool_name", "arguments": \{"param1": "value1", "param2": "value2"\}\}\n```/)
-  assert.match(prompt, /```tool_result\n\{"id": "call_123", "name": "tool_name", "result": \{\.\.\.\}, "error": false\}\n```/)
-  assert.match(prompt, /Only request one tool call at a time/)
-  assert.match(prompt, /If no tool is needed, respond directly without tool_call fences$/)
-  assert.equal(toolSystemPrompt("Be brief.", []), "Be brief.")
-  assert.ok(toolSystemPrompt("", [weather]).startsWith("You are a helpful AI assistant with access to tools."))
-})
-
-test("past calls and results are written in the fences the prompt describes", () => {
-  assert.equal(
-    toolCallFence([{ id: "c1", type: "function", function: { name: "get_weather", arguments: '{"city":"Paris"}' } }]),
-    '```tool_call\n{"name":"get_weather","arguments":{"city":"Paris"},"id":"c1"}\n```'
-  )
-  assert.equal(toolResultLine("c1", "get_weather", '{"temp":12}'), '{"name":"get_weather","result":{"temp":12},"error":false,"id":"c1"}')
-  assert.equal(toolResultLine("c1", "get_weather", "sunny"), '{"name":"get_weather","result":"sunny","error":false,"id":"c1"}')
-  assert.equal(toolResultLine("c1", "get_weather", "", "no such city"), '{"name":"get_weather","result":"no such city","error":true,"id":"c1"}')
-  assert.equal(toolResultFence(["a", "b"]), "```tool_result\na\nb\n```")
+test("a tool_code call is read too: print(), keyword and positional arguments", () => {
+  const calculate = { name: "calculate", inputSchema: { type: "object", properties: { expression: { type: "string" } }, required: ["expression"] } }
+  const time = { name: "get_current_time", inputSchema: { type: "object", properties: { timezone: { type: "string" } } } }
+  const readWith = (pieces: Array<string>) => {
+    const reader = toolCallReader([calculate, time])
+    let shown = ""
+    for (const piece of pieces) shown += reader.push(piece)
+    return { shown: shown + reader.end(), call: reader.call }
+  }
+  assert.deepEqual(readWith(["```tool_code\nprint(get_current_time(timezone='Asia/Tokyo'))\n```"]).call, {
+    name: "get_current_time",
+    arguments: { timezone: "Asia/Tokyo" }
+  })
+  assert.deepEqual(readWith(['```tool_', 'code\nprint(calculate("17 * 23"))\n``', "`"]), {
+    shown: "",
+    call: { name: "calculate", arguments: { expression: "17 * 23" } }
+  })
+  assert.deepEqual(readWith(['```tool_code\ncalculate(expression="1 == 1")\n```']).call?.arguments, { expression: "1 == 1" })
+  // Code that calls no tool is text.
+  assert.deepEqual(readWith(["391. ```tool_code\nprint(17 * 23)\n```"]), { shown: "391. ```tool_code\nprint(17 * 23)\n```", call: undefined })
+  // Without the tools, positional arguments have no names.
+  assert.deepEqual(parseToolCall('calculate("17 * 23")'), { name: "calculate", arguments: {} })
 })
 
 test("a call's JSON: arguments or parameters, a JSON-string argument, an array or lines; nothing else", () => {
@@ -108,6 +98,14 @@ test("other ways small models write a call are read too: tags, delimiters, Pytho
   assert.deepEqual(read(["<|tool_call>call:get_weather{days:3,metric:true}<tool_call|>"]).call?.arguments, { days: 3, metric: true })
 })
 
+test("a fence still open when the reply ends is the call if it holds a whole one (Edge's Aion leaves it open)", () => {
+  assert.deepEqual(read(['Sure.\n```tool_call\n{"name": "get_weather", "arguments": {"city": "Paris"}}']), {
+    shown: "Sure.\n",
+    call: { name: "get_weather", arguments: { city: "Paris" } }
+  })
+  assert.deepEqual(read(['```tool_code\nprint(get_weather(city="Oslo"))\n']).call, { name: "get_weather", arguments: { city: "Oslo" } })
+})
+
 test("a fence without a call, an unclosed fence, bare JSON and other code fences are text", () => {
   const reader = toolCallReader()
   assert.equal(reader.push("Hm. ```tool_call\nnope\n``` then "), "Hm. ```tool_call\nnope\n``` then ")
@@ -126,4 +124,28 @@ test("a JSON call is read as JSON: call syntax in its string arguments is just t
     assert.deepEqual(read(["```tool_call\n" + body + "\n```"]).call, { name: "search", arguments: { query } })
   }
   assert.equal(parseToolCall("see call:bogus{arg:value} here"), undefined, "the fallback syntax is the whole body")
+})
+
+test("the system prompt is the caller's, then the tools and their format, with no guidance on when to call; calls and results are JSON fences", () => {
+  assert.equal(toolSystemPrompt("Be brief.", []), "Be brief.")
+  assert.ok(toolSystemPrompt("Be brief.", [weather]).startsWith("Be brief.\n\n# Tools\n{"))
+  const prompt = toolSystemPrompt("", [weather, { ...weather, name: "get_tide" }])
+  // A tool a line, as compact JSON.
+  const [heading, first, second, blank] = prompt.split("\n")
+  assert.equal(heading, "# Tools")
+  assert.deepEqual(JSON.parse(first!), { name: "get_weather", description: "Weather for a city", parameters: weather.inputSchema })
+  assert.equal(JSON.parse(second!).name, "get_tide")
+  assert.equal(first, JSON.stringify(JSON.parse(first!)), "no indentation")
+  assert.equal(blank, "")
+  assert.match(prompt, /To call a tool, write one call as JSON in a ```tool_call fence:\n\n```tool_call\n\{"name": "tool_name", "arguments": \{/)
+  assert.match(prompt, /Tool results come back in a ```tool_result fence, a line of JSON each:\n\n```tool_result\n\{"name": "tool_name", "result": \{\.\.\.\}, "error": false, "id": "call_123"\}\n```$/)
+  // The format only: no persona, and nothing on when to call a tool or how to answer.
+  assert.doesNotMatch(prompt, /You are|helpful|If no tool|reasoning|Important/i)
+  assert.equal(
+    toolCallFence([{ id: "c1", type: "function", function: { name: "get_weather", arguments: '{"city":"Paris"}' } }]),
+    '```tool_call\n{"name":"get_weather","arguments":{"city":"Paris"},"id":"c1"}\n```'
+  )
+  assert.equal(toolResultLine("c1", "get_weather", '{"temp":12}'), '{"name":"get_weather","result":{"temp":12},"error":false,"id":"c1"}')
+  assert.equal(toolResultLine("c1", "get_weather", "", "no such city"), '{"name":"get_weather","result":"no such city","error":true,"id":"c1"}')
+  assert.equal(toolResultFence(["a", "b"]), "```tool_result\na\nb\n```")
 })

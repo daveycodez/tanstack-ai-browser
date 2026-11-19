@@ -7,11 +7,11 @@ A chat app that runs small language models entirely in your browser. Models are 
 ## Why it's different
 
 - **Private.** In-browser models run on your device. The app has no backend and no accounts: the Cloudflare Worker only serves the pages, prerendered or rendered without any of your data. Sessions, settings and MCP server details stay in your browser's IndexedDB.
-- **Runs on iPhone.** The default model runs on the WebGL engine, which needs no WebGPU, and the runtimes are tuned to stay inside iPhone Safari's memory and GPU limits. The wllama and WebGL models hold their whole context window per session, prompt and reply together; on iPhone and iPad, 8,192 tokens.
+- **Runs on iPhone.** The default model runs on webgllm, on WebGPU where the browser has it and on WebGL 2 elsewhere, and the runtimes are tuned to stay inside iPhone Safari's memory and GPU limits. The wllama and WebGLLM models hold their whole context window per session, prompt and reply together; on iPhone and iPad, 8,192 tokens.
 - **Download once.** Model weights (about 0.8 to 1.1 GB per model) are saved to the browser's Origin Private File System and loaded from disk on later visits.
 - **Reuses work between runs.** The model keeps what it has already read, so a follow-up message, the next step after a tool call, or a new session with the same system prompt only reads what's new. The system prompt and tools are also saved to disk, so they aren't read again after a reload.
 
-What does leave your device: calls to MCP servers (Exa's web search, if it's on, and those you add), your location to about a kilometer, when you share it, to name your town (OpenStreetMap, if the location tool is on), the city in a weather lookup (Open-Meteo, if the weather tool is on), and the downloads of model files (Hugging Face) and the runtime (jsDelivr). The browser's built-in model is downloaded by the browser itself.
+What does leave your device: calls to MCP servers (Exa's web search, if it's on, and those you add), the city in a weather lookup (Open-Meteo, if the weather tool is on), and the downloads of model files (Hugging Face) and the runtime (jsDelivr). The browser's built-in model is downloaded by the browser itself.
 
 ## Models
 
@@ -39,7 +39,7 @@ What does leave your device: calls to MCP servers (Exa's web search, if it's on,
 | Apple Foundation Model    | Apple's on-device model, served on your Mac by [apfel](https://apfel.franzai.com), through `@tanstack-ai-browser/apfel`. Shown on Apple devices only; needs a Mac (see Requirements).       |
 | Gemini Nano               | The browser's built-in model, through the Prompt API and `@tanstack-ai-browser/prompt-api` (Phi-4-mini in Edge). Chrome downloads it (about 85 s) for every site. 9,216 tokens per session. |
 
-The picker's WebGL section runs models on `@tanstack-ai-browser/webgllm`, built on the `webgllm` WebGL 2 engine, with or without WebGPU: LFM3 (Liquid AI's GGUF and onnx-community's ONNX), Liquid's vision models LFM3-VL 2B and LFM2.5-VL 3B, 1.6B and 450M (Liquid AI's GGUF and ONNX builds, which read images), LFM2.5 (Liquid AI's ONNX and GGUF builds), and Qwen3.5 2B (onnx-community's ONNX and unsloth's Q4_0 GGUF). The default is **LFM3-1.7B-GGUF** there: Liquid AI's QAD Q4_0 build (1.05 GB), which calls tools like the unquantized model. On 20 test prompts that need a tool, its first reply token is a tool call on all 20, against 16 for onnx-community's ONNX ([the bench](../../packages/webgllm/bench/README.md)).
+The picker's WebGLLM section runs models on `@tanstack-ai-browser/webgllm`, built on the `webgllm` engine, on WebGPU where the browser has it and on WebGL 2 elsewhere: LFM3 (Liquid AI's GGUF and onnx-community's ONNX), Liquid's vision models LFM3-VL 2B and LFM2.5-VL 3B, 1.6B and 450M (Liquid AI's GGUF and ONNX builds, which read images), LFM2.5 (Liquid AI's ONNX and GGUF builds), and Qwen3.5 2B (onnx-community's ONNX and unsloth's Q4_0 GGUF). The default is **LFM3-1.7B-GGUF** there: Liquid AI's QAD Q4_0 build (1.05 GB), which calls tools like the unquantized model. On 20 test prompts that need a tool, its first reply token is a tool call on all 20, against 16 for onnx-community's ONNX ([the bench](../../packages/webgllm/bench/README.md)).
 
 The GGUF models are in the picker's wllama section. They run on the CPU, WebGPU or not: on half the cores (wllama's default) where the page is cross-origin isolated (see `src/start.ts`), in every browser, Safari and Firefox included, since the site's headers use `Cross-Origin-Embedder-Policy: require-corp`.
 
@@ -50,8 +50,8 @@ Models download their repository's latest version (main). Models whose thinking 
 - A new session starts with five starter prompts above the composer, at the bottom of the page as in TanStack AI's chatbot example
 - Streaming replies with collapsible thinking, Markdown, math (KaTeX) and syntax-highlighted code
 - Web search through Exa's MCP server, built in and on by default: works without a key at a free rate limit, or with your Exa API key. Results show as numbered source chips the reply can cite.
-- Weather, built in: models can look up a city's current weather and 5-day forecast from Open-Meteo (free, no key), shown as a weather card. It never asks first, and Settings turns it off. The city asked about is sent to Open-Meteo.
-- Location, built in: models can ask for your current location (the browser asks you first), to about a kilometer, so "the weather where I am" works and the card names your city. The place is named offline from GeoNames' list of cities over 15,000 people, and the town for the weather lookup comes from OpenStreetMap's reverse geocoding (Nominatim), which gets the rounded coordinates; where it names none, the nearest listed city stands in. The weather lookup sends that city's name to Open-Meteo. Settings turns it off.
+- Weather, built in: models can look up the current weather and 5-day forecast for a city from Open-Meteo (free, no key). The tool is [mcp-weather-free](https://github.com/microagents/mcp-weather-free)'s `get_weather_by_city`, as that MCP server defines it, answered here. Shown as a weather card. Settings turns it off. The city asked about is sent to Open-Meteo.
+- Location, built in: models can ask for your current location (the browser asks you first), to about a kilometer, for questions about where you are, such as the weather where you are (the location, then the weather for its city). The place is named offline, from GeoNames' list of cities over 15,000 people that ships with the app: naming it sends nothing anywhere. Settings turns it off.
 - MCP servers: add any Streamable HTTP server by URL, with optional HTTP headers for its key (for example `Authorization: Bearer …` or `x-api-key`). The browser connects directly, so the server must allow this site (CORS).
 - Tool approval: every MCP tool asks before it runs, except the built-in server's read-only ones (Exa's search). The call's own card is the question, with its arguments and Reject and Approve, as in HeroUI Pro's chat. A session left waiting for an answer still asks after a reload.
 - Download confirmation: a message to a model that isn't on the device asks before it downloads, with Download, Cancel, and up to three models already on the device to answer with instead (the one picked becomes the picked model). It is a TanStack AI generic interrupt: middleware pauses the run before the first model call, since no tool could ask before the model is loaded. A session left waiting still asks after a reload.
@@ -66,17 +66,17 @@ Models download their repository's latest version (main). Models whose thinking 
 - Attachments, for models that read them: images, and audio for the browser's built-in model and the wllama audio models (LFM3-Omni, LFM3-Audio and LFM2.5-Audio), which transcribe a recording or answer questions about it. Each shows as a chip that opens the image, or a player for audio. Audio that llama.cpp can't decode (what phones and browsers record) is decoded in the page first.
 - Voice input through the browser's speech recognition, where available
 - The browser's built-in model (the Prompt API section: Gemini Nano in Chrome, Phi-4-mini in Edge), through the Prompt API, where the browser has it and the device can run it. The browser downloads it once for every site, with its progress shown in the reply; follow-ups and tool steps reuse its session, and web search works through guided generation
-- Settings: a system prompt sent with every session (before the current date), the weather tool on or off, and deleting every session
+- Settings: a system prompt sent with every session (none by default), the weather tool on or off, and deleting every session
 - Light, dark and system themes
 - Add to Home Screen: installs as an app with its own icon, and keeps the downloaded model more reliably than a Safari tab
 - GGUF models (the wllama section) run with llama.cpp's WebAssembly build: download once to the Origin Private File System, reuse what they've read across follow-ups and tool calls, and need no WebGPU
-- Without WebGPU (Firefox on Android, for one), the WebGL models still run on the GPU, the default among them. The Transformers.js models run on the CPU through WebAssembly, on their CPU (`q4`) weights, with nothing to set. Where WebGL 2 isn't available either, the picker starts on LFM2 1.2B Tool. Much slower than the GPU, especially while generating.
+- Without WebGPU (Firefox on Android, for one), the WebGLLM models still run on the GPU, on WebGL 2, the default among them. The Transformers.js models run on the CPU through WebAssembly, on their CPU (`q4`) weights, with nothing to set. Where WebGL 2 isn't available either, the picker starts on LFM2 1.2B Tool. Much slower than the GPU, especially while generating.
 - Pages render on the server (the home page is prerendered), with skeletons for what comes from IndexedDB until it opens
 - TanStack Devtools in development, with the AI and Router panels (no button: open them with Ctrl + ~)
 
 ## Requirements
 
-- A browser with WebGL 2 or WebGPU for GPU speed: the WebGL models (the default among them) need WebGL 2, the Transformers.js models WebGPU. Where the browser has JavaScript Promise Integration (Safari 27 and recent Chrome), a smaller, faster ONNX Runtime build is used. Without WebGPU, the CPU models above still run, slowly.
+- A browser with WebGL 2 or WebGPU for GPU speed: the WebGLLM models (the default among them) need WebGL 2 and run on WebGPU where there's one, the Transformers.js models need WebGPU. Where the browser has JavaScript Promise Integration (Safari 27 and recent Chrome), a smaller, faster ONNX Runtime build is used. Without WebGPU, the CPU models above still run, slowly.
 - Around 1 GB of free storage per model.
 - For the built-in model: desktop Chrome or Edge with the Prompt API, on a device that can run it (Chrome asks for 22 GB free, and a GPU with more than 4 GB or 16 GB of RAM). Other browsers, Chromium for Testing included, don't show it.
 - WebGPU needs a secure context: `localhost` during development, HTTPS otherwise.
@@ -117,11 +117,17 @@ Deploying needs a Cloudflare account (`wrangler login`). No environment variable
 Both apps wrap the prerendered site that `vite build` writes to `dist/client`.
 
 ```sh
-pnpm nx electron:dev lofi-agent      # build the site, open it in an Electron window
+pnpm nx electron:dev lofi-agent      # an Electron window on the dev server (pnpm nx dev lofi-agent), with hot reload
 pnpm nx electron:package lofi-agent  # unsigned macOS app in dist/electron-app/mac-arm64
 pnpm nx ios:sync lofi-agent          # build the site, copy it into the Xcode project
 pnpm nx ios:dev lofi-agent           # sync, then build and run on a simulator you pick
 pnpm nx ios:open lofi-agent          # open ios/App in Xcode
+```
+
+**Dev builds with hot reload.** `electron:dev` opens the window on the dev server at `http://localhost:3000` (`LOFI_DEV_SERVER`) instead of the built site; Apple's model and the location tool work there as in the packaged app. On an iPhone or iPad, the app loads the dev server through an HTTPS tunnel: start one with `cloudflared tunnel --url http://localhost:3000`, sync with its address, then build and install once from Xcode (or `xcodebuild` and `devicectl`). Edits then show up on the device without reinstalling. A new tunnel address needs a new sync and install; a plain `ios:sync` goes back to the bundled site.
+
+```sh
+CAP_SERVER_URL=https://<tunnel>.trycloudflare.com pnpm exec cap sync ios
 ```
 
 The Electron window loads the site from `app://lofi-agent/`, a scheme the main process (`electron/main.ts`) serves from `dist/client` with the cross-origin isolation headers, so it has WebGPU, OPFS and SharedArrayBuffer as on the web. The iOS app needs Xcode; its web view loads the site from `capacitor://localhost`, which isn't cross-origin isolated, so models on the CPU run on one thread there.

@@ -5,10 +5,11 @@
  * it at its first use) or in a Web Worker of your own
  * (`self.onmessage = (event) => handler.onmessage(event)`).
  */
-import { pipeline } from "@huggingface/transformers"
-import type { AutomaticSpeechRecognitionPipeline, ProgressInfo } from "@huggingface/transformers"
+import type { AutomaticSpeechRecognitionPipeline } from "@huggingface/transformers"
 
 import type { TranscriptionLoadSettings, TranscriptionReply, TranscriptionRequest } from "./protocol.js"
+import { setUpTransformers, startLoad } from "./storage.js"
+import { transformers } from "./transformers.js"
 
 export class TransformersJsTranscriptionWorkerHandler {
   private recognizer: AutomaticSpeechRecognitionPipeline | null = null
@@ -35,15 +36,19 @@ export class TransformersJsTranscriptionWorkerHandler {
 
   private async load({ model, device, dtype }: TranscriptionLoadSettings) {
     await this.unload()
-    this.recognizer = (await pipeline("automatic-speech-recognition", model, {
-      ...(device && { device }),
-      ...(dtype && { dtype }),
-      progress_callback: (info: ProgressInfo) => {
-        if (info.status === "progress_total" && info.total) {
-          this.post({ status: "progress", progress: Math.min(1, info.loaded / info.total) })
-        }
-      }
-    })) as AutomaticSpeechRecognitionPipeline
+    const { env, pipeline } = await transformers()
+    setUpTransformers(env)
+    const load = startLoad(model, (value) => this.post({ status: "progress", progress: value }))
+    try {
+      this.recognizer = (await pipeline("automatic-speech-recognition", model, {
+        ...(device && { device }),
+        ...(dtype && { dtype })
+      })) as AutomaticSpeechRecognitionPipeline
+      load.end(true)
+    } catch (error) {
+      load.end(false)
+      throw error
+    }
     this.post({ status: "ready" })
   }
 

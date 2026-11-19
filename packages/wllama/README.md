@@ -97,7 +97,7 @@ LFM3 needs wllama 3.13 or later: its llama.cpp is the first published with LFM3'
 
 **Context:** `wllamaText(model, { contextLength })` sets how many tokens a chat may hold, prompt and reply together. By default it's the model's whole context window, read from its GGUF (262,144 for LFM3 and Qwen3.5 2B, 128,000 for LFM2.5). Unlike Transformers.js and the WebGL engine, which grow their attention memory as a chat fills it, llama.cpp reserves it for the whole context when the model loads, which can be GBs for a full window. Fine on a desktop; on an iPhone set 8,192. On the CPU, where that memory is WebAssembly's (4 GB at most), set it too: a model whose whole window doesn't fit there (Qwen3.5 2B's 262,144 tokens take 3 GB) fails to load with an error. Changing it loads the model again.
 
-**Usage** is in each call's `RUN_FINISHED` event, as llama.cpp reports it: `promptTokens`, `completionTokens`, `totalTokens`, and `promptTokensDetails.cachedTokens` for the start of the prompt llama.cpp reused from an earlier call. Timings aren't in it: measure them from the stream, as for any adapter.
+**Usage** is in each call's `RUN_FINISHED` event, as llama.cpp reports it: `promptTokens`, `completionTokens`, `totalTokens`, and `promptTokensDetails.cachedTokens` for the start of the prompt llama.cpp reused from an earlier call (TanStack's conversion, as for any OpenAI-style adapter: none when llama.cpp reports 0). Timings aren't in it: measure them from the stream, as for any adapter.
 
 **Prompt reuse:** use the standard TanStack AI option, for example
 `chat({ adapter, messages, threadId, promptCache: "none" })` or

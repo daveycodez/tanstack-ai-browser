@@ -2,7 +2,8 @@ App/build
 App/Pods
 App/output
 App/App/public
-DerivedData
+# Xcode build output, in DerivedData or any folder named after it (DerivedDataDevice, ...)
+DerivedData*/
 xcuserdata
 
 # Cordova plugins for Capacitor

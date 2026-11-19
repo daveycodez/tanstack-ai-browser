@@ -5,6 +5,7 @@ import { chat } from "@tanstack/ai"
 import type { TextOptions } from "@tanstack/ai"
 
 import { afmText } from "./adapter.js"
+import { SystemLanguageModel } from "./index.js"
 import type { AfmNative, NativeAvailability, NativeEvent } from "./native.js"
 
 type Chunk = { type: string; [key: string]: unknown }
@@ -94,12 +95,12 @@ const typesOf = (chunks: Array<Chunk>) => chunks.map((c) => c.type)
 const textIn = (chunks: Array<Chunk>) =>
   chunks.filter((c) => c.type === "TEXT_MESSAGE_CONTENT").map((c) => c.delta).join("")
 
-test("cached tokens pass through where the bridge counts them, none included", async () => {
+test("cached tokens pass through where the bridge counts them; none is left out, as TanStack reports it", async () => {
   const adapter = afmText({ native })
-  for (const cachedTokens of [0, 2890]) {
+  for (const [cachedTokens, details] of [[2890, { cachedTokens: 2890 }], [0, undefined]] as const) {
     native.replies = [[{ type: "done", text: "Hi", usage: { inputTokens: 2907, cachedTokens, outputTokens: 2 } }]]
     const chunks = await run(adapter, { threadId: `cached-${cachedTokens}` })
-    assert.deepEqual((chunks.at(-1)?.usage as Record<string, unknown>).promptTokensDetails, { cachedTokens })
+    assert.deepEqual((chunks.at(-1)?.usage as Record<string, unknown>).promptTokensDetails, details)
   }
 })
 
@@ -114,8 +115,8 @@ test("a reply streams as text from a new session holding the instructions and to
   // With tools, the framework's cached count is wrong, and the bridge sends none.
   assert.equal((chunks.at(-1)?.usage as Record<string, unknown>).promptTokensDetails, undefined)
   const [session] = native.named("createSession")
-  // The system prompt, then when to call tools (the session has one).
-  assert.match(session.instructions as string, /^Be brief\.\n\nMost requests need no tool/)
+  // The system prompt as given: the adapter adds nothing on when to call tools.
+  assert.equal(session.instructions, "Be brief.")
   assert.deepEqual(session.messages, [])
   assert.deepEqual(session.tools, [
     {
@@ -131,6 +132,18 @@ test("a reply streams as text from a new session holding the instructions and to
   assert.equal(respond.prompt, "Weather in Paris?")
   assert.deepEqual(respond.options, { temperature: 0.2 })
   assert.equal(native.named("deleteSession").length, 0, "kept for the thread's next step")
+})
+
+test("token counts the native side estimated (before iOS/macOS 27) are reported as estimates", async () => {
+  native.replies = [[{ type: "done", text: "Hi", usage: { inputTokens: 317, outputTokens: 16, estimated: true } }]]
+  const chunks = await run(afmText({ native }), { threadId: "estimated" })
+  const usage = chunks.at(-1)?.usage as Record<string, unknown>
+  assert.deepEqual([usage.promptTokens, usage.completionTokens, usage.totalTokens], [317, 16, 333])
+  assert.deepEqual(usage.providerUsageDetails, { estimated: true })
+  // The framework's own counts carry no such mark.
+  native.replies = [[{ type: "done", text: "Hi", usage: { inputTokens: 317, outputTokens: 16 } }]]
+  const counted = await run(afmText({ native }), { threadId: "counted" })
+  assert.equal((counted.at(-1)?.usage as Record<string, unknown>).providerUsageDetails, undefined)
 })
 
 test("a tool call ends the step with tool_calls while the response waits, and the next step resumes it with the result", async () => {
@@ -155,6 +168,16 @@ test("a tool call ends the step with tool_calls while the response waits, and th
   assert.deepEqual(native.named("submitToolResult"), [{ sessionId: native.named("createSession")[0].sessionId, callId: "call-1", output: '{"temperature": 21}' }])
   assert.equal(native.named("createSession").length, 1, "the same session")
   assert.equal(native.named("respond").length, 1, "the same response")
+})
+
+test("a structured answer cut off by maximumResponseTokens fails with the bridge's code length", async () => {
+  native.replies = [[{ type: "error", code: "length", message: "The answer passed maximumResponseTokens (4) before it was complete" }]]
+  const adapter = afmText({ native })
+  await assert.rejects(
+    adapter.structuredOutput({ chatOptions: { model: "system", messages: [user("A card?")], logger, modelOptions: { maximumResponseTokens: 4 } }, outputSchema: { type: "object", properties: { name: { type: "string" } }, required: ["name"] } } as never),
+    (error: { code?: string; message?: string }) => error.code === "length" && /maximumResponseTokens/.test(error.message ?? "")
+  )
+  assert.deepEqual(native.named("respond")[0].options, { maximumResponseTokens: 4 })
 })
 
 test("each step's RUN_FINISHED carries its own pass's tokens, as an OpenAI-style API reports each call's: the calls' pass, then the answer's", async () => {
@@ -278,6 +301,34 @@ test("availability: available, downloading while the model isn't ready, else una
     throw new Error("not implemented on web")
   }
   assert.equal(await adapter.availability(), "unavailable")
+})
+
+test("variant(): the native check's key as Apple's constants, compared with ===; an unknown 27 variant one per name; undefined when unavailable", async () => {
+  const adapter = afmText({ native })
+  const { Variant } = SystemLanguageModel
+  for (const [key, variant, name] of [
+    ["core3", Variant.core3, "AFM 3 Core"],
+    ["coreAdvanced3", Variant.coreAdvanced3, "AFM 3 Core Advanced"],
+    ["core2_1", Variant.core2_1, "AFM 2.1 Core"],
+    ["core2", Variant.core2, "AFM 2 Core"]
+  ] as const) {
+    native.answer = { available: true, contextSize: 4096, variant: key }
+    const got = await adapter.variant()
+    assert.equal(got, variant)
+    assert.equal(got?.displayName, name)
+  }
+  native.answer = { available: true, variantName: "AFM 4 Core" }
+  const unknown = await adapter.variant()
+  assert.equal(unknown?.displayName, "AFM 4 Core")
+  assert.equal(await adapter.variant(), unknown, "the same instance for the same name")
+  native.answer = { available: true }
+  assert.equal(await adapter.variant(), undefined, "a native side too old to say")
+  native.answer = { available: false, reason: "deviceNotEligible", variant: "core2" }
+  assert.equal(await adapter.variant(), undefined)
+  native.availability = async () => {
+    throw new Error("not implemented on web")
+  }
+  assert.equal(await adapter.variant(), undefined)
 })
 
 test("without a native side given, window.afm (an Electron preload's) is used", async () => {
@@ -432,20 +483,6 @@ test("a thread moving between inherited guardrails and an explicit default start
   }
 })
 
-test("a structured answer written as text (asText) must fit the schema: chat() alone doesn't check plain JSON Schema", async () => {
-  const outputSchema = { type: "object", properties: { city: { type: "string" }, unit: { type: "string", enum: ["c", "f"] } }, required: ["city", "unit"] }
-  const ask = (text: string) => {
-    native = new FakeNative()
-    native.replies = [[{ type: "done", text, asText: true }]]
-    return chat({ adapter: afmText({ native }), threadId: "structured", messages: [user("Weather?")], outputSchema, stream: false } as never) as unknown as Promise<unknown>
-  }
-  assert.deepEqual(await ask('```json\n{"city":"Paris","unit":"c"}\n```'), { city: "Paris", unit: "c" })
-  await assert.rejects(ask('{"city":123,"unit":"c"}'), /\/city: should be string, not number/)
-  await assert.rejects(ask('{"unit":"c"}'), /\/city: missing/)
-  await assert.rejects(ask('{"city":"Paris","unit":"kelvin"}'), /\/unit: "kelvin" is not one of "c", "f"/)
-  await assert.rejects(ask("Sorry, I can't help with that."), /wrote no JSON for the schema/)
-})
-
 test("a run's error keeps its code through chat(): on the thrown error, and on the stream's RUN_ERROR", async () => {
   native.replies = [[{ type: "error", code: "guardrailViolation", message: "May contain unsafe content" }]]
   const thrown = (await (chat({ adapter: afmText({ native }), stream: false, threadId: "errors", messages: [user("Searing Blood")] } as never) as unknown as Promise<unknown>).catch((e: unknown) => e)) as Error & { code?: string }
@@ -487,53 +524,6 @@ test("sampling reaches the native response: none by default, the adapter's for e
   native.replies = [[{ type: "done", text: '{"city":"Paris"}' }]]
   await greedy.structuredOutput({ chatOptions: chatOptions({ threadId: "structured" }), outputSchema: { type: "object", properties: { city: { type: "string" } } } } as never)
   assert.equal(respondOptions().sampling, "greedy")
-})
-
-test("an object of uniform properties is asked for as an ordered array, and comes back as the caller's object", async () => {
-  native = new FakeNative()
-  const outputSchema = {
-    type: "object",
-    properties: { cheap: { $ref: "#/$defs/Tag" }, green: { $ref: "#/$defs/Tag" }, pump: { $ref: "#/$defs/Tag" } },
-    required: ["cheap", "green", "pump"],
-    $defs: { Tag: { type: "string", enum: ["cost", "color", "effect"] } }
-  }
-  native.replies = [[{ type: "done", text: '[{"key":"cheap","value":"cost"},{"key":"pump","value":"effect"},{"key":"green","value":"color"}]' }]]
-  const result = await afmText({ native }).structuredOutput({ chatOptions: chatOptions(), outputSchema } as never)
-  assert.deepEqual(result.data, { cheap: "cost", green: "color", pump: "effect" })
-  assert.equal(result.rawText, '{"cheap":"cost","green":"color","pump":"effect"}')
-  const [respond] = native.named("respond")
-  const root = (respond.schema as { root: Record<string, unknown> }).root
-  assert.equal(root.kind, "array")
-  assert.equal(root.minimumElements, 3)
-  assert.equal(root.maximumElements, 3)
-  // A key written twice (one left out): the caller's schema says what's missing.
-  native = new FakeNative()
-  native.replies = [[{ type: "done", text: '[{"key":"cheap","value":"cost"},{"key":"cheap","value":"color"},{"key":"pump","value":"effect"}]' }]]
-  await assert.rejects(afmText({ native }).structuredOutput({ chatOptions: chatOptions(), outputSchema } as never), (e: Error & { code?: string }) => e.code === "schemaMismatch" && /\/green: missing/.test(e.message))
-})
-
-test("a guided answer is checked against the caller's schema too: missing properties and too few items fail with schemaMismatch", async () => {
-  const outputSchema = {
-    type: "object",
-    properties: {
-      cards: {
-        type: "array",
-        minItems: 3,
-        items: { type: "object", properties: { job: { type: "string" }, cost: { type: ["integer", "null"] } }, required: ["job", "cost"] }
-      }
-    },
-    required: ["cards"]
-  }
-  const ask = (text: string) => {
-    native = new FakeNative()
-    native.replies = [[{ type: "done", text }]]
-    return afmText({ native }).structuredOutput({ chatOptions: chatOptions(), outputSchema } as never)
-  }
-  // A nullable property left out comes back as null; three items fit.
-  const fits = await ask('{"cards":[{"job":"pump"},{"job":"ramp","cost":2},{"job":"draw","cost":1}]}')
-  assert.deepEqual(fits.data, { cards: [{ job: "pump", cost: null }, { job: "ramp", cost: 2 }, { job: "draw", cost: 1 }] })
-  await assert.rejects(ask('{"cards":[{"job":"pump","cost":1}]}'), (e: Error & { code?: string }) => e.code === "schemaMismatch" && /\/cards: fewer than 3 items/.test(e.message))
-  await assert.rejects(ask('{"cards":[{"cost":1},{"job":"a","cost":1},{"job":"b","cost":1}]}'), (e: Error & { code?: string }) => e.code === "schemaMismatch" && /\/cards\/0\/job: missing/.test(e.message))
 })
 
 test("includeSchemaInPrompt false reaches the native response: the adapter's for every call, a request's over it; true by default", async () => {

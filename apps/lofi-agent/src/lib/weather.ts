@@ -1,6 +1,6 @@
 /**
- * The built-in weather tool: a city's current weather and the next days'
- * forecast from Open-Meteo, which is free, needs no key and allows any site
+ * The built-in weather tool: the current weather and the next days'
+ * forecast for a city, from Open-Meteo, which is free, needs no key and allows any site
  * (CORS). It runs in the page like the rest of `chat()`, reads data only,
  * so it never asks first, and can be turned off in Settings. Its result is
  * typed: the model reads it, and the weather card (weather-tool.tsx) draws
@@ -10,7 +10,7 @@ import { toolDefinition } from "@tanstack/ai"
 
 import { setting } from "#/lib/settings"
 
-export const WEATHER_TOOL = "get_weather"
+export const WEATHER_TOOL = "get_weather_by_city"
 
 /** Whether models get the weather tool. On unless turned off in Settings. */
 export const weatherToolSetting = setting("weatherTool", true)
@@ -28,7 +28,7 @@ export type WeatherCondition =
 export type WeatherReport = {
   /** The place found, such as "Kyoto, Japan". */
   location: string
-  /** "°C" or "°F", from the browser's region. */
+  /** "°C" or "°F", as the call asked (Celsius by default). */
   unit: string
   windUnit: string
   current: {
@@ -68,16 +68,6 @@ function conditionOf(code: number): [WeatherCondition, string] {
   }
   if (code >= 95) return ["thunderstorm", "Thunderstorm"]
   return ["cloudy", "Cloudy"]
-}
-
-/** Fahrenheit where the browser's region uses it (the US, Liberia, Myanmar). */
-function usesFahrenheit() {
-  try {
-    const region = new Intl.Locale(navigator.language).maximize().region
-    return region === "US" || region === "LR" || region === "MM"
-  } catch {
-    return false
-  }
 }
 
 const round = (value: number) => Math.round(value)
@@ -168,11 +158,16 @@ async function geocode(name: string, count: number, signal?: AbortSignal) {
  * region, country or country code matches the rest is taken, else the
  * likeliest.
  */
-async function findCity(city: string, signal?: AbortSignal) {
-  let place = (await geocode(city, 1, signal))[0]
+async function findCity(city: string, signal?: AbortSignal, countryCode?: string) {
+  // With a country, the likeliest place of that name there.
+  const country = countryCode?.trim().toUpperCase()
+  let place = country
+    ? (await geocode(city, 10, signal)).find((p) => p.country_code?.toUpperCase() === country)
+    : (await geocode(city, 1, signal))[0]
   const [first, ...rest] = city.split(",").map((part) => part.trim())
   if (!place && rest.length > 0 && first) {
-    const found = await geocode(first, 10, signal)
+    // With a country, only places there.
+    const found = (await geocode(first, 10, signal)).filter((p) => !country || p.country_code?.toUpperCase() === country)
     const wanted = rest.map((part) => part.toLowerCase())
     const matches = (value: string | undefined) => !!value && wanted.includes(value.toLowerCase())
     place = found.find((p) => matches(p.admin1) || matches(p.country) || matches(p.country_code)) ?? found[0]
@@ -189,15 +184,33 @@ async function findCity(city: string, signal?: AbortSignal) {
   return { latitude: place.latitude, longitude: place.longitude, name }
 }
 
+/** The units asked for: Open-Meteo's names, each left out for the tool's default (Celsius, km/h). */
+type Units = { temperature?: string; wind?: string }
+
 /** A city's weather now and for the next five days. */
 export async function lookUpWeather(
   city: string,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  options: { countryCode?: string; units?: Units } = {}
 ): Promise<WeatherReport> {
-  const place = await findCity(city, signal)
+  return weatherAt(await findCity(city, signal, options.countryCode), signal, options.units)
+}
 
-  const fahrenheit = usesFahrenheit()
-  const forecast = await getJson<Forecast>(
+const WIND_UNITS: Record<string, string> = { kmh: "km/h", ms: "m/s", mph: "mph", kn: "kn" }
+
+/**
+ * A place's weather now and for the next five days. A name still being
+ * found doesn't hold the forecast back: both are awaited together.
+ */
+async function weatherAt(
+  place: { latitude: number; longitude: number; name: string | Promise<string> },
+  signal?: AbortSignal,
+  units: Units = {}
+): Promise<WeatherReport> {
+  // The units asked for, else the schema's defaults, as the server applies them.
+  const fahrenheit = units.temperature === "fahrenheit"
+  const wind = units.wind && WIND_UNITS[units.wind] ? units.wind : "kmh"
+  const forecasting = getJson<Forecast>(
     `https://api.open-meteo.com/v1/forecast?${new URLSearchParams({
       latitude: String(place.latitude),
       longitude: String(place.longitude),
@@ -206,20 +219,19 @@ export async function lookUpWeather(
       daily: "weather_code,temperature_2m_max,temperature_2m_min",
       timezone: "auto",
       forecast_days: "5",
-      ...(fahrenheit && {
-        temperature_unit: "fahrenheit",
-        wind_speed_unit: "mph"
-      })
+      temperature_unit: fahrenheit ? "fahrenheit" : "celsius",
+      wind_speed_unit: wind
     })}`,
     signal
   )
+  const [forecast, name] = await Promise.all([forecasting, place.name])
 
   const { current, daily } = forecast
   const [condition, summary] = conditionOf(current.weather_code)
   return {
-    location: place.name,
+    location: name,
     unit: fahrenheit ? "°F" : "°C",
-    windUnit: fahrenheit ? "mph" : "km/h",
+    windUnit: WIND_UNITS[wind] ?? "km/h",
     current: {
       temperature: round(current.temperature_2m),
       feelsLike: round(current.apparent_temperature),
@@ -242,28 +254,48 @@ export async function lookUpWeather(
   }
 }
 
-/** The tool models see, run in the page by `chat()` (see chat/connection.ts). */
+/**
+ * The tool models see, run in the page by `chat()` (see chat/connection.ts):
+ * mcp-weather-free's `get_weather_by_city`
+ * (https://github.com/microagents/mcp-weather-free), as that MCP server
+ * publishes it (FastMCP: the docstring, and a schema from the parameters),
+ * answered from Open-Meteo here. The weather where the user is goes through
+ * the location tool first, then its city.
+ */
 export const weatherTool = toolDefinition({
   name: WEATHER_TOOL,
-  description:
-    "Get the current weather and a 5-day forecast for a city. Use this for any question about weather, temperature or rain. For the weather where the user is, when they name no place, call get_current_location first: don't guess a city.",
+  description: `Get weather for a city by name using geocoding.
+
+Args:
+    city: Name of the city
+    country_code: Optional 2-letter country code (e.g., "US", "GB")
+    temperature_unit: Temperature unit (celsius or fahrenheit)
+    wind_speed_unit: Wind speed unit (kmh, ms, mph, kn)
+    precipitation_unit: Precipitation unit (mm or inch)
+
+Returns:
+    Dictionary containing current weather and forecast data`,
   inputSchema: {
     type: "object",
     properties: {
-      city: {
-        type: "string",
-        description:
-          "The city the user named, or the nearest city get_current_location returned."
-      }
+      city: { title: "City", type: "string" },
+      country_code: { anyOf: [{ type: "string" }, { type: "null" }], default: null, title: "Country Code" },
+      temperature_unit: { default: "celsius", title: "Temperature Unit", type: "string" },
+      wind_speed_unit: { default: "kmh", title: "Wind Speed Unit", type: "string" },
+      precipitation_unit: { default: "mm", title: "Precipitation Unit", type: "string" }
     },
-    required: ["city"]
+    required: ["city"],
+    title: "get_weather_by_cityArguments"
   }
 }).server(async (args, context) => {
-  const { city } = args as Record<string, unknown>
-  if (typeof city === "string" && city.trim()) {
-    return lookUpWeather(city.trim(), context?.abortSignal)
-  }
-  throw new Error("A city is needed.")
+  const given = args as Record<string, unknown>
+  const text = (value: unknown) => (typeof value === "string" && value.trim() ? value.trim() : undefined)
+  const city = text(given.city)
+  if (!city) throw new Error("A city is needed.")
+  return lookUpWeather(city, context?.abortSignal, {
+    countryCode: text(given.country_code),
+    units: { temperature: text(given.temperature_unit)?.toLowerCase(), wind: text(given.wind_speed_unit)?.toLowerCase() }
+  })
 })
 
 /** A tool result as a weather report, if it is one. */

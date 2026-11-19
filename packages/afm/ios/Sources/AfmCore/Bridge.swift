@@ -16,13 +16,15 @@ import FoundationModels
 /// - `{ type: "delta", text }`: more of the response.
 /// - `{ type: "toolCalls", calls: [{ id, name, arguments }], usage }`: `arguments` in
 ///   JSON, and the tokens of the pass of the model that made the calls (see `done`).
-/// - `{ type: "done", text, usage, asText }`: the response, and the tokens of its
-///   last pass of the model (iOS/macOS 27; a response that called tools made one pass
-///   per batch of calls, then the answer's): `inputTokens`, `outputTokens`, and
-///   `cachedTokens` only for a session without tools (see `usage()`).
-///   `asText` when a schema's answer was written as text (a permissive session's
-///   fallback, see `run`): not held to the schema, so the caller checks it.
-/// - `{ type: "error", code, message }`.
+/// - `{ type: "done", text, usage }`: the response, and the tokens of its
+///   last pass of the model (a response that called tools made one pass per batch of
+///   calls, then the answer's): `inputTokens`, `outputTokens`, and `cachedTokens` only
+///   for a session without tools (see `usage()`). On iOS/macOS 27 they're the
+///   framework's counts. Before, the framework reports none, and they're counted from
+///   the transcript: by the model from 26.4, else estimated, with `estimated: true`
+///   (see `countedPass`).
+/// - `{ type: "error", code, message }`. Code "length": a structured answer cut off by
+///   `maximumResponseTokens` (see `run`).
 @available(iOS 26.0, macOS 26.0, *)
 public final class AfmBridge: @unchecked Sendable {
     public typealias Emit = @Sendable ([String: Any]) -> Void
@@ -45,8 +47,6 @@ public final class AfmBridge: @unchecked Sendable {
         }
     }
 
-    /// Whether the model can run here, why not, and the tokens a session holds:
-    /// the model with the guardrails `options` names.
     /// The JSON Schema the framework makes of a native schema (`{ schema }`), as the model
     /// reads it: to check what the framework keeps of what the adapter sends.
     public static func schemaJSON(_ options: [String: Any]) throws -> String {
@@ -56,6 +56,8 @@ public final class AfmBridge: @unchecked Sendable {
         return String(data: try encoder.encode(schema), encoding: .utf8) ?? ""
     }
 
+    /// Whether the model can run here, why not, the tokens a session holds, and which
+    /// Apple model it is (see `variant`): the model with the guardrails `options` names.
     public static func availability(_ options: [String: Any] = [:]) -> [String: Any] {
         let model = model(options)
         var result: [String: Any]
@@ -72,10 +74,31 @@ public final class AfmBridge: @unchecked Sendable {
             }
             result = ["available": false, "reason": name]
         }
-        if #available(iOS 26.4, macOS 26.4, *) {
-            result["contextSize"] = model.contextSize
-        }
+        // (Back-deployed: readable from iOS/macOS 26.0.)
+        result["contextSize"] = model.contextSize
+        if result["available"] as? Bool == true { result.merge(variant()) { _, new in new } }
         return result
+    }
+
+    /// Which Apple model runs here, checked as Apple's guide "Detecting available Apple
+    /// Foundation Models" says: its variant from iOS/macOS 27, otherwise the OS version
+    /// (AFM 2.1 Core from 26.4, AFM 2 Core before). `variant` is a stable key (core3,
+    /// coreAdvanced3, core2_1, core2); a 27 variant the bridge doesn't know comes as
+    /// `variantName`, its display name. (Apple's check names iPadOS too; Swift's availability
+    /// reads iPadOS as iOS, and warns at the name.)
+    static func variant() -> [String: String] {
+        if #available(iOS 27.0, macOS 27.0, visionOS 27.0, *) {
+            let variant = SystemLanguageModel.default.variant
+            switch variant {
+            case .core3: return ["variant": "core3"]
+            case .coreAdvanced3: return ["variant": "coreAdvanced3"]
+            default: return ["variantName": variant.displayName]
+            }
+        } else if #available(iOS 26.4, macOS 26.4, visionOS 26.4, *) {
+            return ["variant": "core2_1"]
+        } else {
+            return ["variant": "core2"]
+        }
     }
 
     /// Starts a session: `sessionId`, `instructions`, `tools` ([{ name, description,
@@ -100,8 +123,10 @@ public final class AfmBridge: @unchecked Sendable {
             tools: tools.map { Transcript.ToolDefinition(tool: $0) },
             messages: options["messages"] as? [Any] ?? []
         )
-        state.session = LanguageModelSession(model: Self.model(options), tools: tools, transcript: transcript)
+        state.model = Self.model(options)
+        state.session = LanguageModelSession(model: state.model, tools: tools, transcript: transcript)
         state.hasTools = !tools.isEmpty
+        state.toolTexts = tools.map { TokenEstimate.text(ofTool: $0.name, description: $0.description, parameters: $0.parameters) }
         state.permissive = (options["guardrails"] as? String) == "permissiveContentTransformations"
         lock.withLock { sessions[id] = state }
     }
@@ -172,7 +197,11 @@ public final class AfmBridge: @unchecked Sendable {
 final class BridgeSession: @unchecked Sendable {
     let id: String
     var session: LanguageModelSession!
+    /// The session's model: it counts the session's tokens before iOS/macOS 27 (see `countedPass`).
+    var model = SystemLanguageModel.default
     var hasTools = false
+    /// Each tool's definition as text, for the token estimate (see `TokenEstimate`).
+    var toolTexts: [String] = []
     /// Permissive guardrails: structured answers come as text (see `AfmBridge.respond`).
     var permissive = false
 
@@ -218,34 +247,19 @@ final class BridgeSession: @unchecked Sendable {
         return nil
     }
 
-    /// What a prompt adds to ask for a schema's answer as text: a JSON value (an object,
-    /// an array or a primitive, as the schema says) that matches it. Without the schema
-    /// when the caller left it out of the prompt (`includeSchemaInPrompt` false): its
-    /// prompt says what to write, and the schema's tokens stay out as they asked.
-    static func asJSON(_ schema: GenerationSchema, includeSchema: Bool = true) -> String {
-        guard includeSchema else { return "\n\nAnswer with only a JSON value, and no other text." }
-        let json = (try? JSONEncoder().encode(schema)).flatMap { String(data: $0, encoding: .utf8) } ?? ""
-        return "\n\nAnswer with only a JSON value, and no other text, that matches this JSON Schema:\n\(json)"
-    }
-
     private func run(_ prompt: String, _ options: GenerationOptions, _ schema: GenerationSchema?, _ includeSchemaInPrompt: Bool) async {
         let before = usage()
         lock.withLock { passStart = before }
         var text = ""
-        var asText = false
         do {
             if let schema {
                 do {
                     text = try await session.respond(to: prompt, schema: schema, includeSchemaInPrompt: includeSchemaInPrompt, options: options).content.jsonString
-                } catch where permissive && Self.code(error) == "guardrailViolation" {
-                    // Permissive guardrails cover String responses only: Apple documents that
-                    // any other response (a schema's) gets the default guardrails, which block
-                    // text such as "add 2 Searing Blood". So a blocked answer is asked for again
-                    // as text, a JSON value to the schema in JSON Schema (or without it, as the
-                    // caller asked: see asJSON). `done` says so (`asText`): the framework didn't
-                    // hold it to the schema, the caller checks it.
-                    text = try await session.respond(to: prompt + Self.asJSON(schema, includeSchema: includeSchemaInPrompt), options: options).content
-                    asText = true
+                } catch where options.maximumResponseTokens != nil && Self.code(error) == "decodingFailure" && usage() == nil {
+                    // iOS/macOS 26 throws when a structured answer reaches maximumResponseTokens, and
+                    // reports no token counts to tell. Held to the schema as it's written, the answer
+                    // can't fail to decode but by being cut off.
+                    throw CutOff(cap: options.maximumResponseTokens ?? 0)
                 }
             } else {
                 for try await snapshot in session.streamResponse(to: prompt, options: options) {
@@ -257,12 +271,25 @@ final class BridgeSession: @unchecked Sendable {
             }
             // A stopped response's stream may just end.
             try Task.checkCancellation()
+            // iOS/macOS 27 closes a structured answer cut off at maximumResponseTokens and returns
+            // it ({"name": ""}), passing more output tokens than the cap: it isn't the answer.
+            // (The session's own count: a count from the transcript is a few tokens off.)
+            if schema != nil, let cap = options.maximumResponseTokens,
+               let usage = lock.withLock({ passUsage() })?.usage,
+               let output = usage["outputTokens"] as? Int, output >= cap {
+                throw CutOff(cap: cap)
+            }
             var done: [String: Any] = ["type": "done", "text": text]
-            if asText { done["asText"] = true }
-            if let pass = lock.withLock({ passUsage() }) { done["usage"] = pass.usage }
+            if let pass = lock.withLock({ passUsage() }) {
+                done["usage"] = pass.usage
+            } else if let counted = await countedPass(lock.withLock { Array(session.transcript) }) {
+                done["usage"] = counted
+            }
             send(done)
         } catch is CancellationError {
             send(["type": "error", "code": "cancelled", "message": "The response was stopped"])
+        } catch let cut as CutOff {
+            send(["type": "error", "code": "length", "message": "The answer passed maximumResponseTokens (\(cut.cap)) before it was complete"])
         } catch {
             send(["type": "error", "code": Self.code(error), "message": String(describing: error)])
         }
@@ -309,14 +336,26 @@ final class BridgeSession: @unchecked Sendable {
             event["usage"] = pass.usage
             // The next pass, which reads the results, starts here.
             passStart = pass.now
+            send(event)
+            return
         }
-        send(event)
+        // Before iOS/macOS 27: the pass's tokens counted from the transcript, which takes
+        // a moment. The model waits for these calls' results meanwhile, so nothing else is
+        // sent before them; calls stopped while they're counted aren't sent.
+        let entries = Array(session.transcript)
+        let ids = Set(calls.map { waiting[$0].id })
+        Task { [self, event] in
+            var event = event
+            if let counted = await countedPass(entries) { event["usage"] = counted }
+            guard lock.withLock({ waiting.contains { ids.contains($0.id) } }) else { return }
+            send(event)
+        }
     }
 
     /// The current pass's tokens so far, as an event's `usage`, and the session's
     /// totals now. Called holding the lock.
     private func passUsage() -> (usage: [String: Any], now: (input: Int, cached: Int, output: Int))? {
-        guard let start = passStart, let now = usage() else { return nil }
+        guard let now = usage(), let start = passStart else { return nil }
         var usage: [String: Any] = ["inputTokens": now.input - start.input, "outputTokens": now.output - start.output]
         if !hasTools { usage["cachedTokens"] = now.cached - start.cached }
         return (usage, now)
@@ -354,6 +393,35 @@ final class BridgeSession: @unchecked Sendable {
         emit(event)
     }
 
+    /// Before iOS/macOS 27, where a session reports no tokens: the current pass's, from
+    /// the transcript. What the model wrote is its last entry (its response, or its tool
+    /// calls), and what it read is everything before. From 26.4 the model counts them
+    /// itself: the input exactly as the session would, the output within a few tokens.
+    /// Before that, an estimate (see `TokenEstimate`), marked `estimated`. No cached count.
+    private func countedPass(_ entries: [Transcript.Entry]) async -> [String: Any]? {
+        guard let last = entries.last else { return nil }
+        switch last {
+        case .response, .toolCalls: break
+        default: return nil
+        }
+        // A session without instructions reads the framework's own all the same: an
+        // empty instructions entry counts them.
+        var read = Array(entries.dropLast())
+        if !read.contains(where: { if case .instructions = $0 { true } else { false } }) {
+            read.insert(.instructions(Transcript.Instructions(segments: [], toolDefinitions: [])), at: 0)
+        }
+        if #available(iOS 26.4, macOS 26.4, *),
+           let input = try? await model.tokenCount(for: read),
+           let output = try? await model.tokenCount(for: [last]) {
+            return ["inputTokens": input, "outputTokens": output]
+        }
+        return [
+            "inputTokens": TokenEstimate.inputTokens(entries.dropLast(), tools: toolTexts),
+            "outputTokens": TokenEstimate.outputTokens(last),
+            "estimated": true
+        ]
+    }
+
     /// The session's tokens so far (iOS/macOS 27), over every pass of the model:
     /// `respond`'s usage is the difference, a tool call's pass included, which the
     /// response's own usage leaves out.
@@ -377,6 +445,12 @@ final class BridgeSession: @unchecked Sendable {
         let text = String(describing: error)
         return String(text.prefix { $0 != "(" && $0 != ":" && $0 != " " })
     }
+}
+
+/// A structured answer cut off by `maximumResponseTokens` (see `run`): code "length", as the
+/// Prompt API adapter's capped answer is.
+struct CutOff: Error {
+    let cap: Int
 }
 
 /// A tool the JavaScript side runs, as the framework sees it.

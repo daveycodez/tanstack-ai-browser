@@ -1,21 +1,22 @@
 /**
- * A TanStack AI text adapter for webgllm: LFM3, LFM2.5 and Qwen3.5 on
- * WebGL 2 in a Web Worker, for browsers without WebGPU, reading images
- * where the model has a vision encoder. webgllm answers
+ * A TanStack AI text adapter for webgllm: LFM3, LFM2.5 and Qwen3.5 in a Web
+ * Worker, on WebGPU where the browser has it and WebGL 2 elsewhere (Firefox
+ * on Android, for one), reading images where the model has a vision
+ * encoder. webgllm answers
  * OpenAI's Chat Completions API in the page, so this is TanStack's Chat
  * Completions adapter with the page's `WebGLLM` instance as its client (or
  * the one for the adapter's own `worker`):
  * messages, tools, structured output and the stream (text, thinking, tool
  * calls) are TanStack's. This file adds what's webgllm's own: loading the
- * model before a call, and its reasoning levels and thinking budget.
+ * model before each request (in its client, as the wllama adapter does),
+ * its reasoning levels and thinking budget, and its speed prediction.
  */
-import type { AdapterYieldChunk, ModelReasoning, TextOptions, TokenUsage } from "@tanstack/ai"
-import { resolveDebugOption, resolveReasoning } from "@tanstack/ai/adapter-internals"
-import type { StructuredOutputOptions, StructuredOutputResult } from "@tanstack/ai/adapters"
+import type { ModelReasoning, TextOptions } from "@tanstack/ai"
+import { resolveReasoning } from "@tanstack/ai/adapter-internals"
 import { OpenAIBaseChatCompletionsTextAdapter } from "@tanstack/openai-base"
 import type { OpenAIClientLike } from "@tanstack/openai-base"
-import { WebGLLM } from "webgllm"
-import type { ChatCompletionCreateParamsBase, LoadProgress } from "webgllm"
+import { predictSpeed, WebGLLM } from "webgllm"
+import type { ChatCompletionCreateParamsBase, LoadProgress, PredictSpeedOptions, SpeedPrediction } from "webgllm"
 
 import { modelMeta, WEBGLLM_MODEL_META } from "./catalog.js"
 import type { WebGllmChatModel, WebGllmModelReasoningByName } from "./catalog.js"
@@ -29,9 +30,12 @@ export type Availability = "unavailable" | "downloadable" | "downloading" | "ava
 /** A download's progress, from 0 to 1. */
 export type DownloadProgressCallback = (progress: number) => void
 
-/** A `WebGLLM` (running in `worker`, if given), and the models downloading in it, from its events. */
-function createEngine(worker?: Worker) {
-  const webgllm = new WebGLLM(worker && { worker })
+/** Where models run: webgllm's `webgpu` option ("auto", the default: WebGPU where the browser has it; false: WebGL 2). */
+export type WebGllmBackend = "auto" | false
+
+/** A `WebGLLM` (running in `worker`, if given, and on `webgpu`'s backend), and the models downloading in it, from its events. */
+function createEngine(worker?: Worker, webgpu?: WebGllmBackend) {
+  const webgllm = new WebGLLM({ ...(worker && { worker }), ...(webgpu !== undefined && { webgpu }) })
   const downloading = new Set<string>()
   webgllm.addEventListener("progress", ({ model, phase, cached }) => {
     if (phase === "download" && !cached) downloading.add(model)
@@ -44,22 +48,41 @@ function createEngine(worker?: Worker) {
 
 type Engine = ReturnType<typeof createEngine>
 
-/** The page's engine, shared by every adapter without a worker of its own. */
+/** The page's engine, shared by every adapter without a worker of its own (and on the default backend). */
 const pageEngine = createEngine()
 
 /** The page's `WebGLLM`. Exported for tests. */
 export const webgllm = pageEngine.webgllm
 
-/** The engines in the callers' own workers: one a worker, as each worker's handler holds one model. */
-const workerEngines = new WeakMap<Worker, Engine>()
+/** The page's engines by backend: webgllm reads `webgpu` once, so adapters set to WebGL 2 share one of their own. */
+const pageEngines = new Map<WebGllmBackend, Engine>([["auto", pageEngine]])
 
-/** An adapter's engine: its own worker's (shared by every adapter given that worker), else the page's. */
-function engineFor(worker?: Worker): Engine {
-  if (!worker) return pageEngine
-  let engine = workerEngines.get(worker)
-  if (!engine) workerEngines.set(worker, (engine = createEngine(worker)))
+/** The engines in the callers' own workers, with their backend: one a worker, as each worker's handler holds one model. */
+const workerEngines = new WeakMap<Worker, { engine: Engine; webgpu: WebGllmBackend }>()
+
+/**
+ * An adapter's engine: its own worker's (shared by every adapter given that
+ * worker, which must agree on `webgpu`), else the page's for its backend.
+ */
+function engineFor(worker: Worker | undefined, webgpu: WebGllmBackend = "auto"): Engine {
+  if (!worker) {
+    let engine = pageEngines.get(webgpu)
+    if (!engine) pageEngines.set(webgpu, (engine = createEngine(undefined, webgpu)))
+    return engine
+  }
+  const held = workerEngines.get(worker)
+  if (held) {
+    if (held.webgpu !== webgpu)
+      throw new Error(`Adapters given the same worker share its WebGLLM: one asked for webgpu ${JSON.stringify(held.webgpu)}, this one for ${JSON.stringify(webgpu)}.`)
+    return held.engine
+  }
+  const engine = createEngine(worker, webgpu)
+  workerEngines.set(worker, { engine, webgpu })
   return engine
 }
+
+/** webgllm's `predictSpeed`, as adapters call it. Exported for tests. */
+export const speed = { predict: predictSpeed }
 
 let supported: boolean | undefined
 /** Whether the engine runs here, checked once: webgllm's check makes a WebGL context. */
@@ -70,9 +93,44 @@ const downloadShare = ({ progress, loadedBytes, totalBytes }: LoadProgress) =>
   totalBytes ? Math.min((loadedBytes ?? 0) / totalBytes, 1) : Math.min(progress / 0.9, 1)
 
 /**
- * Per-call `modelOptions`: webgllm's own request fields (OpenAI's names, and
- * its `top_k`, `min_p`, `repetition_penalty` and `repair_tool_calls`), sent
- * as given. The fields the adapter writes from `chat()`'s own options
+ * Loads `model` in `engine` for `contextLength`; webgllm returns at once when
+ * it's loaded for it, and shares a load between its callers. Reports the
+ * download's progress, 0 to 1, then 1 once it's ready.
+ */
+async function loadIn(
+  engine: Engine,
+  model: string,
+  contextLength: number | undefined,
+  signal: AbortSignal | null | undefined,
+  report: DownloadProgressCallback
+) {
+  await engine.webgllm.loadModel(model, {
+    ...(contextLength !== undefined && { contextLength }),
+    ...(signal && { signal }),
+    onProgress: (progress) => {
+      if (progress.phase === "download" && !progress.cached) report(downloadShare(progress))
+    }
+  })
+  report(1)
+}
+
+/**
+ * The engine as an OpenAI client: each request loads the model with the
+ * adapter's settings (at once when it's loaded with them), then goes to
+ * webgllm's own `chat.completions.create`.
+ */
+function clientFor(engine: Engine, load: (signal?: AbortSignal | null) => Promise<void>): OpenAIClientLike {
+  const create = async (body: Record<string, unknown>, options?: { signal?: AbortSignal | null }) => {
+    await load(options?.signal)
+    return engine.webgllm.chat.completions.create(body as never, (options ?? {}) as never)
+  }
+  return { baseURL: "webgllm:", chat: { completions: { create } } } as unknown as OpenAIClientLike
+}
+
+/**
+ * Per-call `modelOptions`: webgllm's own request fields (OpenAI's names,
+ * llama.cpp's such as `top_k`, `min_p` and `chat_template_kwargs`, and
+ * webgllm's `repair_tool_calls`), sent as given. The fields the adapter writes from `chat()`'s own options
  * (messages, tools, the output schema, streaming, reasoning) are left out.
  */
 export type WebGllmTextModelOptions = Omit<
@@ -111,19 +169,18 @@ export type WebGllmConfig = {
    * with progress, see `create`.
    */
   onDownloadProgress?: DownloadProgressCallback
+  /**
+   * Where the model runs (webgllm's `webgpu` option): "auto", the default,
+   * on WebGPU where the browser has it and WebGL 2 elsewhere; false, on
+   * WebGL 2 even where there's WebGPU. Anything else throws. Adapters set to
+   * WebGL 2 share a `WebGLLM` of their own in the page; adapters given the
+   * same `worker` must agree on it. `predictSpeed` measures on it too.
+   */
+  webgpu?: WebGllmBackend
 }
 
-/**
- * What `prefill` reads: the parts of `chat()`'s options that make the
- * prompt (pass the same ones `chat()` will get, so its prompt starts with
- * this one), and a signal to stop it.
- */
-export type WebGllmPrefillOptions = Partial<
-  Pick<TextOptions<WebGllmTextModelOptions>, "messages" | "systemPrompts" | "tools" | "modelOptions" | "reasoning" | "toolChoice">
-> & { signal?: AbortSignal }
-
-/** What `prefill` read: the prompt's tokens, and how many of them came from webgllm's cache. */
-export type PrefillUsage = { promptTokens: number; cachedTokens: number }
+/** Options for an adapter's `predictSpeed`: webgllm's, its backend the adapter's `webgpu`. */
+export type WebGllmPredictSpeedOptions = Omit<PredictSpeedOptions, "webgpu">
 
 /** A model's reasoning levels: a listed model's, none for a listed one that doesn't reason, else the switch. */
 type ResolveReasoning<TModel extends string> = TModel extends keyof WebGllmModelReasoningByName
@@ -145,8 +202,21 @@ type MetadataByModality = { text: unknown; image: unknown; audio: unknown; video
 /** A Chat Completions request, as the base adapter writes it. */
 type CreateParams = Parameters<OpenAIClientLike["chat"]["completions"]["create"]>[0]
 
-const signalOf = (options: TextOptions) =>
-  options.abortController?.signal ?? (options.request as RequestInit | undefined)?.signal ?? undefined
+
+/**
+ * The request's tools as given: each tool's own JSON Schema, as the chat
+ * template and the tool-call grammar read it. TanStack's Chat Completions
+ * base writes them for OpenAI's strict mode (`additionalProperties: false`,
+ * `strict: true`), which OpenAI needs to hold arguments to a schema and
+ * this engine doesn't.
+ */
+const toolsAsGiven = ({ tools }: TextOptions) =>
+  tools && {
+    tools: tools.map(({ name, description, inputSchema }) => ({
+      type: "function" as const,
+      function: { name, description, parameters: inputSchema ?? { type: "object", properties: {} } }
+    }))
+  }
 
 export class WebGllmTextAdapter<TModel extends WebGllmModel> extends OpenAIBaseChatCompletionsTextAdapter<
   TModel,
@@ -165,18 +235,25 @@ export class WebGllmTextAdapter<TModel extends WebGllmModel> extends OpenAIBaseC
    */
   override readonly inputModalities: ReadonlyArray<"text" | "image"> | undefined
 
-  private readonly contextLength: number | undefined
-  private readonly onDownloadProgress: DownloadProgressCallback | undefined
+  /** Loads the model with this adapter's settings, reporting its download to the adapter's listener and `progress`. */
+  private readonly load: (signal?: AbortSignal | null, progress?: DownloadProgressCallback) => Promise<void>
   /** The `WebGLLM` the model loads in: the page's, or the adapter's own worker's. */
   private readonly engine: Engine
+  /** The adapter's backend (`webgpu`), for `predictSpeed`. */
+  private readonly webgpu: WebGllmBackend | undefined
 
   constructor(config: WebGllmConfig, model: TModel) {
-    const engine = engineFor(config.worker)
-    // Chat Completions (`chat.completions.create`) is all the adapter calls.
-    super(model, "webgllm", engine.webgllm as unknown as OpenAIClientLike, { strictFallbackWarning: false })
+    const engine = engineFor(config.worker, config.webgpu)
+    const onDownloadProgress = config.onDownloadProgress
+    const load = (signal?: AbortSignal | null, progress?: DownloadProgressCallback) =>
+      loadIn(engine, model, config.contextLength, signal, (value) => {
+        onDownloadProgress?.(value)
+        progress?.(value)
+      })
+    super(model, "webgllm", clientFor(engine, load), { strictFallbackWarning: false })
+    this.load = load
     this.engine = engine
-    this.contextLength = config.contextLength
-    this.onDownloadProgress = config.onDownloadProgress
+    this.webgpu = config.webgpu
     this.inputModalities = listed(model) ? modelMeta(model).supports.input : undefined
   }
 
@@ -208,37 +285,16 @@ export class WebGllmTextAdapter<TModel extends WebGllmModel> extends OpenAIBaseC
   }
 
   /**
-   * Reads a prompt ahead of time, generating nothing (webgllm's
-   * `max_tokens: 0`): the system prompts, tools and messages so far, while
-   * the user types, say. The `chat()` call whose prompt starts with it then
-   * reads only what's new. webgllm keeps each system prompt it has read
-   * (in memory and on disk), so prefilling one also helps later chats and
-   * page loads with it. Pass what `chat()` will get: other tools, reasoning
-   * or options change the prompt. Loads the model first if it isn't.
+   * How fast the model reads prompts and writes on this device, in tokens
+   * per second (webgllm's `predictSpeed`), on the adapter's backend: timed
+   * on synthetic weights of the model's shape before its weights download,
+   * so an app can pick a local model or a cloud one first. The answer is
+   * remembered for this device and engine version (`force` measures again);
+   * `decode: false` times the prompt alone, faster. Rejects where the
+   * engine can't run, or if `signal` aborts.
    */
-  async prefill(options: WebGllmPrefillOptions = {}): Promise<PrefillUsage> {
-    const { signal, ...prompt } = options
-    await this.load(signal)
-    const request: Partial<CreateParams> = this.mapOptionsToRequest({
-      logger: resolveDebugOption(false),
-      model: this.model,
-      messages: [],
-      ...prompt
-    } as TextOptions)
-    // A whole completion: no stream.
-    delete request.stream
-    delete request.stream_options
-    // A required or named call renders every tool as "auto" does, so the prompt is the
-    // same without it; with it, webgllm would hold the reply to a call (a named one's
-    // schema, or no end before a required one), which no reply of 0 tokens meets.
-    // "none" stays: it renders no tools.
-    if (request.tool_choice !== undefined && request.tool_choice !== "none") delete request.tool_choice
-    const reply = await this.engine.webgllm.chat.completions.create(
-      { ...request, max_tokens: 0, max_completion_tokens: 0 } as never,
-      signal ? { signal } : {}
-    )
-    const usage = (reply as { usage?: { prompt_tokens: number; prompt_tokens_details?: { cached_tokens?: number } | null } }).usage
-    return { promptTokens: usage?.prompt_tokens ?? 0, cachedTokens: usage?.prompt_tokens_details?.cached_tokens ?? 0 }
+  predictSpeed(options: WebGllmPredictSpeedOptions = {}): Promise<SpeedPrediction> {
+    return speed.predict(this.model, { ...options, ...(this.webgpu !== undefined && { webgpu: this.webgpu }) })
   }
 
   /** Unloads the model, freeing its GPU memory. Its files stay. Never rejects. */
@@ -246,61 +302,12 @@ export class WebGllmTextAdapter<TModel extends WebGllmModel> extends OpenAIBaseC
     return this.engine.webgllm.unloadModel(this.model).catch(() => undefined)
   }
 
-  /**
-   * Loads the model for this adapter's context length; webgllm returns at
-   * once when it's loaded for it, and shares a load between its callers.
-   */
-  private async load(signal?: AbortSignal | null, onDownloadProgress?: DownloadProgressCallback) {
-    const report = (progress: number) => {
-      this.onDownloadProgress?.(progress)
-      onDownloadProgress?.(progress)
-    }
-    await this.engine.webgllm.loadModel(this.model, {
-      ...(this.contextLength !== undefined && { contextLength: this.contextLength }),
-      ...(signal && { signal }),
-      onProgress: (progress) => {
-        if (progress.phase === "download" && !progress.cached) report(downloadShare(progress))
-      }
-    })
-    report(1)
-  }
-
-  override async *chatStream(options: TextOptions<WebGllmTextModelOptions>): AsyncIterable<AdapterYieldChunk> {
-    await this.load(signalOf(options))
-    yield* super.chatStream(options)
-  }
-
-  override async *structuredOutputStream(options: StructuredOutputOptions<WebGllmTextModelOptions>): AsyncIterable<AdapterYieldChunk> {
-    await this.load(signalOf(options.chatOptions))
-    yield* super.structuredOutputStream(options)
-  }
-
-  override async structuredOutput(options: StructuredOutputOptions<WebGllmTextModelOptions>): Promise<StructuredOutputResult<unknown>> {
-    await this.load(signalOf(options.chatOptions))
-    return super.structuredOutput(options)
-  }
-
-  /** The request, with `modelOptions` as given, the thinking budget and the prompt cache. */
-  /**
-   * The engine's usage, as TanStack converts it, but with a cached count of 0
-   * kept, which TanStack's conversion leaves out: 0 means the whole prompt was
-   * read, where no count means the engine didn't say.
-   */
-  protected override chatCompletionsTokenUsage(
-    usage: { prompt_tokens_details?: { cached_tokens?: number } | null } | null | undefined,
-    source?: unknown
-  ): TokenUsage | undefined {
-    const result = super.chatCompletionsTokenUsage(usage as never, source)
-    const cachedTokens = usage?.prompt_tokens_details?.cached_tokens
-    if (!result || cachedTokens !== 0) return result
-    return { ...result, promptTokensDetails: { ...result.promptTokensDetails, cachedTokens } }
-  }
-
+  /** The request, with `modelOptions` and the tools as given, the thinking budget and the prompt cache. */
   protected override mapOptionsToRequest(options: TextOptions): CreateParams & { stream: true } {
     const request = super.mapOptionsToRequest(options)
     const resolved = resolveReasoning(options.reasoning, this.modelReasoning(this.model))
     const budget = resolved?.value === "high" ? resolved.budgetTokens : undefined
-    return Object.assign(request, {
+    return Object.assign(request, toolsAsGiven(options), {
       ...(budget !== undefined && { reasoning: { max_tokens: budget } }),
       ...(options.promptCache?.retention === "none" && { cache_prompt: false })
     })
@@ -317,15 +324,19 @@ export class WebGllmTextAdapter<TModel extends WebGllmModel> extends OpenAIBaseC
     return text ? { text } : undefined
   }
 
-  /** Schemas as given: webgllm constrains to any JSON Schema, without OpenAI's strict-mode rewrite. */
-  protected override makeStructuredOutputCompatible(schema: Record<string, unknown>) {
-    return schema
+  /**
+   * Schemas as given (webgllm constrains to any JSON Schema): no OpenAI strict-mode
+   * rewrite of the output schema, and so no widened nulls to undo in tool
+   * calls' arguments.
+   */
+  protected override makeStructuredOutputCompatibleWithMap(schema: Record<string, unknown>) {
+    return { schema, nullWideningMap: undefined }
   }
 }
 
 /**
- * A TanStack AI text adapter for a webgllm model on WebGL 2, for browsers
- * without WebGPU (Firefox on Android, for one).
+ * A TanStack AI text adapter for a webgllm model, on WebGPU where the
+ * browser has it and WebGL 2 elsewhere (Firefox on Android, for one).
  *
  * @example
  * ```ts

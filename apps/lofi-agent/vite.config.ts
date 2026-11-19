@@ -33,10 +33,11 @@ const config = defineConfig({
   // Module workers, for the model workers.
   worker: { format: "es" },
   // The dev server also answers on the local network (http://<this mac>.local:3001)
-  // and through ngrok tunnels, which give it the HTTPS that WebGPU needs.
+  // and through ngrok and Cloudflare tunnels, which give it the HTTPS that WebGPU
+  // needs (the iOS app's dev build loads it through one: capacitor.config.ts).
   server: {
     host: true,
-    allowedHosts: [".local", ".ngrok.dev", ".ngrok.app", ".ngrok-free.app"],
+    allowedHosts: [".local", ".ngrok.dev", ".ngrok.app", ".ngrok-free.app", ".trycloudflare.com"],
     // Cross-origin isolation, as in production (see src/start.ts).
     headers: CROSS_ORIGIN_ISOLATION
   },

@@ -1,14 +1,16 @@
 /**
  * The conversation as the Prompt API reads it: user messages with their
  * images and audio (loaded as Blobs), the model's messages with their tool
- * calls as ```tool_call fences, and tool results as user messages in a
+ * calls, and tool results as user messages. With the browser's own tool use,
+ * calls are `tool-call` content and results `tool-response` content; else
+ * they're JSON lines in a ```tool_call fence and a
  * ```tool_result fence.
  */
 import type { ContentPart, ModelMessage } from "@tanstack/ai"
 
 import type { MediaInput } from "./model.js"
 import { toolCallFence, toolResultFence, toolResultLine } from "./tools.js"
-import type { LanguageModelContent, LanguageModelMessage } from "./types.js"
+import type { LanguageModelContent, LanguageModelMessage, LanguageModelToolClasses, LanguageModelToolResultContent } from "./types.js"
 
 /** The text of a message's content, without its images or audio. */
 export function contentText(content: ModelMessage["content"]) {
@@ -58,28 +60,75 @@ async function userContent(content: ModelMessage["content"]): Promise<LanguageMo
   )
 }
 
+/** Whether a value holds a null anywhere, which a `tool-response`'s `object` can't. */
+function holdsNull(value: unknown): boolean {
+  if (value === null) return true
+  if (value && typeof value === "object") return Object.values(value).some(holdsNull)
+  return false
+}
+
+/**
+ * A tool's output as a `tool-response` result: its JSON object (or array)
+ * as an object, else its text. JSON with a null in it goes as its text, as
+ * written: dropping the nulls would shift arrays and lose null against absent.
+ */
+function toolResult(content: string): Array<LanguageModelToolResultContent> {
+  try {
+    const value = JSON.parse(content) as unknown
+    if (value && typeof value === "object" && !holdsNull(value)) return [{ type: "object", value }]
+  } catch {
+    // Text.
+  }
+  return [{ type: "text", value: content }]
+}
+
+/** Earlier calls' arguments, as an object (the Prompt API's `LanguageModelToolCall` takes one). */
+function argumentsOf(json: string): Record<string, unknown> {
+  try {
+    const value = JSON.parse(json || "{}") as unknown
+    return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {}
+  } catch {
+    return {}
+  }
+}
+
 /**
  * The conversation as Prompt API messages, from `start` on (a kept session
- * holds the rest); a step's tool results share one message. Tool names come
- * from the whole conversation.
+ * holds the rest); a step's tool results share one message. `tools` are the
+ * browser's tool-use classes, for its own tool use; without them, calls and
+ * results are text in fences (tools.ts). Tool names come from the whole conversation.
  */
 export async function toLanguageModelMessages(
   messages: ReadonlyArray<ModelMessage>,
-  start = 0
+  start = 0,
+  tools?: LanguageModelToolClasses
 ): Promise<Array<LanguageModelMessage>> {
   const out: Array<LanguageModelMessage> = []
   const toolNames = new Map<string, string>()
-  for (const m of messages.slice(0, start)) {
-    for (const call of m.toolCalls ?? []) toolNames.set(call.id, call.function.name)
-  }
-  let results: Array<string> | undefined
+  for (const m of messages) for (const call of m.toolCalls ?? []) toolNames.set(call.id, call.function.name)
+  let results: Array<string> | Array<LanguageModelContent> | undefined
   for (const m of messages.slice(start)) {
     if (m.role === "tool") {
-      const id = m.toolCallId ?? ""
-      const line = toolResultLine(id, toolNames.get(id) ?? "tool", contentText(m.content), m.error)
+      const callId = m.toolCallId ?? ""
+      if (tools) {
+        const name = toolNames.get(callId) ?? "tool"
+        const value =
+          m.error !== undefined
+            ? new tools.LanguageModelToolError({ callId, callID: callId, name, errorMessage: m.error })
+            : new tools.LanguageModelToolSuccess({ callId, callID: callId, name, result: toolResult(contentText(m.content)) })
+        const part: LanguageModelContent = { type: "tool-response", value }
+        if (results) {
+          ;(results as Array<LanguageModelContent>).push(part)
+        } else {
+          results = [part]
+          out.push({ role: "user", content: results })
+        }
+        continue
+      }
+      const line = toolResultLine(callId, toolNames.get(callId) ?? "tool", contentText(m.content), m.error)
       if (results) {
-        results.push(line)
-        out[out.length - 1] = { role: "user", content: toolResultFence(results) }
+        ;(results as Array<string>).push(line)
+        out[out.length - 1] = { role: "user", content: toolResultFence(results as Array<string>) }
       } else {
         results = [line]
         out.push({ role: "user", content: toolResultFence(results) })
@@ -88,8 +137,21 @@ export async function toLanguageModelMessages(
     }
     results = undefined
     if (m.role === "assistant") {
-      for (const call of m.toolCalls ?? []) toolNames.set(call.id, call.function.name)
-      const content = [contentText(m.content), ...(m.toolCalls?.length ? [toolCallFence(m.toolCalls)] : [])]
+      const text = contentText(m.content)
+      if (tools && m.toolCalls?.length) {
+        out.push({
+          role: "assistant",
+          content: [
+            ...(text ? [{ type: "text" as const, value: text }] : []),
+            ...m.toolCalls.map((call) => ({
+              type: "tool-call" as const,
+              value: new tools.LanguageModelToolCall({ callId: call.id, callID: call.id, name: call.function.name, arguments: argumentsOf(call.function.arguments) })
+            }))
+          ]
+        })
+        continue
+      }
+      const content = [text, ...(m.toolCalls?.length ? [toolCallFence(m.toolCalls)] : [])]
         .filter(Boolean)
         .join("\n")
       if (content) out.push({ role: "assistant", content })

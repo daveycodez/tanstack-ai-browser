@@ -8,7 +8,7 @@ On the Mac, test in the desktop app's built-in Browser (the `mcp__Claude_Browser
 
 The bench pages live in `packages/webgllm/bench` and are served cross-origin isolated by `server.mjs`, which also bundles the packages' TypeScript and the installed `webgllm` package on request.
 
-The WebGL 2 engine is the `webgllm` npm package, developed in its own repo, `/Users/david/Developer/webgllm` (with its own CLAUDE.md). Engine work and engine-only benches (`check.html`, `mem.html`, `webgl-perf.html`, …) happen there, not here.
+The WebGPU / WebGL 2 engine is the `webgllm` npm package, developed in its own repo, `/Users/david/Developer/webgllm` (with its own CLAUDE.md). Engine work and engine-only benches (`check.html`, `mem.html`, `webgl-perf.html`, …) happen there, not here.
 
 1. Put LFM3's tokenizer in a folder: `tokenizer.json`, `tokenizer_config.json` and `chat_template.jinja` from https://huggingface.co/LiquidAI/LFM3-1.7B. Every runtime gets the same prompt, built with this tokenizer.
 2. Start the server with absolute paths, on a free port (the app's dev server uses 3000):

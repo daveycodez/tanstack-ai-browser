@@ -1,16 +1,18 @@
 /**
  * A TanStack AI text adapter for the browser's built-in language model,
  * through the Prompt API (`LanguageModel`): Gemini Nano in Chrome,
- * Phi-4-mini in Edge. The browser downloads and runs the model itself;
+ * Aion-1.1-Instruct in Edge. The browser downloads and runs the model itself;
  * nothing leaves the device. Hand it to `chat()` like any hosted model's
  * adapter: `chat()` runs tools and the agent loop, and each `chatStream`
  * call here is one step of the model, streamed back as AG-UI events.
  *
  * Each thread (`threadId`) keeps a session: a step prompts it with only the
  * messages it hasn't seen, and a conversation that changed (an edit, a new
- * system prompt) starts a new one. Tools go by prompt (`tools.ts`);
- * structured output prompts the thread's session under the Prompt API's own
- * `responseConstraint`.
+ * system prompt) starts a new one. Tools use the browser's own tool calling
+ * where it has it (the session declares them; calls and results are
+ * `tool-call` and `tool-response` content), else they go by prompt
+ * (`tools.ts`). Structured output prompts the thread's session under the
+ * Prompt API's own `responseConstraint`.
  */
 import { buildBaseUsage, EventType, normalizeSystemPrompts } from "@tanstack/ai"
 import type { AdapterYieldChunk, ModelMessage, TextOptions, TokenUsage, Tool } from "@tanstack/ai"
@@ -23,7 +25,17 @@ import type { Availability, MediaInput } from "./model.js"
 import type { PromptApiChatModel } from "./model-meta.js"
 import { RUNAWAY_WHITESPACE, tokenCap, whitespaceRun } from "./runaway.js"
 import { toolCallReader, toolSystemPrompt } from "./tools.js"
-import type { DownloadProgressCallback, LanguageModelInput, LanguageModelPromptOptions, LanguageModelSession, SamplingMode } from "./types.js"
+import { PromptApiVariant } from "./variant.js"
+import { toolClasses } from "./types.js"
+import type {
+  DownloadProgressCallback,
+  LanguageModelContent,
+  LanguageModelInput,
+  LanguageModelPromptOptions,
+  LanguageModelSession,
+  LanguageModelToolCall,
+  SamplingMode
+} from "./types.js"
 
 export type PromptApiConfig = {
   /**
@@ -120,13 +132,27 @@ type Kept = { session: Promise<LanguageModelSession>; settings: string; seen: Ar
 /** Closes a session once it's made; one that failed to start has nothing to close. */
 const close = (session: Promise<LanguageModelSession>) => void session.then((s) => s.destroy(), () => undefined)
 
+/** A call's arguments as compared: their JSON as parsed, else the text. */
+const argumentsKey = (text: string) => {
+  try {
+    return JSON.stringify(JSON.parse(text))
+  } catch {
+    return text
+  }
+}
+
 /**
  * A message as compared with what a session holds. The model's own replies
- * go by their text alone: the session has them as the model wrote them.
+ * go by their text and their calls (each one's id, name and arguments: a
+ * native call is in the session too, so an edited one isn't what it holds).
  */
 const messageKey = (m: ModelMessage) =>
   m.role === "assistant"
-    ? JSON.stringify(["assistant", contentText(m.content).trim()])
+    ? JSON.stringify([
+        "assistant",
+        contentText(m.content).trim(),
+        (m.toolCalls ?? []).map((call) => [call.id, call.function.name, argumentsKey(call.function.arguments)])
+      ])
     : JSON.stringify([m.role, m.content, m.toolCallId ?? null, m.error ?? null])
 
 /** The tools a step offers: none for `toolChoice: "none"`, only the chosen one for a named choice. */
@@ -137,17 +163,29 @@ function offeredTools(options: TextOptions<PromptApiTextModelOptions>): Readonly
   return tools
 }
 
-/** A step's system prompt (the caller's, then the tools), and the settings its session is made with. */
-function sessionSettings(options: TextOptions<PromptApiTextModelOptions>, tools: ReadonlyArray<Tool>) {
-  const system = toolSystemPrompt(
-    normalizeSystemPrompts(options.systemPrompts)
-      .map((p) => p.content)
-      .join("\n\n"),
-    tools
-  )
+/**
+ * A step's system prompt and the settings its session is made with: with the
+ * browser's own tool use (`native`), the caller's system prompt as given and
+ * the tools declared on the session; else the caller's, then the tools by
+ * prompt.
+ */
+function sessionSettings(
+  options: TextOptions<PromptApiTextModelOptions>,
+  tools: ReadonlyArray<Tool>,
+  native: boolean
+) {
+  const caller = normalizeSystemPrompts(options.systemPrompts)
+    .map((p) => p.content)
+    .join("\n\n")
+  const system = native ? caller : toolSystemPrompt(caller, tools)
+  const declared = native ? tools.map((tool) => [tool.name, tool.description, tool.inputSchema]) : null
   const { samplingMode, temperature, topK } = options.modelOptions ?? {}
-  return { system, settings: JSON.stringify([system, samplingMode, temperature, topK, mediaIn(options.messages)]) }
+  return { system, settings: JSON.stringify([system, declared, samplingMode, temperature, topK, mediaIn(options.messages)]) }
 }
+
+/** A piece of a reply as text: a string, or `text` content. */
+const pieceText = (piece: string | LanguageModelContent) =>
+  typeof piece === "string" ? piece : piece.type === "text" ? String(piece.value) : ""
 
 /** Whether a conversation (its messages' keys) goes on from what a kept session holds, with its settings. */
 const goesOnFrom = (held: Kept, settings: string, keys: Array<string>) =>
@@ -200,6 +238,18 @@ export class PromptApiTextAdapter extends BaseTextAdapter<
    */
   availability(): Promise<Availability> {
     return promptApiAvailability(baseOptions(this.languages, this.inputs))
+  }
+
+  /**
+   * Which model the browser's Prompt API runs ("Gemini Nano", "Gemma 4",
+   * "Aion-1.1-Instruct" as `displayName`), compared by identity:
+   * `variant === PromptApiVariant.gemma4`. An informed guess from the browser
+   * and Chrome's tool-use classes (see PromptApiVariant), before or after the
+   * download: nothing is downloaded or run. Undefined where the Prompt API
+   * can't run, or in a browser it can't tell.
+   */
+  async variant(): Promise<PromptApiVariant | undefined> {
+    return (await this.availability()) === "unavailable" ? undefined : PromptApiVariant.ofBrowser()
   }
 
   /**
@@ -291,16 +341,27 @@ export class PromptApiTextAdapter extends BaseTextAdapter<
     this.kept.delete(threadId)
   }
 
-  /** A session for this call, holding the system prompt, that reports an overflow. */
+  /**
+   * A session for this call, holding the system prompt, that reports an
+   * overflow; with `tools`, declaring them for the browser's own tool use.
+   */
   private async session(
     options: TextOptions<PromptApiTextModelOptions>,
     system: string,
-    signal: AbortSignal | undefined
+    signal: AbortSignal | undefined,
+    tools?: ReadonlyArray<Tool>
   ): Promise<LanguageModelSession> {
     const { samplingMode, temperature, topK } = options.modelOptions ?? {}
     const session = await createSession(
       {
-        ...baseOptions(this.languages, mediaIn(options.messages)),
+        ...baseOptions(this.languages, mediaIn(options.messages), !!tools),
+        ...(tools && {
+          tools: tools.map((tool) => ({
+            name: tool.name,
+            description: tool.description,
+            inputSchema: tool.inputSchema ?? { type: "object", properties: {} }
+          }))
+        }),
         ...(system && { initialPrompts: [{ role: "system", content: system }] }),
         ...(samplingMode !== undefined && { samplingMode }),
         ...(temperature !== undefined && { temperature }),
@@ -325,7 +386,9 @@ export class PromptApiTextAdapter extends BaseTextAdapter<
     const key = options.promptCache?.key ?? options.threadId
     const retain = options.promptCache?.retention !== "none"
     const tools = offeredTools(options)
-    const { system, settings } = sessionSettings(options, tools)
+    // The browser's own tool use where it has it, else tools by prompt.
+    const native = tools.length > 0 ? toolClasses() : undefined
+    const { system, settings } = sessionSettings(options, tools, !!native)
     const keys = options.messages.map(messageKey)
     const held = retain ? this.kept.get(key) : undefined
     const goesOn = !!held && goesOnFrom(held, settings, keys)
@@ -333,17 +396,17 @@ export class PromptApiTextAdapter extends BaseTextAdapter<
     if (goesOn) kept = held
     else if (retain && !held?.busy) {
       this.drop(key)
-      kept = { session: this.session(options, system, signal), settings, seen: [], busy: false }
+      kept = { session: this.session(options, system, signal, native && tools), settings, seen: [], busy: false }
     }
     if (kept) {
       kept.busy = true
       this.keep(key, kept)
     }
-    const pending = kept?.session ?? this.session(options, system, signal)
+    const pending = kept?.session ?? this.session(options, system, signal, native && tools)
     try {
       const session = await pending
-      const input = await toLanguageModelMessages(options.messages, goesOn ? held.seen.length : 0)
-      return { key, session, kept, keys, input, tools, goesOn }
+      const input = await toLanguageModelMessages(options.messages, goesOn ? held.seen.length : 0, native)
+      return { key, session, kept, keys, input, tools, native: !!native, goesOn }
     } catch (error) {
       // A session that goes on still holds the thread; a new one is dropped.
       this.end(key, pending, kept, !goesOn)
@@ -388,8 +451,8 @@ export class PromptApiTextAdapter extends BaseTextAdapter<
       const completionTokens = Math.max(0, written - markers)
       return {
         ...buildBaseUsage({ promptTokens, completionTokens, totalTokens: promptTokens + completionTokens }),
-        // A new session read all of it in this step: none was cached.
-        promptTokensDetails: { cachedTokens: goesOn ? held : 0 }
+        // What a kept session held, as TanStack reports cached tokens: left out for none (a new session read all of it).
+        ...(goesOn && held > 0 && { promptTokensDetails: { cachedTokens: held } })
       }
     } catch {
       return undefined
@@ -421,7 +484,8 @@ export class PromptApiTextAdapter extends BaseTextAdapter<
     let text = ""
     let stopped: "runaway" | "length" | undefined
     try {
-      for await (const piece of session.promptStreaming(input, { ...constraint, signal: generation })) {
+      for await (const raw of session.promptStreaming(input, { ...constraint, signal: generation })) {
+        const piece = pieceText(raw)
         text += piece
         if (whitespace.push(piece) > RUNAWAY_WHITESPACE) stopped = "runaway"
         else if (cap.reached()) stopped = "length"
@@ -458,9 +522,12 @@ export class PromptApiTextAdapter extends BaseTextAdapter<
     const stop = new AbortController()
     try {
       step = await this.begin(options, signal)
-      const { session, kept, keys, input, tools, goesOn } = step
-      // Without tools to offer, the reply is all text.
-      const reader = tools.length > 0 ? toolCallReader(tools.map((tool) => tool.name)) : undefined
+      const { session, kept, keys, input, tools, native, goesOn } = step
+      // Tools by prompt: calls are read out of the text. Without tools, or with
+      // the browser's own tool use, the text is all text.
+      const reader = tools.length > 0 && !native ? toolCallReader(tools) : undefined
+      // The browser's own calls, as they come.
+      const nativeCalls: Array<LanguageModelToolCall> = []
       let text = ""
       const textEvents = function* (delta: string): Generator<AdapterYieldChunk> {
         if (!delta) return
@@ -475,7 +542,16 @@ export class PromptApiTextAdapter extends BaseTextAdapter<
       const cap = tokenCap(this.capOf(options))
       let capped = false
       try {
-        for await (const piece of session.promptStreaming(input, { signal: generation })) {
+        for await (const raw of session.promptStreaming(input, { signal: generation })) {
+          // A native call: the turn goes on to its end, so the session holds the call.
+          if (typeof raw !== "string" && raw.type === "tool-call") {
+            const call = raw.value as LanguageModelToolCall
+            nativeCalls.push(call)
+            // Not text, but written all the same: counted as its JSON.
+            written += JSON.stringify({ name: call.name, arguments: call.arguments })
+            continue
+          }
+          const piece = pieceText(raw)
           written += piece
           yield* textEvents(reader ? reader.push(piece) : piece)
           if (reader?.call) {
@@ -491,25 +567,32 @@ export class PromptApiTextAdapter extends BaseTextAdapter<
       } catch (error) {
         if (!stop.signal.aborted || signal?.aborted) throw error
       }
-      const call = reader?.call
       if (reader) {
         yield* textEvents(reader.end())
         // Text after the call, in the piece that closed it, is shown too.
         yield* textEvents(reader.trailing)
       }
+      const calls = [
+        ...nativeCalls.map((call) => ({ id: call.callId || call.callID || nextId("call"), name: call.name, arguments: call.arguments })),
+        ...(reader?.call ? [{ id: nextId("call"), ...reader.call }] : [])
+      ]
       if (text) yield { type: EventType.TEXT_MESSAGE_END, messageId, model, timestamp: timestamp() }
-      // A finished reply is in the session now. One stopped at a tool call
-      // isn't: Chrome drops a stopped turn whole, so the next step sends it.
-      if (kept && !stop.signal.aborted) kept.seen = [...keys, messageKey({ role: "assistant", content: text })]
-      if (call) {
-        const toolCallId = nextId("call")
+      // A finished reply is in the session now, a native call included. One
+      // stopped at a call by prompt isn't: Chrome drops a stopped turn whole,
+      // so the next step sends it.
+      if (kept && !stop.signal.aborted) {
+        const toolCalls = calls.map((call) => ({ id: call.id, type: "function" as const, function: { name: call.name, arguments: JSON.stringify(call.arguments) } }))
+        kept.seen = [...keys, messageKey({ role: "assistant", content: text, ...(toolCalls.length && { toolCalls }) })]
+      }
+      for (const [index, call] of calls.entries()) {
+        const toolCallId = call.id
         const args = JSON.stringify(call.arguments)
         yield {
           type: EventType.TOOL_CALL_START,
           toolCallId,
           toolCallName: call.name,
           parentMessageId: messageId,
-          index: 0,
+          index,
           model,
           timestamp: timestamp()
         }
@@ -531,7 +614,7 @@ export class PromptApiTextAdapter extends BaseTextAdapter<
         threadId,
         model,
         timestamp: timestamp(),
-        finishReason: call ? "tool_calls" : capped ? "length" : "stop",
+        finishReason: calls.length > 0 ? "tool_calls" : capped ? "length" : "stop",
         ...(usage && { usage })
       }
     } catch (error) {
@@ -602,7 +685,7 @@ export class PromptApiTextAdapter extends BaseTextAdapter<
 
 /**
  * A TanStack AI text adapter for the browser's built-in model, through the
- * Prompt API: Gemini Nano in Chrome, Phi-4-mini in Edge. The model is
+ * Prompt API: Gemini Nano in Chrome, Aion-1.1-Instruct in Edge. The model is
  * whichever the browser has ("text", as other Prompt API libraries name it), so naming it is optional.
  *
  * @example

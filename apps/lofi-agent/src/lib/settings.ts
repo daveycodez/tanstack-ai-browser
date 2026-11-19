@@ -43,29 +43,12 @@ export function setting<K extends SettingKey>(key: K, initial: Settings[K]) {
   return { get, set, use }
 }
 
-/**
- * A system prompt the user wrote, sent to every model at the start of each
- * conversation, before the current date. Empty means none.
- */
-export const systemPromptSetting = setting("systemPrompt", "")
+/** The system prompt a conversation starts with until the user writes their own: none. */
+export const DEFAULT_SYSTEM_PROMPT = ""
 
 /**
- * The system prompt sent to every model: the user's own prompt if they wrote
- * one, then today's date, so models know when "now" is. The date comes last
- * and is the date only, not the time, so a new minute doesn't change the
- * prompt, and the local model reuses what it already read of it.
- * The wording matters: with "Today's date is …", LFM3 thinking about a
- * question on recent events decided it had no current information and
- * didn't call web search; "The current date is …" doesn't do that.
+ * The system prompt, sent to every model at the start of each conversation:
+ * the default until the user saves their own in Settings. Saved empty means
+ * none.
  */
-export function currentSystemPrompt() {
-  const today = new Date().toLocaleDateString("en-US", {
-    weekday: "long",
-    year: "numeric",
-    month: "long",
-    day: "numeric"
-  })
-  return [systemPromptSetting.get().trim(), `The current date is ${today}.`]
-    .filter(Boolean)
-    .join("\n\n")
-}
+export const systemPromptSetting = setting("systemPrompt", DEFAULT_SYSTEM_PROMPT)

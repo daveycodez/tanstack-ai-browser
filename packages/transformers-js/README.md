@@ -89,15 +89,36 @@ const { text } = await generateTranscription({ adapter: transformersJsTranscript
 
 **Events:** `RUN_STARTED`, the text as `TEXT_MESSAGE_*`, a tool call as `TOOL_CALL_*`, then `RUN_FINISHED` with `finishReason` (`"stop"`, `"tool_calls"`, or `"length"` when the reply used every token it could) and `usage` (prompt and completion tokens). A failure or an abort ends with `RUN_ERROR` (`code: "aborted"` for an abort).
 
-**Structured output** (`outputSchema`) isn't supported: `structuredOutput` rejects.
+**Structured output** (`chat({ outputSchema })`) holds the answer to the schema with Hugging Face's [`@huggingface/transformers-structured-output`](https://www.npmjs.com/package/@huggingface/transformers-structured-output) (4.3.2, matching the core package): its `StructuredOutputProcessor` goes to `generate()` as the `logits_processor` and masks every token that would break the schema, so the answer parses and matches. The schema's profile is that package's (JSON Schema 2020-12 for the most part); string `pattern` and `format` can't be enforced token by token, and fail with its error. The answer is generated without tools and without thinking, since the processor holds the whole reply. An answer cut off at `max_new_tokens` fails with the code `length`.
 
 ## Loading
 
-- `adapter.availability()`: `"unavailable"` where the model can't run (without WebGPU for a listed model without CPU weights, or on a server that isn't Node.js), `"downloading"` while it loads, `"available"` once it's loaded or when its weights are in Transformers.js's cache, else `"downloadable"`.
+- `adapter.availability()`: `"unavailable"` where the model can't run (without WebGPU for a listed model without CPU weights, or on a server that isn't Node.js), `"downloading"` while it loads, `"available"` once it's loaded or when its weights are kept (below), else `"downloadable"`.
 - `adapter.create({ onDownloadProgress?, signal? })` loads the model ahead of time (`chat()` loads it otherwise). Aborting `signal` stops that wait, not the load. Resolves to the adapter.
 - `adapter.destroy()` ends the package's worker if it holds this model, freeing its memory; its files stay cached. A worker of your own, or a server, frees the model and stays.
 
 The page has one worker with one model (and each worker of your own has one): loading another replaces it. A call whose prompt continues the previous call's (its tokens start with every token the last generation held) reuses that generation's cache.
+
+In a browser, Transformers.js and ONNX Runtime are set up through their own public settings before the first model loads (the chat, embedding and transcription adapters alike), until Transformers.js does this itself ([#27](https://github.com/daveycodez/tanstack-ai-browser/issues/27) tracks each of these):
+
+- Downloads are kept in the origin's private file system (OPFS), through `env.customCache`. Transformers.js 4.3.2 holds a downloaded file in memory about twice before caching it, so the first download of LFM2.5 1.2B's 760 MB of weights killed an iPhone Safari tab ([huggingface/transformers.js#1827](https://github.com/huggingface/transformers.js/issues/1827)). Here each ONNX file is written to OPFS piece by piece, and Transformers.js reads it from there. Models already in Transformers.js's own Cache Storage are read from it, not downloaded again. The cache downloads files itself only during the adapter's own loads, where `env.allowRemoteModels` is on and `env.allowLocalModels` is off; otherwise Transformers.js loads, downloads or refuses under its own rules (local files first). A cache of your own (`env.useCustomCache`) is left as it is.
+- In a worker (the package's, or one of yours), a model's external weights (`.onnx_data`) are never held whole in memory: they go to ONNX Runtime as `session_options.externalData` (with `use_external_data_format: false`), as an object that reads each tensor's bytes from the OPFS file when ONNX Runtime asks for them. Transformers.js would hold the whole file in memory while it's put on the GPU, which for LFM3 1.7B (1.09 GB) is over an iPhone tab's 2 GB. The files are the ones Transformers.js lists for the model (`ModelRegistry.get_model_files`), and each is downloaded when its session loads, so a text-only load doesn't download a vision encoder's. This relies on ONNX Runtime 1.31 (the version Transformers.js 4.3.2 pins) reading external data a tensor at a time through `subarray()`; if it reads it any other way, the load falls back to Transformers.js's own reading.
+- Otherwise (on the page, or for a file Transformers.js reads itself), the copy of a file Transformers.js read is freed when the load ends (its buffer detached): Safari doesn't garbage-collect it, so an iPhone tab held LFM2.5's weights twice and was killed at the first reply. For this, models load without Transformers.js's progress callback: `onDownloadProgress` follows the downloads of the ONNX files, and reaches 1 when the model is ready.
+- Where the browser has JSPI (Chrome, Safari 27), ONNX Runtime runs its JSPI WebAssembly build in place of the Asyncify build Transformers.js picks ([huggingface/transformers.js#1835](https://github.com/huggingface/transformers.js/issues/1835)), from the same release: less memory, and faster in Safari. `wasmPaths` of your own are left as they are.
+
+A long prompt is read into the cache in passes, and `generate()` reads the rest and answers (text prompts; a prompt with images is read in one pass). Two limits size them:
+
+- Time: Safari kills its GPU process when a WebGPU command buffer hasn't completed 3 s after it was submitted, and ONNX Runtime submits a whole pass at once, so its last command buffers wait behind the first ([microsoft/onnxruntime#33753](https://github.com/microsoft/onnxruntime/issues/33753)). On an iPhone, LFM3's 521-token prompt in one pass crossed 3 s and the page lost its GPU. Each pass is sized from how long the passes so far took, to take about a second: the first is 128 tokens, and a fast GPU reads the rest in one more (on a Mac, Chrome, LFM3 read a 2,060-token prompt at 3,827 tokens/s), a phone in passes of about a second.
+- Memory: a model exported without a `num_logits_to_keep` input (LFM2.5 1.2B's ONNX, Qwen3.5's) returns logits for every token a pass reads, so its passes are 512 tokens at most: in one pass, a 2,048-token prompt took about 1.35 GB of GPU memory for them. Those passes cost speed where one pass would fit: on a Mac (Chrome, LFM2.5 1.2B, 2,060 tokens), 3,493 prompt tokens/s against 4,034 in one pass.
+
+On an iPhone 16 Pro Max (Safari, iOS 27.2, 2 GB a tab), LFM3 1.7B and LFM2.5 1.2B load and answer, with prompts of 2,048 tokens too:
+
+| Model (q4f16) | Prompt | Prompt speed | Writing |
+| --- | --- | --- | --- |
+| LFM3 1.7B | 521 tokens | 146 tokens/s | 34.3 tokens/s |
+| LFM3 1.7B | 2,058 tokens | 121 tokens/s | 24.6 tokens/s |
+| LFM2.5 1.2B | 523 tokens | 159 tokens/s | 53.5 tokens/s |
+| LFM2.5 1.2B | 2,060 tokens | 153 tokens/s | 40.8 tokens/s |
 
 The worker is started with `new Worker(new URL("./worker.js", import.meta.url))`, which Vite and webpack 5 bundle for you. With Vite, set `worker: { format: "es" }` and leave the package out of dependency pre-bundling (`optimizeDeps.exclude`).
 

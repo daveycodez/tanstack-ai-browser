@@ -118,6 +118,12 @@ test("parallel_tool_calls goes to llama.cpp as given; the request asks for usage
   assert.deepEqual(request.stream_options, { include_usage: true })
 })
 
+test("tools go as given: their own schemas, without OpenAI's strict mode", async () => {
+  const lookup = { name: "lookup", description: "Look up", inputSchema: { type: "object", properties: { q: { type: "string" }, n: { type: "number" } }, required: ["q"] } }
+  const request = (await run({ tools: [lookup] })).request
+  assert.deepEqual(request.tools, [{ type: "function", function: { name: "lookup", description: "Look up", parameters: lookup.inputSchema } }])
+})
+
 test("reasoning: the chat template's enable_thinking, a budget when thinking, nothing when not asked", async () => {
   const off = (await run({ reasoning: { level: "off", summary: false } })).request
   assert.deepEqual(off.chat_template_kwargs, { enable_thinking: false })
@@ -175,8 +181,8 @@ test("audio kept as an uploaded file is refused: wllama reads bytes", async () =
   assert.equal(control.requests.length, 0)
 })
 
-test("usage keeps llama.cpp's cached count, 0 included (TanStack's conversion leaves a 0 out)", async () => {
-  for (const cached_tokens of [0, 352]) {
+test("usage is TanStack's conversion of llama.cpp's: its cached count, and none for 0", async () => {
+  for (const [cached_tokens, details] of [[352, { cachedTokens: 352 }], [0, undefined]] as const) {
     control.chunks = [
       delta({ role: "assistant", content: "Hi" }),
       { ...delta({}, "stop"), usage: { prompt_tokens: 371, completion_tokens: 2, total_tokens: 373, prompt_tokens_details: { cached_tokens } } }
@@ -184,6 +190,6 @@ test("usage keeps llama.cpp's cached count, 0 included (TanStack's conversion le
     const { events } = await run()
     const usage = events.find((e) => e.type === "RUN_FINISHED")?.usage as { promptTokens: number; promptTokensDetails?: unknown }
     assert.equal(usage.promptTokens, 371)
-    assert.deepEqual(usage.promptTokensDetails, { cachedTokens: cached_tokens })
+    assert.deepEqual(usage.promptTokensDetails, details)
   }
 })
