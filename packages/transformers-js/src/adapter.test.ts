@@ -156,6 +156,35 @@ test("the model's thinking goes back to it for the turn in progress, and not for
   assert.equal("reasoning_content" in messages[1], false, "left out, not empty")
 })
 
+test("the turn's thinking goes back as TanStack replays it: another model's as its text, and no redacted block", async () => {
+  const call = (id: string) => [{ id, type: "function" as const, function: { name: "get_weather", arguments: '{"city":"Oslo"}' } }]
+  const foreign = { tanstack: { source: { provider: "openai", api: "openai-completions", model: "gpt-4o" } } }
+  await run({
+    tools: [{ name: "get_weather", description: "Weather", inputSchema: { type: "object", properties: { city: { type: "string" } } } }],
+    messages: [
+      { role: "user", content: "Weather in Oslo?" },
+      // Another model's step: TanStack replays its thinking as text, not as this model's thinking.
+      { role: "assistant", content: "", toolCalls: call("c1"), thinking: [{ content: "Another model's thought." }], metadata: foreign },
+      { role: "tool", toolCallId: "c1", content: '{"temp":3}' },
+      // This model's step, with a block the provider encrypted.
+      { role: "assistant", content: "", toolCalls: call("c2"), thinking: [{ content: "My thought." }, { content: "OPAQUE", signature: "sig", redacted: true }] },
+      { role: "tool", toolCallId: "c2", content: '{"temp":5}' }
+    ]
+  })
+  const messages = (generateRequests().at(-1) as Generate).messages
+  assert.deepEqual(
+    messages.map((m) => [m.role, m.content, m.reasoning_content]),
+    [
+      ["user", "Weather in Oslo?", undefined],
+      ["assistant", "Another model's thought.", undefined],
+      ["tool", '{"temp":3}', undefined],
+      ["assistant", "", "My thought."],
+      ["tool", '{"temp":5}', undefined]
+    ]
+  )
+  assert.doesNotMatch(JSON.stringify(messages), /OPAQUE/)
+})
+
 test("a model the catalog doesn't list gets no sampling from the adapter: its repo's generation_config.json applies", async () => {
   await run({ model: "someone/Some-Model-ONNX" }, "someone/Some-Model-ONNX")
   assert.deepEqual((generateRequests().at(-1) as Generate).options, { max_new_tokens: 4096 })

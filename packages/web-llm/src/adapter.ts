@@ -81,6 +81,9 @@ type MetadataByModality = { text: unknown; image: unknown; audio: unknown; video
 /** The base adapter's conversion of a message part to a Chat Completions one. */
 type ConvertContentPart = OpenAIBaseChatCompletionsTextAdapter<string>["convertContentPart"]
 
+/** The base adapter's conversion of a message to a Chat Completions one. */
+type ConvertMessage = OpenAIBaseChatCompletionsTextAdapter<string>["convertMessage"]
+
 /** A Chat Completions request, as the base adapter writes it. */
 type CreateParams = Parameters<OpenAIClientLike["chat"]["completions"]["create"]>[0]
 
@@ -112,22 +115,28 @@ const textOf = (content: unknown): string =>
       : ""
 
 /**
+ * A message's thinking as the model reads it again: its blocks' text, without the blocks the provider
+ * redacted (their content is opaque data for that provider, not thinking).
+ */
+const thinkingText = (message: ModelMessage): string =>
+  (message.thinking ?? [])
+    .filter((thought) => !thought.redacted)
+    .map((thought) => thought.content)
+    .join("")
+
+/**
  * The model's thinking, back in the request for the turn in progress: on the assistant messages after the
  * last user message (a tool call's, on the step with its result), as the `<think>…</think>` the model wrote
- * before its text. TanStack's adapter leaves a message's thinking out of the request, and WebLLM has no field
- * for it and no chat template that would drop earlier turns' thinking, so those go without it here.
+ * before its text. `thoughts` holds the thinking `convertMessage` found on each request message, and
+ * `users` the user messages it wrote (not the base adapter's messages with a tool result's images).
+ * TanStack's adapter leaves a message's thinking out of the request, and WebLLM has no field for it and no
+ * chat template that would drop earlier turns' thinking, so those go without it here.
  */
-function withTurnThinking(request: Array<RequestMessage>, messages: ReadonlyArray<ModelMessage>): void {
-  const lastUser = messages.map((message) => message.role).lastIndexOf("user")
-  const thoughts = messages
-    .slice(lastUser + 1)
-    .filter((message) => message.role === "assistant")
-    .map((message) => (message.thinking ?? []).map((thought) => thought.content).join(""))
-  if (!thoughts.some(Boolean)) return
-  const turn = request.filter((message) => message.role === "assistant").slice(-thoughts.length)
-  if (turn.length !== thoughts.length) return
-  for (const [index, message] of turn.entries()) {
-    if (thoughts[index]) message.content = `<think>${thoughts[index]}</think>${textOf(message.content)}`
+function withTurnThinking(request: Array<RequestMessage>, thoughts: WeakMap<object, string>, users: WeakSet<object>): void {
+  const lastUser = request.map((message) => users.has(message)).lastIndexOf(true)
+  for (const message of request.slice(lastUser + 1)) {
+    const thinking = thoughts.get(message)
+    if (thinking) message.content = `<think>${thinking}</think>${textOf(message.content)}`
   }
 }
 
@@ -331,6 +340,10 @@ export class WebLlmTextAdapter<TModel extends WebLlmModel> extends OpenAIBaseCha
   private readonly onDownloadProgress: DownloadProgressCallback | undefined
   /** The engine the model loads in: the package's for chat, or the adapter's own worker's. */
   private readonly engine: EngineSlot
+  /** Each assistant request message's thinking, as `convertMessage` found it on the message TanStack replays. */
+  private readonly thoughts = new WeakMap<object, string>()
+  /** The user request messages `convertMessage` wrote. */
+  private readonly users = new WeakSet<object>()
 
   constructor(config: WebLlmConfig, model: TModel) {
     const settings = loadSettings(config)
@@ -402,7 +415,7 @@ export class WebLlmTextAdapter<TModel extends WebLlmModel> extends OpenAIBaseCha
     const tools = options.toolChoice === "none" ? [] : (options.tools ?? [])
     const thinking = resolveReasoning(options.reasoning, this.modelReasoning(this.model))?.value
     const request = super.mapOptionsToRequest({ ...options, tools: [], reasoning: undefined })
-    withTurnThinking(request.messages as unknown as Array<RequestMessage>, options.messages)
+    withTurnThinking(request.messages as unknown as Array<RequestMessage>, this.thoughts, this.users)
     if (thinking !== undefined) {
       Object.assign(request, { extra_body: { ...modelOptions?.extra_body, enable_thinking: thinking === "true" } })
     }
@@ -424,6 +437,20 @@ export class WebLlmTextAdapter<TModel extends WebLlmModel> extends OpenAIBaseCha
   protected override extractReasoning(chunk: unknown) {
     const text = (chunk as Chunk).choices?.[0]?.delta?.reasoning_content
     return typeof text === "string" && text ? { text } : undefined
+  }
+
+  /**
+   * A message as the base adapter writes it, noting an assistant message's thinking for `withTurnThinking`.
+   * The base adapter calls this with the messages TanStack's replay keeps: another model's message comes
+   * with its thinking already turned into its text and taken off, so only this model's own thinking (and a
+   * message's that says no source) is noted, and a block the provider redacted never is.
+   */
+  protected override convertMessage(message: ModelMessage): ReturnType<ConvertMessage> {
+    const converted = super.convertMessage(message)
+    if (message.role === "user") this.users.add(converted)
+    const thinking = message.role === "assistant" ? thinkingText(message) : ""
+    if (thinking) this.thoughts.set(converted, thinking)
+    return converted
   }
 
   /** An image as OpenAI's `image_url`, without its `detail`, which WebLLM refuses. */

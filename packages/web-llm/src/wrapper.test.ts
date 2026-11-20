@@ -350,6 +350,31 @@ test("the model's thinking goes back for the turn in progress, as the <think> bl
   assert.doesNotMatch(JSON.stringify(plain.request.messages), /<think>/)
 })
 
+test("the turn's thinking goes back as TanStack replays it: another model's once, as its text, and no redacted block", async () => {
+  const tools = [{ name: "get_weather", description: "Weather", inputSchema: { type: "object", properties: { city: { type: "string" } } } }]
+  const call = (id: string) => [{ id, type: "function", function: { name: "get_weather", arguments: '{"city":"Oslo"}' } }]
+  const foreign = { tanstack: { source: { provider: "openai", api: "openai-completions", model: "gpt-4o" } } }
+  const { request } = await run(webLlmText(MODEL), {
+    tools,
+    messages: [
+      { role: "user", content: "Weather in Oslo?" },
+      // Another model's step: TanStack's adapter sends its thinking as text.
+      { role: "assistant", content: "", toolCalls: call("c1"), thinking: [{ content: "Another model's thought." }], metadata: foreign },
+      { role: "tool", toolCallId: "c1", content: '{"temp":3}' },
+      // This model's step, with a block the provider encrypted.
+      { role: "assistant", content: "", toolCalls: call("c2"), thinking: [{ content: "My thought." }, { content: "OPAQUE", signature: "sig", redacted: true }] },
+      { role: "tool", toolCallId: "c2", content: '{"temp":5}' }
+    ]
+  })
+  const messages = request.messages as Array<{ role: string; content: string }>
+  const assistants = messages.filter((m) => m.role === "assistant").map((m) => m.content)
+  assert.equal(assistants.length, 2)
+  assert.equal(JSON.stringify(messages).split("Another model's thought.").length - 1, 1, "another model's thought once")
+  assert.match(assistants[0], /^Another model's thought\.\n?```tool_call/)
+  assert.match(assistants[1], /^<think>My thought\.<\/think>\n?```tool_call/)
+  assert.doesNotMatch(JSON.stringify(messages), /OPAQUE/)
+})
+
 test("a fence the reply leaves open is the call if it holds a whole one", async () => {
   const tools = [{ name: "get_weather", description: "Weather", inputSchema: { type: "object", properties: { city: { type: "string" } } } }]
   control.chunks = [delta({ role: "assistant", content: '```tool_call\n{"name": "get_weather", "arguments": {"city": "Oslo"}}' }), delta({}, "stop")]

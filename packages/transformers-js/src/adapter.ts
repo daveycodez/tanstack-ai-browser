@@ -12,7 +12,7 @@
  */
 import { buildBaseUsage, EventType, normalizeSystemPrompts } from "@tanstack/ai"
 import type { AdapterYieldChunk, ModelReasoning, TextOptions } from "@tanstack/ai"
-import { resolveReasoning } from "@tanstack/ai/adapter-internals"
+import { resolveReasoning, transformMessagesForReplay } from "@tanstack/ai/adapter-internals"
 import { BaseTextAdapter } from "@tanstack/ai/adapters"
 import type { StructuredOutputOptions, StructuredOutputResult } from "@tanstack/ai/adapters"
 
@@ -345,13 +345,18 @@ export class TransformersJsTextAdapter<TModel extends string> extends BaseTextAd
     }
   }
 
-  /** The conversation as the chat template reads it, and whether it needs the vision encoder (it has an image). */
+  /**
+   * The conversation as the chat template reads it, and whether it needs the vision encoder (it has an
+   * image). The messages are TanStack's replay of the history for this model: another model's message
+   * comes with its thinking turned into its text, so only this model's own thinking goes back as thinking.
+   */
   private promptOf(options: TextOptions<TransformersJsTextModelOptions>) {
+    const { messages } = transformMessagesForReplay(options.messages, { provider: this.provider ?? this.name, api: this.api, model: this.model })
     const prompt = toTemplateMessages(
       normalizeSystemPrompts(options.systemPrompts)
         .map((p) => p.content)
         .join("\n\n"),
-      options.messages,
+      messages,
       // A model the config calls a vision model: its template reads every message as parts.
       !!this.settings.vision
     )

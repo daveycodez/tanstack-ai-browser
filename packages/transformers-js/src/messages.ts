@@ -11,7 +11,9 @@
  * brings a tool's result reads what the model thought before it called the
  * tool. Earlier turns' thinking is left out: those templates drop it there
  * themselves, and one that didn't would have the model read it again on every
- * turn.
+ * turn. Blocks the provider redacted never go back. The adapter passes the
+ * messages as TanStack replays them for this model, so another model's
+ * thinking arrives as its text, not as thinking.
  */
 import type { ModelMessage, Tool } from "@tanstack/ai"
 
@@ -65,7 +67,14 @@ export function toTemplateMessages(
     if (m.role === "assistant") {
       const calls = m.toolCalls ?? []
       for (const call of calls) toolNames.set(call.id, call.function.name)
-      const thinking = index > lastUser ? (m.thinking ?? []).map((thought) => thought.content).join("") : ""
+      // A block the provider redacted holds data only that provider reads, not thinking.
+      const thinking =
+        index > lastUser
+          ? (m.thinking ?? [])
+              .filter((thought) => !thought.redacted)
+              .map((thought) => thought.content)
+              .join("")
+          : ""
       out.push({
         role: "assistant",
         content: textContent(content),
