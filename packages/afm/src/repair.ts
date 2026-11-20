@@ -39,7 +39,7 @@ export const underLabel = (prompt: string) => (prompt.startsWith("Message:\n") ?
 export function shapeOf(schema: unknown, root: unknown = schema, depth = 0): string {
   if (!isRecord(schema) || depth > 6) return "…"
   if (typeof schema.$ref === "string") {
-    const target = schema.$ref.split("/").slice(1).reduce<unknown>((at, key) => (isRecord(at) ? at[key] : undefined), root)
+    const target = resolve(schema.$ref, root)
     return shapeOf(target, root, depth + 1)
   }
   for (const key of ["anyOf", "oneOf", "allOf"] as const) {
@@ -106,6 +106,16 @@ export function answerIn(text: string, schema: unknown): unknown {
 type Schema = Record<string, unknown>
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null && !Array.isArray(value)
 
+/**
+ * What a `$ref` into the schema's own `$defs` or `definitions` points at. Only
+ * own keys: `#/$defs/constructor` is nothing where the schema defines none.
+ */
+const resolve = (ref: string, root: unknown): unknown =>
+  ref
+    .split("/")
+    .slice(1)
+    .reduce<unknown>((at, key) => (isRecord(at) && Object.hasOwn(at, key) ? at[key] : undefined), root)
+
 /** Whether a value is of a JSON Schema type. */
 function isOfType(value: unknown, type: unknown): boolean {
   switch (type) {
@@ -141,11 +151,11 @@ export function conforms(value: unknown, schema: unknown, root: unknown = schema
   if (schema === false) return false
   if (!isRecord(schema)) return true
   if (typeof schema.$ref === "string") {
-    const target = schema.$ref.split("/").slice(1).reduce<unknown>((at, key) => (isRecord(at) ? at[key] : undefined), root)
+    const target = resolve(schema.$ref, root)
     return target !== undefined && conforms(value, target, root)
   }
   if (Array.isArray(schema.enum) && !schema.enum.some((option) => JSON.stringify(option) === JSON.stringify(value))) return false
-  if ("const" in schema && JSON.stringify(schema.const) !== JSON.stringify(value)) return false
+  if (Object.hasOwn(schema, "const") && JSON.stringify(schema.const) !== JSON.stringify(value)) return false
   if (schema.type !== undefined) {
     const types = Array.isArray(schema.type) ? schema.type : [schema.type]
     if (!types.some((type) => isOfType(value, type))) return false
@@ -174,9 +184,10 @@ export function conforms(value: unknown, schema: unknown, root: unknown = schema
   }
   if (isRecord(value)) {
     const properties = isRecord(schema.properties) ? schema.properties : {}
-    if (Array.isArray(schema.required) && !schema.required.every((key) => typeof key === "string" && key in value)) return false
+    // Own keys only: every object inherits `constructor` and `toString`, which are no answer's properties.
+    if (Array.isArray(schema.required) && !schema.required.every((key) => typeof key === "string" && Object.hasOwn(value, key))) return false
     for (const [key, item] of Object.entries(value)) {
-      if (key in properties) {
+      if (Object.hasOwn(properties, key)) {
         if (!conforms(item, properties[key], root)) return false
       } else if (schema.additionalProperties === false) {
         return false

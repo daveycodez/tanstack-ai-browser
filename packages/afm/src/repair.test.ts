@@ -80,3 +80,17 @@ test("an answer fits a tuple by its positions, and items false or a false schema
   assert.ok(conforms([], { type: "array", items: false }))
 })
 
+test("an object's own properties count, not the ones every object inherits", () => {
+  const named = { type: "object", properties: { constructor: { type: "string" } }, required: ["constructor"], additionalProperties: false }
+  assert.ok(!conforms({}, named), "a required constructor that isn't there")
+  assert.ok(conforms({ constructor: "Kg6" }, named))
+  assert.ok(!conforms({ constructor: 1 }, named), "its schema holds")
+  const closed = { type: "object", properties: { move: { type: "string" } }, required: ["move"], additionalProperties: false }
+  assert.ok(!conforms(JSON.parse('{"move": "Kg6", "toString": "x"}'), closed), "toString isn't one of its properties")
+  assert.ok(!conforms(JSON.parse('{"move": "Kg6", "constructor": "x"}'), closed), "nor is constructor")
+  assert.ok(conforms({ move: "Kg6" }, closed))
+  // A reference finds the schema's own definitions only.
+  assert.ok(!conforms("Kg6", { $ref: "#/$defs/constructor", $defs: {} }), "a definition nobody wrote fits nothing")
+  assert.ok(conforms("Kg6", { $ref: "#/$defs/constructor", $defs: { constructor: { type: "string" } } }))
+})
+

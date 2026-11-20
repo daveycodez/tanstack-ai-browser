@@ -1205,3 +1205,14 @@ test("a text answer that breaks a closed tuple isn't taken: the second text try 
   assert.equal(editing.named("respond").length, 3)
 })
 
+test("a text answer missing a required property named like an inherited one isn't taken: the second text try that has it is", async () => {
+  const editing = new EditingNative()
+  editing.replies = [REFUSED, [{ type: "done", text: "{}" }], [{ type: "done", text: '{"constructor":"Kg6"}' }]]
+  const result = await afmText({ native: editing, ...PERMISSIVE }).structuredOutput({
+    chatOptions: chatOptions(),
+    outputSchema: { type: "object", properties: { constructor: { type: "string" } }, required: ["constructor"], additionalProperties: false }
+  } as never)
+  assert.deepEqual(result.data, { constructor: "Kg6" })
+  assert.equal(editing.named("respond").length, 3)
+})
+
