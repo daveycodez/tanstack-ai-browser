@@ -653,7 +653,7 @@ export class AfmTextAdapter extends BaseTextAdapter<
           if (ended.type === "error") throw Object.assign(new Error(ended.message), { code: ended.code })
           if (ended.type !== "stopped") throw new Error(`The response went on (${ended.type}) instead of ending at its tool calls`)
           // The results are in the session's conversation, after the calls: the instruction alone asks about them.
-          drafted = yield* readNotes(await respond(draftPrompt(undefined, draftInstruction(options.messages)), draftTokens, "disallowed"))
+          drafted = yield* readNotes(await respond(draftPrompt(undefined, draftInstruction(options.messages, takes)), draftTokens, "disallowed"))
         } else {
           for (const result of step.results) {
             const callId = result.toolCallId as string
@@ -666,7 +666,7 @@ export class AfmTextAdapter extends BaseTextAdapter<
       } else {
         message = step.prompt || undefined
         thread.thought = { prompts: 0, message }
-        drafted = yield* readNotes(await respond(draftPrompt(message, draftInstruction(options.messages)), draftTokens, "disallowed"))
+        drafted = yield* readNotes(await respond(draftPrompt(message, draftInstruction(options.messages, takes)), draftTokens, "disallowed"))
       }
       if (drafted?.type === "toolCalls") {
         // A call the notes' response made all the same (before iOS/macOS 27 the framework can't be told not to) is the step's.

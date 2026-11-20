@@ -574,18 +574,16 @@ const NOTES: Array<Event> = [{ type: "delta", text: "Needs " }, { type: "delta",
 const REPLY: Array<Event> = [{ type: "delta", text: "Hello " }, { type: "done", text: "Hello there", usage: { inputTokens: 110, outputTokens: 3 } }]
 const asked = [user("Weather in Paris?")]
 /** The notes' prompt for a user's message: the instruction, then the message under it. */
-const drafting = (message: string, messages: Array<unknown>) => draftPrompt(message, draftInstruction(messages as never))
+const drafting = (message: string, messages: Array<unknown>, edits = false) => draftPrompt(message, draftInstruction(messages as never, edits))
 type Respond = { sessionId: string; turn: number; prompt: string; options: Record<string, unknown> }
 
 test("the draft's instruction repeats nothing of the conversation, and asks about a tool's results after them; its prompt pairs it with the message", () => {
-  assert.equal(
-    draftInstruction(asked as never),
-    "Write notes for yourself, not to the user, before replying to the user's message below: what they're asking, and whether you can answer directly or need a tool. Don't call tools or write the reply yet."
-  )
-  assert.equal(
-    draftInstruction([...asked, { role: "assistant", content: "" }, { role: "tool", toolCallId: "c1", content: "20C" }] as never),
-    "Now write notes for yourself, not to the user, before replying to the user's latest message, what the tool results above tell you, and what to do next. Don't call tools or write the reply yet."
-  )
+  // Where a session's transcript can be changed (iOS/macOS 27): AFM 3 Core's words.
+  assert.equal(draftInstruction(asked as never, true), "Write notes for yourself, not to the user, before replying to the user's message below: what they're asking, and whether it needs something you can't know or do yourself, like anything current or recent, that one of your tools gets, and which. Don't call tools or write the reply yet.")
+  assert.equal(draftInstruction([...asked, { role: "assistant", content: "" }, { role: "tool", toolCallId: "c1", content: "20C" }] as never, true), "Now write notes for yourself, not to the user, before replying to the user's latest message: what the tool results above tell you, and whether to answer with them or which different call would add what's missing. Don't call tools or write the reply yet.")
+  // Where it can't (before 27): AFM 2 Core's.
+  assert.equal(draftInstruction(asked as never, false), "Write notes for yourself, not to the user, before replying to the user's message below: what they're asking, and whether you can answer directly or need a tool. Don't call tools or write the reply yet.")
+  assert.equal(draftInstruction([...asked, { role: "assistant", content: "" }, { role: "tool", toolCallId: "c1", content: "20C" }] as never, false), "Now write notes for yourself, not to the user, before replying to the user's latest message, what the tool results above tell you, and what to do next. Don't call tools or write the reply yet.")
   assert.equal(REPLY_PROMPT, "Now reply.")
   // The instruction, a blank line, the user's message under it. Without a message, the instruction alone.
   assert.equal(draftPrompt("Hi", "Think."), "Instructions:\nThink.\n\nMessage:\nHi")
@@ -706,7 +704,7 @@ test("a conversation that ends in a tool's result, in a new session: the instruc
   const [session] = native.named("createSession")
   assert.deepEqual((session.messages as Array<{ role: string }>).map((m) => m.role), ["user", "assistant", "tool"])
   const responds = native.named("respond") as Array<Respond>
-  assert.equal(responds[0].prompt, draftPrompt(undefined, draftInstruction(messages as never)), "there's no message to pair it with")
+  assert.equal(responds[0].prompt, draftPrompt(undefined, draftInstruction(messages as never, false)), "there's no message to pair it with")
   assert.match(responds[0].prompt, /what the tool results above tell you, and what to do next/)
   assert.equal(responds[1].prompt, REPLY_PROMPT)
 })
@@ -824,6 +822,9 @@ const withResult = [
   { role: "tool", toolCallId: "c1", content: '{"temperature":"20C"}' }
 ]
 const AFTER_TOOL =
+  "Now write notes for yourself, not to the user, before replying to the user's latest message: what the tool results above tell you, and whether to answer with them or which different call would add what's missing. Don't call tools or write the reply yet."
+/** The same ask where the notes stay in the session (before iOS/macOS 27). */
+const KEPT_AFTER_TOOL =
   "Now write notes for yourself, not to the user, before replying to the user's latest message, what the tool results above tell you, and what to do next. Don't call tools or write the reply yet."
 /** A native side's calls that shape a session's conversation, with what tells them apart. */
 const shaping = (side: FakeNative) =>
@@ -850,7 +851,7 @@ test("where a session's own conversation can be changed (iOS/macOS 27), the draf
   assert.deepEqual(
     editing.calls.filter(([name]) => name === "respond" || name === "trimTranscript").map(([name, options]) => [name, options.prompt ?? options.entries]),
     [
-      ["respond", drafting("Weather in Paris?", asked)],
+      ["respond", drafting("Weather in Paris?", asked, true)],
       ["trimTranscript", 2],
       ["respond", "Message:\nWeather in Paris?\n\nNotes:\nNeeds the weather."]
     ]
@@ -883,7 +884,7 @@ test("a tool's results get notes of their own (iOS/macOS 27): the response is en
   assert.equal(textIn(answered), "Sunny, 20 degrees.")
   assert.equal(editing.named("submitToolResult").length, 0, "the results don't go back into the response")
   assert.deepEqual(shaping(editing), [
-    ["respond", drafting("Weather in Paris?", asked)],
+    ["respond", drafting("Weather in Paris?", asked, true)],
     ["trimTranscript", 2],
     ["respond", "Message:\nWeather in Paris?\n\nNotes:\nNeeds the weather."],
     ["finishToolCalls", '{"temperature":"20C"}'],
@@ -932,7 +933,7 @@ test("before iOS/macOS 27 a tool's results get notes too, and the session made f
     ["respond", REPLY_PROMPT],
     ["finishToolCalls", '{"temperature":"20C"}'],
     // The results are in the conversation: the instruction alone asks about them, and the notes stay for the reply.
-    ["respond", `Instructions:\n${AFTER_TOOL}`],
+    ["respond", `Instructions:\n${KEPT_AFTER_TOOL}`],
     ["respond", REPLY_PROMPT],
     // The message (all that's left of the prompts before the results), the ask for notes about them and the ask for the reply.
     ["rewriteTurn", 3]
@@ -956,7 +957,7 @@ test("before iOS/macOS 27 a draft that called the tool itself (the framework can
   assert.deepEqual(shaping(old), [
     ["respond", drafting("Weather in Paris?", asked)],
     ["finishToolCalls", '{"temperature":"20C"}'],
-    ["respond", `Instructions:\n${AFTER_TOOL}`],
+    ["respond", `Instructions:\n${KEPT_AFTER_TOOL}`],
     ["respond", REPLY_PROMPT],
     ["rewriteTurn", 3]
   ])

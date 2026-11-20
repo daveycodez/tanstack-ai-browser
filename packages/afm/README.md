@@ -87,17 +87,19 @@ chat({ adapter, threadId, messages, tools, reasoning: "high" })
 chat({ adapter, threadId, messages, tools, reasoning: { level: "high", budgetTokens: 200 } })
 ```
 
-A turn thinks at the user's message, and again at each tool's results. The notes and the reply are responses of the thread's own session (a session made for the notes would read the whole conversation again). The notes' prompt is one user message, the instruction above the message it asks about (the same prompt as the Prompt API and apfel adapters'):
+A turn thinks at the user's message, and again at each tool's results. The notes and the reply are responses of the thread's own session (a session made for the notes would read the whole conversation again). The notes' prompt is one user message, the instruction above the message it asks about (the same format as the Prompt API and apfel adapters'):
 
 ```
 Instructions:
-Write notes for yourself, not to the user, before replying to the user's message below: what they're asking, and whether you can answer directly or need a tool. Don't call tools or write the reply yet.
+Write notes for yourself, not to the user, before replying to the user's message below: what they're asking, and whether it needs something you can't know or do yourself, like anything current or recent, that one of your tools gets, and which. Don't call tools or write the reply yet.
 
 Message:
 <the user's message>
 ```
 
-After a tool's results the instruction is "Now write notes for yourself, not to the user, before replying to the user's latest message, what the tool results above tell you, and what to do next. Don't call tools or write the reply yet."
+After a tool's results the instruction is "Now write notes for yourself, not to the user, before replying to the user's latest message: what the tool results above tell you, and whether to answer with them or which different call would add what's missing. Don't call tools or write the reply yet."
+
+Those are the words from iOS/macOS 27, settled on AFM 3 Core. Before 27, on AFM 2 Core, the two instructions keep the words settled there: "… what they're asking, and whether you can answer directly or need a tool. Don't call tools or write the reply yet." and "Now write notes for yourself, not to the user, before replying to the user's latest message, what the tool results above tell you, and what to do next. Don't call tools or write the reply yet." Each model did worse on the other's: with AFM 3 Core's words, AFM 2 Core (an iPad on iOS 26) passed 20 and 20 of 42 cases with tools, to 26 and 29 with its own.
 
 **At the message**
 

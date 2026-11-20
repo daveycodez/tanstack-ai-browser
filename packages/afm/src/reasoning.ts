@@ -17,8 +17,9 @@
  *   and their results, and the reply, as a chat history without reasoning
  *   does, and a later turn doesn't read earlier notes.
  *
- * The notes' prompts are the same on every OS. What comes between the notes
- * and the reply depends on whether a session's own transcript can be changed:
+ * The notes' prompts have one format on every OS; their wording, and what
+ * comes between the notes and the reply, depend on whether a session's own
+ * transcript can be changed (`draftInstruction` has the two wordings):
  *
  * - From iOS/macOS 27 it can, and keeps what it has read. The notes and their
  *   prompt come back out, and the reply is to `thoughtsPrompt`: the message
@@ -48,25 +49,66 @@
 import type { ModelMessage } from "@tanstack/ai"
 
 /**
- * What asks for the notes (`draftPrompt` puts it in the notes' prompt), the
- * same words as the Prompt API and apfel adapters': at a message, about the
- * message below it; after a tool's results, about the results above it (asked
- * about the message again, the model plans the call it has just made).
+ * What asks for the notes (`draftPrompt` puts it in the notes' prompt): at a
+ * message, about the message below it; after a tool's results, about the
+ * results above it (asked about the message again, the model plans the call
+ * it has just made).
  *
- * At a message it asks what the user is asking and whether a tool is needed,
- * not for an inventory. Asked "what's needed, what you already have, and what
- * to do next", AFM 3 Core (an iPhone, five tools) invented needs to fill it
- * ("What's needed: current time, location, and weather info" for "Hi") and
- * then called `get_current_time`: to "Hi" 4 times in 4, to a haiku 3 in 3.
- * Asked this way, above the message, neither called a tool in 6 turns each.
+ * There are two wordings, by what the OS runs. From iOS/macOS 27 (`edits`:
+ * the session's transcript can be changed) the models are AFM 3's, and the
+ * words are the ones settled on the smallest of them, AFM 3 Core; before it,
+ * AFM 2 Core has the words settled on it. Each did worse on the other's: with
+ * AFM 3 Core's words AFM 2 Core (an iPad on iOS 26) passed 20 and 20 of 42
+ * cases with tools, to 26 and 29 with its own, calling a tool in 5 or 6 of the
+ * 6 that needed none.
+ *
+ * AFM 3 Core's ask, at a message: what the user is asking and whether that
+ * needs something the model can't know or do itself, which a tool gets. The
+ * model (an iPhone on iOS 27, five tools, today's date in its instructions)
+ * writes back whatever the ask offers it:
+ *
+ * - "what's needed, what you already have, and what to do next": it invented
+ *   needs to fill it ("What's needed: current time, location, and weather
+ *   info" for "Hi") and called `get_current_time`, to "Hi" 4 times in 4.
+ * - "whether you can answer directly or need a tool": "I can answer this
+ *   directly… no tools are needed", then a call, in 5 of the 7 turns that
+ *   called one.
+ * - "whether answering it needs one of your tools, and which": a web search
+ *   for a prime, a translation and why the sky is blue, 3 of 10 turns that
+ *   needed no tool.
+ * - "which of your tools you'll call for it, or none": the call itself written
+ *   out in the notes, in 5 of 10 turns.
+ * - As it is: a call in 1 of 30 turns that needed none, and the right tool in
+ *   30 of 32 that needed one.
+ *
+ * After a tool's results it asks whether to answer with them or which
+ * different call would add what's missing. Asked "what to do next", the model
+ * found a next step every time and searched five times for one answer; asked
+ * "whether they are enough to answer or another tool is needed", it made one
+ * search four times over, its notes the same each time. As it is, none of 32
+ * turns made more than three calls.
+ *
+ * "Don't call tools" stays, though iOS 27 keeps the notes' response from
+ * calling: without it the model called more (a tool in 2 of 10 turns that
+ * needed none, and two turns that never finished searching).
+ *
+ * AFM 2 Core's ask is whether it can answer directly or needs a tool, and
+ * after a tool's results what to do next: the words its 42 cases were run with.
  */
-export function draftInstruction(messages: ReadonlyArray<ModelMessage>): string {
-  return messages.at(-1)?.role === "tool" ? AFTER_TOOL_INSTRUCTION : MESSAGE_INSTRUCTION
+export function draftInstruction(messages: ReadonlyArray<ModelMessage>, edits: boolean): string {
+  const afterTool = messages.at(-1)?.role === "tool"
+  if (edits) return afterTool ? AFTER_TOOL_INSTRUCTION : MESSAGE_INSTRUCTION
+  return afterTool ? KEPT_AFTER_TOOL_INSTRUCTION : KEPT_MESSAGE_INSTRUCTION
 }
 
 const MESSAGE_INSTRUCTION =
-  "Write notes for yourself, not to the user, before replying to the user's message below: what they're asking, and whether you can answer directly or need a tool. Don't call tools or write the reply yet."
+  "Write notes for yourself, not to the user, before replying to the user's message below: what they're asking, and whether it needs something you can't know or do yourself, like anything current or recent, that one of your tools gets, and which. Don't call tools or write the reply yet."
 const AFTER_TOOL_INSTRUCTION =
+  "Now write notes for yourself, not to the user, before replying to the user's latest message: what the tool results above tell you, and whether to answer with them or which different call would add what's missing. Don't call tools or write the reply yet."
+/** Before iOS/macOS 27, where the notes stay in the session. */
+const KEPT_MESSAGE_INSTRUCTION =
+  "Write notes for yourself, not to the user, before replying to the user's message below: what they're asking, and whether you can answer directly or need a tool. Don't call tools or write the reply yet."
+const KEPT_AFTER_TOOL_INSTRUCTION =
   "Now write notes for yourself, not to the user, before replying to the user's latest message, what the tool results above tell you, and what to do next. Don't call tools or write the reply yet."
 
 /**

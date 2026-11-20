@@ -3,7 +3,7 @@
  * `chat({ reasoning: "high" })`, each step first drafts working notes and then
  * replies with them in hand. Two requests of the adapter's, not reasoning of
  * the model's, and neither is in the conversation `chat()` keeps. The prompts
- * are the afm and Prompt API adapters', in the same words.
+ * are in the afm and Prompt API adapters' format.
  *
  * At a user's message, the draft's request ends with one user message, the
  * instruction above the message it asks about (`draftMessages`), and the
