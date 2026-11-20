@@ -24,7 +24,7 @@ node packages/afm/device-tests/run.mjs ios 9334 "cases=chain&runs=2"
 node packages/afm/device-tests/run.mjs electron 9339 "cases=hi,weather-here&runs=2"
 ```
 
-The query: `cases` (case names or groups, all by default), `runs` (each case's, 3 by default), `system=none` (no system prompt; Lofi Agent's former default otherwise). The suite runs the adapter from this repo's source in the app's page, so an adapter change needs no app rebuild; a change to the native side does.
+The query: `cases` (case names or groups, all by default), `runs` (each case's, 3 by default), `system=none` (no system prompt; Lofi Agent's default otherwise). The suite runs the adapter from this repo's source in the app's page, so an adapter change needs no app rebuild; a change to the native side does.
 
 Each run prints `CASE <name> run <n>: PASS|FAIL <seconds> (why it failed) || <calls> > text: <answer>`, then a `SUMMARY` by group, then `ALL DONE`.
 

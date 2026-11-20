@@ -15,16 +15,23 @@
  * Each thread (`threadId`) keeps a session: a step prompts it with only the
  * new message. A conversation that changed (an edit, other tools, a new
  * system prompt) starts a new session from the messages.
+ *
+ * With `reasoning: "high"`, a step that answers a message drafts working
+ * notes before its reply (`reasoning.ts`), in the thread's own session, so
+ * what the session has read is reused from turn to turn.
  */
 import { buildBaseUsage, EventType, normalizeSystemPrompts } from "@tanstack/ai"
 import type { AdapterYieldChunk, ModelMessage, TextOptions, TokenUsage, Tool } from "@tanstack/ai"
+import { resolveReasoning } from "@tanstack/ai/adapter-internals"
 import { BaseTextAdapter } from "@tanstack/ai/adapters"
 import type { StructuredOutputOptions, StructuredOutputResult } from "@tanstack/ai/adapters"
 
 import { contentText, toNativeMessages } from "./messages.js"
-import type { AfmChatModel } from "./model-meta.js"
+import { AFM_MODEL_REASONING } from "./model-meta.js"
+import type { AfmChatModel, AfmModelReasoningByName } from "./model-meta.js"
 import { Afm } from "./native.js"
 import type { AfmGuardrails, AfmNative, AfmSampling, NativeEvent, NativeMessage, NativeUsage, UnavailableReason } from "./native.js"
+import { draftInstruction, draftPrompt, REPLY_PROMPT, thoughtsPrompt } from "./reasoning.js"
 import { toNativeSchema } from "./schema.js"
 import * as SystemLanguageModel from "./system-language-model.js"
 
@@ -124,6 +131,13 @@ type Thread = {
   /** Tool calls reported to `chat()` that wait for results. */
   waiting: Set<string>
   busy: boolean
+  /**
+   * A thinking turn, until its reply is done: how many prompts the session's
+   * conversation has for it (each time it thought, the notes' and the ask for
+   * the reply, or one holding the notes), and the user's message they stand for
+   * (none for a turn that began with a tool's result).
+   */
+  thought?: { prompts: number; message: string | undefined }
 }
 
 const KEPT_SESSIONS = 4
@@ -178,8 +192,75 @@ const usageOf = (usage: NativeUsage | undefined): TokenUsage | undefined =>
     ...(usage.estimated && { providerUsageDetails: { estimated: true } })
   }
 
+/**
+ * A thinking step's tokens: its two responses' together (the draft's, then
+ * the reply's), the draft's output as the reply's reasoning tokens.
+ */
+const thinkingUsageOf = (draft: NativeUsage | undefined, reply: NativeUsage | undefined): TokenUsage | undefined => {
+  if (!draft || !reply) return usageOf(draft ?? reply)
+  const cachedTokens = (draft.cachedTokens ?? 0) + (reply.cachedTokens ?? 0)
+  return {
+    ...usageOf({
+      inputTokens: draft.inputTokens + reply.inputTokens,
+      outputTokens: draft.outputTokens + reply.outputTokens,
+      ...(cachedTokens > 0 && { cachedTokens }),
+      ...((draft.estimated || reply.estimated) && { estimated: true })
+    }),
+    completionTokensDetails: { reasoningTokens: draft.outputTokens }
+  } as TokenUsage
+}
+
+/**
+ * A step's thinking, for `reasoning: "high"` (any level of thinking is the
+ * model's one): its token budget, if it has one. Undefined for a step that
+ * doesn't think: reasoning off or none, or a budget of no tokens.
+ */
+function thinkingOf(options: TextOptions<AfmTextModelOptions>, model: AfmChatModel) {
+  const reasoning = resolveReasoning(options.reasoning, AFM_MODEL_REASONING[model])
+  if (reasoning?.level !== "high") return undefined
+  if (reasoning.budgetTokens !== undefined && reasoning.budgetTokens <= 0) return undefined
+  return { budget: reasoning.budgetTokens }
+}
+
 let ids = 0
 const nextId = (prefix: string) => `${prefix}_${Date.now().toString(36)}_${(ids++).toString(36)}`
+
+/** The model's tool calls, as the events `chat()` runs them from. */
+function* toolCallChunks(
+  calls: ReadonlyArray<{ id: string; name: string; arguments: string }>,
+  parentMessageId: string,
+  model: string
+): Generator<AdapterYieldChunk> {
+  for (const [index, call] of calls.entries()) {
+    yield { type: EventType.TOOL_CALL_START, toolCallId: call.id, toolCallName: call.name, parentMessageId, index, model, timestamp: Date.now() }
+    yield { type: EventType.TOOL_CALL_ARGS, toolCallId: call.id, delta: call.arguments, args: call.arguments, model, timestamp: Date.now() }
+    yield {
+      type: EventType.TOOL_CALL_END,
+      toolCallId: call.id,
+      toolCallName: call.name,
+      args: call.arguments,
+      input: parse(call.arguments),
+      model,
+      timestamp: Date.now()
+    }
+  }
+}
+
+/** A failed or stopped step's RUN_ERROR, with the error's code (`aborted` for a stop). */
+function runError(error: unknown, aborted: boolean, runId: string, model: string): AdapterYieldChunk {
+  const message = error instanceof Error ? error.message : String(error)
+  const code = aborted ? "aborted" : (error as { code?: unknown })?.code
+  return {
+    type: EventType.RUN_ERROR,
+    runId,
+    model,
+    timestamp: Date.now(),
+    message,
+    // At the top too: chat() puts only this one on the error it throws.
+    ...(typeof code === "string" && { code }),
+    error: { message, ...(typeof code === "string" && { code }) }
+  }
+}
 
 const signalOf = (options: TextOptions<AfmTextModelOptions>) =>
   options.abortController?.signal ?? (options.request as RequestInit | undefined)?.signal ?? undefined
@@ -196,7 +277,11 @@ export class AfmTextAdapter extends BaseTextAdapter<
   AfmChatModel,
   AfmTextModelOptions,
   readonly ["text"],
-  MetadataByModality
+  MetadataByModality,
+  ReadonlyArray<string>,
+  unknown,
+  never,
+  AfmModelReasoningByName[AfmChatModel]
 > {
   override readonly kind = "text" as const
   readonly name = "afm" as const
@@ -211,7 +296,7 @@ export class AfmTextAdapter extends BaseTextAdapter<
    * cache retention "none"), by thread: the next step resumes them.
    */
   private readonly paused = new Map<string, Thread>()
-  private listening: Promise<unknown> | undefined
+  private listening: ReturnType<AfmNative["addListener"]> | undefined
 
   constructor(config: AfmConfig, model: AfmChatModel) {
     super({}, model)
@@ -222,6 +307,30 @@ export class AfmTextAdapter extends BaseTextAdapter<
   }
 
   private readonly sampling: AfmSampling | undefined
+  private abilities: Promise<{ edits: boolean; stops: boolean }> | undefined
+
+  /** What the native side can do to a session's conversation, asked once. */
+  private able() {
+    const trims = typeof this.native.trimTranscript === "function"
+    const finishes = typeof this.native.finishToolCalls === "function"
+    return (this.abilities ??=
+      trims || finishes
+        ? this.native.availability(this.guardrails ? { guardrails: this.guardrails } : undefined).then(
+            (answer) => ({ edits: trims && answer.editsTranscript === true, stops: finishes && answer.stopsAtToolCalls === true }),
+            () => ({ edits: false, stops: false })
+          )
+        : Promise.resolve({ edits: false, stops: false }))
+  }
+
+  /** Whether the native side takes entries back out of a session's own conversation (iOS/macOS 27). */
+  private async editsTranscript() {
+    return (await this.able()).edits
+  }
+
+  /** Whether the native side can end a response at its tool calls, with their results in the session's conversation after them. */
+  private async stopsAtToolCalls() {
+    return (await this.able()).stops
+  }
   private readonly includeSchemaInPrompt: boolean | undefined
 
   private readonly guardrails: AfmGuardrails | undefined
@@ -282,16 +391,21 @@ export class AfmTextAdapter extends BaseTextAdapter<
   /**
    * Ends every session: the threads', responses waiting for tool results, and
    * responses streaming now (structured output's, and those of sessions no
-   * thread keeps), each once.
+   * thread keeps), each once. Then stops listening to the native side, which
+   * would otherwise keep sending this adapter every later adapter's events;
+   * used again, the adapter listens again.
    */
   async destroy(): Promise<void> {
     const all = new Set([...this.threads.values(), ...this.paused.values(), ...this.queues.values()])
     for (const thread of all) this.close(thread)
     this.threads.clear()
     this.paused.clear()
+    const listening = this.listening
+    this.listening = undefined
+    await listening?.then((handle) => handle.remove()).catch(() => undefined)
   }
 
-  /** Routes the native events to their thread's response. Listens once. */
+  /** Routes the native events to their thread's response. Listens once, until `destroy()`. */
   private listen() {
     this.listening ??= this.native.addListener("event", (event) => {
       const thread = this.queues.get(event.sessionId)
@@ -435,29 +549,147 @@ export class AfmTextAdapter extends BaseTextAdapter<
       step = await this.begin(options)
       signal?.throwIfAborted()
       const { thread, keys } = step
-      if (step.results) {
-        for (const result of step.results) {
-          const callId = result.toolCallId as string
-          thread.waiting.delete(callId)
-          await this.native.submitToolResult({ sessionId: thread.sessionId, callId, output: contentText(result.content) })
-        }
-      } else {
-        const { temperature, maximumResponseTokens } = options.modelOptions ?? {}
+      // A thinking step's draft: its tokens, and a tool call it ended with, read first below.
+      let draftUsage: NativeUsage | undefined
+      let first: NativeEvent | undefined
+      const thinking = thinkingOf(options, model)
+      // Whether a response can be ended at its tool calls, for notes about their results.
+      const canStop = thinking ? await this.stopsAtToolCalls() : false
+      const { temperature, maximumResponseTokens: max } = options.modelOptions ?? {}
+      // A new message starts a new turn: nothing of an earlier turn's thinking is left to take out.
+      if (!step.results) thread.thought = undefined
+      // A response of the session's to `prompt`, as events.
+      const respond = async (prompt: string, tokens: number | undefined, toolCallingMode: "required" | "disallowed" | undefined) => {
+        const queue = new EventQueue()
         thread.turn += 1
         thread.written = ""
-        thread.queue = new EventQueue()
+        thread.queue = queue
         this.queues.set(thread.sessionId, thread)
+        if (thread.thought) thread.thought.prompts += 1
         await this.native.respond({
           sessionId: thread.sessionId,
           turn: thread.turn,
-          prompt: step.prompt ?? "",
+          prompt,
           options: {
             ...(temperature !== undefined && { temperature }),
-            ...(maximumResponseTokens !== undefined && { maximumResponseTokens }),
+            ...(tokens !== undefined && { maximumResponseTokens: tokens }),
             ...(this.samplingOf(options) && { sampling: this.samplingOf(options) }),
-            ...(toolCallingModeOf(options) && { toolCallingMode: toolCallingModeOf(options) })
+            ...(toolCallingMode && { toolCallingMode })
           }
         })
+        return queue
+      }
+
+      // With reasoning (see reasoning.ts), the step thinks before it replies: working
+      // notes first, streamed as reasoning, then the reply, both from the thread's
+      // session. It thinks at a new message, and again at each tool's results. The
+      // notes stay in the session while the turn goes on, and all come out of it once
+      // the turn's reply is done (`thread.thought`).
+      const reasoningId = nextId("reasoning")
+      let notes = ""
+      const noteEvents = function* (delta: string): Generator<AdapterYieldChunk> {
+        if (!delta) return
+        if (!notes) {
+          yield { type: EventType.REASONING_START, messageId: reasoningId, model, timestamp: timestamp() }
+          yield { type: EventType.REASONING_MESSAGE_START, messageId: reasoningId, role: "reasoning", model, timestamp: timestamp() }
+        }
+        notes += delta
+        yield { type: EventType.REASONING_MESSAGE_CONTENT, messageId: reasoningId, delta, model, timestamp: timestamp() }
+      }
+      const endNotes = function* (): Generator<AdapterYieldChunk> {
+        if (!notes) return
+        yield { type: EventType.REASONING_MESSAGE_END, messageId: reasoningId, model, timestamp: timestamp() }
+        yield { type: EventType.REASONING_END, messageId: reasoningId, model, timestamp: timestamp() }
+      }
+      type Drafted = Extract<NativeEvent, { type: "done" | "toolCalls" }>
+      /** A response read as notes: to its end, or to the tool calls it makes instead. */
+      const readNotes = async function* (queue: EventQueue): AsyncGenerator<AdapterYieldChunk, Drafted> {
+        let ended: Drafted | undefined
+        try {
+          while (!ended) {
+            const event = await queue.next(signal)
+            if (event.type === "delta") yield* noteEvents(event.text)
+            else if (event.type === "error") throw Object.assign(new Error(event.message), { code: event.code })
+            else if (event.type === "stopped") throw new Error("The notes' response was ended at tool calls nobody asked it to end at")
+            else {
+              // Any of the notes not sent as deltas.
+              if (event.type === "done" && event.text.startsWith(notes)) yield* noteEvents(event.text.slice(notes.length))
+              ended = event
+            }
+          }
+        } catch (error) {
+          yield* endNotes()
+          throw error
+        }
+        yield* endNotes()
+        return ended
+      }
+      // The budget caps the notes; `maximumResponseTokens` covers the notes and the reply together.
+      const draftTokens = !thinking ? max : thinking.budget === undefined ? max : max === undefined ? thinking.budget : Math.min(thinking.budget, max)
+      // Whether the notes and their prompt come back out of the session before the reply: where the session's
+      // own conversation can be changed (iOS/macOS 27), which keeps what it has read. Elsewhere they stay for
+      // the reply: taking them out would be another session, and AFM 2 Core (an iPad on iOS 26) did far worse
+      // handed its notes back in a prompt than left with them as its own turn (6 of 42 cases to 25).
+      const takes = thinking ? await this.editsTranscript() : false
+      // A tool's results get notes where the turn began with them, in this session, and the native side can
+      // end the response that waits for the results at its calls: the notes are then a response of their own,
+      // as a message's are. (Handed back into the waiting response with the ask for notes after them, the
+      // results were just answered: a Mac's model wrote its answer as the notes 12 times in 12.)
+      const stops = !!step.results && !!thinking && !!thread.thought && canStop
+      let drafted: Drafted | undefined
+      let message: string | undefined
+      if (step.results) {
+        if (stops && thread.thought) {
+          const ending = thread.queue as EventQueue
+          const results = step.results.map((result) => ({ callId: result.toolCallId as string, output: contentText(result.content) }))
+          // Where the notes stayed in the session, so did the turn's asks. A native side that makes a new session
+          // here (before iOS/macOS 27) leaves them out of it: the user's message, then the notes and the calls.
+          const { prompts, message: asked } = thread.thought
+          const tidies = !takes && prompts > 0
+          await this.native.finishToolCalls?.({ sessionId: thread.sessionId, results, ...(tidies && { prompts, ...(asked !== undefined && { prompt: asked }) }) })
+          if (tidies) thread.thought.prompts = asked !== undefined ? 1 : 0
+          for (const result of results) thread.waiting.delete(result.callId)
+          const ended = await ending.next(signal)
+          if (ended.type === "error") throw Object.assign(new Error(ended.message), { code: ended.code })
+          if (ended.type !== "stopped") throw new Error(`The response went on (${ended.type}) instead of ending at its tool calls`)
+          // The results are in the session's conversation, after the calls: the instruction alone asks about them.
+          drafted = yield* readNotes(await respond(draftPrompt(undefined, draftInstruction(options.messages)), draftTokens, "disallowed"))
+        } else {
+          for (const result of step.results) {
+            const callId = result.toolCallId as string
+            thread.waiting.delete(callId)
+            await this.native.submitToolResult({ sessionId: thread.sessionId, callId, output: contentText(result.content) })
+          }
+        }
+      } else if (!thinking) {
+        await respond(step.prompt ?? "", max, toolCallingModeOf(options))
+      } else {
+        message = step.prompt || undefined
+        thread.thought = { prompts: 0, message }
+        drafted = yield* readNotes(await respond(draftPrompt(message, draftInstruction(options.messages)), draftTokens, "disallowed"))
+      }
+      if (drafted?.type === "toolCalls") {
+        // A call the notes' response made all the same (before iOS/macOS 27 the framework can't be told not to) is the step's.
+        first = drafted
+      } else if (drafted) {
+        draftUsage = drafted.usage
+        const left = max === undefined ? undefined : max - (drafted.usage?.outputTokens ?? 0)
+        if (left !== undefined && left <= 0) {
+          // Notes that used the cap up leave no reply.
+          thread.queue = undefined
+          this.queues.delete(thread.sessionId)
+          thread.seen = keys
+          const usage = usageOf(drafted.usage)
+          yield { type: EventType.RUN_FINISHED, runId, threadId, model, timestamp: timestamp(), finishReason: "length", ...(usage && { usage }) }
+          return
+        }
+        // The notes and their prompt come out, and the reply is to the message with the notes. Where they
+        // stay (see `takes`), the reply is asked for after them.
+        if (takes) {
+          await this.native.trimTranscript?.({ sessionId: thread.sessionId, entries: 2 })
+          if (thread.thought) thread.thought.prompts -= 1
+        }
+        await respond(takes ? thoughtsPrompt(message, notes) : REPLY_PROMPT, left, toolCallingModeOf(options))
       }
 
       // This step's text (its assistant message), and the events that write it.
@@ -474,40 +706,21 @@ export class AfmTextAdapter extends BaseTextAdapter<
       }
       const queue = thread.queue as EventQueue
       for (;;) {
-        const event = await queue.next(signal)
+        const event: NativeEvent = first ?? (await queue.next(signal))
+        first = undefined
         if (event.type === "delta") {
           yield* textEvents(event.text)
         } else if (event.type === "toolCalls") {
           yield* endText()
-          for (const [index, call] of event.calls.entries()) {
-            thread.waiting.add(call.id)
-            yield {
-              type: EventType.TOOL_CALL_START,
-              toolCallId: call.id,
-              toolCallName: call.name,
-              parentMessageId: messageId,
-              index,
-              model,
-              timestamp: timestamp()
-            }
-            yield { type: EventType.TOOL_CALL_ARGS, toolCallId: call.id, delta: call.arguments, args: call.arguments, model, timestamp: timestamp() }
-            yield {
-              type: EventType.TOOL_CALL_END,
-              toolCallId: call.id,
-              toolCallName: call.name,
-              args: call.arguments,
-              input: parse(call.arguments),
-              model,
-              timestamp: timestamp()
-            }
-          }
+          for (const call of event.calls) thread.waiting.add(call.id)
+          yield* toolCallChunks(event.calls, messageId, model)
           // The response waits for the results, which the next step sends.
           thread.seen = keys
           paused = true
           // A session no thread keeps is still found by the step with the results.
           if (!step.kept) this.paused.set(step.key, thread)
-          // The tokens of the pass that made the calls (the next step's pass reads their results).
-          const usage = usageOf(event.usage)
+          // The tokens of the pass that made the calls (the next step's pass reads their results), with a draft's before it.
+          const usage = thinkingUsageOf(draftUsage, event.usage)
           yield { type: EventType.RUN_FINISHED, runId, threadId, model, timestamp: timestamp(), finishReason: "tool_calls", ...(usage && { usage }) }
           return
         } else if (event.type === "done") {
@@ -517,7 +730,16 @@ export class AfmTextAdapter extends BaseTextAdapter<
           thread.queue = undefined
           this.queues.delete(thread.sessionId)
           thread.seen = [...keys, messageKey({ role: "assistant", content: text })]
-          const usage = usageOf(event.usage)
+          // A thinking turn's notes, out of the session's conversation: the message as the user sent it,
+          // then the reply. (A native side that can't leaves them in, as they were.)
+          if (thread.thought) {
+            const { prompts, message } = thread.thought
+            thread.thought = undefined
+            if (prompts > 0) {
+              await this.native.rewriteTurn?.({ sessionId: thread.sessionId, prompts, ...(message !== undefined && { prompt: message }) })?.catch(() => undefined)
+            }
+          }
+          const usage = thinkingUsageOf(draftUsage, event.usage)
           yield {
             type: EventType.RUN_FINISHED,
             runId,
@@ -528,6 +750,8 @@ export class AfmTextAdapter extends BaseTextAdapter<
             ...(usage && { usage })
           }
           return
+        } else if (event.type === "stopped") {
+          throw new Error("The response was ended at tool calls nobody asked it to end at")
         } else {
           throw Object.assign(new Error(event.message), { code: event.code })
         }
@@ -542,18 +766,7 @@ export class AfmTextAdapter extends BaseTextAdapter<
         if (this.paused.get(step.key) === step.thread) this.paused.delete(step.key)
       }
       options.logger.errors("afm chatStream failed", { error, source: "afm.chatStream" })
-      const message = error instanceof Error ? error.message : String(error)
-      const code = aborted ? "aborted" : (error as { code?: unknown })?.code
-      yield {
-        type: EventType.RUN_ERROR,
-        runId,
-        model,
-        timestamp: timestamp(),
-        message,
-        // At the top too: chat() puts only this one on the error it throws.
-        ...(typeof code === "string" && { code }),
-        error: { message, ...(typeof code === "string" && { code }) }
-      }
+      yield runError(error, aborted, runId, model)
     } finally {
       if (step) {
         step.thread.busy = false

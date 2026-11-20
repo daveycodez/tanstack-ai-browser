@@ -23,6 +23,15 @@ export type NativeAvailability = {
   variant?: "core3" | "coreAdvanced3" | "core2_1" | "core2"
   /** A 27 variant the bridge has no key for: its display name. */
   variantName?: string
+  /**
+   * Whether a session's own conversation can be changed: iOS/macOS 27, where what
+   * the session read before the change stays cached. Before, another session takes
+   * its place, which reads the conversation again: the adapter then leaves a turn's
+   * notes in the session until one is made anyway.
+   */
+  editsTranscript?: boolean
+  /** Whether a response can be ended at its tool calls (`finishToolCalls`). */
+  stopsAtToolCalls?: boolean
 }
 
 /**
@@ -69,6 +78,8 @@ export type NativeEvent = { sessionId: string; turn: number } & (
   | { type: "toolCalls"; calls: Array<{ id: string; name: string; arguments: string }>; usage?: NativeUsage }
   | { type: "done"; text: string; usage?: NativeUsage }
   | { type: "error"; code: string; message: string }
+  /** The response was ended at its tool calls (`finishToolCalls`): their results are in the session's conversation, after them. */
+  | { type: "stopped" }
 )
 
 /**
@@ -93,6 +104,8 @@ export interface AfmNative {
     tools: Array<NativeTool>
     messages: Array<NativeMessage>
     guardrails?: AfmGuardrails
+    /** As a session whose own conversation can't be changed, whatever the OS: iOS/macOS 26's way, to try it on 27. */
+    fixedTranscript?: boolean
   }): Promise<void>
   prewarm(options: { sessionId: string }): Promise<void>
   /** Prompts a session; the response comes as events. A `schema` holds the answer to it (JSON in `done`). */
@@ -112,6 +125,35 @@ export interface AfmNative {
     }
     schema?: NativeGenerationSchema
   }): Promise<void>
+  /**
+   * Takes a session's last `entries` entries (prompts, responses) back out of its
+   * conversation, between responses. From iOS/macOS 27 the session's own conversation
+   * is changed, and what it read before those entries stays cached; before, a new
+   * session takes its place and reads the conversation again. Not in every host's
+   * native side.
+   */
+  trimTranscript?(options: { sessionId: string; entries: number }): Promise<void>
+  /**
+   * After a thinking turn's reply: the turn's part of a session's conversation, from
+   * the `prompts`-th last prompt on, becomes what a turn without thinking holds. That
+   * is the user's message (`prompt`; none where it's left out), the turn's tool calls
+   * and their results, and its last response: its other prompts and responses go.
+   * Between responses. Not in every host's native side.
+   */
+  rewriteTurn?(options: { sessionId: string; prompts: number; prompt?: string }): Promise<void>
+  /**
+   * Ends a session's response at the tool calls it waits on, instead of returning their
+   * results into it (`availability().stopsAtToolCalls`). A `stopped` event follows, with
+   * the results in the conversation after the calls; the session's next prompt then
+   * comes where the response would have gone on to its answer. Not in every host's
+   * native side.
+   *
+   * `prompts` and `prompt`, where another session takes the session's place for it
+   * (before iOS/macOS 27): the turn's last `prompts` prompts aren't in that session, and
+   * `prompt` (the user's message) is where the first of them was; what they were
+   * answered with stays.
+   */
+  finishToolCalls?(options: { sessionId: string; results: Array<{ callId: string; output: string }>; prompts?: number; prompt?: string }): Promise<void>
   /** A tool's result: the session's waiting call returns it, and the response goes on. */
   submitToolResult(options: { sessionId: string; callId: string; output: string }): Promise<void>
   /** Stops a session's response. */
@@ -139,6 +181,9 @@ export const Afm: AfmNative = {
   prewarm: async (options) => (await capacitor()).plugin.prewarm(options),
   respond: async (options) => (await capacitor()).plugin.respond(options),
   submitToolResult: async (options) => (await capacitor()).plugin.submitToolResult(options),
+  trimTranscript: async (options) => (await capacitor()).plugin.trimTranscript?.(options),
+  rewriteTurn: async (options) => (await capacitor()).plugin.rewriteTurn?.(options),
+  finishToolCalls: async (options) => (await capacitor()).plugin.finishToolCalls?.(options),
   cancel: async (options) => (await capacitor()).plugin.cancel(options),
   deleteSession: async (options) => (await capacitor()).plugin.deleteSession(options),
   addListener: async (name, listener) => (await capacitor()).plugin.addListener(name, listener)

@@ -4,13 +4,24 @@
  * (their names, arguments and results) and its answer, and gives why it
  * failed, or nothing when it passed.
  */
+import type { ModelMessage } from "@tanstack/ai"
+
 import type { Call } from "./tools.js"
 import { ORDER } from "./tools.js"
 
 export type Turn = { calls: Array<Call>; text: string; error?: string }
 export type Check = (turn: Turn) => string | undefined
-/** A conversation, and the tools it offers: all of them (tools.ts), or `tools` alone. */
-export type Case = { name: string; group: string; tools?: Array<string>; turns: Array<{ prompt: string; check: Check }> }
+/**
+ * A conversation, and the tools it offers: all of them (tools.ts), or `tools`
+ * alone. A turn's `rewrite` changes the conversation so far before its prompt
+ * is sent, as an app's edit, delete and regenerate do.
+ */
+export type Case = {
+  name: string
+  group: string
+  tools?: Array<string>
+  turns: Array<{ prompt: string; check: Check; rewrite?: (history: Array<ModelMessage>) => Array<ModelMessage> }>
+}
 
 /** A handful of tools, as most apps offer (and as Lofi Agent does): a model picks among few tools differently than among many. */
 const FEW = ["get_current_time", "get_current_location", "get_weather", "web_search_exa", "web_fetch_exa"]
@@ -75,6 +86,18 @@ const atMost =
 
 /** A plain reply: no tool, an answer. */
 const plain = (...more: Array<Check>) => all(answered, noCalls, ...more)
+
+/** A message's text. */
+const textOf = (message: ModelMessage) => (typeof message.content === "string" ? message.content : "")
+/** The conversation without its last turn: the last user message and what followed it (an edit of it, or a regenerate). */
+const withoutLastTurn = (history: Array<ModelMessage>) => history.slice(0, history.map((m) => m.role).lastIndexOf("user"))
+/** The conversation without the messages `drop` picks: an app's delete, a message at a time. */
+const without =
+  (drop: (message: ModelMessage, index: number, history: Array<ModelMessage>) => boolean) =>
+  (history: Array<ModelMessage>) =>
+    history.filter((m, i) => !drop(m, i, history))
+const CODE = { prompt: "My favourite fruit is the APPLE. Just say OK.", check: answered }
+const ASK_CODE = "Which fruit is my favourite? Answer with just the fruit."
 
 export const CASES: Array<Case> = [
   // No tool: greetings, what the model knows, writing.
@@ -260,6 +283,73 @@ export const CASES: Array<Case> = [
     turns: [
       { prompt: "Hi", check: plain() },
       { prompt: "Who won the World Series in 2026?", check: all(answered, called("web_search_exa"), says(/Brewers/)) }
+    ]
+  },
+
+  // A conversation an app changed (Lofi Agent's edit, regenerate and delete): the answer follows the conversation as it is now.
+  {
+    name: "edit-last",
+    group: "edits",
+    tools: FEW,
+    turns: [
+      CODE,
+      { rewrite: withoutLastTurn, prompt: "My favourite fruit is the BANANA. Just say OK.", check: answered },
+      { prompt: ASK_CODE, check: all(answered, says(/banana/i), saysNot(/apple/i)) }
+    ]
+  },
+  {
+    name: "edit-earlier",
+    group: "edits",
+    tools: FEW,
+    turns: [
+      CODE,
+      { prompt: "What is 2 + 2? Just the number.", check: all(answered, says(/4/)) },
+      // The first message edited: everything after it goes.
+      { rewrite: () => [], prompt: "My favourite fruit is the CHERRY. Just say OK.", check: answered },
+      { prompt: ASK_CODE, check: all(answered, says(/cherry/i), saysNot(/apple/i)) }
+    ]
+  },
+  {
+    name: "regenerate",
+    group: "edits",
+    tools: FEW,
+    turns: [
+      CODE,
+      { prompt: ASK_CODE, check: all(answered, says(/apple/i)) },
+      { rewrite: withoutLastTurn, prompt: ASK_CODE, check: all(answered, says(/apple/i)) },
+      { prompt: "And what is 3 + 3? Just the number.", check: all(answered, says(/6/)) }
+    ]
+  },
+  {
+    name: "delete-exchange",
+    group: "edits",
+    tools: FEW,
+    turns: [
+      CODE,
+      { prompt: "I changed my mind: my favourite fruit is now the BANANA. Just say OK.", check: answered },
+      // The second message and its reply deleted.
+      { rewrite: (history) => history.slice(0, 2), prompt: ASK_CODE, check: all(answered, says(/apple/i), saysNot(/banana/i)) }
+    ]
+  },
+  {
+    name: "delete-reply",
+    group: "edits",
+    tools: FEW,
+    turns: [
+      CODE,
+      // The reply deleted: two messages of the user's in a row.
+      { rewrite: without((m) => m.role === "assistant"), prompt: ASK_CODE, check: all(answered, says(/apple/i)) }
+    ]
+  },
+  {
+    name: "delete-message",
+    group: "edits",
+    tools: FEW,
+    turns: [
+      CODE,
+      { prompt: "I changed my mind: my favourite fruit is now the BANANA. Just say OK.", check: answered },
+      // The second message deleted, its reply left: two replies in a row.
+      { rewrite: without((m) => m.role === "user" && /BANANA/.test(textOf(m))), prompt: ASK_CODE, check: all(answered, says(/apple/i), saysNot(/banana/i)) }
     ]
   },
 

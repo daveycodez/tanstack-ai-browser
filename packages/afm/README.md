@@ -78,6 +78,54 @@ A request's `modelOptions.guardrails` overrides the adapter's, and in Electron `
 
 Apple's permissive guardrails cover text responses only: anything else, such as structured output (`chat({ outputSchema })`) and tool calls' arguments, gets the default guardrails, so a blocked structured answer fails as any guardrail violation does. A guardrail violation that still happens has the code `guardrailViolation`: on the error `chat()` throws, and on a stream's `RUN_ERROR`. Apple words it "May contain unsafe content" or "Response may contain sensitive or unsafe content"; it's one check either way. Structured output (`chat({ outputSchema })`) has it too: the adapter emits its own structured-output events, since `chat()`'s wrapper around `structuredOutput()` keeps only parse failures' codes.
 
+### Thinking
+
+Apple's model doesn't reason on its own. With `chat({ reasoning: "high" })` the adapter has it think first: a step drafts working notes, streamed as reasoning (the `REASONING_*` events), then replies with them in hand. It's off unless asked for. The levels are `"off"` and `"high"`, and any other level of thinking is taken as `"high"`.
+
+```ts
+chat({ adapter, threadId, messages, tools, reasoning: "high" })
+chat({ adapter, threadId, messages, tools, reasoning: { level: "high", budgetTokens: 200 } })
+```
+
+A turn thinks at the user's message, and again at each tool's results. The notes and the reply are responses of the thread's own session (a session made for the notes would read the whole conversation again). The notes' prompt is one user message, the instruction above the message it asks about (the same prompt as the Prompt API and apfel adapters'):
+
+```
+Instructions:
+Write notes for yourself, not to the user, before replying to the user's message below: what they're asking, and whether you can answer directly or need a tool. Don't call tools or write the reply yet.
+
+Message:
+<the user's message>
+```
+
+After a tool's results the instruction is "Now write notes for yourself, not to the user, before replying to the user's latest message, what the tool results above tell you, and what to do next. Don't call tools or write the reply yet."
+
+**At the message**
+
+- **iOS/macOS 27**: the notes' prompt is answered with tool calling disallowed. The notes and their prompt are then taken out of the session's own transcript, which keeps what it has read, and the reply is to the message again with the notes under it (`Message:`, then `Notes:`).
+- **Before 27**, a session's transcript can't be changed and a session can't be copied, so the notes stay where the model wrote them and `Now reply.` asks for the reply. The framework can't be told not to call tools there, so the notes' response can come back as a tool call, which is then the step's call.
+
+**At a tool's results**
+
+The framework would go straight on with the response that called the tool, so the adapter ends that response at its calls instead of returning the results into it. The results go into the transcript after the calls, and the session is prompted again, with the instruction alone.
+
+- **iOS/macOS 27**: the results are written into the session's own transcript. What the session had read stays cached. The notes come out before the reply as at a message, and the reply's prompt is the notes (`Notes:`).
+- **Before 27**: a new session takes the session's place, holding the transcript up to the calls and the results after them. It is made without the turn's asks so far (for notes, for replies): the user's message, then the notes and the calls. It reads the conversation from the start. The notes about the results stay, and `Now reply.` asks for the reply.
+
+On an iPad (AFM 2 Core, iOS 26, 42 cases with tools), 27's way with a new session each time passed 6 cases, and this way 25 and 26; without notes at all it passed 27.
+
+Handing the results back into the waiting response with the instruction after them doesn't work: the model answers them, and writes its answer as the notes.
+
+**When the turn's reply is done**
+
+The notes stay in the session while the turn goes on, so its later steps read them. Once the reply is done, all of the turn's thinking comes out: the transcript holds the message as the user sent it, the tool calls and their results, and the reply, so a later turn doesn't read earlier notes.
+
+- **iOS/macOS 27**: the session's transcript is set, and what it read before the message stays cached (on a Mac, 1,787 of the next turn's 1,840 tokens).
+- **Before 27**: a new session takes the old one's place and is prewarmed. After a second and a half it answers as fast as the old one (an iPad on iOS 26, a 2,700-token conversation: 0.76 s to the first token); a message sent sooner waits for the rest of the reading (2.2 s if sent at once).
+
+`budgetTokens` caps the notes, and a budget of 0 is no thinking. `maximumResponseTokens` covers the notes and the reply together. The notes' tokens are in the step's usage, as `completionTokensDetails.reasoningTokens`.
+
+Another host's `AfmNative` does this with three calls, each optional: `trimTranscript({ sessionId, entries })` takes the notes out before the reply (where `availability()` says `editsTranscript`: the session's own transcript is changed), `finishToolCalls({ sessionId, results, prompts?, prompt? })` ends a response at its tool calls and puts the results into the transcript after them (where it says `stopsAtToolCalls`; a `stopped` event follows), and `rewriteTurn({ sessionId, prompts, prompt? })` takes a turn's thinking out once its reply is done. Without the first, the notes stay for the reply, which `Now reply.` then asks for; without the second, a tool's results get no notes; without the third, a turn's notes stay in the session. Where the notes stay, `finishToolCalls` is given the turn's `prompts` so far and the user's message (`prompt`): a side that makes a new session there leaves those prompts out of it.
+
 ### Electron (macOS)
 
 The page is the same as on iOS: `afmText()`. The main process runs the model, with one call before opening windows:

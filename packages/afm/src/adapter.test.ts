@@ -1,11 +1,12 @@
 import assert from "node:assert/strict"
 import { beforeEach, test } from "node:test"
 
-import { chat } from "@tanstack/ai"
+import { chat, supportedReasoningLevels } from "@tanstack/ai"
 import type { TextOptions } from "@tanstack/ai"
 
 import { afmText } from "./adapter.js"
-import { SystemLanguageModel } from "./index.js"
+import { AFM_MODEL_REASONING, SystemLanguageModel } from "./index.js"
+import { draftInstruction, draftPrompt, REPLY_PROMPT, thoughtsPrompt } from "./reasoning.js"
 import type { AfmNative, NativeAvailability, NativeEvent } from "./native.js"
 
 type Chunk = { type: string; [key: string]: unknown }
@@ -23,6 +24,8 @@ class FakeNative implements AfmNative {
   /** Events once a response's waiting tool calls all have results, in turn. */
   resumes: Array<Array<Event>> = []
   private listener: ((event: NativeEvent) => void) | undefined
+  /** How many listeners are registered now. */
+  listeners = 0
   private turns = new Map<string, number>()
   private waiting = new Map<string, Set<string>>()
 
@@ -32,7 +35,13 @@ class FakeNative implements AfmNative {
   }
   async addListener(_name: "event", listener: (event: NativeEvent) => void) {
     this.listener = listener
-    return { remove: async () => undefined }
+    this.listeners += 1
+    return {
+      remove: async () => {
+        this.listeners -= 1
+        if (this.listener === listener) this.listener = undefined
+      }
+    }
   }
   async createSession(options: Record<string, unknown>) {
     this.calls.push(["createSession", options])
@@ -57,7 +66,7 @@ class FakeNative implements AfmNative {
   async deleteSession(options: Record<string, unknown>) {
     this.calls.push(["deleteSession", options])
   }
-  private play(sessionId: string, events: Array<Event>) {
+  protected play(sessionId: string, events: Array<Event>) {
     const turn = this.turns.get(sessionId) ?? 0
     setTimeout(() => {
       for (const event of events) {
@@ -384,6 +393,23 @@ test("destroy() during a response ends its stream with an error", async () => {
   assert.equal((chunk.error as { code?: string }).code, "closed")
 })
 
+test("destroy() stops listening to the native side; used again, the adapter listens again", async () => {
+  const adapter = afmText({ native })
+  native.replies = [[{ type: "done", text: "One." }], [{ type: "done", text: "Two." }]]
+  assert.equal(textIn(await run(adapter)), "One.")
+  assert.equal(native.listeners, 1)
+  await adapter.destroy()
+  assert.equal(native.listeners, 0)
+  assert.equal(textIn(await run(adapter)), "Two.")
+  assert.equal(native.listeners, 1)
+  // Destroyed before it ever listened, or twice: nothing to remove.
+  await adapter.destroy()
+  await adapter.destroy()
+  assert.equal(native.listeners, 0)
+  await afmText({ native }).destroy()
+  assert.equal(native.listeners, 0)
+})
+
 test("an edited tool call in the conversation starts a new session", async () => {
   const adapter = afmText({ native })
   native.replies = [[{ type: "done", text: "It's sunny." }]]
@@ -538,4 +564,435 @@ test("includeSchemaInPrompt false reaches the native response: the adapter's for
   assert.equal(await ask({ includeSchemaInPrompt: false }), false)
   assert.equal(await ask({ includeSchemaInPrompt: false }, { includeSchemaInPrompt: true }), undefined)
   assert.equal(await ask({}, { includeSchemaInPrompt: false }), false)
+})
+
+const high = { reasoning: { level: "high", summary: true } }
+const reasoningIn = (chunks: Array<Chunk>) =>
+  chunks.filter((c) => c.type === "REASONING_MESSAGE_CONTENT").map((c) => c.delta).join("")
+/** A draft's response, and a reply's, as the native side sends them. */
+const NOTES: Array<Event> = [{ type: "delta", text: "Needs " }, { type: "delta", text: "the weather." }, { type: "done", text: "Needs the weather.", usage: { inputTokens: 100, outputTokens: 5 } }]
+const REPLY: Array<Event> = [{ type: "delta", text: "Hello " }, { type: "done", text: "Hello there", usage: { inputTokens: 110, outputTokens: 3 } }]
+const asked = [user("Weather in Paris?")]
+/** The notes' prompt for a user's message: the instruction, then the message under it. */
+const drafting = (message: string, messages: Array<unknown>) => draftPrompt(message, draftInstruction(messages as never))
+type Respond = { sessionId: string; turn: number; prompt: string; options: Record<string, unknown> }
+
+test("the draft's instruction repeats nothing of the conversation, and asks about a tool's results after them; its prompt pairs it with the message", () => {
+  assert.equal(
+    draftInstruction(asked as never),
+    "Write notes for yourself, not to the user, before replying to the user's message below: what they're asking, and whether you can answer directly or need a tool. Don't call tools or write the reply yet."
+  )
+  assert.equal(
+    draftInstruction([...asked, { role: "assistant", content: "" }, { role: "tool", toolCallId: "c1", content: "20C" }] as never),
+    "Now write notes for yourself, not to the user, before replying to the user's latest message, what the tool results above tell you, and what to do next. Don't call tools or write the reply yet."
+  )
+  assert.equal(REPLY_PROMPT, "Now reply.")
+  // The instruction, a blank line, the user's message under it. Without a message, the instruction alone.
+  assert.equal(draftPrompt("Hi", "Think."), "Instructions:\nThink.\n\nMessage:\nHi")
+  assert.equal(draftPrompt(undefined, "Think."), "Instructions:\nThink.")
+  assert.deepEqual(supportedReasoningLevels(AFM_MODEL_REASONING.system), ["off", "high"])
+})
+
+test("reasoning high: the thread's session drafts working notes with tool calling off, then replies after them, and is kept", async () => {
+  native.replies = [NOTES, REPLY]
+  const chunks = await run(afmText({ native }), { ...high, systemPrompts: ["Be brief."], tools: [weather], modelOptions: { temperature: 0.2 } })
+  assert.deepEqual(typesOf(chunks), [
+    "RUN_STARTED",
+    "REASONING_START",
+    "REASONING_MESSAGE_START",
+    "REASONING_MESSAGE_CONTENT",
+    "REASONING_MESSAGE_CONTENT",
+    "REASONING_MESSAGE_END",
+    "REASONING_END",
+    "TEXT_MESSAGE_START",
+    "TEXT_MESSAGE_CONTENT",
+    "TEXT_MESSAGE_CONTENT",
+    "TEXT_MESSAGE_END",
+    "RUN_FINISHED"
+  ])
+  assert.equal(reasoningIn(chunks), "Needs the weather.")
+  assert.equal(textIn(chunks), "Hello there")
+  assert.equal(chunks.at(-1)?.finishReason, "stop")
+  const reasoningIds = new Set(chunks.filter((c) => c.type.startsWith("REASONING")).map((c) => c.messageId))
+  assert.ok(!reasoningIds.has(chunks.find((c) => c.type === "TEXT_MESSAGE_START")?.messageId), "not the reply's message")
+
+  const sessions = native.named("createSession")
+  assert.equal(sessions.length, 1)
+  assert.equal(sessions[0].instructions, "Be brief.", "the system prompt as given")
+  assert.equal((sessions[0].tools as Array<{ name: string }>)[0].name, "get_weather")
+  assert.deepEqual(sessions[0].messages, [], "the user's message is in the draft's prompt")
+  const [draft, reply] = native.named("respond") as Array<Respond>
+  assert.equal(native.named("respond").length, 2)
+  assert.deepEqual([draft.sessionId, reply.sessionId], [sessions[0].sessionId, sessions[0].sessionId], "both the thread's session's")
+  assert.deepEqual([draft.turn, reply.turn], [1, 2])
+  assert.equal(draft.prompt, drafting("Weather in Paris?", asked))
+  assert.deepEqual(draft.options, { temperature: 0.2, toolCallingMode: "disallowed" })
+  assert.equal(reply.prompt, REPLY_PROMPT)
+  assert.deepEqual(reply.options, { temperature: 0.2 })
+  // The step's tokens are both responses', the notes' as reasoning tokens.
+  const usage = chunks.at(-1)?.usage as Record<string, unknown>
+  assert.equal(usage.promptTokens, 210)
+  assert.equal(usage.completionTokens, 8)
+  assert.deepEqual(usage.completionTokensDetails, { reasoningTokens: 5 })
+  assert.equal(native.named("deleteSession").length, 0, "kept for the thread")
+})
+
+test("the thread's next message goes on in the same session, with or without reasoning", async () => {
+  native.replies = [NOTES, REPLY, [{ type: "done", text: "Tomorrow now." }], [{ type: "done", text: "Rain." }], [{ type: "done", text: "Bye." }]]
+  const adapter = afmText({ native })
+  await run(adapter, high)
+  const second = [...asked, { role: "assistant", content: "Hello there" }, user("And tomorrow?")]
+  const chunks = await run(adapter, { ...high, messages: second })
+  assert.equal(reasoningIn(chunks), "Tomorrow now.")
+  assert.equal(textIn(chunks), "Rain.")
+  await run(adapter, { messages: [...second, { role: "assistant", content: "Rain." }, user("Thanks")] })
+  assert.equal(native.named("createSession").length, 1, "one session for the thread")
+  assert.equal(native.named("deleteSession").length, 0)
+  const responds = native.named("respond") as Array<Respond>
+  assert.deepEqual(responds.map((r) => r.turn), [1, 2, 3, 4, 5])
+  assert.equal(responds[2].prompt, drafting("And tomorrow?", second), "only the new message")
+  assert.equal(responds[3].prompt, REPLY_PROMPT)
+  assert.equal(responds[4].prompt, "Thanks", "without reasoning, the message as it is")
+})
+
+test("reasoning off, or none: the thread's session answers the message, as without it", async () => {
+  for (const extra of [{}, { reasoning: { level: "off", summary: true } }]) {
+    native = new FakeNative()
+    native.replies = [REPLY]
+    const chunks = await run(afmText({ native }), extra)
+    assert.ok(!chunks.some((c) => c.type.startsWith("REASONING")))
+    assert.deepEqual(native.named("respond").map((r) => r.prompt), ["Weather in Paris?"])
+    assert.equal(native.named("deleteSession").length, 0, "kept for the thread")
+  }
+})
+
+test("a thinking step's tool call waits like any other: the step with its result resumes the response, without notes", async () => {
+  const call = { id: "c1", name: "get_weather", arguments: '{"city":"Paris"}' }
+  native.replies = [NOTES, [{ type: "toolCalls", calls: [call], usage: { inputTokens: 110, outputTokens: 9 } }]]
+  native.resumes = [[{ type: "delta", text: "Sunny, 20 degrees." }, { type: "done", text: "Sunny, 20 degrees." }]]
+  const adapter = afmText({ native })
+  const called = await run(adapter, { ...high, tools: [weather] })
+  assert.equal(reasoningIn(called), "Needs the weather.")
+  assert.equal(called.at(-1)?.finishReason, "tool_calls")
+  assert.deepEqual(called.find((c) => c.type === "TOOL_CALL_END")?.input, { city: "Paris" })
+  // The draft's tokens are in the step that made the call.
+  assert.deepEqual((called.at(-1)?.usage as Record<string, unknown>).completionTokensDetails, { reasoningTokens: 5 })
+  assert.equal((called.at(-1)?.usage as Record<string, unknown>).completionTokens, 14)
+
+  const messages = [
+    ...asked,
+    { role: "assistant", content: "", toolCalls: [{ id: "c1", type: "function", function: { name: "get_weather", arguments: '{"city":"Paris"}' } }] },
+    { role: "tool", toolCallId: "c1", content: "20C" }
+  ]
+  const answered = await run(adapter, { ...high, tools: [weather], messages })
+  assert.ok(!answered.some((c) => c.type.startsWith("REASONING")), "the framework goes on with the response")
+  assert.equal(textIn(answered), "Sunny, 20 degrees.")
+  assert.deepEqual(native.named("submitToolResult"), [{ sessionId: native.named("createSession")[0].sessionId, callId: "c1", output: "20C" }])
+  assert.equal(native.named("createSession").length, 1)
+  assert.equal(native.named("respond").length, 2, "the draft and the reply, no more")
+  assert.equal(native.named("deleteSession").length, 0)
+})
+
+test("a conversation that ends in a tool's result, in a new session: the instruction alone asks for notes about the result", async () => {
+  native.replies = [[{ type: "done", text: "It is 20 degrees." }], [{ type: "done", text: "Sunny, 20 degrees." }]]
+  const messages = [
+    ...asked,
+    { role: "assistant", content: "", toolCalls: [{ id: "c1", type: "function", function: { name: "get_weather", arguments: '{"city":"Paris"}' } }] },
+    { role: "tool", toolCallId: "c1", content: "20C" }
+  ]
+  const chunks = await run(afmText({ native }), { ...high, tools: [weather], messages })
+  assert.equal(reasoningIn(chunks), "It is 20 degrees.")
+  assert.equal(textIn(chunks), "Sunny, 20 degrees.")
+  const [session] = native.named("createSession")
+  assert.deepEqual((session.messages as Array<{ role: string }>).map((m) => m.role), ["user", "assistant", "tool"])
+  const responds = native.named("respond") as Array<Respond>
+  assert.equal(responds[0].prompt, draftPrompt(undefined, draftInstruction(messages as never)), "there's no message to pair it with")
+  assert.match(responds[0].prompt, /what the tool results above tell you, and what to do next/)
+  assert.equal(responds[1].prompt, REPLY_PROMPT)
+})
+
+test("a tool call the draft makes all the same is the step's: no reply is asked for, and its result resumes it", async () => {
+  native.replies = [[{ type: "delta", text: "Checking. " }, { type: "toolCalls", calls: [{ id: "d1", name: "get_weather", arguments: '{"city":"Paris"}' }], usage: { inputTokens: 100, outputTokens: 12 } }]]
+  native.resumes = [[{ type: "done", text: "Sunny." }]]
+  const adapter = afmText({ native })
+  const chunks = await run(adapter, { ...high, tools: [weather] })
+  assert.equal(reasoningIn(chunks), "Checking. ")
+  const types = typesOf(chunks)
+  assert.deepEqual(types.slice(types.indexOf("REASONING_END") + 1), ["TOOL_CALL_START", "TOOL_CALL_ARGS", "TOOL_CALL_END", "RUN_FINISHED"])
+  assert.equal(chunks.find((c) => c.type === "TOOL_CALL_END")?.toolCallId, "d1")
+  assert.equal(chunks.at(-1)?.finishReason, "tool_calls")
+  assert.equal((chunks.at(-1)?.usage as Record<string, unknown>).completionTokens, 12)
+  assert.equal(native.named("respond").length, 1)
+
+  const answered = await run(adapter, {
+    ...high,
+    tools: [weather],
+    messages: [
+      ...asked,
+      { role: "assistant", content: "", toolCalls: [{ id: "d1", type: "function", function: { name: "get_weather", arguments: '{"city":"Paris"}' } }] },
+      { role: "tool", toolCallId: "d1", content: "20C" }
+    ]
+  })
+  assert.equal(textIn(answered), "Sunny.")
+  assert.equal(native.named("submitToolResult").length, 1)
+  assert.equal(native.named("respond").length, 1)
+})
+
+test("budgetTokens caps the notes; maximumResponseTokens covers the notes and the reply together", async () => {
+  native.replies = [NOTES, REPLY]
+  await run(afmText({ native }), { reasoning: { level: "high", summary: true, budgetTokens: 64 } })
+  let responds = native.named("respond") as Array<Respond>
+  assert.equal(responds[0].options.maximumResponseTokens, 64, "the draft's")
+  assert.equal("maximumResponseTokens" in responds[1].options, false, "the reply has no cap of its own")
+
+  native = new FakeNative()
+  native.replies = [NOTES, REPLY]
+  await run(afmText({ native }), { reasoning: { level: "high", summary: true, budgetTokens: 64 }, modelOptions: { maximumResponseTokens: 20 } })
+  responds = native.named("respond") as Array<Respond>
+  assert.equal(responds[0].options.maximumResponseTokens, 20, "the smaller of the two")
+  assert.equal(responds[1].options.maximumResponseTokens, 15, "what the notes left")
+
+  // Notes that used the cap up leave no reply.
+  native = new FakeNative()
+  native.replies = [[{ type: "done", text: "Needs the", usage: { inputTokens: 100, outputTokens: 5 } }]]
+  const cut = await run(afmText({ native }), { ...high, modelOptions: { maximumResponseTokens: 5 } })
+  assert.equal(reasoningIn(cut), "Needs the")
+  assert.equal(textIn(cut), "")
+  assert.equal(cut.at(-1)?.finishReason, "length")
+  assert.equal(native.named("respond").length, 1)
+
+  // A budget of none is no notes: the step is as without reasoning.
+  native = new FakeNative()
+  native.replies = [REPLY]
+  const none = await run(afmText({ native }), { reasoning: { level: "high", summary: true, budgetTokens: 0 } })
+  assert.ok(!none.some((c) => c.type.startsWith("REASONING")))
+  assert.deepEqual(native.named("respond").map((r) => r.prompt), ["Weather in Paris?"])
+})
+
+test("an abort mid-draft ends the reasoning, then RUN_ERROR (code aborted), and ends the session", async () => {
+  const controller = new AbortController()
+  native.replies = [[{ type: "delta", text: "Needs " }]]
+  const chunks: Array<Chunk> = []
+  for await (const chunk of afmText({ native }).chatStream(chatOptions({ ...high, abortController: controller }))) {
+    chunks.push(chunk as Chunk)
+    if (chunk.type === "REASONING_MESSAGE_CONTENT") controller.abort(new Error("stop"))
+  }
+  assert.deepEqual(typesOf(chunks), ["RUN_STARTED", "REASONING_START", "REASONING_MESSAGE_START", "REASONING_MESSAGE_CONTENT", "REASONING_MESSAGE_END", "REASONING_END", "RUN_ERROR"])
+  assert.equal(chunks.at(-1)?.code, "aborted")
+  const [session] = native.named("createSession")
+  assert.deepEqual(native.named("cancel"), [{ sessionId: session.sessionId }])
+  assert.deepEqual(native.named("deleteSession"), [{ sessionId: session.sessionId }])
+  assert.equal(native.named("respond").length, 1, "no reply was asked for")
+})
+
+test("chat() takes reasoning for the model and streams its notes", async () => {
+  native.replies = [NOTES, REPLY]
+  const chunks: Array<Chunk> = []
+  for await (const chunk of chat({
+    adapter: afmText({ native }),
+    threadId: "chat-reasoning",
+    messages: [{ role: "user", content: "Weather in Paris?" }],
+    reasoning: { level: "high", budgetTokens: 64 },
+    stream: true
+  })) chunks.push(chunk as Chunk)
+  assert.equal(reasoningIn(chunks), "Needs the weather.")
+  assert.equal(textIn(chunks), "Hello there")
+})
+
+/** A native side that changes a session's own conversation, as iOS/macOS 27's does: the notes come out before the reply. */
+class EditingNative extends FakeNative {
+  override answer: NativeAvailability = { available: true, contextSize: 4096, editsTranscript: true, stopsAtToolCalls: true }
+  async trimTranscript(options: Record<string, unknown>) {
+    this.calls.push(["trimTranscript", options])
+  }
+  async rewriteTurn(options: Record<string, unknown>) {
+    this.calls.push(["rewriteTurn", options])
+  }
+  async finishToolCalls(options: { sessionId: string } & Record<string, unknown>) {
+    this.calls.push(["finishToolCalls", options])
+    this.play(options.sessionId, [{ type: "stopped" }])
+  }
+}
+/** The same calls where a session's own conversation can't be changed (before iOS/macOS 27): another session takes its place. */
+class RebuildingNative extends EditingNative {
+  override answer: NativeAvailability = { available: true, contextSize: 4096, stopsAtToolCalls: true }
+}
+const WEATHER_CALL = { id: "c1", name: "get_weather", arguments: '{"city":"Paris"}' }
+const withResult = [
+  ...asked,
+  { role: "assistant", content: "", toolCalls: [{ id: "c1", type: "function", function: { name: "get_weather", arguments: '{"city":"Paris"}' } }] },
+  { role: "tool", toolCallId: "c1", content: '{"temperature":"20C"}' }
+]
+const AFTER_TOOL =
+  "Now write notes for yourself, not to the user, before replying to the user's latest message, what the tool results above tell you, and what to do next. Don't call tools or write the reply yet."
+/** A native side's calls that shape a session's conversation, with what tells them apart. */
+const shaping = (side: FakeNative) =>
+  side.calls
+    .filter(([name]) => ["respond", "trimTranscript", "finishToolCalls", "submitToolResult", "rewriteTurn"].includes(name))
+    .map(([name, options]) => [
+      name,
+      name === "rewriteTurn"
+        ? options.prompts
+        : name === "finishToolCalls"
+          ? (options.results as Array<{ output: string }>)[0]?.output
+          : (options.prompt ?? options.entries ?? options.output)
+    ])
+
+test("where a session's own conversation can be changed (iOS/macOS 27), the draft is taken back out and the reply is to the message with its notes", async () => {
+  const editing = new EditingNative()
+  editing.replies = [NOTES, REPLY, [{ type: "done", text: "Tomorrow now." }], [{ type: "done", text: "Rain." }]]
+  const adapter = afmText({ native: editing })
+  const chunks = await run(adapter, high)
+  assert.equal(reasoningIn(chunks), "Needs the weather.")
+  assert.equal(textIn(chunks), "Hello there")
+  const [session] = editing.named("createSession")
+  // The draft, then its two entries (the prompt and the notes) out, then the reply.
+  assert.deepEqual(
+    editing.calls.filter(([name]) => name === "respond" || name === "trimTranscript").map(([name, options]) => [name, options.prompt ?? options.entries]),
+    [
+      ["respond", drafting("Weather in Paris?", asked)],
+      ["trimTranscript", 2],
+      ["respond", "Message:\nWeather in Paris?\n\nNotes:\nNeeds the weather."]
+    ]
+  )
+  assert.deepEqual(editing.named("trimTranscript"), [{ sessionId: session.sessionId, entries: 2 }])
+  // Once the reply is done, the turn's one prompt is the message as the user sent it: the notes aren't in the conversation.
+  assert.deepEqual(editing.calls.at(-1), ["rewriteTurn", { sessionId: session.sessionId, prompts: 1, prompt: "Weather in Paris?" }])
+  assert.equal(editing.named("deleteSession").length, 0, "the thread's own session, kept")
+
+  // The next message, in the same session: its draft out again, and the native side asked what it can do only once.
+  const second = [...asked, { role: "assistant", content: "Hello there" }, user("And tomorrow?")]
+  await run(adapter, { ...high, messages: second })
+  assert.equal(editing.named("createSession").length, 1)
+  assert.equal(editing.named("trimTranscript").length, 2)
+  assert.equal((editing.named("respond") as Array<Respond>)[3].prompt, "Message:\nAnd tomorrow?\n\nNotes:\nTomorrow now.")
+  assert.deepEqual(editing.named("rewriteTurn").map((r) => [r.prompts, r.prompt]), [[1, "Weather in Paris?"], [1, "And tomorrow?"]])
+  assert.equal(editing.named("availability").length, 1)
+})
+
+test("a tool's results get notes of their own (iOS/macOS 27): the response is ended at its calls, the results put in after them, and the session prompted again", async () => {
+  const editing = new EditingNative()
+  editing.replies = [NOTES, [{ type: "toolCalls", calls: [WEATHER_CALL], usage: { inputTokens: 110, outputTokens: 9 } }], [{ type: "done", text: "It is 20 degrees." }], [{ type: "done", text: "Sunny, 20 degrees." }]]
+  const adapter = afmText({ native: editing })
+  const called = await run(adapter, { ...high, tools: [weather] })
+  assert.equal(called.at(-1)?.finishReason, "tool_calls")
+  assert.equal(editing.named("rewriteTurn").length, 0, "the turn isn't over: its notes stay")
+
+  const answered = await run(adapter, { ...high, tools: [weather], messages: withResult })
+  assert.equal(reasoningIn(answered), "It is 20 degrees.", "notes about the result")
+  assert.equal(textIn(answered), "Sunny, 20 degrees.")
+  assert.equal(editing.named("submitToolResult").length, 0, "the results don't go back into the response")
+  assert.deepEqual(shaping(editing), [
+    ["respond", drafting("Weather in Paris?", asked)],
+    ["trimTranscript", 2],
+    ["respond", "Message:\nWeather in Paris?\n\nNotes:\nNeeds the weather."],
+    ["finishToolCalls", '{"temperature":"20C"}'],
+    // The results are in the conversation: the instruction alone asks about them.
+    ["respond", `Instructions:\n${AFTER_TOOL}`],
+    ["trimTranscript", 2],
+    ["respond", "Notes:\nIt is 20 degrees."],
+    // The message's prompt and the one with the notes about the result: the turn's two.
+    ["rewriteTurn", 2]
+  ])
+  const responds = editing.named("respond") as Array<Respond>
+  assert.equal(responds[2].options.toolCallingMode, "disallowed", "notes call no tool")
+  assert.deepEqual(editing.named("finishToolCalls"), [{ sessionId: editing.named("createSession")[0].sessionId, results: [{ callId: "c1", output: '{"temperature":"20C"}' }] }], "nothing to leave out: the notes came out already")
+  assert.deepEqual(editing.named("rewriteTurn"), [{ sessionId: editing.named("createSession")[0].sessionId, prompts: 2, prompt: "Weather in Paris?" }])
+  assert.equal(editing.named("createSession").length, 1)
+})
+
+test("before iOS/macOS 27 the notes stay in the session for the reply, and all of the turn's thinking comes out once it's done", async () => {
+  const old = new RebuildingNative()
+  old.replies = [NOTES, REPLY]
+  const adapter = afmText({ native: old })
+  const chunks = await run(adapter, high)
+  assert.equal(reasoningIn(chunks), "Needs the weather.")
+  assert.equal(textIn(chunks), "Hello there")
+  const [session] = old.named("createSession")
+  // The notes' prompt, its notes left where they are, and the ask for the reply: the turn's two prompts become the message.
+  assert.deepEqual(shaping(old), [
+    ["respond", drafting("Weather in Paris?", asked)],
+    ["respond", REPLY_PROMPT],
+    ["rewriteTurn", 2]
+  ])
+  assert.equal(old.named("trimTranscript").length, 0, "nothing comes out between the notes and the reply")
+  assert.deepEqual(old.named("rewriteTurn"), [{ sessionId: session.sessionId, prompts: 2, prompt: "Weather in Paris?" }])
+})
+
+test("before iOS/macOS 27 a tool's results get notes too, and the session made for them is without the turn's asks so far", async () => {
+  const old = new RebuildingNative()
+  old.replies = [NOTES, [{ type: "toolCalls", calls: [WEATHER_CALL] }], [{ type: "done", text: "It is 20 degrees." }], [{ type: "done", text: "Sunny, 20 degrees." }]]
+  const adapter = afmText({ native: old })
+  await run(adapter, { ...high, tools: [weather] })
+  const answered = await run(adapter, { ...high, tools: [weather], messages: withResult })
+  assert.equal(reasoningIn(answered), "It is 20 degrees.", "notes about the result")
+  assert.equal(textIn(answered), "Sunny, 20 degrees.")
+  assert.deepEqual(shaping(old), [
+    ["respond", drafting("Weather in Paris?", asked)],
+    ["respond", REPLY_PROMPT],
+    ["finishToolCalls", '{"temperature":"20C"}'],
+    // The results are in the conversation: the instruction alone asks about them, and the notes stay for the reply.
+    ["respond", `Instructions:\n${AFTER_TOOL}`],
+    ["respond", REPLY_PROMPT],
+    // The message (all that's left of the prompts before the results), the ask for notes about them and the ask for the reply.
+    ["rewriteTurn", 3]
+  ])
+  // The session made for the results leaves out the turn's two prompts so far, and has the message where they began.
+  assert.deepEqual(old.named("finishToolCalls"), [
+    { sessionId: old.named("createSession")[0].sessionId, results: [{ callId: "c1", output: '{"temperature":"20C"}' }], prompts: 2, prompt: "Weather in Paris?" }
+  ])
+  assert.equal(old.named("trimTranscript").length, 0)
+  assert.equal(old.named("createSession").length, 1)
+})
+
+test("before iOS/macOS 27 a draft that called the tool itself (the framework can't be told not to): the results get their notes all the same", async () => {
+  const old = new RebuildingNative()
+  old.replies = [[{ type: "toolCalls", calls: [WEATHER_CALL] }], [{ type: "done", text: "It is 20 degrees." }], [{ type: "done", text: "Sunny." }]]
+  const adapter = afmText({ native: old })
+  await run(adapter, { ...high, tools: [weather] })
+  const answered = await run(adapter, { ...high, tools: [weather], messages: withResult })
+  assert.equal(reasoningIn(answered), "It is 20 degrees.")
+  assert.equal(textIn(answered), "Sunny.")
+  assert.deepEqual(shaping(old), [
+    ["respond", drafting("Weather in Paris?", asked)],
+    ["finishToolCalls", '{"temperature":"20C"}'],
+    ["respond", `Instructions:\n${AFTER_TOOL}`],
+    ["respond", REPLY_PROMPT],
+    ["rewriteTurn", 3]
+  ])
+  assert.deepEqual(old.named("finishToolCalls").map((f) => [f.prompts, f.prompt]), [[1, "Weather in Paris?"]])
+})
+
+test("a conversation that ends in a tool's result, in a new session: the notes' prompt comes out whole, there's no message to leave", async () => {
+  const editing = new EditingNative()
+  editing.replies = [[{ type: "done", text: "It is 20 degrees." }], [{ type: "done", text: "Sunny, 20 degrees." }]]
+  await run(afmText({ native: editing }), { ...high, tools: [weather], messages: withResult })
+  const [session] = editing.named("createSession")
+  assert.equal(editing.named("finishToolCalls").length, 0, "no response waited for the results")
+  assert.deepEqual(editing.named("rewriteTurn"), [{ sessionId: session.sessionId, prompts: 1 }])
+})
+
+test("a native side that fails to take the notes out doesn't fail the reply", async () => {
+  const failing = new EditingNative()
+  failing.rewriteTurn = async () => {
+    throw new Error("not implemented")
+  }
+  failing.replies = [NOTES, REPLY]
+  const chunks = await run(afmText({ native: failing }), high)
+  assert.equal(textIn(chunks), "Hello there")
+  assert.equal(chunks.at(-1)?.finishReason, "stop")
+})
+
+test("the reply's prompt after the draft is out: the message with its notes, the notes alone, or the message as it is", () => {
+  assert.equal(thoughtsPrompt("Hi", "Greet them."), "Message:\nHi\n\nNotes:\nGreet them.")
+  assert.equal(thoughtsPrompt(undefined, "It is 20 degrees."), "Notes:\nIt is 20 degrees.")
+  assert.equal(thoughtsPrompt("Hi", ""), "Hi", "no notes: the message, as without reasoning")
+})
+
+test("a native side without the calls (another host's) keeps the draft in the session for the reply", async () => {
+  // No such calls at all: the availability check isn't even made, and the notes stay in the conversation.
+  native.replies = [NOTES, REPLY]
+  await run(afmText({ native }), high)
+  assert.equal((native.named("respond") as Array<Respond>)[1].prompt, REPLY_PROMPT)
+  assert.equal(native.named("availability").length, 0, "nothing to ask it")
 })
