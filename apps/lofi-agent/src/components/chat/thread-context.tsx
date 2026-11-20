@@ -84,6 +84,8 @@ export type ReplyState = {
    * answer), the wait for the next step included.
    */
   liveThinking?: string
+  /** The answer text the running reply is writing: its last part, while that's text. */
+  liveText?: string
   /** The message's id, and its thinking parts' text in order: which block a thinking part is. */
   messageId?: string
   thinking: ReadonlyArray<string>

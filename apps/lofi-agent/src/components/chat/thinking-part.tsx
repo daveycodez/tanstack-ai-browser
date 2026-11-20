@@ -16,6 +16,7 @@ import {
   ReasoningContent,
   ReasoningTrigger
 } from "#/components/ai/reasoning"
+import { useSmoothText } from "#/components/ai/smooth"
 import { ReplyContext, useThread } from "./thread-context"
 
 export function ThinkingPart({
@@ -50,11 +51,13 @@ export function ThinkingPart({
   const durationMs = savedThoughtTime(part) ?? recorded
 
   const text = part.content.trim()
+  // Shown evenly while it's written, as the answer is.
+  const shown = useSmoothText(text, isStreaming)
   if (!text) return null
   return (
     <Reasoning isStreaming={isStreaming} durationMs={durationMs}>
       <ReasoningTrigger />
-      <ReasoningContent>{text}</ReasoningContent>
+      <ReasoningContent>{shown}</ReasoningContent>
     </Reasoning>
   )
 }
