@@ -583,8 +583,8 @@ test("the draft's instruction repeats nothing of the conversation, and asks abou
   assert.equal(draftInstruction(asked as never, true), "Write notes for yourself, not to the user, before replying to the user's message below: what they're asking, and whether it needs something you can't know or do yourself, like anything current or recent, that one of your tools gets, and which. Don't call tools or write the reply yet.")
   assert.equal(draftInstruction([...asked, { role: "assistant", content: "" }, { role: "tool", toolCallId: "c1", content: "20C" }] as never, true), "Now write notes for yourself, not to the user, before replying to the user's latest message: what the tool results above tell you, and whether to answer with them or which different call would add what's missing. Don't call tools or write the reply yet.")
   // Where it can't (before 27): AFM 2 Core's.
-  assert.equal(draftInstruction(asked as never, false), "Write notes for yourself, not to the user, before replying to the user's message below: what they're asking, and whether you can answer directly or need a tool. Don't call tools or write the reply yet.")
-  assert.equal(draftInstruction([...asked, { role: "assistant", content: "" }, { role: "tool", toolCallId: "c1", content: "20C" }] as never, false), "Now write notes for yourself, not to the user, before replying to the user's latest message, what the tool results above tell you, and what to do next. Don't call tools or write the reply yet.")
+  assert.equal(draftInstruction(asked as never, false), "Before replying to the user's message below, think it through in a sentence or two: what do they want, and will you answer directly or call a tool? Write only that. Don't call tools or write the reply yet.")
+  assert.equal(draftInstruction([...asked, { role: "assistant", content: "" }, { role: "tool", toolCallId: "c1", content: "20C" }] as never, false), "Before replying, think it through in a sentence or two: what do the tool results above tell you, and will you answer now or call another tool? Write only that. Don't call tools or write the reply yet.")
   assert.equal(REPLY_PROMPT, "Now reply.")
   // The instruction, a blank line, the user's message under it. Without a message, the instruction alone.
   assert.equal(draftPrompt("Hi", "Think."), "Instructions:\nThink.\n\nMessage:\nHi")
@@ -706,7 +706,7 @@ test("a conversation that ends in a tool's result, in a new session: the instruc
   assert.deepEqual((session.messages as Array<{ role: string }>).map((m) => m.role), ["user", "assistant", "tool"])
   const responds = native.named("respond") as Array<Respond>
   assert.equal(responds[0].prompt, draftPrompt(undefined, draftInstruction(messages as never, false)), "there's no message to pair it with")
-  assert.match(responds[0].prompt, /what the tool results above tell you, and what to do next/)
+  assert.match(responds[0].prompt, /what do the tool results above tell you, and will you answer now/)
   assert.equal(responds[1].prompt, REPLY_PROMPT)
 })
 
@@ -826,7 +826,7 @@ const AFTER_TOOL =
   "Now write notes for yourself, not to the user, before replying to the user's latest message: what the tool results above tell you, and whether to answer with them or which different call would add what's missing. Don't call tools or write the reply yet."
 /** The same ask where the notes stay in the session (before iOS/macOS 27). */
 const KEPT_AFTER_TOOL =
-  "Now write notes for yourself, not to the user, before replying to the user's latest message, what the tool results above tell you, and what to do next. Don't call tools or write the reply yet."
+  "Before replying, think it through in a sentence or two: what do the tool results above tell you, and will you answer now or call another tool? Write only that. Don't call tools or write the reply yet."
 /** A native side's calls that shape a session's conversation, with what tells them apart. */
 const shaping = (side: FakeNative) =>
   side.calls

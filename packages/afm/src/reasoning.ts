@@ -59,8 +59,8 @@ import type { ModelMessage } from "@tanstack/ai"
  * words are the ones settled on the smallest of them, AFM 3 Core; before it,
  * AFM 2 Core has the words settled on it. Each did worse on the other's: with
  * AFM 3 Core's words AFM 2 Core (an iPad on iOS 26) passed 20 and 20 of 42
- * cases with tools, to 26 and 29 with its own, calling a tool in 5 or 6 of the
- * 6 that needed none.
+ * cases with tools, to 26 and 29 with the words it had then, calling a tool
+ * in 5 or 6 of the 6 that needed none.
  *
  * AFM 3 Core's ask, at a message: what the user is asking and whether that
  * needs something the model can't know or do itself, which a tool gets. The
@@ -92,8 +92,16 @@ import type { ModelMessage } from "@tanstack/ai"
  * calling: without it the model called more (a tool in 2 of 10 turns that
  * needed none, and two turns that never finished searching).
  *
- * AFM 2 Core's ask is whether it can answer directly or needs a tool, and
- * after a tool's results what to do next: the words its 42 cases were run with.
+ * AFM 2 Core's ask is for a sentence or two of thinking: what the user wants
+ * and whether it will answer directly or call a tool, and after a tool's
+ * results what they tell it and whether it will answer now. Asked to "write
+ * notes for yourself, not to the user", it wrote about the asking: about 3 of
+ * every 10 notes (25 of 95, 33 of 111 and 31 of 108, over three runs of its 42
+ * cases with tools) opened with the prompt's own labels ("Instructions: -
+ * Write notes for yourself…") or said it would write notes ("I need to write
+ * notes for myself, then…"). Asked this way none of 113 did, and it passed 31
+ * of the 42 cases, to 25, 26 and 29. Asked to "say what the user's message
+ * asks for" without the thinking, it passed 15.
  */
 export function draftInstruction(messages: ReadonlyArray<ModelMessage>, edits: boolean): string {
   const afterTool = messages.at(-1)?.role === "tool"
@@ -113,9 +121,9 @@ export const ANSWER_INSTRUCTION =
   "Write notes for yourself, not to the user, before replying to the user's message below: what they're asking, and how you'll work out the answer. Don't write the reply yet."
 /** Before iOS/macOS 27, where the notes stay in the session. */
 const KEPT_MESSAGE_INSTRUCTION =
-  "Write notes for yourself, not to the user, before replying to the user's message below: what they're asking, and whether you can answer directly or need a tool. Don't call tools or write the reply yet."
+  "Before replying to the user's message below, think it through in a sentence or two: what do they want, and will you answer directly or call a tool? Write only that. Don't call tools or write the reply yet."
 const KEPT_AFTER_TOOL_INSTRUCTION =
-  "Now write notes for yourself, not to the user, before replying to the user's latest message, what the tool results above tell you, and what to do next. Don't call tools or write the reply yet."
+  "Before replying, think it through in a sentence or two: what do the tool results above tell you, and will you answer now or call another tool? Write only that. Don't call tools or write the reply yet."
 
 /**
  * The reply's prompt where the draft stays in the session (before iOS/macOS
