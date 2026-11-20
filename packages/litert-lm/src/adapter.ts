@@ -24,10 +24,10 @@ import type { ConversationConfig, EngineSettings, Message, SessionConfig, Tool a
 import { historyAndTurn, toLiteRtMessages } from "./messages.js"
 import { listed, LITERT_LM_MODEL_REASONING, THINKING_SWITCH } from "./model-meta.js"
 import type { LiteRtLmChatModel } from "./model-meta.js"
-import { currentEngine, defaultRuntime, engineFor, releaseEngine, runtimeId } from "./runtime.js"
+import { abortError, currentEngine, defaultRuntime, engineFor, releaseEngine, runtimeId, waitForEngine } from "./runtime.js"
 import type { LiteRtLmRuntime, Loaded, RuntimeConversation, RuntimeEngine } from "./runtime.js"
 import { downloadFile, readFile, removeFile, storedFile } from "./storage.js"
-import type { ModelFile } from "./storage.js"
+import type { ModelFile, StoredModel } from "./storage.js"
 
 /** A download's progress, 0 to 1. */
 export type DownloadProgressCallback = (progress: number) => void
@@ -55,9 +55,9 @@ export type LiteRtLmConfig = {
    */
   wasmPath?: string
   /**
-   * A Hugging Face access token, for a gated model: the token of the user
-   * loading it (never your own, in a web page). It is sent with the download
-   * and not stored.
+   * A Hugging Face access token, for a gated or private model: the token of
+   * the user loading it (never your own, in a web page). It is sent when the
+   * model's name is resolved and with the download, and not stored.
    */
   accessToken?: string
   /** Hears the model's download, 0 to 1, however it started. */
@@ -131,19 +131,6 @@ const nextId = (prefix: string) => `${prefix}_${Date.now().toString(36)}_${(ids+
 const signalOf = (options: TextOptions<LiteRtLmTextModelOptions>) =>
   options.abortController?.signal ?? (options.request as RequestInit | undefined)?.signal ?? undefined
 
-const abortError = (signal: AbortSignal | undefined) => signal?.reason ?? new DOMException("Aborted", "AbortError")
-
-/** `work`, unless `signal` aborts first (the work itself goes on). */
-function unlessAborted<T>(work: Promise<T>, signal: AbortSignal | undefined): Promise<T> {
-  if (!signal) return work
-  if (signal.aborted) return Promise.reject(abortError(signal))
-  return new Promise<T>((resolve, reject) => {
-    const abort = () => reject(abortError(signal))
-    signal.addEventListener("abort", abort, { once: true })
-    work.then(resolve, reject).finally(() => signal.removeEventListener("abort", abort))
-  })
-}
-
 export class LiteRtLmTextAdapter<TModel extends LiteRtLmModel> extends BaseTextAdapter<
   TModel,
   LiteRtLmTextModelOptions,
@@ -187,6 +174,12 @@ export class LiteRtLmTextAdapter<TModel extends LiteRtLmModel> extends BaseTextA
     return JSON.stringify([this.model, this.engineSettings, this.wasmPath ?? null, this.runtimeId])
   }
 
+  /** The model as it's stored: its name, and the backend its file is picked for. */
+  private get stored(): StoredModel {
+    const backend = this.engineSettings.backend
+    return { model: this.model, ...(backend !== undefined && { backend }) }
+  }
+
   /** The model's thinking levels: a listed model's, else the switch (a hint its template ignores where it has none). */
   private get reasoning(): ModelReasoning {
     return listed(this.model) ? LITERT_LM_MODEL_REASONING[this.model] : THINKING_SWITCH
@@ -202,7 +195,7 @@ export class LiteRtLmTextAdapter<TModel extends LiteRtLmModel> extends BaseTextA
     if (typeof navigator === "undefined" || !("gpu" in navigator)) return "unavailable"
     if (currentEngine()?.key === this.key) return "available"
     if (this.downloading > 0) return "downloading"
-    return (await storedFile(this.model)) ? "available" : "downloadable"
+    return (await storedFile(this.stored)) ? "available" : "downloadable"
   }
 
   /** Tokens a conversation can hold (the engine's `maxNumTokens`), once the model is loaded. */
@@ -218,7 +211,8 @@ export class LiteRtLmTextAdapter<TModel extends LiteRtLmModel> extends BaseTextA
    * download's progress, 0 to 1, then 1 once it's ready. Resolves to this
    * adapter; rejects if it can't load (fine to leave unawaited). `chat()`
    * doesn't need it: the first response loads the model too. Aborting
-   * `signal` stops the wait, and a download that hasn't finished.
+   * `signal` stops this call's wait; a load others are waiting for too goes
+   * on for them, and stops once nobody waits for it.
    */
   create(options: { onDownloadProgress?: DownloadProgressCallback; signal?: AbortSignal } = {}): Promise<this> {
     const ready = this.engine(options.signal, options.onDownloadProgress).then(() => {
@@ -241,18 +235,26 @@ export class LiteRtLmTextAdapter<TModel extends LiteRtLmModel> extends BaseTextA
   /** Removes the model's stored file, after its engine. Returns whether a file was stored. */
   async remove(): Promise<boolean> {
     await this.destroy()
-    return removeFile(this.model)
+    return removeFile(this.stored)
   }
 
   /**
    * The model for `Engine.create`: its stored file's bytes, downloaded first
    * if they aren't stored; where the page has no Cache Storage, its URL, which
-   * the runtime streams itself.
+   * the runtime streams itself. A name is resolved as the engine will load
+   * it: for the engine's backend, and with the model's access token.
    */
-  private async source(runtime: LiteRtLmRuntime, signal: AbortSignal | undefined, report: DownloadProgressCallback): Promise<EngineSettings["model"]> {
-    let file = await storedFile(this.model)
+  private async source(runtime: LiteRtLmRuntime, signal: AbortSignal, report: DownloadProgressCallback): Promise<EngineSettings["model"]> {
+    let file = await storedFile(this.stored)
     if (!file) {
-      const resolved = (await runtime.resolveModel(modelInput(this.model), signal ? { signal } : undefined)).model
+      const input = modelInput(this.model)
+      const { backend } = this.engineSettings
+      const resolved = (
+        await runtime.resolveModel(this.accessToken ? { url: input, accessToken: this.accessToken } : input, {
+          ...(backend !== undefined && { backend }),
+          signal
+        })
+      ).model
       const found: ModelFile | undefined =
         typeof resolved === "string"
           ? { url: resolved }
@@ -264,7 +266,7 @@ export class LiteRtLmTextAdapter<TModel extends LiteRtLmModel> extends BaseTextA
       if (typeof caches === "undefined") return this.accessToken ? { url: file.url, accessToken: this.accessToken } : file.url
       this.downloading++
       try {
-        await downloadFile(this.model, file, { onProgress: report, ...(signal && { signal }), ...(this.accessToken && { accessToken: this.accessToken }) })
+        await downloadFile(this.stored, file, { onProgress: report, signal, ...(this.accessToken && { accessToken: this.accessToken }) })
       } finally {
         this.downloading--
       }
@@ -274,19 +276,30 @@ export class LiteRtLmTextAdapter<TModel extends LiteRtLmModel> extends BaseTextA
     return bytes
   }
 
-  /** The page's engine for this adapter's model: loaded now if it isn't (the model downloaded first if it isn't stored). */
+  /**
+   * The page's engine for this adapter's model: loaded now if it isn't (the
+   * model downloaded first if it isn't stored). A load is shared: `signal`
+   * stops this caller's wait, and the load itself only once nobody else waits
+   * for it; `progress` hears the download while this caller waits.
+   */
   private engine(signal?: AbortSignal, progress?: DownloadProgressCallback): Promise<RuntimeEngine> {
-    const report: DownloadProgressCallback = (value) => {
-      this.onDownloadProgress?.(value)
-      progress?.(value)
-    }
-    this.loaded = engineFor(this.key, async () => {
+    this.loaded = engineFor(this.key, async (stopped, report) => {
       const runtime = await this.runtime()
       if (this.wasmPath) await runtime.loadLiteRtLm?.(this.wasmPath)
-      const model = await this.source(runtime, signal, report)
-      return runtime.Engine.create({ ...this.engineSettings, model })
+      const model = await this.source(runtime, stopped, report)
+      const engine = await runtime.Engine.create({ ...this.engineSettings, model })
+      // Stopped while the engine was made: nobody waits for it.
+      if (stopped.aborted) {
+        await engine.delete().catch(() => undefined)
+        throw abortError(stopped)
+      }
+      return engine
     })
-    return unlessAborted(this.loaded.engine, signal)
+    return waitForEngine(
+      this.loaded,
+      signal,
+      [this.onDownloadProgress, progress].filter((listener) => listener !== undefined)
+    )
   }
 
   /** Thinking for a step: `enableThinking`, else `reasoning` at the model's levels. Undefined: the template's own default. */
@@ -354,6 +367,8 @@ export class LiteRtLmTextAdapter<TModel extends LiteRtLmModel> extends BaseTextA
         yield value
       }
       await finished?.(conversation)
+      // (Stopped while the response's counts were read: it didn't end well.)
+      signal?.throwIfAborted()
     } finally {
       signal?.removeEventListener("abort", stop)
       // A stream left before its response ended (stopped, failed, or left by its reader) stops the response.
@@ -437,6 +452,8 @@ export class LiteRtLmTextAdapter<TModel extends LiteRtLmModel> extends BaseTextA
           calls.push({ id: call.id || nextId("call"), name: call.function.name, arguments: JSON.stringify(call.function.arguments ?? {}) })
         }
       }
+      // Stopped after the last chunk, while the conversation was closed: no calls go out, and the run doesn't finish.
+      signal?.throwIfAborted()
 
       yield* closeReasoning()
       if (text) yield { type: EventType.TEXT_MESSAGE_END, messageId, model, timestamp: timestamp() }
@@ -507,6 +524,8 @@ export class LiteRtLmTextAdapter<TModel extends LiteRtLmModel> extends BaseTextA
     })) {
       text += chunkText(chunk.content)
     }
+    // Stopped after the last chunk, while the conversation was closed: no answer.
+    signal?.throwIfAborted()
     const cap = chatOptions.modelOptions?.maxOutputTokens
     if (cap !== undefined && counted !== undefined && counted.written >= cap) {
       throw Object.assign(new Error("The answer was cut off before it was complete (maxOutputTokens)"), { code: "length" })

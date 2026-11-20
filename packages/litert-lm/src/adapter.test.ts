@@ -26,7 +26,9 @@ class FakeConversation implements RuntimeConversation {
     private readonly chunks: Array<Message>,
     private readonly counts: { read: number; written: number },
     /** Chunks wait for this, when set (a reply that never ends until it's stopped). */
-    private readonly hold?: Promise<void>
+    private readonly hold?: Promise<void>,
+    /** The token counts wait for this, when set (the engine busy with something else). */
+    private readonly counting?: Promise<void>
   ) {}
   sendMessageStreaming(message: MessageLike) {
     this.sent.push(message)
@@ -43,6 +45,7 @@ class FakeConversation implements RuntimeConversation {
     this.cancelled++
   }
   async getBenchmarkInfo() {
+    await this.counting
     return { lastPrefillTokenCount: this.counts.read, lastDecodeTokenCount: this.counts.written }
   }
   async delete() {
@@ -53,6 +56,12 @@ class FakeConversation implements RuntimeConversation {
 /** A runtime whose engines answer each conversation with the next scripted reply. */
 class FakeRuntime implements LiteRtLmRuntime {
   resolved: Array<string> = []
+  /** Each resolution as it was asked: the model as given, and its options without the signal. */
+  asked: Array<{ model: unknown; backend: unknown }> = []
+  /** Resolutions wait for this, when set, and fail if their signal aborts meanwhile. */
+  resolving: Promise<void> | undefined
+  /** The token counts of every conversation wait for this, when set. */
+  counting: Promise<void> | undefined
   created: Array<EngineSettings> = []
   engines: Array<{ settings: EngineSettings; deleted: number }> = []
   conversations: Array<FakeConversation> = []
@@ -72,7 +81,7 @@ class FakeRuntime implements LiteRtLmRuntime {
       return {
         settings: { mainExecutorSettings: { maxNumTokens: settings.mainExecutorSettings?.maxNumTokens ?? 4096 } },
         createConversation: async (config) => {
-          const conversation = new FakeConversation(config, this.replies.shift() ?? [{ role: "assistant", content: [{ type: "text", text: "ok" }] }], this.counts, this.hold)
+          const conversation = new FakeConversation(config, this.replies.shift() ?? [{ role: "assistant", content: [{ type: "text", text: "ok" }] }], this.counts, this.hold, this.counting)
           this.conversations.push(conversation)
           return conversation
         },
@@ -82,8 +91,17 @@ class FakeRuntime implements LiteRtLmRuntime {
       }
     }
   }
-  async resolveModel(model: string) {
+  async resolveModel(given: string | { url: string; accessToken?: string }, options?: { backend?: number; signal?: AbortSignal }) {
+    const model = typeof given === "string" ? given : given.url
     this.resolved.push(model)
+    this.asked.push({ model: given, backend: options?.backend })
+    if (this.resolving) {
+      const signal = options?.signal
+      await Promise.race([
+        this.resolving,
+        new Promise<never>((_, reject) => signal?.addEventListener("abort", () => reject(signal.reason ?? new Error("aborted")), { once: true }))
+      ])
+    }
     return { model: model.startsWith("hf://") ? { url: `https://huggingface.co/${model.slice(5)}/resolve/abc123/model.litertlm`, size: 100 } : model }
   }
   async loadLiteRtLm(path: string) {
@@ -410,4 +428,94 @@ test("chat() runs a tool and sends its result back as the next step's turn", asy
   assert.equal(runtime.conversations.length, 2)
   assert.deepEqual(runtime.conversations[1].sent, [{ role: "tool", content: [{ type: "tool_response", name: "get_weather", response: { temperature_c: 11 } }] }])
   assert.equal(runtime.engines.length, 1)
+})
+
+test("a caller that stops waiting for a shared load doesn't fail the others", async () => {
+  let open: () => void = noop
+  runtime.resolving = new Promise<void>((resolve) => (open = resolve))
+  const adapter = litertLmText(GEMMA, { runtime })
+  const first = new AbortController()
+  const stopped = adapter.create({ signal: first.signal })
+  const waiting = adapter.create()
+  await new Promise((resolve) => setTimeout(resolve, 5))
+  first.abort()
+  await assert.rejects(stopped, (error: { name?: string }) => error.name === "AbortError")
+  open()
+  assert.equal(await waiting, adapter)
+  assert.equal(runtime.engines.length, 1)
+})
+
+test("a load every caller has stopped waiting for is stopped, and the next call loads again", async () => {
+  runtime.resolving = new Promise<void>(noop)
+  const adapter = litertLmText(GEMMA, { runtime })
+  const first = new AbortController()
+  const second = new AbortController()
+  const loads = [adapter.create({ signal: first.signal }), adapter.create({ signal: second.signal })]
+  await new Promise((resolve) => setTimeout(resolve, 5))
+  first.abort()
+  second.abort()
+  for (const load of loads) await assert.rejects(load, (error: { name?: string }) => error.name === "AbortError")
+  assert.equal(runtime.engines.length, 0)
+  runtime.resolving = undefined
+  assert.equal(await adapter.create(), adapter)
+  assert.equal(runtime.resolved.length, 2)
+  assert.equal(runtime.engines.length, 1)
+})
+
+test("every caller of a shared load hears its progress", async () => {
+  const heard: Array<string> = []
+  const adapter = litertLmText(GEMMA, { runtime, onDownloadProgress: () => heard.push("adapter") })
+  await Promise.all([adapter.create({ onDownloadProgress: () => heard.push("first") }), adapter.create({ onDownloadProgress: () => heard.push("second") })])
+  assert.deepEqual(heard.sort(), ["adapter", "adapter", "first", "second"])
+})
+
+test("the engine's backend chooses the repository's file too", async () => {
+  await stream(GEMMA, { messages: [user("hi")] }, { engineSettings: { backend: 3 } })
+  await stream(GEMMA, { messages: [user("hi")] })
+  assert.deepEqual(
+    runtime.asked.map((asked) => asked.backend),
+    [3, undefined]
+  )
+})
+
+test("an access token goes with the model's resolution, not only its download", async () => {
+  await stream(GEMMA, { messages: [user("hi")] }, { accessToken: "hf_user" })
+  assert.deepEqual(runtime.asked[0].model, { url: `hf://${GEMMA}`, accessToken: "hf_user" })
+})
+
+test("a request stopped while the response's token counts are read makes no calls", async () => {
+  let counted: () => void = noop
+  runtime.counting = new Promise<void>((resolve) => (counted = resolve))
+  runtime.replies = [[{ role: "assistant", tool_calls: [{ type: "function", function: { name: "get_weather", arguments: { city: "Paris" } } }] }]]
+  const controller = new AbortController()
+  const adapter = litertLmText(GEMMA, { runtime })
+  const chunks: Array<Chunk> = []
+  setTimeout(() => {
+    controller.abort()
+    counted()
+  }, 10)
+  for await (const chunk of adapter.chatStream({ threadId: "t", logger, messages: [user("Weather?")], tools: [weather], abortController: controller } as never)) {
+    chunks.push(chunk as Chunk)
+  }
+  assert.deepEqual(
+    chunks.map((c) => c.type),
+    ["RUN_STARTED", "RUN_ERROR"]
+  )
+  assert.equal((chunks.at(-1) as Chunk).code, "aborted")
+})
+
+test("a structured answer stopped while its token counts are read fails as stopped", async () => {
+  let counted: () => void = noop
+  runtime.counting = new Promise<void>((resolve) => (counted = resolve))
+  runtime.replies = [text('{"city":"Paris"}')]
+  const controller = new AbortController()
+  const adapter = litertLmText(GEMMA, { runtime })
+  setTimeout(() => {
+    controller.abort()
+    counted()
+  }, 10)
+  await assert.rejects(
+    adapter.structuredOutput({ outputSchema: { type: "object" }, chatOptions: { threadId: "t", logger, messages: [user("Capital?")], abortController: controller } } as never),
+    (error: { name?: string }) => error.name === "AbortError"
+  )
 })

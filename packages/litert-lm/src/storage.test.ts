@@ -4,7 +4,7 @@ import { beforeEach, test } from "node:test"
 import { downloadFile, MODEL_CACHE, readFile, removeFile, storedFile } from "./storage.js"
 import type { StorageEnvironment } from "./storage.js"
 
-const MODEL = "owner/model"
+const MODEL = { model: "owner/model" }
 const FILE = { url: "https://huggingface.co/owner/model/resolve/abc123/model.litertlm" }
 
 /** Cache Storage in memory: an entry appears once its body has been read whole. */
@@ -77,7 +77,7 @@ test("progress goes by the file's known size where the server gives none", async
   await downloadFile(MODEL, { ...FILE, size: 20 }, { onProgress: (value) => heard.push(value) }, env())
   assert.deepEqual(heard, [0.5, 0.999])
   const silent: Array<number> = []
-  await downloadFile("owner/other", { url: "https://example.com/other.litertlm" }, { onProgress: (value) => silent.push(value) }, env())
+  await downloadFile({ model: "owner/other" }, { url: "https://example.com/other.litertlm" }, { onProgress: (value) => silent.push(value) }, env())
   assert.deepEqual(silent, [])
 })
 
@@ -135,4 +135,16 @@ test("without Cache Storage nothing is stored, and a download says so", async ()
   assert.equal(await removeFile(MODEL, undefined), false)
   // (Node has no `caches`: the default environment is none.)
   await assert.rejects(downloadFile(MODEL, FILE), (error: { code?: string }) => error.code === "unavailable")
+})
+
+test("a name resolved for one backend is kept apart from the same name for another", async () => {
+  const gpu = { ...MODEL, backend: 3 }
+  const other = { url: "https://huggingface.co/owner/model/resolve/abc123/model-gpu.litertlm" }
+  await downloadFile(MODEL, FILE, {}, env())
+  assert.equal(await storedFile(gpu, env()), undefined)
+  await downloadFile(gpu, other, {}, env())
+  assert.equal((await storedFile(MODEL, env()))?.url, FILE.url)
+  assert.equal((await storedFile(gpu, env()))?.url, other.url)
+  assert.equal(await removeFile(gpu, env()), true)
+  assert.equal((await storedFile(MODEL, env()))?.url, FILE.url)
 })

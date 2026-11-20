@@ -58,9 +58,17 @@ test("a step's tool results are one tool turn, each named after the call it answ
 })
 
 test("a result whose call isn't in the conversation goes by its id", () => {
-  const [message] = toLiteRtMessages([{ role: "tool", toolCallId: "c9", content: "null" }])
-  // JSON null isn't a result LiteRT-LM holds: the text stands.
-  assert.deepEqual(message, { role: "tool", content: [{ type: "tool_response", name: "c9", response: "null" }] })
+  const [message] = toLiteRtMessages([{ role: "tool", toolCallId: "c9", content: "done" }])
+  assert.deepEqual(message, { role: "tool", content: [{ type: "tool_response", name: "c9", response: "done" }] })
+})
+
+test("a JSON null result stays null, and null arguments are no arguments", () => {
+  const messages = toLiteRtMessages([
+    { role: "assistant", content: "", toolCalls: [call("c1", "clear", "null")] },
+    { role: "tool", toolCallId: "c1", content: "null" }
+  ])
+  assert.deepEqual(messages[0].tool_calls, [{ type: "function", id: "c1", function: { name: "clear", arguments: {} } }])
+  assert.deepEqual(messages[1], { role: "tool", content: [{ type: "tool_response", name: "clear", response: null }] })
 })
 
 test("the turn is the last message, the history the rest", () => {

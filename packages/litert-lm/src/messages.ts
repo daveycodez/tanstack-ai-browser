@@ -10,7 +10,7 @@
 import type { ModelMessage } from "@tanstack/ai"
 import type { Message, ToolCall, ToolResponsePart } from "@litert-lm/core"
 
-type JsonValue = NonNullable<ToolResponsePart["response"]>
+type JsonValue = ToolResponsePart["response"]
 
 const unsupported = (message: string) => Object.assign(new Error(message), { code: "unsupported-input" })
 
@@ -27,10 +27,10 @@ export function contentText(content: ModelMessage["content"]): string {
     .join("\n")
 }
 
-/** JSON text as its value; other text as it is. */
+/** JSON text as its value, null included; other text as it is. */
 const parsed = (text: string): JsonValue => {
   try {
-    return (JSON.parse(text) as JsonValue | null) ?? text
+    return JSON.parse(text) as JsonValue
   } catch {
     return text
   }
@@ -39,7 +39,7 @@ const parsed = (text: string): JsonValue => {
 /** A call's arguments as an object: LiteRT-LM's calls hold values, not JSON text. */
 const callArguments = (text: string): ToolCall["function"]["arguments"] => {
   const value = text ? parsed(text) : {}
-  return typeof value === "object" && !Array.isArray(value) ? (value as ToolCall["function"]["arguments"]) : {}
+  return typeof value === "object" && value !== null && !Array.isArray(value) ? (value as ToolCall["function"]["arguments"]) : {}
 }
 
 /**

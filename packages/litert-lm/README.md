@@ -31,7 +31,7 @@ if ((await adapter.availability()) !== "unavailable") {
 }
 ```
 
-`availability()` is `"unavailable"` without WebGPU, `"available"` once the model's file is stored (or its engine loaded), `"downloading"` while this adapter downloads it, and `"downloadable"` otherwise. `create()` downloads the model where it isn't stored, with the download's progress from 0 to 1, loads its engine, and resolves to the adapter. `chat()` doesn't need it: the first response loads the model too.
+`availability()` is `"unavailable"` without WebGPU, `"available"` once the model's file is stored (or its engine loaded), `"downloading"` while this adapter downloads it, and `"downloadable"` otherwise. `create()` downloads the model where it isn't stored, with the download's progress from 0 to 1, loads its engine, and resolves to the adapter. `chat()` doesn't need it: the first response loads the model too. A load is shared by every call that asks for the same model meanwhile: stopping one call (its `signal`) ends that call's wait, and the load itself stops only once nobody waits for it.
 
 `destroy()` deletes the model's engine and leaves its file stored; `remove()` deletes the file too. `contextSize()` is the engine's context length once the model is loaded.
 
@@ -59,9 +59,9 @@ Any other model LiteRT-LM's web runtime takes loads too. For one the catalog doe
 
 `litertLmText(model, config)`:
 
-- `engineSettings`: LiteRT-LM's own [`EngineSettings`](https://developers.google.com/edge/litert-lm/js), without the model, as given: the context length (`mainExecutorSettings.maxNumTokens`), the backend, and so on. `benchmarkEnabled` is on unless you set it: a response's token counts come from it.
+- `engineSettings`: LiteRT-LM's own [`EngineSettings`](https://developers.google.com/edge/litert-lm/js), without the model, as given: the context length (`mainExecutorSettings.maxNumTokens`), the backend, and so on. `benchmarkEnabled` is on unless you set it: a response's token counts come from it. The `backend` also picks the repository's file, as it does in LiteRT-LM: with none, Gemma 4 E2B's `-gpu.litertlm`; with `Backend.GPU`, its plain `.litertlm`.
 - `wasmPath`: the folder LiteRT-LM's WASM files load from (its `loadLiteRtLm`), to serve them yourself: the `wasm` folder of `@litert-lm/core`. By default the runtime loads them from its CDN (jsDelivr).
-- `accessToken`: a Hugging Face access token for a gated model. It is sent with the download and never stored.
+- `accessToken`: a Hugging Face access token for a gated or private model. It is sent when the model's name is resolved and with the download, and never stored.
 - `onDownloadProgress`: hears the model's download, 0 to 1.
 - `runtime`: a build of the runtime of your own, in place of the package.
 
@@ -92,7 +92,7 @@ Messages are text. An image or audio part ends the run with the code `unsupporte
 
 ## Stored models
 
-`@litert-lm/core` 0.19 streams a model from its URL on every load and stores nothing. The adapter downloads the file once into the page's Cache Storage (the cache named `MODEL_CACHE`), reporting its progress, and loads the engine from there afterwards, offline too. A model is stored whole or not at all, under the URL it came from; for a Hugging Face model that URL names the commit the repository was at. An interrupted download starts over.
+`@litert-lm/core` 0.19 streams a model from its URL on every load and stores nothing. The adapter downloads the file once into the page's Cache Storage (the cache named `MODEL_CACHE`), reporting its progress, and loads the engine from there afterwards, offline too. A model is stored whole or not at all, under the URL it came from; for a Hugging Face model that URL names the commit the repository was at. What a name resolved to is kept per backend, since the backend picks the file. An interrupted download starts over.
 
 Where a page has no Cache Storage, the runtime gets the model's URL and streams it itself.
 

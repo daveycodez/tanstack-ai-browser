@@ -7,7 +7,9 @@
  * repository is a different entry.
  *
  * Beside each model is what its name resolved to (the file's URL and size),
- * so a stored model loads again without asking the Hub, offline too.
+ * so a stored model loads again without asking the Hub, offline too. LiteRT-LM
+ * picks a repository's file by the engine's backend, so a name resolved for
+ * one backend is kept apart from the same name resolved for another.
  */
 
 /** Where a model's file is, as LiteRT-LM resolves it. */
@@ -28,8 +30,12 @@ export type StorageEnvironment = {
 /** The cache's name in the page's Cache Storage. */
 export const MODEL_CACHE = "tanstack-ai-browser-litert-lm"
 
+/** A model as it was resolved: its name, and the backend its file was picked for (none: LiteRT-LM's own choice). */
+export type StoredModel = { model: string; backend?: number }
+
 /** The entry that holds what a model's name resolved to. (A URL no server answers: it's only a key.) */
-const recordUrl = (model: string) => `https://litert-lm.invalid/resolved/${encodeURIComponent(model)}`
+const recordUrl = ({ model, backend }: StoredModel) =>
+  `https://litert-lm.invalid/resolved/${encodeURIComponent(model)}${backend === undefined ? "" : `?backend=${backend}`}`
 
 const environment = (): StorageEnvironment | undefined =>
   typeof caches === "undefined" ? undefined : { caches, fetch: (input, init) => fetch(input, init) }
@@ -37,10 +43,10 @@ const environment = (): StorageEnvironment | undefined =>
 const coded = (message: string, code: string, cause?: unknown) => Object.assign(new Error(message, { cause }), { code })
 
 /** The model's file as it was resolved when it was stored, if the file is still stored. */
-export async function storedFile(model: string, env = environment()): Promise<ModelFile | undefined> {
+export async function storedFile(stored: StoredModel, env = environment()): Promise<ModelFile | undefined> {
   if (!env) return undefined
   const cache = await env.caches.open(MODEL_CACHE)
-  const record = await cache.match(recordUrl(model))
+  const record = await cache.match(recordUrl(stored))
   if (!record) return undefined
   const file = (await record.json()) as ModelFile
   return (await cache.match(file.url)) ? file : undefined
@@ -60,13 +66,14 @@ export async function readFile(file: ModelFile, env = environment()): Promise<Re
  * failed download stores nothing.
  */
 export async function downloadFile(
-  model: string,
+  stored: StoredModel,
   file: ModelFile,
   options: { onProgress?: (progress: number) => void; signal?: AbortSignal; accessToken?: string } = {},
   env = environment()
 ): Promise<void> {
   if (!env) throw coded("This page has no Cache Storage to keep a model in", "unavailable")
   const { onProgress, signal, accessToken } = options
+  const { model } = stored
   const response = await env.fetch(file.url, {
     ...(signal && { signal }),
     ...(accessToken && { headers: { Authorization: `Bearer ${accessToken}` } })
@@ -102,16 +109,16 @@ export async function downloadFile(
       error
     )
   }
-  await cache.put(recordUrl(model), new Response(JSON.stringify({ url: file.url, ...(total > 0 && { size: total }), ...(file.sha256 && { sha256: file.sha256 }) })))
+  await cache.put(recordUrl(stored), new Response(JSON.stringify({ url: file.url, ...(total > 0 && { size: total }), ...(file.sha256 && { sha256: file.sha256 }) })))
 }
 
 /** Removes a model's stored file. Returns whether it was stored. */
-export async function removeFile(model: string, env = environment()): Promise<boolean> {
+export async function removeFile(stored: StoredModel, env = environment()): Promise<boolean> {
   if (!env) return false
   const cache = await env.caches.open(MODEL_CACHE)
-  const record = await cache.match(recordUrl(model))
+  const record = await cache.match(recordUrl(stored))
   if (!record) return false
   const file = (await record.json()) as ModelFile
-  await cache.delete(recordUrl(model))
+  await cache.delete(recordUrl(stored))
   return cache.delete(file.url)
 }
