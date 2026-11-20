@@ -57,3 +57,26 @@ test("an answer fits a schema by its arrays, numbers, alternatives and reference
   assert.ok(!conforms({ city: 1 }, referring))
   assert.ok(!conforms({ city: "Paris" }, { type: "object", properties: { city: { $ref: "#/$defs/missing" } } }), "a reference to nothing fits nothing")
 })
+
+test("an answer fits a tuple by its positions, and items false or a false schema allows nothing more", () => {
+  const one = { type: "array", prefixItems: [{ type: "integer" }], items: false }
+  assert.ok(conforms([1], one))
+  assert.ok(conforms([], one), "prefixItems don't require their positions")
+  assert.ok(!conforms([1, 2], one), "nothing after the tuple")
+  assert.ok(!conforms(["a"], one), "the position's schema holds")
+  const pair = { type: "array", prefixItems: [{ type: "string" }, { type: "integer" }], items: { type: "boolean" } }
+  assert.ok(conforms(["a", 1, true, false], pair))
+  assert.ok(!conforms(["a", 1, "b"], pair), "items holds after the tuple")
+  assert.ok(!conforms([1, "a"], pair))
+  // The older form: items as a list of positions, and additionalItems after them.
+  const older = { type: "array", items: [{ type: "string" }], additionalItems: false }
+  assert.ok(conforms(["a"], older))
+  assert.ok(!conforms(["a", "b"], older))
+  // Boolean schemas, anywhere.
+  assert.ok(!conforms(1, false))
+  assert.ok(conforms(1, true))
+  assert.ok(!conforms({ a: 1 }, { type: "object", properties: { a: false } }))
+  assert.ok(!conforms([1], { type: "array", items: false }))
+  assert.ok(conforms([], { type: "array", items: false }))
+})
+

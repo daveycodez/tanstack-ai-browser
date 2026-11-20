@@ -137,6 +137,8 @@ function isOfType(value: unknown, type: unknown): boolean {
  * checked.
  */
 export function conforms(value: unknown, schema: unknown, root: unknown = schema): boolean {
+  // A boolean schema: `false` fits nothing, `true` anything.
+  if (schema === false) return false
   if (!isRecord(schema)) return true
   if (typeof schema.$ref === "string") {
     const target = schema.$ref.split("/").slice(1).reduce<unknown>((at, key) => (isRecord(at) ? at[key] : undefined), root)
@@ -161,7 +163,14 @@ export function conforms(value: unknown, schema: unknown, root: unknown = schema
   if (Array.isArray(value)) {
     if (typeof schema.minItems === "number" && value.length < schema.minItems) return false
     if (typeof schema.maxItems === "number" && value.length > schema.maxItems) return false
-    if (schema.items !== undefined && !value.every((item) => conforms(item, schema.items, root))) return false
+    // A tuple's positions (`prefixItems`, or `items` as a list in the older form), then what may follow
+    // them (`items`, or `additionalItems` in the older form); `false` there allows nothing more.
+    const positions = Array.isArray(schema.prefixItems) ? schema.prefixItems : Array.isArray(schema.items) ? schema.items : []
+    const rest = Array.isArray(schema.prefixItems) || !Array.isArray(schema.items) ? schema.items : schema.additionalItems
+    for (const [index, item] of value.entries()) {
+      const itemSchema = index < positions.length ? positions[index] : rest
+      if (itemSchema !== undefined && !conforms(item, itemSchema, root)) return false
+    }
   }
   if (isRecord(value)) {
     const properties = isRecord(schema.properties) ? schema.properties : {}

@@ -1024,7 +1024,7 @@ test("a structured answer thinks first with reasoning: the notes as reasoning, t
   // Before iOS/macOS 27 the ask is for the thinking itself, and says nothing of notes.
   assert.equal(
     answerInstruction(false),
-    "Before replying to the user's message below, think it through in a few sentences: what do they want, and how will you work out the answer? Write only that. Don't write the reply yet."
+    "Before replying to the user's message below, reason through the answer itself, step by step, in a few sentences, and end with the answer you'll give and why. Write only that. Don't write the reply yet."
   )
   assert.equal(draft.prompt, draftPrompt("Weather in Paris?", answerInstruction(true)))
   assert.equal(draft.schema, undefined, "the notes are plain text")
@@ -1175,5 +1175,33 @@ test("an answer refused after the label is asked for as text under the label too
   const asks = editing.named("respond") as Array<Respond & { schema?: unknown }>
   assert.deepEqual(asks.map((ask) => !!ask.schema), [true, true, false])
   assert.equal(asks[2].prompt, `Message:\nWeather in Paris?\n\n${jsonAsk(CITY)}`)
+})
+
+test("notes that use up maximumResponseTokens leave no session behind: the next message starts a session without the draft", async () => {
+  // The same settings for both steps, so the second could go on in the first's session.
+  const cap = { ...high, modelOptions: { maximumResponseTokens: 50 } }
+  const editing = new EditingNative()
+  editing.replies = [[{ type: "done", text: "Needs the", usage: { inputTokens: 100, outputTokens: 50 } }], NOTES, REPLY]
+  const adapter = afmText({ native: editing })
+  const cut: Array<Chunk> = []
+  for await (const chunk of adapter.chatStream(chatOptions(cap))) cut.push(chunk as Chunk)
+  assert.equal(cut.at(-1)?.finishReason, "length")
+  const [first] = editing.named("respond") as Array<Respond>
+  // The next message of the same thread, the cut-off step having written no reply.
+  for await (const _ of adapter.chatStream(chatOptions({ ...cap, messages: [user("Weather in Paris?"), user("And in Rome?")] }))) void _
+  const later = editing.named("respond") as Array<Respond>
+  assert.notEqual(later[1].sessionId, first.sessionId, "the session that holds the draft isn't asked again")
+  assert.ok(editing.named("deleteSession").some((call) => call.sessionId === first.sessionId), "it is ended")
+})
+
+test("a text answer that breaks a closed tuple isn't taken: the second text try that fits is", async () => {
+  const editing = new EditingNative()
+  editing.replies = [REFUSED, [{ type: "done", text: "[1, 2]" }], [{ type: "done", text: "[1]" }]]
+  const result = await afmText({ native: editing, ...PERMISSIVE }).structuredOutput({
+    chatOptions: chatOptions(),
+    outputSchema: { type: "array", prefixItems: [{ type: "integer" }], items: false }
+  } as never)
+  assert.deepEqual(result.data, [1])
+  assert.equal(editing.named("respond").length, 3)
 })
 

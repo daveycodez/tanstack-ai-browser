@@ -118,13 +118,19 @@ const AFTER_TOOL_INSTRUCTION =
  * its session has no tools, so the ask is about the answer alone. Two wordings
  * again, by what the OS runs, as `draftInstruction`'s are. Asked for "notes
  * for yourself, not to the user" before a chess move, AFM 2 Core (an iPad on
- * iOS 26) wrote the instruction back or about its notes in 4 of 32.
+ * iOS 26) wrote the instruction back or about its notes in 4 of 32. Asked
+ * "what do they want, and how will you work out the answer?", it answered
+ * those two questions and weighed no move ("I would evaluate each option
+ * considering immediate threats…"). Asked to reason through the answer itself
+ * and end with it, it compares the moves and names one, which was the move it
+ * then played 3 times in 4; asked to "weigh the options, then say which you
+ * choose", it named a move and played another 3 times in 4.
  */
 export const answerInstruction = (edits: boolean) => (edits ? ANSWER_INSTRUCTION : KEPT_ANSWER_INSTRUCTION)
 const ANSWER_INSTRUCTION =
   "Write notes for yourself, not to the user, before replying to the user's message below: what they're asking, and how you'll work out the answer. Don't write the reply yet."
 const KEPT_ANSWER_INSTRUCTION =
-  "Before replying to the user's message below, think it through in a few sentences: what do they want, and how will you work out the answer? Write only that. Don't write the reply yet."
+  "Before replying to the user's message below, reason through the answer itself, step by step, in a few sentences, and end with the answer you'll give and why. Write only that. Don't write the reply yet."
 /** Before iOS/macOS 27, where the notes stay in the session. */
 const KEPT_MESSAGE_INSTRUCTION =
   "Before replying to the user's message below, think it through in a sentence or two: what do they want, and will you answer directly or call a tool? Write only that. Don't call tools or write the reply yet."

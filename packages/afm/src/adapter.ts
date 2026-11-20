@@ -544,6 +544,8 @@ export class AfmTextAdapter extends BaseTextAdapter<
 
     let step: Awaited<ReturnType<typeof this.begin>> | undefined
     let paused = false
+    // A session the step ended itself (see the notes that use the cap up).
+    let discarded = false
     try {
       // A stopped request starts no native work (and one stopped meanwhile ends here).
       signal?.throwIfAborted()
@@ -676,10 +678,12 @@ export class AfmTextAdapter extends BaseTextAdapter<
         draftUsage = drafted.usage
         const left = max === undefined ? undefined : max - (drafted.usage?.outputTokens ?? 0)
         if (left !== undefined && left <= 0) {
-          // Notes that used the cap up leave no reply.
-          thread.queue = undefined
-          this.queues.delete(thread.sessionId)
-          thread.seen = keys
+          // Notes that used the cap up leave no reply. Their session holds the draft's instruction and the notes,
+          // and no reply to take them out around: it ends, as a failed step's does, and the next step starts anew.
+          this.close(thread)
+          if (this.threads.get(step.key) === thread) this.threads.delete(step.key)
+          if (this.paused.get(step.key) === thread) this.paused.delete(step.key)
+          discarded = true
           const usage = usageOf(drafted.usage)
           yield { type: EventType.RUN_FINISHED, runId, threadId, model, timestamp: timestamp(), finishReason: "length", ...(usage && { usage }) }
           return
@@ -772,7 +776,7 @@ export class AfmTextAdapter extends BaseTextAdapter<
       if (step) {
         step.thread.busy = false
         // A session no thread keeps ends with its step, unless its response waits for tools.
-        if (!step.kept && !paused) this.close(step.thread)
+        if (!step.kept && !paused && !discarded) this.close(step.thread)
       }
     }
   }
