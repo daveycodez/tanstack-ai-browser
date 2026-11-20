@@ -140,6 +140,32 @@ test("thinking streamed as reasoning_content comes back as REASONING events", as
   assert.equal(events.find((e) => e.type === "REASONING_MESSAGE_CONTENT")?.delta, "Let me think.")
 })
 
+test("an assistant message's thinking goes back to llama.cpp as reasoning_content: the chat template says which the model reads", async () => {
+  const { request } = await run({
+    messages: [
+      { role: "user", content: "Weather in Oslo?" },
+      { role: "assistant", content: "", toolCalls: [{ id: "c1", type: "function", function: { name: "get_weather", arguments: '{"city":"Oslo"}' } }], thinking: [{ content: "I should look it up." }] },
+      { role: "tool", toolCallId: "c1", content: '{"temp":3}' },
+      { role: "assistant", content: "3 degrees.", thinking: [{ content: "It is 3." }] },
+      { role: "user", content: "And tomorrow?" },
+      { role: "assistant", content: "", toolCalls: [{ id: "c2", type: "function", function: { name: "get_weather", arguments: '{"city":"Oslo"}' } }], thinking: [{ content: "Tomorrow needs " }, { content: "another lookup." }] },
+      { role: "tool", toolCallId: "c2", content: '{"temp":5}' }
+    ]
+  })
+  assert.deepEqual(
+    (request.messages as Array<{ role: string; reasoning_content?: string }>).map((m) => [m.role, m.reasoning_content]),
+    [
+      ["user", undefined],
+      ["assistant", "I should look it up."],
+      ["tool", undefined],
+      ["assistant", "It is 3."],
+      ["user", undefined],
+      ["assistant", "Tomorrow needs another lookup."],
+      ["tool", undefined]
+    ]
+  )
+})
+
 test("structured output sends the schema as given; the caller's signal reaches wllama", async () => {
   const schema = { type: "object", properties: { city: { type: "string" }, note: { type: "string" } }, required: ["city"] }
   const controller = new AbortController()

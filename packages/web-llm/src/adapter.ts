@@ -9,7 +9,7 @@
  * Schema answers, and stopping a generation with its interrupt (its
  * requests take no AbortSignal).
  */
-import type { ModelReasoning, TextOptions, Tool } from "@tanstack/ai"
+import type { ModelMessage, ModelReasoning, TextOptions, Tool } from "@tanstack/ai"
 import { resolveReasoning } from "@tanstack/ai/adapter-internals"
 import { OpenAIBaseChatCompletionsTextAdapter } from "@tanstack/openai-base"
 import type { OpenAIClientLike } from "@tanstack/openai-base"
@@ -110,6 +110,26 @@ const textOf = (content: unknown): string =>
     : Array.isArray(content)
       ? content.map((part: { text?: string }) => part.text ?? "").join("")
       : ""
+
+/**
+ * The model's thinking, back in the request for the turn in progress: on the assistant messages after the
+ * last user message (a tool call's, on the step with its result), as the `<think>…</think>` the model wrote
+ * before its text. TanStack's adapter leaves a message's thinking out of the request, and WebLLM has no field
+ * for it and no chat template that would drop earlier turns' thinking, so those go without it here.
+ */
+function withTurnThinking(request: Array<RequestMessage>, messages: ReadonlyArray<ModelMessage>): void {
+  const lastUser = messages.map((message) => message.role).lastIndexOf("user")
+  const thoughts = messages
+    .slice(lastUser + 1)
+    .filter((message) => message.role === "assistant")
+    .map((message) => (message.thinking ?? []).map((thought) => thought.content).join(""))
+  if (!thoughts.some(Boolean)) return
+  const turn = request.filter((message) => message.role === "assistant").slice(-thoughts.length)
+  if (turn.length !== thoughts.length) return
+  for (const [index, message] of turn.entries()) {
+    if (thoughts[index]) message.content = `<think>${thoughts[index]}</think>${textOf(message.content)}`
+  }
+}
 
 /**
  * The conversation with tools by prompt: the tools in the system prompt,
@@ -382,6 +402,7 @@ export class WebLlmTextAdapter<TModel extends WebLlmModel> extends OpenAIBaseCha
     const tools = options.toolChoice === "none" ? [] : (options.tools ?? [])
     const thinking = resolveReasoning(options.reasoning, this.modelReasoning(this.model))?.value
     const request = super.mapOptionsToRequest({ ...options, tools: [], reasoning: undefined })
+    withTurnThinking(request.messages as unknown as Array<RequestMessage>, options.messages)
     if (thinking !== undefined) {
       Object.assign(request, { extra_body: { ...modelOptions?.extra_body, enable_thinking: thinking === "true" } })
     }

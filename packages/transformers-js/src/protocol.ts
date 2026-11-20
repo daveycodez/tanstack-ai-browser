@@ -44,6 +44,8 @@ export type TemplateMessage = {
   role: "system" | "user" | "assistant" | "tool"
   /** Parts for a user message with images, and for every message of a model whose template reads parts. */
   content: string | Array<TemplatePart>
+  /** The model's thinking before this message, where it's the turn in progress: templates write it back as `<think>…</think>`. */
+  reasoning_content?: string
   /** A mapping, not a JSON string: templates serialize the arguments themselves. */
   tool_calls?: Array<{ id: string; type: "function"; function: { name: string; arguments: unknown } }>
   tool_call_id?: string

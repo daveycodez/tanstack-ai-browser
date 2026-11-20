@@ -124,6 +124,38 @@ test("the conversation and tools go to the chat template, with the model card's 
   assert.equal("enableThinking" in request, false)
 })
 
+test("the model's thinking goes back to it for the turn in progress, and not for earlier turns", async () => {
+  const call = (id: string) => [{ id, type: "function" as const, function: { name: "get_weather", arguments: '{"city":"Oslo"}' } }]
+  await run({
+    tools: [{ name: "get_weather", description: "Weather", inputSchema: { type: "object", properties: { city: { type: "string" } } } }],
+    messages: [
+      // An earlier turn, with its thinking.
+      { role: "user", content: "Weather in Oslo?" },
+      { role: "assistant", content: "", toolCalls: call("c1"), thinking: [{ content: "I should look it up." }] },
+      { role: "tool", toolCallId: "c1", content: '{"temp":3}' },
+      { role: "assistant", content: "3 degrees.", thinking: [{ content: "It is 3." }] },
+      // The turn in progress: a tool call the model thought about, and its result.
+      { role: "user", content: "And tomorrow?" },
+      { role: "assistant", content: "", toolCalls: call("c2"), thinking: [{ content: "Tomorrow needs " }, { content: "another lookup." }] },
+      { role: "tool", toolCallId: "c2", content: '{"temp":5}' }
+    ]
+  })
+  const messages = (generateRequests().at(-1) as Generate).messages
+  assert.deepEqual(
+    messages.map((m) => [m.role, m.reasoning_content]),
+    [
+      ["user", undefined],
+      ["assistant", undefined],
+      ["tool", undefined],
+      ["assistant", undefined],
+      ["user", undefined],
+      ["assistant", "Tomorrow needs another lookup."],
+      ["tool", undefined]
+    ]
+  )
+  assert.equal("reasoning_content" in messages[1], false, "left out, not empty")
+})
+
 test("a model the catalog doesn't list gets no sampling from the adapter: its repo's generation_config.json applies", async () => {
   await run({ model: "someone/Some-Model-ONNX" }, "someone/Some-Model-ONNX")
   assert.deepEqual((generateRequests().at(-1) as Generate).options, { max_new_tokens: 4096 })
@@ -243,6 +275,30 @@ async function weatherRuns(extra: { toolChoice?: unknown; tools?: Array<{ name: 
 
 test("chat() runs a tool the model calls", async () => {
   assert.equal((await weatherRuns()).runs, 1)
+})
+
+test("through chat(): what the model thought before a tool call is in the prompt of the step with the tool's result", async () => {
+  let generations = 0
+  FakeWorker.reply = (worker) =>
+    worker.stream(
+      generations++ === 0
+        ? ["<think>", "I should ", "look it up.", "</think>", "<|tool_call_start|>", '[get_weather(city="Oslo")]', "<|tool_call_end|>"]
+        : ["<think>", "It is 3.", "</think>", "3 degrees."]
+    )
+  const getWeather = { name: "get_weather", description: "Weather", execute: async () => ({ temp: 3 }) }
+  const stream = chat({ adapter: transformersJsText(MODEL), threadId: "t", messages: [{ role: "user", content: "Weather in Oslo?" }], tools: [getWeather], reasoning: "high" })
+  for await (const _chunk of stream) void _chunk
+  const [first, second] = generateRequests().slice(-2)
+  assert.deepEqual(first.messages.map((m) => m.role), ["user"])
+  // The step with the result: the call it follows carries the thinking that led to it.
+  assert.deepEqual(
+    second.messages.map((m) => [m.role, m.reasoning_content]),
+    [
+      ["user", undefined],
+      ["assistant", "I should look it up."],
+      ["tool", undefined]
+    ]
+  )
 })
 
 test("toolChoice none: a call the model writes anyway is text, and no tool runs", async () => {

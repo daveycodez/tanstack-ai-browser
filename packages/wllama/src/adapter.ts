@@ -10,7 +10,7 @@
  * thinking switch, the model card's sampling, and audio parts for the
  * models that read them.
  */
-import type { ReasoningRequest, TextOptions } from "@tanstack/ai"
+import type { ModelMessage, ReasoningRequest, TextOptions } from "@tanstack/ai"
 import { resolveReasoning } from "@tanstack/ai/adapter-internals"
 import { OpenAIBaseChatCompletionsTextAdapter } from "@tanstack/openai-base"
 import type { OpenAIClientLike } from "@tanstack/openai-base"
@@ -284,6 +284,18 @@ export class WllamaTextAdapter<TModel extends WllamaModel> extends OpenAIBaseCha
   /** Unloads the model, freeing its memory. It stays in wllama's storage. */
   async destroy(): Promise<void> {
     await unloadModel(this.model)
+  }
+
+  /**
+   * An assistant message with its thinking, as `reasoning_content`. TanStack's adapter reads that field from
+   * the stream and keeps it on the message, but leaves it out of the request, so the model's chat template
+   * had no thinking to write back. Which of it the model reads is the template's to say (LFM3's and
+   * Qwen3.5's: the turn in progress, so a tool call's thinking on the step with its result; earlier turns' not).
+   */
+  protected override convertMessage(message: ModelMessage): CreateParams["messages"][number] {
+    const converted = super.convertMessage(message)
+    const thinking = message.role === "assistant" ? (message.thinking ?? []).map((thought) => thought.content).join("") : ""
+    return thinking ? Object.assign(converted, { reasoning_content: thinking }) : converted
   }
 
   /** The request, with `modelOptions` as given over the model card's sampling, the tools as given, and the chat template's thinking switch. */
