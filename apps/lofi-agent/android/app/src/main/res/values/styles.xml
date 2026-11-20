@@ -16,7 +16,9 @@
     </style>
 
 
+    <!-- While the app starts: the app's icon (Android's own splash screen) on the page's background. -->
     <style name="AppTheme.NoActionBarLaunch" parent="Theme.SplashScreen">
-        <item name="android:background">@drawable/splash</item>
+        <item name="windowSplashScreenBackground">@color/splash_background</item>
+        <item name="android:background">@color/splash_background</item>
     </style>
 </resources>
