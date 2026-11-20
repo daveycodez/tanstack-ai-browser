@@ -40,13 +40,11 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <!--
       The location tool (navigator.geolocation): Capacitor's web view asks for the location
-      permissions when the page asks for a position. The tool needs a city, not a street, so
-      from Android 12 the app has the approximate permission only: Android asks once, for an
-      approximate location. (With the precise one declared too, someone who picks Approximate
-      is asked to change to precise on each of the next requests, which wait behind the
-      prompt.) Before Android 12, Capacitor shares a position only with the precise one.
+      permission when the page asks for a position. The tool needs a city, not a street, so
+      the app has the approximate permission only: Android asks once, for an approximate
+      location. (With the precise one declared too, someone who picks Approximate is asked to
+      change to precise on each of the next requests, which wait behind the prompt.)
     -->
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
-    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" android:maxSdkVersion="30" />
     <uses-feature android:name="android.hardware.location.gps" android:required="false" />
 </manifest>

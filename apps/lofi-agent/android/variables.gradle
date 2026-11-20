@@ -1,5 +1,7 @@
 ext {
-    minSdkVersion = 26
+    // Android 14: the first whose built-in web view (Chromium 113) runs the site, whose build
+    // targets Chromium 111 and later. (ML Kit, for Gemini Nano, needs 26.)
+    minSdkVersion = 34
     compileSdkVersion = 36
     targetSdkVersion = 36
     androidxActivityVersion = '1.11.0'
