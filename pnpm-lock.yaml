@@ -402,6 +402,9 @@ importers:
       '@tanstack-ai-browser/apfel':
         specifier: workspace:*
         version: link:../../packages/apfel
+      '@tanstack-ai-browser/litert-lm':
+        specifier: workspace:*
+        version: link:../../packages/litert-lm
       '@tanstack-ai-browser/mlkit':
         specifier: workspace:*
         version: link:../../packages/mlkit
@@ -630,6 +633,16 @@ importers:
       esbuild:
         specifier: 0.28.2
         version: 0.28.2
+
+  packages/litert-lm:
+    dependencies:
+      '@litert-lm/core':
+        specifier: 0.19.0
+        version: 0.19.0
+    devDependencies:
+      '@tanstack/ai':
+        specifier: 1.4.0
+        version: 1.4.0(zod@4.6.7)
 
   packages/mediapipe:
     dependencies:
@@ -1994,6 +2007,12 @@ packages:
 
   '@keyv/serialize@1.1.1':
     resolution: {integrity: sha512-dXn3FZhPv0US+7dtJsIi2R+c7qWYiReoEh5zUntWCf4oSpMNib8FDhSoed6m3QyZdx5hK7iLFkYk3rNxwt8vTA==}
+
+  '@litert-lm/core@0.19.0':
+    resolution: {integrity: sha512-v9FJvlGu3CDEmo0t/02bBu6ZGdxndR1CBlyebwsmHSAnQ0WH1XmT2g0QiXzdCG/TGd+ffTroN50zlS0ePgCFiw==}
+
+  '@litertjs/wasm-utils@2.6.0':
+    resolution: {integrity: sha512-rxARtl8owf+aPV2TsMiAClYDBaEDemML3PjrzBxIpGCvv6POswR7068Kt0sIkrK5XvKkY2Z+JLcm3a9CHmvuUg==}
 
   '@malept/cross-spawn-promise@2.0.0':
     resolution: {integrity: sha512-1DpKU0Z5ThltBwjNySMC14g0CkbyhCaz9FkhxqNsZI6uAPJXFS8cMXlBKo26FJ8ZuW6S9GCMcR9IO5k2X5/9Fg==}
@@ -7994,6 +8013,12 @@ snapshots:
       keyv: 5.6.0
 
   '@keyv/serialize@1.1.1': {}
+
+  '@litert-lm/core@0.19.0':
+    dependencies:
+      '@litertjs/wasm-utils': 2.6.0
+
+  '@litertjs/wasm-utils@2.6.0': {}
 
   '@malept/cross-spawn-promise@2.0.0':
     dependencies:
