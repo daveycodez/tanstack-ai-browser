@@ -1317,6 +1317,44 @@ test("structuredOutput() and chat() think first too; where the browser has no ap
   }
 })
 
+test("chat() with tools and reasoning high: a structured answer after a tool's results is the thread's session's, so the next step sends only what's new", async () => {
+  const adapter = promptApiText("text")
+  // The messages chat() gives the structured answer, to go on from.
+  let finalized: Array<unknown> = []
+  const structuredOutputStream = adapter.structuredOutputStream.bind(adapter)
+  adapter.structuredOutputStream = (options) => {
+    finalized = options.chatOptions.messages
+    return structuredOutputStream(options)
+  }
+  // The first step's draft calls the tool; the second's notes are about its result, and the reply follows them.
+  control.drafts = [['```tool_call\n{"name": "get_weather", "arguments": {"city": "Paris"}}\n```'], ["It is 20 degrees."]]
+  control.pieces = ["Sunny, 20 degrees."]
+  const result = await chat({
+    adapter,
+    threadId: "chat-tools-structured-reasoning",
+    messages: [asked],
+    tools: [{ ...weather, execute: async () => ({ temperature: 20 }) }],
+    outputSchema: schema,
+    reasoning: "high"
+  } as never)
+  assert.deepEqual(result, { city: "Tokyo" })
+  assert.equal((finalized.at(-1) as { role?: string }).role, "tool", "the answer follows the tool's results")
+  // Without tools the answer's settings differ from the loop's, so the thread gets a session of its own for it.
+  assert.equal(control.creates.length, 2)
+  const answer = control.prompts.at(-1)
+  assert.deepEqual(answer?.options.responseConstraint, schema)
+  assert.equal(answer?.session, control.sessions[1], "no notes: the thread's own session answers, not a clone")
+  assert.equal((answer?.input as Array<unknown>).length, 3, "the whole conversation")
+
+  // That session holds the answer and all before it, so a next step with its settings sends only the new message.
+  const prompted = control.prompts.length
+  const next = { role: "user", content: "And tomorrow?" }
+  await step(adapter, [...finalized, { role: "assistant", content: '{"city":"Tokyo"}' }, next], { threadId: "chat-tools-structured-reasoning" })
+  assert.equal(control.creates.length, 2, "the same session")
+  assert.equal(control.prompts[prompted].session, control.sessions[1])
+  assert.deepEqual(control.prompts[prompted].input, [next])
+})
+
 test("structured output without reasoning, or with it off: one prompt of the thread's session under the schema, and no clone", async () => {
   for (const extra of [{}, { reasoning: { level: "off", summary: true } }]) {
     Object.assign(control, { prompts: [] })

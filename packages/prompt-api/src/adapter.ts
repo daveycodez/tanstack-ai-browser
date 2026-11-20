@@ -986,8 +986,9 @@ export class PromptApiTextAdapter extends BaseTextAdapter<
         throw Object.assign(new Error(`The structured answer was cut off at maxOutputTokens (${max}) before its JSON was complete`), { code: "length" })
       }
       const rawText = answer.text
-      // The answer is in the session now. Not a thinking step's, written by a clone: the next step sends that.
-      if (kept && !step.thinking) kept.seen = [...keys, messageKey({ role: "assistant", content: rawText })]
+      // The answer is in the session now when the session wrote it, an answer after a tool's results included.
+      // Not one a clone wrote after notes: the next step sends that.
+      if (kept && answerer === session) kept.seen = [...keys, messageKey({ role: "assistant", content: rawText })]
       const data = JSON.parse(rawText) as unknown
       const usage = await this.usage(session, held, goesOn, read, rawText, constraint, draft)
       return { data, rawText, model: this.model, ...(usage && { usage }) }
