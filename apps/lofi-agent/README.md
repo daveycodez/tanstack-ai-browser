@@ -44,7 +44,9 @@ The picker's WebGLLM section runs models on `@tanstack-ai-browser/webgllm`, buil
 
 The GGUF models are in the picker's wllama section. They run on the CPU, WebGPU or not: on half the cores (wllama's default) where the page is cross-origin isolated (see `src/start.ts`), in every browser, Safari and Firefox included, since the site's headers use `Cross-Origin-Embedder-Policy: require-corp`.
 
-Models download their repository's latest version (main). Models whose thinking can be switched on and off (LFM3, its GGUF build included, Qwen3.5 and Raon-1 nano) get a Reasoning row at the bottom of the model picker, Off or High, High by default, as in webgllm's demo; the picker's button shows the level after the model's name while reasoning is on. A model that declared more reasoning levels would offer each of them by name.
+The picker's LiteRT-LM section runs models on `@tanstack-ai-browser/litert-lm`, on Google's LiteRT-LM web runtime (`@litert-lm/core`), where the browser has WebGPU: Gemma 4 E2B (2.34 GB) and E4B (3.31 GB), with the runtime's own tool calling and thinking, and KRAFTON's Raon-1 nano bundle (1.82 GB, a 4,096-token context), which neither thinks nor calls tools there. Their downloads are kept in the page's Cache Storage.
+
+Models download their repository's latest version (main). Models whose thinking can be switched on and off (LFM3, its GGUF build included, Qwen3.5, Raon-1 nano on WebGLLM, and Gemma 4 on LiteRT-LM) get a Reasoning row at the bottom of the model picker, Off or High, High by default, as in webgllm's demo; the picker's button shows the level after the model's name while reasoning is on. A model that declared more reasoning levels would offer each of them by name.
 
 ## Features
 
@@ -179,6 +181,7 @@ apps/lofi-agent/           the app (Nx project "lofi-agent")
 - [TanStack DB](https://tanstack.com/db): IndexedDB collections for everything the app saves, chat persistence included
 - [`@tanstack-ai-browser/transformers-js`](../../packages/transformers-js): Transformers.js 4.3.2 and onnxruntime-web on WebGPU, loaded from jsDelivr at runtime
 - [`@tanstack-ai-browser/wllama`](../../packages/wllama): the official wllama 3.13.0 (llama.cpp in WebAssembly), for the GGUF models, on WebGPU or the CPU
+- [`@tanstack-ai-browser/litert-lm`](../../packages/litert-lm): Gemma 4 on Google's LiteRT-LM web runtime (`@litert-lm/core` 0.19.0), on WebGPU
 - [`@tanstack-ai-browser/apfel`](../../packages/apfel): Apple's on-device model through apfel
 - [`@tanstack-ai-browser/prompt-api`](../../packages/prompt-api): the browser's built-in model through the Prompt API
 - [`@tanstack-ai-browser/mlkit`](../../packages/mlkit): Gemini Nano in the Android app, through ML Kit's Prompt API

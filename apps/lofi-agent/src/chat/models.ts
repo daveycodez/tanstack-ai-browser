@@ -13,6 +13,8 @@ import type { WebGllmChatModel, WebGllmModel } from "@tanstack-ai-browser/webgll
 // Types only: WebLLM loads on demand (./web-llm-models.ts).
 import type { webLlmText, WebLlmChatModel } from "@tanstack-ai-browser/web-llm"
 import type { webLlmModel as WebLlmModel } from "./web-llm-models.ts"
+import { litertLmText, LITERT_LM_MODEL_META, LITERT_LM_MODEL_REASONING } from "@tanstack-ai-browser/litert-lm"
+import type { LiteRtLmChatModel } from "@tanstack-ai-browser/litert-lm"
 import { apfelText } from "@tanstack-ai-browser/apfel"
 import { afmText } from "@tanstack-ai-browser/afm"
 import { mlkitText, MLKIT_MODEL_REASONING } from "@tanstack-ai-browser/mlkit"
@@ -69,6 +71,9 @@ export type ModelId =
   | "qwen3.5-2b-webgl"
   | "qwen3.5-2b-gguf-webgl"
   | "raon-1-nano-gguf-webgl"
+  | "gemma-4-e2b-litert-lm"
+  | "gemma-4-e4b-litert-lm"
+  | "raon-1-nano-litert-lm"
   | `web-llm:${WebLlmChatModel}`
   | "built-in"
   | "gemini-nano-mlkit"
@@ -107,6 +112,7 @@ type ModelEntry = {
     | ReturnType<typeof apfelText>
     | ReturnType<typeof afmText>
     | ReturnType<typeof mlkitText>
+    | ReturnType<typeof litertLmText>
     | ReturnType<typeof wllamaText>
     | ReturnType<typeof promptApiText>
     | ReturnType<typeof webgllmText>
@@ -233,6 +239,25 @@ const webgl = (id: ModelId, model: WebGllmModel) => {
       ? WEBGLLM_MODEL_REASONING[model as WebGllmChatModel]
       : UNLISTED_WEBGL_REASONING) as ModelReasoning | undefined,
     callsTools: true
+  }
+}
+
+/**
+ * Gemma 4 and Raon-1 nano on LiteRT-LM, Google's on-device runtime, on WebGPU
+ * only. Each offers what its catalog entry has: Raon-1 nano's bundle neither
+ * thinks nor calls tools there.
+ */
+const liteRt = (id: ModelId, model: LiteRtLmChatModel) => {
+  const { status, onDownloadProgress } = statusStore()
+  return {
+    id,
+    name: repoName(model),
+    icon: makerIcon(model),
+    adapter: litertLmText(model, { onDownloadProgress }),
+    status: status as ModelStatusStore | null,
+    needsWebGpu: true,
+    reasoning: LITERT_LM_MODEL_REASONING[model] as ModelReasoning | undefined,
+    callsTools: (LITERT_LM_MODEL_META[model].supports.capabilities as ReadonlyArray<string>).includes("tools")
   }
 }
 
@@ -392,7 +417,10 @@ export const MODELS = [
   webgl("lfm2.5-350m-gguf-webgl", "LiquidAI/LFM2.5-350M-GGUF"),
   webgl("qwen3.5-2b-webgl", "onnx-community/Qwen3.5-2B-ONNX"),
   webgl("qwen3.5-2b-gguf-webgl", "unsloth/Qwen3.5-2B-GGUF"),
-  webgl("raon-1-nano-gguf-webgl", "KRAFTON/Raon-1-nano-gguf")
+  webgl("raon-1-nano-gguf-webgl", "KRAFTON/Raon-1-nano-gguf"),
+  liteRt("gemma-4-e2b-litert-lm", "litert-community/gemma-4-E2B-it-litert-lm"),
+  liteRt("gemma-4-e4b-litert-lm", "litert-community/gemma-4-E4B-it-litert-lm"),
+  liteRt("raon-1-nano-litert-lm", "KRAFTON/Raon-1-nano-litert-lm")
 ] satisfies Array<ModelEntry>
 
 /**
@@ -429,6 +457,7 @@ const allModels = (): ReadonlyArray<ModelEntry> => [...MODELS, ...webLlmModels.g
 export const PROVIDERS = [
   { id: "apfel", name: "apfel" },
   { id: "afm", name: "AFM" },
+  { id: "litert-lm", name: "LiteRT-LM" },
   { id: "mlkit", name: "ML Kit" },
   { id: "prompt-api", name: "Prompt API" },
   { id: "transformers-js", name: "Transformers.js" },
@@ -633,7 +662,7 @@ const useWllamaOnWebGpu = () =>
 /**
  * Which backend a provider's models run on here, for the picker: WebGPU or
  * Wasm (the CPU, in WebAssembly) for Transformers.js and wllama, WebGPU or
- * WebGL 2 for WebGLLM, WebGPU for WebLLM (its only one); nothing for the
+ * WebGL 2 for WebGLLM, WebGPU for WebLLM and LiteRT-LM (their only one); nothing for the
  * others (apfel and the Prompt API aren't ours).
  */
 export function useBackends(): Partial<Record<string, string>> {
@@ -642,6 +671,7 @@ export function useBackends(): Partial<Record<string, string>> {
   return {
     "transformers-js": webGpu ? "WebGPU" : "Wasm",
     webgllm: webGpu ? "WebGPU" : "WebGL 2",
+    "litert-lm": "WebGPU",
     "web-llm": "WebGPU",
     ...(wllama !== null && { wllama: wllama ? "WebGPU" : "Wasm" })
   }
