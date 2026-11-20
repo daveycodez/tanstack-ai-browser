@@ -7,6 +7,7 @@ import type { TextOptions } from "@tanstack/ai"
 import { afmText } from "./adapter.js"
 import { AFM_MODEL_REASONING, SystemLanguageModel } from "./index.js"
 import { ANSWER_INSTRUCTION, draftInstruction, draftPrompt, REPLY_PROMPT, thoughtsPrompt } from "./reasoning.js"
+import { jsonAsk } from "./repair.js"
 import type { AfmNative, NativeAvailability, NativeEvent } from "./native.js"
 
 type Chunk = { type: string; [key: string]: unknown }
@@ -1065,4 +1066,76 @@ test("a structured answer's notes that fail end the reasoning and fail the answe
   const failed = chunks.find((c) => c.type === "RUN_ERROR") as { code?: string; message?: string }
   assert.equal(failed.code, "guardrailViolation")
   assert.equal(editing.named("respond").length, 1, "no answer is asked for")
+})
+
+const REFUSED: Array<Event> = [{ type: "error", code: "guardrailViolation", message: "Response may contain sensitive or unsafe content" }]
+const PERMISSIVE = { guardrails: "permissiveContentTransformations" } as const
+
+test("a structured answer the guardrails refuse is asked for again as text, under the permissive guardrails, and checked against the schema", async () => {
+  const editing = new EditingNative()
+  editing.replies = [REFUSED, [{ type: "done", text: 'Here it is:\n```json\n{"city":"Paris"}\n```', usage: { inputTokens: 130, outputTokens: 9 } }]]
+  const chunks = await structured(afmText({ native: editing, ...PERMISSIVE }))
+  assert.deepEqual(answerIn(chunks), { city: "Paris" })
+  assert.equal(chunks.some((c) => c.type === "RUN_ERROR"), false)
+  const [first, again] = editing.named("respond") as Array<Respond & { schema?: unknown }>
+  assert.ok(first.schema)
+  assert.equal(again.schema, undefined, "the answer is asked for as text")
+  assert.equal(again.prompt, `Weather in Paris?\n\n${jsonAsk(CITY)}`)
+  // A session of its own, with the same guardrails, and both are closed.
+  const sessions = editing.named("createSession")
+  assert.equal(sessions.length, 2)
+  assert.notEqual(again.sessionId, first.sessionId)
+  assert.deepEqual(sessions.map((session) => session.guardrails), ["permissiveContentTransformations", "permissiveContentTransformations"])
+  assert.equal(editing.named("deleteSession").length, 2)
+})
+
+test("the refusal stands where the text doesn't fit the schema, where it is refused too, and where the guardrails are the default ones", async () => {
+  for (const [name, config, reply, responds] of [
+    // Text that doesn't fit is asked for once more, and no further.
+    ["text that isn't the schema's", PERMISSIVE, [{ type: "done", text: '{"town":"Paris"}' }], 3],
+    ["text without JSON", PERMISSIVE, [{ type: "done", text: "Paris" }], 3],
+    ["text refused too", PERMISSIVE, REFUSED, 2],
+    ["default guardrails", {}, undefined, 1]
+  ] as const) {
+    const editing = new EditingNative()
+    editing.replies = [REFUSED, ...(reply ? [reply as Array<Event>] : [])]
+    const chunks = await structured(afmText({ native: editing, ...config }))
+    const failed = chunks.find((c) => c.type === "RUN_ERROR") as { code?: string } | undefined
+    assert.equal(failed?.code, "guardrailViolation", name)
+    assert.equal(answerIn(chunks), undefined, name)
+    assert.equal(editing.named("respond").length, responds, name)
+  }
+  // Another error isn't asked for again.
+  const editing = new EditingNative()
+  editing.replies = [[{ type: "error", code: "exceededContextWindowSize", message: "Too long" }]]
+  const chunks = await structured(afmText({ native: editing, ...PERMISSIVE }))
+  assert.equal((chunks.find((c) => c.type === "RUN_ERROR") as { code?: string }).code, "exceededContextWindowSize")
+  assert.equal(editing.named("respond").length, 1)
+})
+
+test("a refused answer that followed notes is asked for as text with the message and the notes, on either OS", async () => {
+  for (const native of [new EditingNative(), new RebuildingNative()]) {
+    native.replies = [NOTES, REFUSED, [{ type: "done", text: '{"city":"Paris"}' }]]
+    const chunks = await structured(afmText({ native, ...PERMISSIVE }), high)
+    assert.equal(reasoningIn(chunks), "Needs the weather.")
+    assert.deepEqual(answerIn(chunks), { city: "Paris" })
+    const asks = native.named("respond") as Array<Respond>
+    assert.equal(asks.length, 3)
+    assert.equal(asks[2].prompt, `${thoughtsPrompt("Weather in Paris?", "Needs the weather.")}\n\n${jsonAsk(CITY)}`)
+  }
+})
+
+
+test("text that doesn't fit the schema is asked for a second time, and an answer half wrapped in the schema is taken out of it", async () => {
+  // The schema written back, then the answer.
+  const editing = new EditingNative()
+  editing.replies = [REFUSED, [{ type: "done", text: JSON.stringify(CITY) }], [{ type: "done", text: '{"city":"Paris"}' }]]
+  assert.deepEqual(answerIn(await structured(afmText({ native: editing, ...PERMISSIVE }))), { city: "Paris" })
+  assert.equal(editing.named("respond").length, 3)
+  assert.equal(editing.named("deleteSession").length, 3, "each text ask has a session of its own")
+
+  const wrapped = new EditingNative()
+  wrapped.replies = [REFUSED, [{ type: "done", text: '```json\n{"type": "object", "properties": {"city": "Paris"}}\n```' }]]
+  assert.deepEqual(answerIn(await structured(afmText({ native: wrapped, ...PERMISSIVE }))), { city: "Paris" })
+  assert.equal(wrapped.named("respond").length, 2)
 })

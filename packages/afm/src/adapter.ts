@@ -32,6 +32,7 @@ import type { AfmChatModel, AfmModelReasoningByName } from "./model-meta.js"
 import { Afm } from "./native.js"
 import type { AfmGuardrails, AfmNative, AfmSampling, NativeEvent, NativeMessage, NativeUsage, UnavailableReason } from "./native.js"
 import { ANSWER_INSTRUCTION, draftInstruction, draftPrompt, REPLY_PROMPT, thoughtsPrompt } from "./reasoning.js"
+import { answerIn, jsonAsk } from "./repair.js"
 import { toNativeSchema } from "./schema.js"
 import * as SystemLanguageModel from "./system-language-model.js"
 
@@ -865,7 +866,8 @@ export class AfmTextAdapter extends BaseTextAdapter<
     const prompted = last?.role === "user"
     const before = prompted ? chatOptions.messages.slice(0, -1) : chatOptions.messages
     const message = prompted ? contentText(last.content) : ""
-    const thread = await this.open(chatOptions, [], "", toNativeMessages(before))
+    const earlier = toNativeMessages(before)
+    const thread = await this.open(chatOptions, [], "", earlier)
     try {
       const { temperature, maximumResponseTokens: max } = chatOptions.modelOptions ?? {}
       const include = chatOptions.modelOptions?.includeSchemaInPrompt ?? this.includeSchemaInPrompt
@@ -893,6 +895,8 @@ export class AfmTextAdapter extends BaseTextAdapter<
       const thinking = thinkingOf(chatOptions, model)
       let draft: NativeUsage | undefined
       let prompt = message
+      // What a session that holds nothing of this step would be asked for the same answer (see `repaired`).
+      let whole = message
       let left = max
       if (thinking && message) {
         const takes = await this.editsTranscript()
@@ -938,6 +942,7 @@ export class AfmTextAdapter extends BaseTextAdapter<
         // to the message with the notes; elsewhere they stay, and the answer is asked for after them.
         if (takes) await this.native.trimTranscript?.({ sessionId: thread.sessionId, entries: 2 })
         prompt = takes ? thoughtsPrompt(message, notes) : REPLY_PROMPT
+        whole = thoughtsPrompt(message, notes)
       }
 
       const queue = await respond(prompt, left, toNativeSchema(outputSchema, "Answer"))
@@ -948,11 +953,73 @@ export class AfmTextAdapter extends BaseTextAdapter<
           // The answer as the framework held it to the schema (a SyntaxError, TanStack's parse failure, if it isn't JSON).
           return { data: JSON.parse(event.text) as unknown, rawText: event.text, model, ...(usage && { usage }) }
         }
-        if (event.type === "error") throw Object.assign(new Error(event.message), { code: event.code })
+        if (event.type === "error") {
+          // An answer the guardrails refused is asked for once more as text, where they are the permissive ones (repair.ts).
+          if (event.code === "guardrailViolation" && this.guardrailsOf(chatOptions) === "permissiveContentTransformations") {
+            const repair = await this.repaired(chatOptions, earlier, whole, outputSchema, left, signal)
+            if (repair) {
+              const usage = draft ? thinkingUsageOf(draft, repair.usage) : usageOf(repair.usage)
+              return { data: repair.data, rawText: JSON.stringify(repair.data), model, ...(usage && { usage }) }
+            }
+          }
+          throw Object.assign(new Error(event.message), { code: event.code })
+        }
       }
     } finally {
       this.close(thread)
     }
+  }
+
+  /**
+   * A structured answer the guardrails refused, asked for as text of a session
+   * of its own (it holds the conversation, and nothing of the refused step):
+   * `prompt`, then the answer's outline, the schema and an ask for JSON alone.
+   * The answer read out of the text, where it fits the schema. Text that
+   * doesn't fit is asked for once more, in another session: the model writes
+   * something else the second time more often than not. Nothing where neither
+   * fits, or where the text is refused too.
+   */
+  private async repaired(
+    chatOptions: TextOptions<AfmTextModelOptions>,
+    earlier: Array<NativeMessage>,
+    prompt: string,
+    outputSchema: StructuredOutputOptions<AfmTextModelOptions>["outputSchema"],
+    tokens: number | undefined,
+    signal: AbortSignal | undefined
+  ): Promise<{ data: unknown; usage: NativeUsage | undefined } | undefined> {
+    const { temperature } = chatOptions.modelOptions ?? {}
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const thread = await this.open(chatOptions, [], "", earlier)
+      try {
+        const queue = new EventQueue()
+        thread.turn = 1
+        thread.queue = queue
+        this.queues.set(thread.sessionId, thread)
+        await this.native.respond({
+          sessionId: thread.sessionId,
+          turn: 1,
+          prompt: [prompt, jsonAsk(outputSchema)].filter(Boolean).join("\n\n"),
+          options: {
+            ...(temperature !== undefined && { temperature }),
+            ...(tokens !== undefined && { maximumResponseTokens: tokens }),
+            ...(this.samplingOf(chatOptions) && { sampling: this.samplingOf(chatOptions) })
+          }
+        })
+        for (;;) {
+          const event = await queue.next(signal)
+          // Text that is refused too isn't asked for again.
+          if (event.type === "error") return undefined
+          if (event.type === "done") {
+            const data = answerIn(event.text, outputSchema)
+            if (data !== undefined) return { data, usage: event.usage }
+            break
+          }
+        }
+      } finally {
+        this.close(thread)
+      }
+    }
+    return undefined
   }
 }
 
