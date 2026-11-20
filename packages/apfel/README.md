@@ -68,6 +68,8 @@ A turn's notes stay for the turn. A step that brings a tool's results reads the 
 - `budgetTokens` caps the notes (the draft's `max_tokens`), and a budget of 0 is no thinking. `max_tokens` covers the notes and the reply together.
 - The step's usage is both requests', with the notes' tokens as `completionTokensDetails.reasoningTokens`.
 
+A structured answer thinks first too: with `chat({ outputSchema, reasoning: "high" })` and no tools, the draft is a request without the schema, and the request held to the schema then answers the message with the notes under it. Its draft asks about the answer alone: "Write notes for yourself, not to the user, before replying to the user's message below: what they're asking, and how you'll work out the answer. Don't write the reply yet." With tools, each step drafts as above, and only its reply is held to the schema.
+
 ## Config
 
 - `baseURL`: apfel's API, up to `/v1`. It defaults to `http://127.0.0.1:11434/v1`.

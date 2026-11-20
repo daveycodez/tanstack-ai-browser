@@ -6,8 +6,8 @@
  * in OpenAI's strict form), image parts as `image_url`
  * parts, and `modelOptions` as given. It adds `availability()` and
  * `create()`, which ask apfel whether it serves the model, and thinking:
- * with `reasoning: "high"`, a step drafts working notes before its reply
- * (`reasoning.ts`).
+ * with `reasoning: "high"`, a step drafts working notes before its reply,
+ * and a structured answer before its JSON (`reasoning.ts`).
  */
 import type { TextOptions } from "@tanstack/ai"
 import { resolveReasoning } from "@tanstack/ai/adapter-internals"
@@ -16,7 +16,7 @@ import type { OpenAICompatibleChatAdapter } from "@tanstack/ai-openai/compatible
 
 import { APFEL_MODEL_META, APFEL_MODEL_REASONING } from "./model-meta.js"
 import type { ApfelChatModel, ApfelModelReasoningByName } from "./model-meta.js"
-import { thinkingStep } from "./reasoning.js"
+import { startsTurn, thinkingAnswer, thinkingAnswerResult, thinkingStep } from "./reasoning.js"
 import type { TurnNotes } from "./reasoning.js"
 
 export type ApfelConfig = {
@@ -127,7 +127,23 @@ export function apfelText(modelOrConfig?: ApfelModel | ApfelConfig, maybeConfig:
   const turns: TurnNotes = new Map()
   adapter.chatStream = (options) => {
     const thinking = thinkingOf(options)
-    return thinking ? thinkingStep(step, options, thinking.budget, turns) : step(options)
+    if (!thinking) return step(options)
+    // chat() sends a structured answer's schema with the chat request (`outputSchema`: apfel takes a schema and tools
+    // together). Without tools, that request is the answer to the user's message, and its notes are about the answer alone.
+    const answering = options.outputSchema !== undefined && !options.tools?.length && startsTurn(options.messages)
+    return answering ? thinkingAnswer(step, options, thinking.budget, step) : thinkingStep(step, options, thinking.budget, turns)
+  }
+  // Structured output's own requests think first too, when they answer a user's message (the notes are about it):
+  // `structuredOutputStream()` with the notes streamed as reasoning, `structuredOutput()` without them.
+  const answer = adapter.structuredOutput.bind(adapter)
+  const answerStream = adapter.structuredOutputStream.bind(adapter)
+  adapter.structuredOutputStream = (options) => {
+    const thinking = startsTurn(options.chatOptions.messages) && thinkingOf(options.chatOptions)
+    return thinking ? thinkingAnswer(step, options.chatOptions, thinking.budget, (chatOptions) => answerStream({ ...options, chatOptions })) : answerStream(options)
+  }
+  adapter.structuredOutput = (options) => {
+    const thinking = startsTurn(options.chatOptions.messages) && thinkingOf(options.chatOptions)
+    return thinking ? thinkingAnswerResult(step, options.chatOptions, thinking.budget, (chatOptions) => answer({ ...options, chatOptions })) : answer(options)
   }
 
   const availability = async (signal?: AbortSignal): Promise<Availability> => {
