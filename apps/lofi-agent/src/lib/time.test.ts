@@ -1,7 +1,7 @@
 import assert from "node:assert/strict"
 import { mock, test } from "node:test"
 
-import { getCurrentTime, timeTools } from "./time-server.ts"
+import { getCurrentTime, timeTools, todayLine } from "./time-server.ts"
 
 /** Runs `body` with the clock at `iso`. */
 function at(iso: string, body: () => void) {
@@ -46,4 +46,9 @@ test("the time tool is mcp-server-time's get_current_time as that server publish
     type: "object",
     title: "get_current_timeArguments"
   })
+})
+
+test("today's line for the system prompt: the weekday and the date, in words", () => {
+  assert.equal(todayLine(new Date(2026, 10, 20, 2, 9)), "Today is Friday, November 20, 2026.")
+  assert.equal(todayLine(new Date(2027, 0, 1, 23, 59)), "Today is Friday, January 1, 2027.")
 })

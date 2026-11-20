@@ -13,6 +13,7 @@ import { getMcpClients, reportMcpDiscoveryError } from "#/lib/mcp"
 import { systemPromptSetting } from "#/lib/settings"
 import { locationToolDefinition, locationToolSetting } from "#/lib/location"
 import { timeTools, timeToolsSetting } from "#/lib/time"
+import { todayLine } from "#/lib/time-server"
 import { weatherTool, weatherToolSetting } from "#/lib/weather"
 import { recordGeneration, startReply } from "./generation-stats"
 import { replyStatsMiddleware } from "./call-stats"
@@ -115,8 +116,9 @@ async function* reply(
     ...(params.parentRunId && { parentRunId: params.parentRunId }),
     ...(params.resume && { resume: params.resume }),
     // The system prompt from Settings: the default, or the user's own (none
-    // if they saved it empty). Models read the date and time with the time tools.
-    systemPrompts: [systemPromptSetting.get().trim()].filter(Boolean),
+    // if they saved it empty), then today's date (lib/time-server.ts). Models
+    // read the time of day with the time tool.
+    systemPrompts: [systemPromptSetting.get().trim(), todayLine()].filter(Boolean),
     // Tools, for a model that calls them (LFM2.5-Audio doesn't, and gets
     // none). The built-in ones, unless turned off in Settings: current time,
     // location, then weather. The location tool is a client tool, only its
