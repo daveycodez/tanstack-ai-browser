@@ -9,7 +9,7 @@ import type { TransformersJsChatModel } from "@tanstack-ai-browser/transformers-
 import { wllamaText, WLLAMA_MODEL_META, WLLAMA_MODEL_REASONING } from "@tanstack-ai-browser/wllama"
 import type { WllamaChatModel } from "@tanstack-ai-browser/wllama"
 import { webgllmText, WEBGLLM_MODEL_REASONING } from "@tanstack-ai-browser/webgllm"
-import type { WebGllmChatModel } from "@tanstack-ai-browser/webgllm"
+import type { WebGllmChatModel, WebGllmModel } from "@tanstack-ai-browser/webgllm"
 // Types only: WebLLM loads on demand (./web-llm-models.ts).
 import type { webLlmText, WebLlmChatModel } from "@tanstack-ai-browser/web-llm"
 import type { webLlmModel as WebLlmModel } from "./web-llm-models.ts"
@@ -68,6 +68,7 @@ export type ModelId =
   | "lfm2.5-350m-gguf-webgl"
   | "qwen3.5-2b-webgl"
   | "qwen3.5-2b-gguf-webgl"
+  | "raon-1-nano-gguf-webgl"
   | `web-llm:${WebLlmChatModel}`
   | "built-in"
   | "gemini-nano-mlkit"
@@ -207,11 +208,19 @@ const gguf = (id: ModelId, model: WllamaChatModel) => {
 }
 
 /**
- * LFM3, LFM2.5 and Qwen3.5 on webgllm, on WebGPU where the browser has it
- * and on WebGL 2 elsewhere. Where there's no WebGPU it still reads prompts
- * on the GPU: about three times as fast as the CPU on a Pixel 10 Pro.
+ * The thinking switch of a model webgllm's catalog doesn't list, as its
+ * adapter has it: off and high.
  */
-const webgl = (id: ModelId, model: WebGllmChatModel) => {
+const UNLISTED_WEBGL_REASONING: ModelReasoning = { levels: { off: "none", high: "high" }, budget: false }
+
+/**
+ * LFM3, LFM2.5, Qwen3.5 and Raon-1 nano on webgllm, on WebGPU where the
+ * browser has it and on WebGL 2 elsewhere. Where there's no WebGPU it still
+ * reads prompts on the GPU: about three times as fast as the CPU on a Pixel
+ * 10 Pro. A model its catalog doesn't list (Raon-1 nano) loads by its
+ * Hugging Face repository.
+ */
+const webgl = (id: ModelId, model: WebGllmModel) => {
   const { status, onDownloadProgress } = statusStore()
   return {
     id,
@@ -220,7 +229,9 @@ const webgl = (id: ModelId, model: WebGllmChatModel) => {
     adapter: webgllmText(model, { onDownloadProgress, ...iosContext() }),
     status: status as ModelStatusStore | null,
     needsWebGpu: false,
-    reasoning: WEBGLLM_MODEL_REASONING[model] as ModelReasoning | undefined,
+    reasoning: (Object.hasOwn(WEBGLLM_MODEL_REASONING, model)
+      ? WEBGLLM_MODEL_REASONING[model as WebGllmChatModel]
+      : UNLISTED_WEBGL_REASONING) as ModelReasoning | undefined,
     callsTools: true
   }
 }
@@ -380,7 +391,8 @@ export const MODELS = [
   webgl("lfm2.5-350m-webgl", "LiquidAI/LFM2.5-350M-ONNX"),
   webgl("lfm2.5-350m-gguf-webgl", "LiquidAI/LFM2.5-350M-GGUF"),
   webgl("qwen3.5-2b-webgl", "onnx-community/Qwen3.5-2B-ONNX"),
-  webgl("qwen3.5-2b-gguf-webgl", "unsloth/Qwen3.5-2B-GGUF")
+  webgl("qwen3.5-2b-gguf-webgl", "unsloth/Qwen3.5-2B-GGUF"),
+  webgl("raon-1-nano-gguf-webgl", "KRAFTON/Raon-1-nano-gguf")
 ] satisfies Array<ModelEntry>
 
 /**
