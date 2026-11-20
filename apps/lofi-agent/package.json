@@ -21,10 +21,14 @@
     "ios:sync": "vite build && cap sync ios",
     "ios:dev": "pnpm ios:sync && cap run ios",
     "ios:open": "cap open ios",
+    "android:sync": "vite build && cap sync android",
+    "android:dev": "pnpm android:sync && cap run android",
+    "android:open": "cap open android",
     "electron:afm": "node node_modules/@tanstack-ai-browser/afm/electron/build.mjs && mkdir -p dist/electron/afm && cp node_modules/@tanstack-ai-browser/afm/electron/afm.node node_modules/@tanstack-ai-browser/afm/electron/preload.cjs dist/electron/afm/",
     "electron:location": "xcrun clang -O2 -fobjc-arc -bundle -target arm64-apple-macos13.0 -undefined dynamic_lookup -I node_modules/node-api-headers/include -framework Foundation -framework CoreLocation electron/location.m -o dist/electron/location.node"
   },
   "dependencies": {
+    "@capacitor/android": "^8.6.2",
     "@capacitor/core": "^8.6.2",
     "@capacitor/ios": "^8.6.2",
     "@capacitor/status-bar": "^8.0.4",
@@ -34,6 +38,8 @@
     "@tailwindcss/vite": "^4.3.5",
     "@tanstack-ai-browser/afm": "workspace:*",
     "@tanstack-ai-browser/apfel": "workspace:*",
+    "@tanstack-ai-browser/litert-lm": "workspace:*",
+    "@tanstack-ai-browser/mlkit": "workspace:*",
     "@tanstack-ai-browser/prompt-api": "workspace:*",
     "@tanstack-ai-browser/transformers-js": "workspace:*",
     "@tanstack-ai-browser/web-llm": "workspace:*",

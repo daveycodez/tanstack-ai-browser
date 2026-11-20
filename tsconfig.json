@@ -26,6 +26,12 @@
     },
     {
       "path": "./packages/afm"
+    },
+    {
+      "path": "./packages/mlkit"
+    },
+    {
+      "path": "./packages/litert-lm"
     }
   ],
   "compilerOptions": {}

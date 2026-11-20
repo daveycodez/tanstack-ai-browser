@@ -1,0 +1,74 @@
+{
+  "name": "@tanstack-ai-browser/mlkit",
+  "version": "0.3.1",
+  "description": "TanStack AI adapter for Gemini Nano on Android, through ML Kit's GenAI Prompt API (Android's AICore), with its native tool calling: a Capacitor plugin for Android",
+  "license": "MIT",
+  "author": "daveycodez",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/daveycodez/tanstack-ai-browser.git",
+    "directory": "packages/mlkit"
+  },
+  "homepage": "https://github.com/daveycodez/tanstack-ai-browser/tree/main/packages/mlkit#readme",
+  "bugs": "https://github.com/daveycodez/tanstack-ai-browser/issues",
+  "keywords": [
+    "tanstack-ai",
+    "tanstack",
+    "ai",
+    "llm",
+    "android",
+    "mlkit",
+    "ml-kit",
+    "gemini-nano",
+    "aicore",
+    "capacitor",
+    "capacitor-plugin",
+    "on-device",
+    "local-ai"
+  ],
+  "type": "module",
+  "sideEffects": false,
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    "./package.json": "./package.json",
+    ".": {
+      "@tanstack-ai-browser/source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "README.md",
+    "src",
+    "dist",
+    "android/build.gradle",
+    "android/consumer-rules.pro",
+    "android/src",
+    "!**/*.tsbuildinfo"
+  ],
+  "capacitor": {
+    "android": {
+      "src": "android"
+    }
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "nx": {
+    "name": "mlkit"
+  },
+  "scripts": {
+    "test": "node --import @swc-node/register/esm-register --test \"src/**/*.test.ts\""
+  },
+  "peerDependencies": {
+    "@capacitor/core": "^8.0.0",
+    "@tanstack/ai": "^1.2.0"
+  },
+  "devDependencies": {
+    "@capacitor/core": "^8.6.2",
+    "@tanstack/ai": "1.4.0"
+  }
+}

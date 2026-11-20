@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">lofi-agent</string>
+    <string name="title_activity_main">lofi-agent</string>
+    <string name="package_name">dev.lofiagent.app</string>
+    <string name="custom_url_scheme">dev.lofiagent.app</string>
+</resources>

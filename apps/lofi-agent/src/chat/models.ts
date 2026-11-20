@@ -9,12 +9,16 @@ import type { TransformersJsChatModel } from "@tanstack-ai-browser/transformers-
 import { wllamaText, WLLAMA_MODEL_META, WLLAMA_MODEL_REASONING } from "@tanstack-ai-browser/wllama"
 import type { WllamaChatModel } from "@tanstack-ai-browser/wllama"
 import { webgllmText, WEBGLLM_MODEL_REASONING } from "@tanstack-ai-browser/webgllm"
-import type { WebGllmChatModel } from "@tanstack-ai-browser/webgllm"
+import type { WebGllmChatModel, WebGllmModel } from "@tanstack-ai-browser/webgllm"
 // Types only: WebLLM loads on demand (./web-llm-models.ts).
 import type { webLlmText, WebLlmChatModel } from "@tanstack-ai-browser/web-llm"
 import type { webLlmModel as WebLlmModel } from "./web-llm-models.ts"
+import { litertLmText, LITERT_LM_MODEL_META, LITERT_LM_MODEL_REASONING } from "@tanstack-ai-browser/litert-lm"
+import type { LiteRtLmChatModel } from "@tanstack-ai-browser/litert-lm"
 import { APFEL_MODEL_REASONING, apfelText } from "@tanstack-ai-browser/apfel"
 import { AFM_MODEL_REASONING, afmText } from "@tanstack-ai-browser/afm"
+import { mlkitText, MLKIT_MODEL_REASONING } from "@tanstack-ai-browser/mlkit"
+import type { MlKitFeature } from "@tanstack-ai-browser/mlkit"
 import {
   PROMPT_API_MODEL_REASONING,
   PromptApiTextAdapter,
@@ -71,8 +75,13 @@ export type ModelId =
   | "lfm2.5-350m-gguf-webgl"
   | "qwen3.5-2b-webgl"
   | "qwen3.5-2b-gguf-webgl"
+  | "raon-1-nano-gguf-webgl"
+  | "gemma-4-e2b-litert-lm"
+  | "gemma-4-e4b-litert-lm"
+  | "raon-1-nano-litert-lm"
   | `web-llm:${WebLlmChatModel}`
   | "built-in"
+  | "gemini-nano-mlkit"
 
 /** The app reaches apfel on this Mac at its default address. */
 const APPLE_MODEL = "apple-foundationmodel"
@@ -107,6 +116,8 @@ type ModelEntry = {
     | ReturnType<typeof transformersJsText>
     | ReturnType<typeof apfelText>
     | ReturnType<typeof afmText>
+    | ReturnType<typeof mlkitText>
+    | ReturnType<typeof litertLmText>
     | ReturnType<typeof wllamaText>
     | ReturnType<typeof promptApiText>
     | ReturnType<typeof webgllmText>
@@ -213,11 +224,19 @@ const gguf = (id: ModelId, model: WllamaChatModel) => {
 }
 
 /**
- * LFM3, LFM2.5 and Qwen3.5 on webgllm, on WebGPU where the browser has it
- * and on WebGL 2 elsewhere. Where there's no WebGPU it still reads prompts
- * on the GPU: about three times as fast as the CPU on a Pixel 10 Pro.
+ * The thinking switch of a model webgllm's catalog doesn't list, as its
+ * adapter has it: off and high.
  */
-const webgl = (id: ModelId, model: WebGllmChatModel) => {
+const UNLISTED_WEBGL_REASONING: ModelReasoning = { levels: { off: "none", high: "high" }, budget: false }
+
+/**
+ * LFM3, LFM2.5, Qwen3.5 and Raon-1 nano on webgllm, on WebGPU where the
+ * browser has it and on WebGL 2 elsewhere. Where there's no WebGPU it still
+ * reads prompts on the GPU: about three times as fast as the CPU on a Pixel
+ * 10 Pro. A model its catalog doesn't list (Raon-1 nano) loads by its
+ * Hugging Face repository.
+ */
+const webgl = (id: ModelId, model: WebGllmModel) => {
   const { status, onDownloadProgress } = statusStore()
   return {
     id,
@@ -226,8 +245,29 @@ const webgl = (id: ModelId, model: WebGllmChatModel) => {
     adapter: webgllmText(model, { onDownloadProgress, ...iosContext() }),
     status: status as ModelStatusStore | null,
     needsWebGpu: false,
-    reasoning: WEBGLLM_MODEL_REASONING[model] as ModelReasoning | undefined,
+    reasoning: (Object.hasOwn(WEBGLLM_MODEL_REASONING, model)
+      ? WEBGLLM_MODEL_REASONING[model as WebGllmChatModel]
+      : UNLISTED_WEBGL_REASONING) as ModelReasoning | undefined,
     callsTools: true
+  }
+}
+
+/**
+ * Gemma 4 and Raon-1 nano on LiteRT-LM, Google's on-device runtime, on WebGPU
+ * only. Each offers what its catalog entry has: Raon-1 nano's bundle neither
+ * thinks nor calls tools there.
+ */
+const liteRt = (id: ModelId, model: LiteRtLmChatModel) => {
+  const { status, onDownloadProgress } = statusStore()
+  return {
+    id,
+    name: repoName(model),
+    icon: makerIcon(model),
+    adapter: litertLmText(model, { onDownloadProgress }),
+    status: status as ModelStatusStore | null,
+    needsWebGpu: true,
+    reasoning: LITERT_LM_MODEL_REASONING[model] as ModelReasoning | undefined,
+    callsTools: (LITERT_LM_MODEL_META[model].supports.capabilities as ReadonlyArray<string>).includes("tools")
   }
 }
 
@@ -268,6 +308,13 @@ const builtInStatus = statusStore()
 const afm = afmText({ guardrails: "permissiveContentTransformations" })
 /** The browser's own model, through the Prompt API. */
 const builtIn = promptApiText({ onDownloadProgress: builtInStatus.onDownloadProgress })
+
+/** Android's own model's status, and its download's progress. */
+const mlkitStatus = statusStore()
+/** Gemini Nano through ML Kit (the Android app's plugin): also asked which Gemini Nano it runs. */
+const mlkit = mlkitText({ onDownloadProgress: mlkitStatus.onDownloadProgress })
+/** What the device's Gemini Nano can do, as ML Kit says once it's checked: tools and thinking need Gemini Nano 4. */
+const mlkitFeatures = createStore<ReadonlyArray<MlKitFeature>>([])
 
 export const MODELS = [
   {
@@ -324,6 +371,28 @@ export const MODELS = [
     reasoningIsDrafted: true,
     callsTools: true
   },
+  {
+    id: "gemini-nano-mlkit",
+    /**
+     * Android's own model, through ML Kit's Prompt API: in the Android app
+     * (the Capacitor plugin). Offered where it says the model can run, named
+     * as ML Kit names the one on the device (see reportedNames).
+     */
+    name: "Gemini Nano",
+    icon: "/icons/gemini.svg",
+    adapter: mlkit,
+    /** Android's AICore downloads it, once for every app, with progress. */
+    status: mlkitStatus.status as ModelStatusStore | null,
+    needsWebGpu: false,
+    /** Thinking mode, where the device's model has it. */
+    get reasoning() {
+      return mlkitFeatures.get().includes("thinkingMode") ? MLKIT_MODEL_REASONING["gemini-nano"] : undefined
+    },
+    /** ML Kit's function calling, where the device's model has it. */
+    get callsTools() {
+      return mlkitFeatures.get().includes("functionCalling")
+    }
+  },
   local("lfm3", "onnx-community/LFM3-1.7B-ONNX"),
   local("lfm3-vl", "onnx-community/LFM3-VL-2B-ONNX"),
   local("lfm2.5-vl-3b", "LiquidAI/LFM2.5-VL-3B-ONNX"),
@@ -365,7 +434,11 @@ export const MODELS = [
   webgl("lfm2.5-350m-webgl", "LiquidAI/LFM2.5-350M-ONNX"),
   webgl("lfm2.5-350m-gguf-webgl", "LiquidAI/LFM2.5-350M-GGUF"),
   webgl("qwen3.5-2b-webgl", "onnx-community/Qwen3.5-2B-ONNX"),
-  webgl("qwen3.5-2b-gguf-webgl", "unsloth/Qwen3.5-2B-GGUF")
+  webgl("qwen3.5-2b-gguf-webgl", "unsloth/Qwen3.5-2B-GGUF"),
+  webgl("raon-1-nano-gguf-webgl", "KRAFTON/Raon-1-nano-gguf"),
+  liteRt("gemma-4-e2b-litert-lm", "litert-community/gemma-4-E2B-it-litert-lm"),
+  liteRt("gemma-4-e4b-litert-lm", "litert-community/gemma-4-E4B-it-litert-lm"),
+  liteRt("raon-1-nano-litert-lm", "KRAFTON/Raon-1-nano-litert-lm")
 ] satisfies Array<ModelEntry>
 
 /**
@@ -402,6 +475,8 @@ const allModels = (): ReadonlyArray<ModelEntry> => [...MODELS, ...webLlmModels.g
 export const PROVIDERS = [
   { id: "apfel", name: "apfel" },
   { id: "afm", name: "AFM" },
+  { id: "litert-lm", name: "LiteRT-LM" },
+  { id: "mlkit", name: "ML Kit" },
   { id: "prompt-api", name: "Prompt API" },
   { id: "transformers-js", name: "Transformers.js" },
   { id: "webgllm", name: "WebGLLM" },
@@ -608,7 +683,7 @@ const useWllamaOnWebGpu = () =>
 /**
  * Which backend a provider's models run on here, for the picker: WebGPU or
  * Wasm (the CPU, in WebAssembly) for Transformers.js and wllama, WebGPU or
- * WebGL 2 for WebGLLM, WebGPU for WebLLM (its only one); nothing for the
+ * WebGL 2 for WebGLLM, WebGPU for WebLLM and LiteRT-LM (their only one); nothing for the
  * others (apfel and the Prompt API aren't ours).
  */
 export function useBackends(): Partial<Record<string, string>> {
@@ -617,6 +692,7 @@ export function useBackends(): Partial<Record<string, string>> {
   return {
     "transformers-js": webGpu ? "WebGPU" : "Wasm",
     webgllm: webGpu ? "WebGPU" : "WebGL 2",
+    "litert-lm": "WebGPU",
     "web-llm": "WebGPU",
     ...(wllama !== null && { wllama: wllama ? "WebGPU" : "Wasm" })
   }
@@ -634,7 +710,8 @@ const availabilities = createStore<Partial<Record<ModelId, Availability>>>({})
  * Names models give themselves, over their entries': Apple's framework says
  * which model it runs ("AFM 3 Core Advanced", "AFM 2 Core"), once it can run;
  * the Prompt API adapter, which model the browser runs ("Gemini Nano",
- * "Gemma 4", "Aion-1.1-Instruct").
+ * "Gemma 4", "Aion-1.1-Instruct"); ML Kit, which Gemini Nano the Android
+ * device has ("Gemini Nano 4").
  */
 const reportedNames = createStore<Partial<Record<ModelId, string>>>({})
 
@@ -650,7 +727,10 @@ async function checkAvailability(id: ModelId) {
       ? await afm.variant()
       : id === "built-in" && result !== "unavailable"
         ? await builtIn.variant()
-        : undefined
+        : id === "gemini-nano-mlkit" && result === "available"
+          ? await mlkit.variant()
+          : undefined
+  if (id === "gemini-nano-mlkit") mlkitFeatures.set(await mlkit.features())
   if (variant) reportedNames.set((all) => ({ ...all, [id]: variant.displayName }))
   return result
 }
@@ -677,13 +757,19 @@ export const useAvailabilities = () => {
 
 /**
  * Whether `id` can run here, as its availability says: models are offered
- * until their check says otherwise, except the built-in model and the
- * WebGL ones, which wait for it (most browsers have neither).
+ * until their check says otherwise, except the built-in model, Apple's and
+ * Android's through their frameworks, and the WebGL ones, which wait for it
+ * (most browsers have none of them).
  */
 const isAvailable = (id: ModelId) => {
   const availability = availabilities.get()[id]
   if (availability === undefined) {
-    return id !== "built-in" && id !== "apple-foundationmodel-afm" && modelInfo(id).adapter.name !== "webgllm"
+    return (
+      id !== "built-in" &&
+      id !== "apple-foundationmodel-afm" &&
+      id !== "gemini-nano-mlkit" &&
+      modelInfo(id).adapter.name !== "webgllm"
+    )
   }
   return availability !== "unavailable"
 }

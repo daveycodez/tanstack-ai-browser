@@ -1,3 +1,14 @@
+## 0.3.1 (2026-11-20)
+
+### 🚀 Features
+
+- **lofi-agent:** Raon-1 nano in the WebGLLM models, on webgllm 0.3.9 ([ecf6f8f](https://github.com/daveycodez/tanstack-ai-browser/commit/ecf6f8f))
+- **mlkit:** Gemini Nano on Android through ML Kit's Prompt API, as a Capacitor plugin; lofi-agent's Android app ([6c067b1](https://github.com/daveycodez/tanstack-ai-browser/commit/6c067b1))
+
+### ❤️ Thank You
+
+- daveycodez
+
 ## 0.3.0 (2026-11-19)
 
 ### 🚀 Features
