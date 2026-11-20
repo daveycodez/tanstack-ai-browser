@@ -6,7 +6,7 @@ import type { TextOptions } from "@tanstack/ai"
 
 import { afmText } from "./adapter.js"
 import { AFM_MODEL_REASONING, SystemLanguageModel } from "./index.js"
-import { ANSWER_INSTRUCTION, draftInstruction, draftPrompt, REPLY_PROMPT, thoughtsPrompt } from "./reasoning.js"
+import { answerInstruction, draftInstruction, draftPrompt, REPLY_PROMPT, thoughtsPrompt } from "./reasoning.js"
 import { jsonAsk } from "./repair.js"
 import type { AfmNative, NativeAvailability, NativeEvent } from "./native.js"
 
@@ -1018,10 +1018,15 @@ test("a structured answer thinks first with reasoning: the notes as reasoning, t
   assert.ok(typesOf(chunks).indexOf("REASONING_END") < typesOf(chunks).indexOf("TEXT_MESSAGE_START"), "the notes end before the answer")
   const [draft, answer] = editing.named("respond") as Array<Respond & { schema?: unknown }>
   assert.equal(
-    ANSWER_INSTRUCTION,
+    answerInstruction(true),
     "Write notes for yourself, not to the user, before replying to the user's message below: what they're asking, and how you'll work out the answer. Don't write the reply yet."
   )
-  assert.equal(draft.prompt, draftPrompt("Weather in Paris?", ANSWER_INSTRUCTION))
+  // Before iOS/macOS 27 the ask is for the thinking itself, and says nothing of notes.
+  assert.equal(
+    answerInstruction(false),
+    "Before replying to the user's message below, think it through in a few sentences: what do they want, and how will you work out the answer? Write only that. Don't write the reply yet."
+  )
+  assert.equal(draft.prompt, draftPrompt("Weather in Paris?", answerInstruction(true)))
   assert.equal(draft.schema, undefined, "the notes are plain text")
   assert.deepEqual(editing.named("trimTranscript").map((call) => call.entries), [2])
   assert.equal(answer.prompt, thoughtsPrompt("Weather in Paris?", "Needs the weather."))
@@ -1037,7 +1042,7 @@ test("a structured answer thinks first with reasoning: the notes as reasoning, t
   assert.equal(reasoningIn(kept), "Needs the weather.")
   assert.deepEqual(answerIn(kept), { city: "Paris" })
   const asks = old.named("respond") as Array<Respond & { schema?: unknown }>
-  assert.deepEqual(asks.map((ask) => ask.prompt), [draftPrompt("Weather in Paris?", ANSWER_INSTRUCTION), REPLY_PROMPT])
+  assert.deepEqual(asks.map((ask) => ask.prompt), [draftPrompt("Weather in Paris?", answerInstruction(false)), REPLY_PROMPT])
   assert.ok(asks[1].schema)
   assert.equal(old.named("trimTranscript").length, 0)
 })

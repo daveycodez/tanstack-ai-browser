@@ -114,11 +114,17 @@ const MESSAGE_INSTRUCTION =
 const AFTER_TOOL_INSTRUCTION =
   "Now write notes for yourself, not to the user, before replying to the user's latest message: what the tool results above tell you, and whether to answer with them or which different call would add what's missing. Don't call tools or write the reply yet."
 /**
- * What asks for the notes before a structured answer (`chat({ outputSchema })`),
- * on every OS: its session has no tools, so the ask is about the answer alone.
+ * What asks for the notes before a structured answer (`chat({ outputSchema })`):
+ * its session has no tools, so the ask is about the answer alone. Two wordings
+ * again, by what the OS runs, as `draftInstruction`'s are. Asked for "notes
+ * for yourself, not to the user" before a chess move, AFM 2 Core (an iPad on
+ * iOS 26) wrote the instruction back or about its notes in 4 of 32.
  */
-export const ANSWER_INSTRUCTION =
+export const answerInstruction = (edits: boolean) => (edits ? ANSWER_INSTRUCTION : KEPT_ANSWER_INSTRUCTION)
+const ANSWER_INSTRUCTION =
   "Write notes for yourself, not to the user, before replying to the user's message below: what they're asking, and how you'll work out the answer. Don't write the reply yet."
+const KEPT_ANSWER_INSTRUCTION =
+  "Before replying to the user's message below, think it through in a few sentences: what do they want, and how will you work out the answer? Write only that. Don't write the reply yet."
 /** Before iOS/macOS 27, where the notes stay in the session. */
 const KEPT_MESSAGE_INSTRUCTION =
   "Before replying to the user's message below, think it through in a sentence or two: what do they want, and will you answer directly or call a tool? Write only that. Don't call tools or write the reply yet."

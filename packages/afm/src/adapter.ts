@@ -31,7 +31,7 @@ import { AFM_MODEL_REASONING } from "./model-meta.js"
 import type { AfmChatModel, AfmModelReasoningByName } from "./model-meta.js"
 import { Afm } from "./native.js"
 import type { AfmGuardrails, AfmNative, AfmSampling, NativeEvent, NativeMessage, NativeUsage, UnavailableReason } from "./native.js"
-import { ANSWER_INSTRUCTION, draftInstruction, draftPrompt, REPLY_PROMPT, thoughtsPrompt } from "./reasoning.js"
+import { answerInstruction, draftInstruction, draftPrompt, REPLY_PROMPT, thoughtsPrompt } from "./reasoning.js"
 import { answerIn, jsonAsk, underLabel } from "./repair.js"
 import { toNativeSchema } from "./schema.js"
 import * as SystemLanguageModel from "./system-language-model.js"
@@ -903,7 +903,7 @@ export class AfmTextAdapter extends BaseTextAdapter<
         const reasoningId = nextId("reasoning")
         // The budget caps the notes; `maximumResponseTokens` covers the notes and the answer together.
         const draftTokens = thinking.budget === undefined ? max : max === undefined ? thinking.budget : Math.min(thinking.budget, max)
-        const queue = await respond(draftPrompt(message, ANSWER_INSTRUCTION), draftTokens)
+        const queue = await respond(draftPrompt(message, answerInstruction(takes)), draftTokens)
         let notes = ""
         const noteEvents = function* (delta: string): Generator<AdapterYieldChunk> {
           if (!delta) return
