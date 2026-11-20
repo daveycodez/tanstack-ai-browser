@@ -1,3 +1,26 @@
+## 0.3.2 (2026-11-20)
+
+### 🚀 Features
+
+- **afm:** a structured answer the guardrails refuse is asked for again as text, with the permissive guardrails ([32fd8c0](https://github.com/daveycodez/tanstack-ai-browser/commit/32fd8c0))
+- **afm:** a structured answer thinks first with reasoning: its notes as reasoning, then the answer held to the schema ([54569fc](https://github.com/daveycodez/tanstack-ai-browser/commit/54569fc))
+- **chess:** Apple's on-device model as an opponent, in an iOS app ([b08d936](https://github.com/daveycodez/tanstack-ai-browser/commit/b08d936))
+- **afm:** the notes are asked for in words settled per OS: AFM 3 Core's from iOS/macOS 27, AFM 2 Core's before ([d85fcd4](https://github.com/daveycodez/tanstack-ai-browser/commit/d85fcd4))
+- **afm:** reasoning "high" has Apple's model draft working notes before each reply, at the message and at each tool's results ([1be30e2](https://github.com/daveycodez/tanstack-ai-browser/commit/1be30e2))
+- **litert-lm:** a TanStack AI adapter for LiteRT-LM in the browser, with its models in lofi-agent ([5d50b94](https://github.com/daveycodez/tanstack-ai-browser/commit/5d50b94))
+
+### 🩹 Fixes
+
+- **afm:** the repair's check of a text answer counts its own properties only ([10f6108](https://github.com/daveycodez/tanstack-ai-browser/commit/10f6108))
+- **afm:** a draft that uses up the cap ends its session, the repair holds tuples closed, and before iOS 27 a structured answer's thinking reasons it through ([4fa20fa](https://github.com/daveycodez/tanstack-ai-browser/commit/4fa20fa))
+- **afm:** before iOS 27 a structured answer's thinking is asked for as thinking too, not as notes ([f70aaf0](https://github.com/daveycodez/tanstack-ai-browser/commit/f70aaf0))
+- **afm:** before iOS 27 the thinking is asked for as a sentence or two of thinking, not as notes ([c3c0624](https://github.com/daveycodez/tanstack-ai-browser/commit/c3c0624))
+- **afm:** a structured answer's prompt the framework takes for an unsupported language is asked once more under a label in English ([08c67c2](https://github.com/daveycodez/tanstack-ai-browser/commit/08c67c2))
+
+### ❤️ Thank You
+
+- daveycodez
+
 ## 0.3.1 (2026-11-20)
 
 ### 🚀 Features

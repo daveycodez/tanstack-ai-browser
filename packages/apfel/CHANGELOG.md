@@ -1,3 +1,21 @@
+## 0.3.2 (2026-11-20)
+
+### 🚀 Features
+
+- **apfel:** a structured answer thinks first with reasoning: a request without the schema drafts the notes, a second answers to it with them ([f141b50](https://github.com/daveycodez/tanstack-ai-browser/commit/f141b50))
+- **chess:** Apple's on-device model as an opponent, in an iOS app ([b08d936](https://github.com/daveycodez/tanstack-ai-browser/commit/b08d936))
+- **afm:** the notes are asked for in words settled per OS: AFM 3 Core's from iOS/macOS 27, AFM 2 Core's before ([d85fcd4](https://github.com/daveycodez/tanstack-ai-browser/commit/d85fcd4))
+- **apfel:** reasoning "high" has Apple's model draft working notes before each reply, in two requests ([d0a639f](https://github.com/daveycodez/tanstack-ai-browser/commit/d0a639f))
+- **litert-lm:** a TanStack AI adapter for LiteRT-LM in the browser, with its models in lofi-agent ([5d50b94](https://github.com/daveycodez/tanstack-ai-browser/commit/5d50b94))
+
+### 🩹 Fixes
+
+- **apfel:** one run id across a thinking step's draft and reply, and notes that use up max_tokens leave no reply ([44722da](https://github.com/daveycodez/tanstack-ai-browser/commit/44722da))
+
+### ❤️ Thank You
+
+- daveycodez
+
 ## 0.3.1 (2026-11-20)
 
 ### 🚀 Features

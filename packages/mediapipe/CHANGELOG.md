@@ -1,3 +1,14 @@
+## 0.3.2 (2026-11-20)
+
+### 🚀 Features
+
+- **chess:** Apple's on-device model as an opponent, in an iOS app ([b08d936](https://github.com/daveycodez/tanstack-ai-browser/commit/b08d936))
+- **litert-lm:** a TanStack AI adapter for LiteRT-LM in the browser, with its models in lofi-agent ([5d50b94](https://github.com/daveycodez/tanstack-ai-browser/commit/5d50b94))
+
+### ❤️ Thank You
+
+- daveycodez
+
 ## 0.3.1 (2026-11-20)
 
 ### 🚀 Features

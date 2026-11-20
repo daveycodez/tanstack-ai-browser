@@ -1,3 +1,43 @@
+## 0.3.2 (2026-11-20)
+
+### 🚀 Features
+
+- **afm:** reasoning "high" has Apple's model draft working notes before each reply, at the message and at each tool's results ([1be30e2](https://github.com/daveycodez/tanstack-ai-browser/commit/1be30e2))
+- **afm:** the notes are asked for in words settled per OS: AFM 3 Core's from iOS/macOS 27, AFM 2 Core's before ([d85fcd4](https://github.com/daveycodez/tanstack-ai-browser/commit/d85fcd4))
+- **afm:** a structured answer thinks first with reasoning: its notes as reasoning, then the answer held to the schema ([54569fc](https://github.com/daveycodez/tanstack-ai-browser/commit/54569fc))
+- **afm:** a structured answer the guardrails refuse is asked for again as text, with the permissive guardrails ([32fd8c0](https://github.com/daveycodez/tanstack-ai-browser/commit/32fd8c0))
+- **apfel:** reasoning "high" has Apple's model draft working notes before each reply, in two requests ([d0a639f](https://github.com/daveycodez/tanstack-ai-browser/commit/d0a639f))
+- **apfel:** a structured answer thinks first with reasoning: a request without the schema drafts the notes, a second answers to it with them ([f141b50](https://github.com/daveycodez/tanstack-ai-browser/commit/f141b50))
+- **chess:** Apple's on-device model as an opponent, in an iOS app ([b08d936](https://github.com/daveycodez/tanstack-ai-browser/commit/b08d936))
+- **chess:** a failed turn shows what the opponent was sent, with a button that copies it ([0a54e48](https://github.com/daveycodez/tanstack-ai-browser/commit/0a54e48))
+- **chess:** Thinking for Apple's model ([f8af1f4](https://github.com/daveycodez/tanstack-ai-browser/commit/f8af1f4))
+- **litert-lm:** a TanStack AI adapter for LiteRT-LM in the browser, with its models in lofi-agent ([5d50b94](https://github.com/daveycodez/tanstack-ai-browser/commit/5d50b94))
+- **lofi-agent:** Apple's models and the browser's own think before they reply, on by default; a default system prompt; Apple's permissive guardrails ([a22cd4e](https://github.com/daveycodez/tanstack-ai-browser/commit/a22cd4e))
+- **lofi-agent:** a reply's text and thinking are shown a few characters every frame as they stream ([1883dec](https://github.com/daveycodez/tanstack-ai-browser/commit/1883dec))
+- **lofi-agent:** today's date goes to the model with the system prompt ([f23ec43](https://github.com/daveycodez/tanstack-ai-browser/commit/f23ec43))
+- **prompt-api:** reasoning "high" has the browser's model draft working notes before each reply, on clones of the thread's session ([6cef337](https://github.com/daveycodez/tanstack-ai-browser/commit/6cef337))
+- **prompt-api:** a structured answer thinks first with reasoning: a clone drafts the notes, another answers under the schema with them ([e29e8dd](https://github.com/daveycodez/tanstack-ai-browser/commit/e29e8dd))
+
+### 🩹 Fixes
+
+- **afm:** a structured answer's prompt the framework takes for an unsupported language is asked once more under a label in English ([08c67c2](https://github.com/daveycodez/tanstack-ai-browser/commit/08c67c2))
+- **afm:** before iOS 27 the thinking is asked for as a sentence or two of thinking, not as notes ([c3c0624](https://github.com/daveycodez/tanstack-ai-browser/commit/c3c0624))
+- **afm:** before iOS 27 a structured answer's thinking is asked for as thinking too, not as notes ([f70aaf0](https://github.com/daveycodez/tanstack-ai-browser/commit/f70aaf0))
+- **afm:** a draft that uses up the cap ends its session, the repair holds tuples closed, and before iOS 27 a structured answer's thinking reasons it through ([4fa20fa](https://github.com/daveycodez/tanstack-ai-browser/commit/4fa20fa))
+- **afm:** the repair's check of a text answer counts its own properties only ([10f6108](https://github.com/daveycodez/tanstack-ai-browser/commit/10f6108))
+- **apfel:** one run id across a thinking step's draft and reply, and notes that use up max_tokens leave no reply ([44722da](https://github.com/daveycodez/tanstack-ai-browser/commit/44722da))
+- **chess:** the prompt says pieces, gains and losses instead of "material", which Apple's model refused a position over ([7798307](https://github.com/daveycodez/tanstack-ai-browser/commit/7798307))
+- **litert-lm:** a shared load outlives one caller's stop, and a name resolves for the engine's backend with its access token ([6b00c02](https://github.com/daveycodez/tanstack-ai-browser/commit/6b00c02))
+- **litert-lm:** a create already stopped starts no load ([e7cdcf7](https://github.com/daveycodez/tanstack-ai-browser/commit/e7cdcf7))
+- **lofi-agent:** the weather tool's forecast comes from MET Norway when Open-Meteo's fails or takes more than three seconds ([36ba985](https://github.com/daveycodez/tanstack-ai-browser/commit/36ba985))
+- **prompt-api:** a structured answer after a tool's results is recorded as in the thread's session ([cb75ae5](https://github.com/daveycodez/tanstack-ai-browser/commit/cb75ae5))
+- **transformers-js, wllama, webgllm, web-llm:** a turn's thinking goes back to the model with its tool calls, for the steps that follow ([02c36c6](https://github.com/daveycodez/tanstack-ai-browser/commit/02c36c6))
+- **web-llm, transformers-js:** a turn's thinking goes back as TanStack replays it, without redacted blocks ([c77bf63](https://github.com/daveycodez/tanstack-ai-browser/commit/c77bf63))
+
+### ❤️ Thank You
+
+- daveycodez
+
 ## 0.3.1 (2026-11-20)
 
 ### 🚀 Features

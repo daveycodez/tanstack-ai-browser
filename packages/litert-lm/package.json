@@ -1,6 +1,6 @@
 {
   "name": "@tanstack-ai-browser/litert-lm",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "description": "TanStack AI adapter for LiteRT-LM, Google's on-device LLM runtime, in the browser on WebGPU: Gemma 4 and other .litertlm models, with tools, thinking and stored downloads",
   "license": "MIT",
   "author": "daveycodez",

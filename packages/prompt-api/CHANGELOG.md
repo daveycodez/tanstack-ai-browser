@@ -1,3 +1,20 @@
+## 0.3.2 (2026-11-20)
+
+### 🚀 Features
+
+- **prompt-api:** a structured answer thinks first with reasoning: a clone drafts the notes, another answers under the schema with them ([e29e8dd](https://github.com/daveycodez/tanstack-ai-browser/commit/e29e8dd))
+- **chess:** Apple's on-device model as an opponent, in an iOS app ([b08d936](https://github.com/daveycodez/tanstack-ai-browser/commit/b08d936))
+- **prompt-api:** reasoning "high" has the browser's model draft working notes before each reply, on clones of the thread's session ([6cef337](https://github.com/daveycodez/tanstack-ai-browser/commit/6cef337))
+- **litert-lm:** a TanStack AI adapter for LiteRT-LM in the browser, with its models in lofi-agent ([5d50b94](https://github.com/daveycodez/tanstack-ai-browser/commit/5d50b94))
+
+### 🩹 Fixes
+
+- **prompt-api:** a structured answer after a tool's results is recorded as in the thread's session ([cb75ae5](https://github.com/daveycodez/tanstack-ai-browser/commit/cb75ae5))
+
+### ❤️ Thank You
+
+- daveycodez
+
 ## 0.3.1 (2026-11-20)
 
 ### 🚀 Features
