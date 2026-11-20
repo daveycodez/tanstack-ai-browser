@@ -275,7 +275,7 @@ export async function chooseAiMove(
             modelOptions: { max_tokens: 8192 }
           })
         : opponent.model === AFM_MODEL
-        ? chat({ ...chatOptions, adapter: afm })
+        ? chat({ ...chatOptions, adapter: afm, reasoning })
         : opponent.model === "prompt-api"
         ? chat({ ...chatOptions, adapter: promptApiText() })
         : chat({

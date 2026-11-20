@@ -29,7 +29,8 @@ export const AFM_OPTION: OpponentOption = {
   id: AFM_MODEL,
   label: "Apple Intelligence",
   detail: "On this device",
-  thinking: "none"
+  // Its adapter has it draft working notes before the move.
+  thinking: "optional"
 }
 /** Whether the device has Apple's model, and the name it gives ("AFM 3 Core"): set once the device answers (use-afm.ts). */
 let afm: { available: boolean; name?: string } = { available: false }
