@@ -15,11 +15,22 @@ import type { CapacitorConfig } from "@capacitor/cli"
 
 const devServer = process.env.CAP_SERVER_URL
 
+/**
+ * The oldest Android System WebView the site runs on: the Chromium its build targets
+ * (Vite's default, "baseline-widely-available": chrome111). An older one stops at the
+ * bundle's first newer syntax, with the prerendered page dead or an error screen. A phone
+ * without Play Store updates can still have one: the Android 8 to 11 emulator images ship
+ * Chromium 58 to 91.
+ */
+const MIN_WEB_VIEW = 111
+
 const config: CapacitorConfig = {
   appId: "dev.lofiagent.app",
   appName: "lofi-agent",
   webDir: "dist/client",
-  ...(devServer && { server: { url: devServer } })
+  // On an older web view the Android app shows public/update-webview.html instead of the site.
+  android: { minWebViewVersion: MIN_WEB_VIEW },
+  server: { errorPath: "update-webview.html", ...(devServer && { url: devServer }) }
 }
 
 export default config
