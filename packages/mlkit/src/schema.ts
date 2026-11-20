@@ -29,6 +29,15 @@ function defined<T extends object>(value: T): T {
   return Object.fromEntries(Object.entries(value).filter(([, v]) => v !== undefined)) as T
 }
 
+/** A map's own entry: a property may be named like one every object inherits ("constructor", "toString"). */
+const own = <T>(map: Record<string, T> | undefined, key: string): T | undefined => (map && Object.hasOwn(map, key) ? map[key] : undefined)
+
+/** The names a schema requires, as given: `settle` keeps those the finished object declares. */
+const names = (required: unknown): Array<string> | undefined => {
+  const given = Array.isArray(required) ? required.filter((name): name is string => typeof name === "string") : []
+  return given.length > 0 ? [...new Set(given)] : undefined
+}
+
 const number = (value: unknown) => (typeof value === "number" && Number.isFinite(value) ? value : undefined)
 const string = (value: unknown) => (typeof value === "string" ? value : undefined)
 
@@ -74,7 +83,7 @@ function intersect(a: NativeSchema, b: NativeSchema): NativeSchema {
     enumeration = a.enum.filter((value) => b.enum?.includes(value))
     if (enumeration.length === 0) throw apart("enums that share no value")
   }
-  const names = [...Object.keys(a.properties ?? {}), ...Object.keys(b.properties ?? {}).filter((name) => !(name in (a.properties ?? {})))]
+  const declared = [...Object.keys(a.properties ?? {}), ...Object.keys(b.properties ?? {}).filter((name) => own(a.properties, name) === undefined)]
   const required = [...new Set([...(a.required ?? []), ...(b.required ?? [])])]
   // Null fits only where both take it (a member without a type takes anything).
   const takesNull = (schema: NativeSchema) => schema.nullable === true || schema.type === undefined
@@ -85,9 +94,9 @@ function intersect(a: NativeSchema, b: NativeSchema): NativeSchema {
     properties:
       a.properties || b.properties
         ? Object.fromEntries(
-            names.map((name) => {
-              const mine = a.properties?.[name]
-              const theirs = b.properties?.[name]
+            declared.map((name) => {
+              const mine = own(a.properties, name)
+              const theirs = own(b.properties, name)
               return [name, mine && theirs ? intersect(mine, theirs) : ((mine ?? theirs) as NativeSchema)]
             })
           )
@@ -107,6 +116,24 @@ function intersect(a: NativeSchema, b: NativeSchema): NativeSchema {
   })
 }
 
+/**
+ * A converted schema with each object's required names cut to the properties it
+ * declares, all the way down. Conversion keeps every name until here, since
+ * one of `allOf`'s members (a referenced one too) may require a property
+ * another declares.
+ */
+function settle(schema: NativeSchema): NativeSchema {
+  const properties = schema.properties && Object.fromEntries(Object.entries(schema.properties).map(([name, property]) => [name, settle(property)]))
+  const required = schema.required?.filter((name) => own(schema.properties, name) !== undefined)
+  return defined({
+    ...schema,
+    properties,
+    required: required && required.length > 0 ? required : undefined,
+    items: schema.items && settle(schema.items),
+    anyOf: schema.anyOf?.map(settle)
+  })
+}
+
 /** The schema ML Kit takes for a JSON Schema: a tool's parameters. */
 export function toNativeSchema(schema: unknown): NativeSchema {
   const json = isObject(schema) ? schema : {}
@@ -121,7 +148,7 @@ export function toNativeSchema(schema: unknown): NativeSchema {
 
     if (typeof value.$ref === "string") {
       const target = value.$ref.split("/").at(-1) ?? ""
-      const def = defs[target]
+      const def = own(defs, target)
       if (!isObject(def)) return {}
       if (open.has(target)) throw new Error(`"${target}" refers to itself, which ML Kit's FunctionSchema can't hold`)
       open.add(target)
@@ -134,12 +161,7 @@ export function toNativeSchema(schema: unknown): NativeSchema {
     if (Array.isArray(value.allOf) && value.allOf.length > 0) {
       // Every member holds at once, and the schema's own keywords beside them.
       const { allOf, ...rest } = value
-      const all = [convert(rest), ...allOf.map(convert)].reduce(intersect)
-      // A member may require a property another one declares.
-      const required = [rest, ...allOf]
-        .flatMap((member) => (isObject(member) && Array.isArray(member.required) ? member.required : []))
-        .filter((name): name is string => typeof name === "string" && name in (all.properties ?? {}))
-      return described(defined({ ...all, required: required.length > 0 ? [...new Set([...(all.required ?? []), ...required])] : all.required }))
+      return described([convert(rest), ...allOf.map(convert)].reduce(intersect))
     }
     if ("const" in value) return described(constant(value.const))
     if (Array.isArray(value.enum)) {
@@ -169,14 +191,11 @@ export function toNativeSchema(schema: unknown): NativeSchema {
     switch (type) {
       case "object": {
         const entries = Object.entries(isObject(value.properties) ? value.properties : {})
-        const required = (Array.isArray(value.required) ? value.required : []).filter(
-          (key): key is string => typeof key === "string" && entries.some(([name]) => name === key)
-        )
         return described(
           defined({
             type: "object" as const,
             properties: Object.fromEntries(entries.map(([key, property]) => [key, convert(property)])),
-            required: required.length > 0 ? required : undefined,
+            required: names(value.required),
             nullable
           })
         )
@@ -228,9 +247,10 @@ export function toNativeSchema(schema: unknown): NativeSchema {
       case "null":
         return described({ type: "null" as const })
       default:
-        // No type: the limits it names still narrow whatever it's intersected with.
+        // No type: the limits it names, and the properties it requires, still narrow whatever it's intersected with.
         return described(
           defined({
+            required: names(value.required),
             minimum: number(value.minimum) ?? number(value.exclusiveMinimum),
             maximum: number(value.maximum) ?? number(value.exclusiveMaximum),
             minLength: number(value.minLength),
@@ -244,5 +264,5 @@ export function toNativeSchema(schema: unknown): NativeSchema {
     }
   }
 
-  return convert(json)
+  return settle(convert(json))
 }

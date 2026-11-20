@@ -172,3 +172,48 @@ test("allOf's members that can't be one schema throw", () => {
   assert.throws(() => toNativeSchema({ allOf: [{ type: "string", pattern: "^a" }, { type: "string", pattern: "z$" }] }), /allOf/)
   assert.throws(() => toNativeSchema({ allOf: [{ anyOf: [{ type: "string" }, { type: "integer" }] }, { type: "string" }] }), /allOf/)
 })
+
+test("allOf keeps the names a referenced member requires, of properties another member declares", () => {
+  const needsCity = { required: ["city"] }
+  assert.deepEqual(
+    toNativeSchema({ type: "object", properties: { city: { type: "string" } }, allOf: [{ $ref: "#/$defs/NeedsCity" }], $defs: { NeedsCity: needsCity } }),
+    { type: "object", properties: { city: { type: "string" } }, required: ["city"] }
+  )
+  // The same through two references, and one level down.
+  assert.deepEqual(
+    toNativeSchema({
+      type: "object",
+      properties: { place: { allOf: [{ $ref: "#/$defs/Place" }, { $ref: "#/$defs/NeedsCity" }] } },
+      $defs: { Place: { type: "object", properties: { city: { type: "string" }, zip: { type: "string" } } }, NeedsCity: needsCity }
+    }),
+    { type: "object", properties: { place: { type: "object", properties: { city: { type: "string" }, zip: { type: "string" } }, required: ["city"] } } }
+  )
+  // A name no member declares is still left out.
+  assert.deepEqual(toNativeSchema({ type: "object", properties: { city: { type: "string" } }, allOf: [{ required: ["city", "missing"] }] }), {
+    type: "object",
+    properties: { city: { type: "string" } },
+    required: ["city"]
+  })
+})
+
+test("properties named like an object's own members (constructor, toString) are properties like any other", () => {
+  const schema = {
+    type: "object",
+    properties: { constructor: { type: "string" }, toString: { type: "integer", minimum: 1 }, city: { type: "string" } },
+    required: ["constructor", "toString"]
+  }
+  const expected = {
+    type: "object",
+    properties: { constructor: { type: "string" }, toString: { type: "integer", minimum: 1 }, city: { type: "string" } },
+    required: ["constructor", "toString"]
+  }
+  assert.deepEqual(toNativeSchema(schema), expected)
+  assert.deepEqual(toNativeSchema({ allOf: [schema] }), expected)
+  // One member declares them, the other narrows one of them.
+  assert.deepEqual(toNativeSchema({ allOf: [schema, { type: "object", properties: { toString: { type: "integer", maximum: 9 } } }] }), {
+    ...expected,
+    properties: { ...expected.properties, toString: { type: "integer", minimum: 1, maximum: 9 } }
+  })
+  // A reference to a definition that isn't there is any value, whatever its name.
+  assert.deepEqual(toNativeSchema({ type: "object", properties: { a: { $ref: "#/$defs/constructor" } } }), { type: "object", properties: { a: {} } })
+})

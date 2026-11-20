@@ -113,3 +113,15 @@ test("a tool is parameterless only when its schema says so", () => {
   assert.equal(parameterless({ type: "object", required: ["city"] }), false)
   assert.equal(parameterless({ type: "string" }), false)
 })
+
+test("a name required through a referenced allOf member is held as required: its null isn't allowed in", () => {
+  const schema = heldSchema({ type: "object", properties: { city: { type: "string" }, note: { type: "string" } }, allOf: [{ $ref: "#/$defs/NeedsCity" }], $defs: { NeedsCity: { required: ["city"] } } })
+  assert.deepEqual(schema?.required, ["city"])
+  // The property that isn't required may come as null, and is left out.
+  assert.deepEqual(withoutUnaskedNulls({ city: "Paris", note: null }, schema), { city: "Paris" })
+})
+
+test("a null for a property the schema doesn't have is kept, whatever its name", () => {
+  const schema = heldSchema({ type: "object", properties: { city: { type: "string" } }, required: ["city"] })
+  assert.deepEqual(withoutUnaskedNulls({ city: "Paris", constructor: null, toString: null }, schema), { city: "Paris", constructor: null, toString: null })
+})

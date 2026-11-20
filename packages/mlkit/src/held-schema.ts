@@ -82,7 +82,8 @@ export function withoutUnaskedNulls(value: unknown, schema: NativeSchema | undef
   if (value === null || typeof value !== "object") return value
   const out: Record<string, unknown> = {}
   for (const [key, member] of Object.entries(value)) {
-    const property = schema?.properties?.[key]
+    // (The schema's own property: an answer may have a key named like one every object inherits.)
+    const property = schema?.properties && Object.hasOwn(schema.properties, key) ? schema.properties[key] : undefined
     if (member === null && property && !property.nullable) continue
     out[key] = withoutUnaskedNulls(member, property)
   }
