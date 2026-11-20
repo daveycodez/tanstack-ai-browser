@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- The page's background (the site's light theme-color), shown while the app starts. -->
+    <color name="splash_background">#F5F5F5</color>
+</resources>

@@ -1,0 +1,6 @@
+# Gradle and Android Studio state for the plugin's Android library
+android/build/
+android/.gradle/
+android/local.properties
+android/.idea/
+*.iml

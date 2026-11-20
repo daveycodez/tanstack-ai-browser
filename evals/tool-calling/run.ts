@@ -8,6 +8,9 @@
  * - `apfel`: Apple's model through apfel's server (`apfel --serve --cors`).
  * - `afm`: Apple's model in an app with the afm package's native side
  *   (lofi-agent's Electron or Capacitor build): through inject.mjs.
+ * - `mlkit`: Gemini Nano in an Android app with the mlkit package's native
+ *   side (lofi-agent's Capacitor build): through inject.mjs. `stage=preview`
+ *   and `preference=fast` pick ML Kit's model (stable and full by default).
  * - `webgllm`: `?model=` (LFM3's GGUF build by default; any model webgllm
  *   runs, `onnx-community/LFM3-1.7B-ONNX` for its ONNX build) on WebGL 2.
  * - `transformers-js`: `?model=` (LFM3's ONNX build by default) on WebGPU.
@@ -23,6 +26,7 @@
  */
 import { afmText } from "../../packages/afm/src/index.js"
 import { apfelText } from "../../packages/apfel/src/index.js"
+import { mlkitText } from "../../packages/mlkit/src/index.js"
 import { promptApiText } from "../../packages/prompt-api/src/index.js"
 import { transformersJsText } from "../../packages/transformers-js/src/index.js"
 import { webLlmText } from "../../packages/web-llm/src/index.js"
@@ -71,6 +75,17 @@ const ADAPTERS: Record<string, Factory> = {
     const adapter = apfelText()
     await adapter.create()
     return { adapter, label: "Apple's model (apfel)" }
+  },
+  mlkit: async (params, log) => {
+    const adapter = await loaded(
+      mlkitText({
+        ...(params.get("stage") === "preview" && { releaseStage: "preview" as const }),
+        ...(params.get("preference") === "fast" && { preference: "fast" as const })
+      }),
+      log
+    )
+    const variant = await adapter.variant()
+    return { adapter, label: variant ? `${variant.displayName} (${variant.baseModelName}, ML Kit)` : "Gemini Nano (ML Kit)" }
   },
   webgllm: async (params, log) => {
     const model = params.get("model") ?? "LiquidAI/LFM3-1.7B-GGUF"
