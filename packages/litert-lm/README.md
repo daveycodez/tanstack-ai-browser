@@ -9,7 +9,7 @@ What the adapter adds is what the runtime doesn't do yet: it stores a downloaded
 ## Requirements
 
 - A browser with WebGPU. LiteRT-LM's web API runs on WebGPU only.
-- The page in front. A model on LiteRT's general WebGPU path (Raon-1 nano's bundle) stops generating while its tab is hidden, and goes on when the tab is shown.
+- For Raon-1 nano's bundle, the page in front. In a hidden tab it wrote about a token a second (28 to 44 in front), and stopped altogether in a tab hidden for minutes; it goes on at full speed when the tab is shown. Gemma 4 kept its speed in a hidden tab.
 
 ## Install
 
@@ -48,10 +48,10 @@ The catalog (`LITERT_LM_CHAT_MODELS`, `LITERT_LM_MODEL_META`, `LITERT_LM_MODEL_R
 | Model                                       | Download | Tools | Thinking  | Context |
 | ------------------------------------------- | -------- | ----- | --------- | ------- |
 | `litert-community/gemma-4-E2B-it-litert-lm` | 2.34 GB  | yes   | on or off | 8,192   |
-| `litert-community/gemma-4-E4B-it-litert-lm` | 3.31 GB  | yes   | on or off |         |
+| `litert-community/gemma-4-E4B-it-litert-lm` | 3.31 GB  | yes   | on or off | 8,192   |
 | `KRAFTON/Raon-1-nano-litert-lm`             | 1.82 GB  | no    | none      | 4,096   |
 
-Gemma 4 E2B and Raon-1 nano were run through this adapter (Chrome on a Mac); Gemma 4 E4B is the same family and format, listed from Google's web models and not run here. Raon-1 nano's bundle has no tools here because the web runtime hands its calls back as text (`<tool_call>…`), not as calls.
+All three were run through this adapter (Chrome on a Mac). Raon-1 nano's bundle has no tools here because the web runtime hands its calls back as text (`<tool_call>…`), not as calls.
 
 Any other model LiteRT-LM's web runtime takes loads too. For one the catalog doesn't list, `chat({ reasoning })` still sets the chat template's `enable_thinking`, which a template without it ignores. A gated model needs the `accessToken` of the user loading it (never your own, in a web page).
 
@@ -105,6 +105,7 @@ An engine holds a model on the GPU. The page keeps one: loading another model de
 Chrome on a Mac, WebGPU, through this adapter:
 
 - **Gemma 4 E2B**: the first load, with its 2.34 GB download, took 73 s; a load from the stored file answered in 1.4 s. A short reply took 0.3 s, a tool call with its result and the answer 0.8 s, and thinking wrote about 55 tokens a second.
+- **Gemma 4 E4B**: the first load, with its 3.31 GB download, took 76 s. A tool call with its result and the answer took 1.3 s, and thinking wrote about 35 tokens a second.
 - **Raon-1 nano**: the first load, with its 1.82 GB download, took 65 s. It wrote a 62-token answer in 2 s.
 
 These are single runs, not a benchmark.
