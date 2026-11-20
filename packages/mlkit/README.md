@@ -36,6 +36,8 @@ if ((await adapter.availability()) !== "unavailable") {
 
 `availability()` is ML Kit's `checkStatus()`: `"available"` (the model is on the device), `"downloadable"` or `"downloading"` (AICore gets it, once for every app), or `"unavailable"` (not Android, or a device AICore has no model for). `create()` downloads the model where it's missing, with the download's progress from 0 to 1, loads it into memory (`warmup()`), and resolves to the adapter.
 
+On a Pixel 10 Pro the model is a 2.67 GB download: over Wi-Fi it took 2.6 minutes, with a progress report every second or so (195 of them). ML Kit's last report came at 84%, so the progress goes from there to 1 once the model is ready.
+
 ML Kit keeps no conversation, so every step sends all of it: the system prompts as ML Kit's system instruction, the tools, and the messages, with earlier tool calls and their results as ML Kit's own parts. `contextSize()` is the tokens a request and its response share (ML Kit's `getTokenLimit()`: 32,768 for Gemini Nano 4 on a Pixel 10 Pro).
 
 ML Kit reports no token counts with a response, so a run's `usage` is left out. `countTokens({ messages, systemPrompts, tools })` counts a conversation's input as ML Kit would; it's a call of its own to AICore (about 0.1 s for a short prompt on a Pixel 10 Pro), so the adapter doesn't make it for you.
