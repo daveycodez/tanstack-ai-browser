@@ -6,7 +6,7 @@ import type { TextOptions } from "@tanstack/ai"
 
 import { afmText } from "./adapter.js"
 import { AFM_MODEL_REASONING, SystemLanguageModel } from "./index.js"
-import { draftInstruction, draftPrompt, REPLY_PROMPT, thoughtsPrompt } from "./reasoning.js"
+import { ANSWER_INSTRUCTION, draftInstruction, draftPrompt, REPLY_PROMPT, thoughtsPrompt } from "./reasoning.js"
 import type { AfmNative, NativeAvailability, NativeEvent } from "./native.js"
 
 type Chunk = { type: string; [key: string]: unknown }
@@ -996,4 +996,73 @@ test("a native side without the calls (another host's) keeps the draft in the se
   await run(afmText({ native }), high)
   assert.equal((native.named("respond") as Array<Respond>)[1].prompt, REPLY_PROMPT)
   assert.equal(native.named("availability").length, 0, "nothing to ask it")
+})
+
+const CITY = { type: "object", properties: { city: { type: "string" } }, required: ["city"] }
+const ANSWER: Array<Event> = [{ type: "done", text: '{"city":"Paris"}', usage: { inputTokens: 120, outputTokens: 4 } }]
+async function structured(adapter: ReturnType<typeof afmText>, extra: Record<string, unknown> = {}) {
+  const chunks: Array<Chunk> = []
+  for await (const chunk of adapter.structuredOutputStream({ chatOptions: chatOptions(extra), outputSchema: CITY } as never)) chunks.push(chunk as Chunk)
+  return chunks
+}
+const answerIn = (chunks: Array<Chunk>) => (chunks.find((c) => c.type === "CUSTOM")?.value as { object?: unknown } | undefined)?.object
+
+test("a structured answer thinks first with reasoning: the notes as reasoning, then the answer held to the schema with the notes in hand", async () => {
+  // Where a session's conversation can be changed, the notes and their prompt come out, and the answer is to the message with the notes.
+  const editing = new EditingNative()
+  editing.replies = [NOTES, ANSWER]
+  const chunks = await structured(afmText({ native: editing }), high)
+  assert.equal(reasoningIn(chunks), "Needs the weather.")
+  assert.deepEqual(answerIn(chunks), { city: "Paris" })
+  assert.ok(typesOf(chunks).indexOf("REASONING_END") < typesOf(chunks).indexOf("TEXT_MESSAGE_START"), "the notes end before the answer")
+  const [draft, answer] = editing.named("respond") as Array<Respond & { schema?: unknown }>
+  assert.equal(
+    ANSWER_INSTRUCTION,
+    "Write notes for yourself, not to the user, before replying to the user's message below: what they're asking, and how you'll work out the answer. Don't write the reply yet."
+  )
+  assert.equal(draft.prompt, draftPrompt("Weather in Paris?", ANSWER_INSTRUCTION))
+  assert.equal(draft.schema, undefined, "the notes are plain text")
+  assert.deepEqual(editing.named("trimTranscript").map((call) => call.entries), [2])
+  assert.equal(answer.prompt, thoughtsPrompt("Weather in Paris?", "Needs the weather."))
+  assert.ok(answer.schema, "the answer is held to the schema")
+  // The notes' tokens are the answer's reasoning tokens.
+  const finished = chunks.find((c) => c.type === "RUN_FINISHED") as { usage?: { completionTokensDetails?: { reasoningTokens?: number } } }
+  assert.equal(finished.usage?.completionTokensDetails?.reasoningTokens, 5)
+
+  // Where it can't (before iOS/macOS 27), the notes stay, and the answer is asked for after them.
+  const old = new RebuildingNative()
+  old.replies = [NOTES, ANSWER]
+  const kept = await structured(afmText({ native: old }), high)
+  assert.equal(reasoningIn(kept), "Needs the weather.")
+  assert.deepEqual(answerIn(kept), { city: "Paris" })
+  const asks = old.named("respond") as Array<Respond & { schema?: unknown }>
+  assert.deepEqual(asks.map((ask) => ask.prompt), [draftPrompt("Weather in Paris?", ANSWER_INSTRUCTION), REPLY_PROMPT])
+  assert.ok(asks[1].schema)
+  assert.equal(old.named("trimTranscript").length, 0)
+})
+
+test("a structured answer without reasoning is one response, as before; structuredOutput() thinks too, without the events", async () => {
+  const editing = new EditingNative()
+  editing.replies = [ANSWER]
+  const chunks = await structured(afmText({ native: editing }))
+  assert.equal(reasoningIn(chunks), "")
+  assert.deepEqual(answerIn(chunks), { city: "Paris" })
+  assert.deepEqual((editing.named("respond") as Array<Respond>).map((ask) => ask.prompt), ["Weather in Paris?"])
+
+  const thinking = new EditingNative()
+  thinking.replies = [NOTES, ANSWER]
+  const result = await afmText({ native: thinking }).structuredOutput({ chatOptions: chatOptions(high), outputSchema: CITY } as never)
+  assert.deepEqual(result.data, { city: "Paris" })
+  assert.equal(thinking.named("respond").length, 2)
+})
+
+test("a structured answer's notes that fail end the reasoning and fail the answer with the error's code", async () => {
+  const editing = new EditingNative()
+  editing.replies = [[{ type: "delta", text: "Needs " }, { type: "error", code: "guardrailViolation", message: "May contain unsafe content" }]]
+  const chunks = await structured(afmText({ native: editing }), high)
+  assert.equal(reasoningIn(chunks), "Needs ")
+  assert.ok(typesOf(chunks).includes("REASONING_END"))
+  const failed = chunks.find((c) => c.type === "RUN_ERROR") as { code?: string; message?: string }
+  assert.equal(failed.code, "guardrailViolation")
+  assert.equal(editing.named("respond").length, 1, "no answer is asked for")
 })

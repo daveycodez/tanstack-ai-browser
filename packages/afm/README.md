@@ -101,6 +101,8 @@ After a tool's results the instruction is "Now write notes for yourself, not to 
 
 Those are the words from iOS/macOS 27, settled on AFM 3 Core. Before 27, on AFM 2 Core, the two instructions keep the words settled there: "… what they're asking, and whether you can answer directly or need a tool. Don't call tools or write the reply yet." and "Now write notes for yourself, not to the user, before replying to the user's latest message, what the tool results above tell you, and what to do next. Don't call tools or write the reply yet." Each model did worse on the other's: with AFM 3 Core's words, AFM 2 Core (an iPad on iOS 26) passed 20 and 20 of 42 cases with tools, to 26 and 29 with its own.
 
+A structured answer (`chat({ outputSchema, reasoning: "high" })`) thinks first too: the notes come as reasoning events, then the answer held to the schema, with the notes in hand as a reply has them. Its session has no tools, so the instruction asks about the answer alone: "Write notes for yourself, not to the user, before replying to the user's message below: what they're asking, and how you'll work out the answer. Don't write the reply yet."
+
 **At the message**
 
 - **iOS/macOS 27**: the notes' prompt is answered with tool calling disallowed. The notes and their prompt are then taken out of the session's own transcript, which keeps what it has read, and the reply is to the message again with the notes under it (`Message:`, then `Notes:`).

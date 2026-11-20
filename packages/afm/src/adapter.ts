@@ -31,7 +31,7 @@ import { AFM_MODEL_REASONING } from "./model-meta.js"
 import type { AfmChatModel, AfmModelReasoningByName } from "./model-meta.js"
 import { Afm } from "./native.js"
 import type { AfmGuardrails, AfmNative, AfmSampling, NativeEvent, NativeMessage, NativeUsage, UnavailableReason } from "./native.js"
-import { draftInstruction, draftPrompt, REPLY_PROMPT, thoughtsPrompt } from "./reasoning.js"
+import { ANSWER_INSTRUCTION, draftInstruction, draftPrompt, REPLY_PROMPT, thoughtsPrompt } from "./reasoning.js"
 import { toNativeSchema } from "./schema.js"
 import * as SystemLanguageModel from "./system-language-model.js"
 
@@ -792,7 +792,8 @@ export class AfmTextAdapter extends BaseTextAdapter<
     yield { type: EventType.RUN_STARTED, runId, threadId, model, timestamp: Date.now() }
     let result: StructuredOutputResult<unknown>
     try {
-      result = await this.structuredOutput(options)
+      // With reasoning, the working notes come first, as reasoning events.
+      result = yield* this.answerStructured(options)
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
       const own = (error as { code?: unknown } | undefined)?.code
@@ -839,38 +840,113 @@ export class AfmTextAdapter extends BaseTextAdapter<
   async structuredOutput(
     options: StructuredOutputOptions<AfmTextModelOptions>
   ): Promise<StructuredOutputResult<unknown>> {
+    // The notes of a thinking answer aren't streamed here: structuredOutputStream() has them.
+    const steps = this.answerStructured(options)
+    for (;;) {
+      const step = await steps.next()
+      if (step.done) return step.value
+    }
+  }
+
+  /**
+   * A structured answer's steps. With `reasoning: "high"` and a message to
+   * answer, the session first drafts working notes about it, which come as
+   * reasoning events; the answer, held to the schema, is then asked for with
+   * the notes in hand, as a reply is (see reasoning.ts). The session is the
+   * answer's own and has no tools.
+   */
+  private async *answerStructured(options: StructuredOutputOptions<AfmTextModelOptions>): AsyncGenerator<AdapterYieldChunk, StructuredOutputResult<unknown>> {
     const { chatOptions, outputSchema } = options
     const signal = signalOf(chatOptions)
     signal?.throwIfAborted()
     await this.listen()
+    const model = this.model
     const last = chatOptions.messages.at(-1)
     const prompted = last?.role === "user"
     const before = prompted ? chatOptions.messages.slice(0, -1) : chatOptions.messages
+    const message = prompted ? contentText(last.content) : ""
     const thread = await this.open(chatOptions, [], "", toNativeMessages(before))
     try {
-      thread.turn = 1
-      thread.queue = new EventQueue()
-      this.queues.set(thread.sessionId, thread)
-      const { temperature, maximumResponseTokens } = chatOptions.modelOptions ?? {}
+      const { temperature, maximumResponseTokens: max } = chatOptions.modelOptions ?? {}
       const include = chatOptions.modelOptions?.includeSchemaInPrompt ?? this.includeSchemaInPrompt
-      await this.native.respond({
-        sessionId: thread.sessionId,
-        turn: 1,
-        prompt: prompted ? contentText(last.content) : "",
-        schema: toNativeSchema(outputSchema, "Answer"),
-        options: {
-          ...(temperature !== undefined && { temperature }),
-          ...(maximumResponseTokens !== undefined && { maximumResponseTokens }),
-          ...(this.samplingOf(chatOptions) && { sampling: this.samplingOf(chatOptions) }),
-          ...(include === false && { includeSchemaInPrompt: false })
+      /** A response of the session's to `prompt`, as events; with a `schema`, held to it. */
+      const respond = async (prompt: string, tokens: number | undefined, schema?: ReturnType<typeof toNativeSchema>) => {
+        const queue = new EventQueue()
+        thread.turn += 1
+        thread.queue = queue
+        this.queues.set(thread.sessionId, thread)
+        await this.native.respond({
+          sessionId: thread.sessionId,
+          turn: thread.turn,
+          prompt,
+          ...(schema !== undefined && { schema }),
+          options: {
+            ...(temperature !== undefined && { temperature }),
+            ...(tokens !== undefined && { maximumResponseTokens: tokens }),
+            ...(this.samplingOf(chatOptions) && { sampling: this.samplingOf(chatOptions) }),
+            ...(schema !== undefined && include === false && { includeSchemaInPrompt: false })
+          }
+        })
+        return queue
+      }
+
+      const thinking = thinkingOf(chatOptions, model)
+      let draft: NativeUsage | undefined
+      let prompt = message
+      let left = max
+      if (thinking && message) {
+        const takes = await this.editsTranscript()
+        const reasoningId = nextId("reasoning")
+        // The budget caps the notes; `maximumResponseTokens` covers the notes and the answer together.
+        const draftTokens = thinking.budget === undefined ? max : max === undefined ? thinking.budget : Math.min(thinking.budget, max)
+        const queue = await respond(draftPrompt(message, ANSWER_INSTRUCTION), draftTokens)
+        let notes = ""
+        const noteEvents = function* (delta: string): Generator<AdapterYieldChunk> {
+          if (!delta) return
+          if (!notes) {
+            yield { type: EventType.REASONING_START, messageId: reasoningId, model, timestamp: Date.now() }
+            yield { type: EventType.REASONING_MESSAGE_START, messageId: reasoningId, role: "reasoning", model, timestamp: Date.now() }
+          }
+          notes += delta
+          yield { type: EventType.REASONING_MESSAGE_CONTENT, messageId: reasoningId, delta, model, timestamp: Date.now() }
         }
-      })
+        const endNotes = function* (): Generator<AdapterYieldChunk> {
+          if (!notes) return
+          yield { type: EventType.REASONING_MESSAGE_END, messageId: reasoningId, model, timestamp: Date.now() }
+          yield { type: EventType.REASONING_END, messageId: reasoningId, model, timestamp: Date.now() }
+        }
+        try {
+          for (;;) {
+            const event = await queue.next(signal)
+            if (event.type === "delta") yield* noteEvents(event.text)
+            else if (event.type === "error") throw Object.assign(new Error(event.message), { code: event.code })
+            else if (event.type === "done") {
+              // Any of the notes not sent as deltas.
+              if (event.text.startsWith(notes)) yield* noteEvents(event.text.slice(notes.length))
+              draft = event.usage
+              break
+            }
+          }
+        } catch (error) {
+          yield* endNotes()
+          throw error
+        }
+        yield* endNotes()
+        left = max === undefined ? undefined : max - (draft?.outputTokens ?? 0)
+        if (left !== undefined && left <= 0) throw Object.assign(new Error("The notes used up maximumResponseTokens: none are left for the answer"), { code: "length" })
+        // The notes and their prompt come out where the session's conversation can be changed, and the answer is
+        // to the message with the notes; elsewhere they stay, and the answer is asked for after them.
+        if (takes) await this.native.trimTranscript?.({ sessionId: thread.sessionId, entries: 2 })
+        prompt = takes ? thoughtsPrompt(message, notes) : REPLY_PROMPT
+      }
+
+      const queue = await respond(prompt, left, toNativeSchema(outputSchema, "Answer"))
       for (;;) {
-        const event = await thread.queue.next(signal)
+        const event = await queue.next(signal)
         if (event.type === "done") {
-          const usage = usageOf(event.usage)
+          const usage = draft ? thinkingUsageOf(draft, event.usage) : usageOf(event.usage)
           // The answer as the framework held it to the schema (a SyntaxError, TanStack's parse failure, if it isn't JSON).
-          return { data: JSON.parse(event.text) as unknown, rawText: event.text, model: this.model, ...(usage && { usage }) }
+          return { data: JSON.parse(event.text) as unknown, rawText: event.text, model, ...(usage && { usage }) }
         }
         if (event.type === "error") throw Object.assign(new Error(event.message), { code: event.code })
       }

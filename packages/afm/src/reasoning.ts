@@ -105,6 +105,12 @@ const MESSAGE_INSTRUCTION =
   "Write notes for yourself, not to the user, before replying to the user's message below: what they're asking, and whether it needs something you can't know or do yourself, like anything current or recent, that one of your tools gets, and which. Don't call tools or write the reply yet."
 const AFTER_TOOL_INSTRUCTION =
   "Now write notes for yourself, not to the user, before replying to the user's latest message: what the tool results above tell you, and whether to answer with them or which different call would add what's missing. Don't call tools or write the reply yet."
+/**
+ * What asks for the notes before a structured answer (`chat({ outputSchema })`),
+ * on every OS: its session has no tools, so the ask is about the answer alone.
+ */
+export const ANSWER_INSTRUCTION =
+  "Write notes for yourself, not to the user, before replying to the user's message below: what they're asking, and how you'll work out the answer. Don't write the reply yet."
 /** Before iOS/macOS 27, where the notes stay in the session. */
 const KEPT_MESSAGE_INSTRUCTION =
   "Write notes for yourself, not to the user, before replying to the user's message below: what they're asking, and whether you can answer directly or need a tool. Don't call tools or write the reply yet."
