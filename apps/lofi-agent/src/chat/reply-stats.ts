@@ -80,7 +80,7 @@ export function replyStatsOf(
       readTokens !== undefined && readTokens > 0 && readMs > 0
         ? readTokens / (readMs / 1000)
         : undefined,
-    // Tokens over the whole stream, prompt reading included (as assistant-ui counts them).
+    // Tokens over the whole stream, prompt reading included.
     tokensPerSecond:
       streamMs > 0 && streamTokens > 0 ? streamTokens / (streamMs / 1000) : undefined,
     firstTokenSeconds:

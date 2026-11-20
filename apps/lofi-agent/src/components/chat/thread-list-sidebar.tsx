@@ -1,7 +1,6 @@
 /**
- * Thread list sidebar. The layout follows assistant-ui's thread list sidebar
- * (MIT, github.com/assistant-ui/assistant-ui); everything visual is HeroUI's
- * default theme and components.
+ * Thread list sidebar. Everything visual is HeroUI's default theme and
+ * components.
  */
 import Archive from "@gravity-ui/icons/Archive"
 import Check from "@gravity-ui/icons/Check"

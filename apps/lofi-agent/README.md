@@ -176,7 +176,7 @@ apps/lofi-agent/           the app (Nx project "lofi-agent")
 
 ## Credits
 
-- The chat follows TanStack AI's [ts-react-ui-chatbot example](https://github.com/TanStack/ai/tree/main/examples/ts-react-ui-chatbot), styled after HeroUI Pro's chat with HeroUI's open-source components. The sidebar layout and the thinking effort picker follow [assistant-ui](https://github.com/assistant-ui/assistant-ui) (MIT).
+- The chat follows TanStack AI's [ts-react-ui-chatbot example](https://github.com/TanStack/ai/tree/main/examples/ts-react-ui-chatbot), styled after HeroUI Pro's chat with HeroUI's open-source components.
 - Provider icons are from [LobeHub Icons](https://github.com/lobehub/lobe-icons) (MIT).
 - City names are from [GeoNames](https://www.geonames.org) (CC BY 4.0): `public/data/cities.json`, built by `scripts/build-cities.mjs` (`pnpm --filter @tanstack-ai-browser/lofi-agent build-cities`).
 - LFM3 and LFM2.5 are models by [Liquid AI](https://huggingface.co/LiquidAI).

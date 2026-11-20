@@ -2,9 +2,8 @@
  * Asks before a model downloads: a HeroUI Card with the question, the
  * models already on the device as other ways to answer, and Cancel and
  * Download under them. Laid out as TanStack AI's chatbot example lays out
- * its budget question (a card, the question, then its choices) and as
- * assistant-ui's human-in-the-loop cards do (the choices at the end, the
- * one that goes ahead last).
+ * its budget question (a card, the question, then its choices), with the
+ * choices at the end and the one that goes ahead last.
  */
 import { Button, Card, Typography } from "@heroui/react"
 import { useId } from "react"
