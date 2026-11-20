@@ -13,6 +13,7 @@ import {
   hasWebGpuNow,
   isMacOS,
   offered,
+  reasoningIsDrafted,
   useAvailabilities,
   useHasWebGpu,
   useIsMacOS
@@ -28,6 +29,18 @@ const modelSetting = setting("model", DEFAULT_MODEL)
  */
 const effortSetting = setting("effort", "high")
 
+/**
+ * The same for the models that don't reason themselves (the browser's own and
+ * Apple's), whose adapter has them draft notes before each reply. High by
+ * default too: with tools attached and no notes, AFM 3 Core (an iPhone) called
+ * a tool for every request it was given (a haiku, a sum: 4 times in 4), and
+ * with them it answered those itself. It doubles the wait for a reply, so it
+ * keeps its own setting to turn off.
+ */
+const draftedEffortSetting = setting("draftedEffort", "high")
+
+const effortSettingFor = (model: ModelId) => (reasoningIsDrafted(model) ? draftedEffortSetting : effortSetting)
+
 /** The picked model, if this device can run it, else the default for it. */
 export const selectedModel = () =>
   offered(modelSetting.get(), isMacOS(), hasWebGpuNow())
@@ -41,9 +54,14 @@ export const useSelectedModel = () => {
 
 export const setSelectedModel = (id: ModelId) => modelSetting.set(id)
 
-export const useEffort = effortSetting.use
+/** The effort picked for a model: its own setting for a model whose thinking is drafted. */
+export const useEffort = (model: ModelId) => {
+  const effort = effortSetting.use()
+  const drafted = draftedEffortSetting.use()
+  return reasoningIsDrafted(model) ? drafted : effort
+}
 
-export const setEffort = (level: ReasoningLevel) => effortSetting.set(level)
+export const setEffort = (model: ModelId, level: ReasoningLevel) => effortSettingFor(model).set(level)
 
 /** Whether `value` is a reasoning level, as a run reads it. */
 export const isReasoningLevel = (value: unknown): value is ReasoningLevel =>

@@ -43,8 +43,14 @@ export function setting<K extends SettingKey>(key: K, initial: Settings[K]) {
   return { get, set, use }
 }
 
-/** The system prompt a conversation starts with until the user writes their own: none. */
-export const DEFAULT_SYSTEM_PROMPT = ""
+/**
+ * The system prompt a conversation starts with until the user writes their own. It names no tool: it says
+ * when to reach for one. That alone doesn't keep a small model from its tools (AFM 3 Core, given a haiku to
+ * write, called one 3 times in 3 with this prompt, with another, and with none): its working notes do
+ * (chat/model.ts).
+ */
+export const DEFAULT_SYSTEM_PROMPT =
+  "You are a helpful assistant in a conversation with a person. Reply directly when you can. Use a tool only when the person asks for something you cannot answer without it. When a tool gives you its result, use it to answer."
 
 /**
  * The system prompt, sent to every model at the start of each conversation:

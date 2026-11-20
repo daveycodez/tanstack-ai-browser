@@ -78,7 +78,7 @@ function ThreadChat({ threadId, onSend }: ThreadProps) {
   // Each run forwards the picked model and effort; the run picks its
   // adapter from them (src/chat/connection.ts).
   const model = useSelectedModel()
-  const effort = useEffort()
+  const effort = useEffort(model)
   const forwardedProps: ChatForwardedProps = useMemo(
     () => ({ model, effort }),
     [model, effort]

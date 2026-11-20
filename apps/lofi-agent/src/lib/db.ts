@@ -44,6 +44,8 @@ export type Settings = {
   model: ModelId
   /** How hard models think, clamped to each model's levels. */
   effort: ReasoningLevel
+  /** The same for models that don't reason themselves, whose adapter has them draft notes first. */
+  draftedEffort: ReasoningLevel
   sidebarOpen: boolean
   /** Whether models get the built-in time tools (lib/time.ts). */
   timeTools: boolean

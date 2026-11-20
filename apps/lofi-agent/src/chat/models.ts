@@ -13,9 +13,14 @@ import type { WebGllmChatModel } from "@tanstack-ai-browser/webgllm"
 // Types only: WebLLM loads on demand (./web-llm-models.ts).
 import type { webLlmText, WebLlmChatModel } from "@tanstack-ai-browser/web-llm"
 import type { webLlmModel as WebLlmModel } from "./web-llm-models.ts"
-import { apfelText } from "@tanstack-ai-browser/apfel"
-import { afmText } from "@tanstack-ai-browser/afm"
-import { PromptApiTextAdapter, PromptApiVariant, promptApiText } from "@tanstack-ai-browser/prompt-api"
+import { APFEL_MODEL_REASONING, apfelText } from "@tanstack-ai-browser/apfel"
+import { AFM_MODEL_REASONING, afmText } from "@tanstack-ai-browser/afm"
+import {
+  PROMPT_API_MODEL_REASONING,
+  PromptApiTextAdapter,
+  PromptApiVariant,
+  promptApiText
+} from "@tanstack-ai-browser/prompt-api"
 import type { Availability } from "@tanstack-ai-browser/prompt-api"
 import { useSyncExternalStore } from "react"
 
@@ -109,6 +114,11 @@ type ModelEntry = {
   status: ModelStatusStore | null
   needsWebGpu: boolean
   reasoning: ModelReasoning | undefined
+  /**
+   * The model doesn't reason itself: its adapter has it draft working notes
+   * before each reply. Slower, so it has its own effort setting (see ./model.ts).
+   */
+  reasoningIsDrafted?: boolean
   /**
    * Whether the model calls tools. One that doesn't is sent none: told of
    * tools, LFM2.5-Audio answers that none of them can hear a recording.
@@ -250,8 +260,12 @@ const webLlm = (
 /** The browser's own model's status, and its download's progress. */
 const builtInStatus = statusStore()
 
-/** Apple's framework (the iOS app's plugin, the Mac app's preload): also asked which model it runs. */
-const afm = afmText()
+/**
+ * Apple's framework (the iOS app's plugin, the Mac app's preload): also asked which model it runs.
+ * With Apple's permissive guardrails: the default ones refused ordinary requests out of context
+ * (AFM 2 Core on an iPad, asked for notes about "Write a haiku about autumn": a guardrail violation).
+ */
+const afm = afmText({ guardrails: "permissiveContentTransformations" })
 /** The browser's own model, through the Prompt API. */
 const builtIn = promptApiText({ onDownloadProgress: builtInStatus.onDownloadProgress })
 
@@ -266,8 +280,9 @@ export const MODELS = [
     /** Runs outside the browser: nothing to download. */
     status: null,
     needsWebGpu: false,
-    /** Apple's model doesn't reason. */
-    reasoning: undefined,
+    /** Off and high: the adapter has the model draft working notes before each reply. */
+    reasoning: APFEL_MODEL_REASONING[APPLE_MODEL] as ModelReasoning | undefined,
+    reasoningIsDrafted: true,
     callsTools: true
   },
   {
@@ -284,7 +299,9 @@ export const MODELS = [
     /** The OS keeps the model: nothing to download. */
     status: null,
     needsWebGpu: false,
-    reasoning: undefined,
+    /** Off and high: the adapter has the model draft working notes before each reply. */
+    reasoning: AFM_MODEL_REASONING.system as ModelReasoning | undefined,
+    reasoningIsDrafted: true,
     callsTools: true
   },
   {
@@ -302,8 +319,9 @@ export const MODELS = [
     /** The browser downloads it, once for every site, with progress. */
     status: builtInStatus.status as ModelStatusStore | null,
     needsWebGpu: false,
-    /** The browser's model doesn't reason. */
-    reasoning: undefined,
+    /** Off and high: the adapter has the model draft working notes before each reply. */
+    reasoning: PROMPT_API_MODEL_REASONING.text as ModelReasoning | undefined,
+    reasoningIsDrafted: true,
     callsTools: true
   },
   local("lfm3", "onnx-community/LFM3-1.7B-ONNX"),
@@ -401,6 +419,9 @@ export function effortLevels(id: ModelId): ReadonlyArray<ReasoningLevel> {
   const levels = supportedReasoningLevels(modelInfo(id).reasoning)
   return levels.length > 1 ? levels : []
 }
+
+/** Whether a model's thinking is its adapter's draft of notes, not reasoning of its own. */
+export const reasoningIsDrafted = (id: ModelId) => !!modelInfo(id).reasoningIsDrafted
 
 /**
  * The level a model runs at for the effort picked: that level if the model
