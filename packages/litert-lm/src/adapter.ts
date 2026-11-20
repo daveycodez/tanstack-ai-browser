@@ -283,6 +283,8 @@ export class LiteRtLmTextAdapter<TModel extends LiteRtLmModel> extends BaseTextA
    * for it; `progress` hears the download while this caller waits.
    */
   private engine(signal?: AbortSignal, progress?: DownloadProgressCallback): Promise<RuntimeEngine> {
+    // A caller already stopped starts no load: one nobody waits for would go on unclaimed.
+    if (signal?.aborted) return Promise.reject(abortError(signal))
     this.loaded = engineFor(this.key, async (stopped, report) => {
       const runtime = await this.runtime()
       if (this.wasmPath) await runtime.loadLiteRtLm?.(this.wasmPath)

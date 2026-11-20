@@ -519,3 +519,16 @@ test("a structured answer stopped while its token counts are read fails as stopp
     (error: { name?: string }) => error.name === "AbortError"
   )
 })
+
+test("a create already stopped starts no load: nothing is resolved, and no engine is made", async () => {
+  const controller = new AbortController()
+  controller.abort()
+  const adapter = litertLmText(GEMMA, { runtime })
+  await assert.rejects(adapter.create({ signal: controller.signal }), (error: { name?: string }) => error.name === "AbortError")
+  await new Promise((resolve) => setTimeout(resolve, 5))
+  assert.deepEqual(runtime.resolved, [])
+  assert.equal(runtime.engines.length, 0)
+  // The next call loads as if the stopped one hadn't been made.
+  assert.equal(await adapter.create(), adapter)
+  assert.equal(runtime.engines.length, 1)
+})
