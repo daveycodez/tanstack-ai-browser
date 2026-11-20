@@ -14,7 +14,7 @@
  * (`tools.ts`). Structured output prompts the thread's session under the
  * Prompt API's own `responseConstraint`. With `reasoning: "high"`, a step
  * drafts working notes before its reply (`reasoning.ts`), each on a clone of
- * the thread's session.
+ * the thread's session; a structured answer drafts them before its JSON too.
  */
 import { buildBaseUsage, EventType, normalizeSystemPrompts } from "@tanstack/ai"
 import type { AdapterYieldChunk, ModelMessage, TextOptions, TokenUsage, Tool } from "@tanstack/ai"
@@ -27,7 +27,7 @@ import { baseOptions, createSession, DEFAULT_LANGUAGES, MEDIA_INPUTS, promptApiA
 import type { Availability, MediaInput } from "./model.js"
 import { PROMPT_API_MODEL_REASONING } from "./model-meta.js"
 import type { PromptApiChatModel, PromptApiModelReasoningByName } from "./model-meta.js"
-import { draftInstruction, earlierNotes, withWorkingNotes } from "./reasoning.js"
+import { answerInstruction, draftInstruction, earlierNotes, withWorkingNotes } from "./reasoning.js"
 import { RUNAWAY_WHITESPACE, tokenCap, whitespaceRun } from "./runaway.js"
 import { toolCallReader, toolSystemPrompt } from "./tools.js"
 import { PromptApiVariant } from "./variant.js"
@@ -221,6 +221,9 @@ const nextId = (prefix: string) => `${prefix}_${Date.now().toString(36)}_${(ids+
 
 /** A tool call a step ends with. */
 type StepCall = { id: string; name: string; arguments: unknown }
+
+/** What a draft ends with: its notes, the pieces they took, whether the output cap stopped them, and any tool call it made. */
+type Drafted = { notes: string; pieces: number; capped: boolean; calls: Array<StepCall> }
 
 /** The browser's own call as a step's, with its id when it gives one. */
 const stepCall = (call: LanguageModelToolCall): StepCall => ({ id: call.callId || call.callID || nextId("call"), name: call.name, arguments: call.arguments })
@@ -568,7 +571,7 @@ export class PromptApiTextAdapter extends BaseTextAdapter<
     budget: number | undefined,
     max: number | undefined,
     reader: ReturnType<typeof toolCallReader> | undefined
-  ): AsyncGenerator<string, { notes: string; pieces: number; capped: boolean; calls: Array<StepCall> }> {
+  ): AsyncGenerator<string, Drafted> {
     const stop = new AbortController()
     const generation = signal ? AbortSignal.any([signal, stop.signal]) : stop.signal
     const clone = await session.clone(signal ? { signal } : undefined)
@@ -612,6 +615,43 @@ export class PromptApiTextAdapter extends BaseTextAdapter<
     return { notes, pieces, capped, calls }
   }
 
+  /**
+   * A draft's notes as reasoning events, as they're written; none for a draft
+   * that writes nothing. Returns what the draft ends with. The reasoning is
+   * ended before a failure of the draft's is thrown on.
+   */
+  private async *reasoned(draft: AsyncGenerator<string, Drafted>): AsyncGenerator<AdapterYieldChunk, Drafted> {
+    const model = this.model
+    const messageId = nextId("reasoning")
+    let opened = false
+    const closing = (): Array<AdapterYieldChunk> =>
+      opened
+        ? [
+            { type: EventType.REASONING_MESSAGE_END, messageId, model, timestamp: Date.now() },
+            { type: EventType.REASONING_END, messageId, model, timestamp: Date.now() }
+          ]
+        : []
+    let next: IteratorResult<string, Drafted>
+    try {
+      while (!(next = await draft.next()).done) {
+        if (!opened) {
+          opened = true
+          yield { type: EventType.REASONING_START, messageId, model, timestamp: Date.now() }
+          yield { type: EventType.REASONING_MESSAGE_START, messageId, role: "reasoning", model, timestamp: Date.now() }
+        }
+        yield { type: EventType.REASONING_MESSAGE_CONTENT, messageId, delta: next.value, model, timestamp: Date.now() }
+      }
+    } catch (error) {
+      yield* closing()
+      throw error
+    } finally {
+      // Left unread: the notes stop being written.
+      await draft.return({ notes: "", pieces: 0, capped: false, calls: [] })
+    }
+    yield* closing()
+    return next.value
+  }
+
   async *chatStream(options: TextOptions<PromptApiTextModelOptions>): AsyncIterable<AdapterYieldChunk> {
     const runId = options.runId ?? nextId("run")
     const { threadId } = options
@@ -641,7 +681,7 @@ export class PromptApiTextAdapter extends BaseTextAdapter<
       // With reasoning, the working notes first: streamed as reasoning, then
       // the last message of the reply's prompt. A tool call the draft made is
       // the step's, and nothing more is asked.
-      let draft: { input: LanguageModelInput; notes: string; pieces: number; capped: boolean; calls: Array<StepCall> } | undefined
+      let draft: ({ input: LanguageModelInput } & Drafted) | undefined
       let input: Array<LanguageModelMessage> = step.input
       // What the session itself reads in this step, for its token counts.
       let read: Array<LanguageModelMessage> | undefined = step.input
@@ -660,40 +700,13 @@ export class PromptApiTextAdapter extends BaseTextAdapter<
           if (kept) kept.seen = keys
         }
         const before = appends ? [] : step.input
-        const reasoningId = nextId("reasoning")
         // A step that brings a tool's results goes on a turn: it reads the notes of the turn's earlier steps,
         // after its own messages. (Not their instructions: those were only ever a clone's.)
         const earlier = options.messages.at(-1)?.role === "tool" ? (kept?.notes ?? []) : []
         const draftInput = [...before, ...earlierNotes(earlier), draftInstruction(options.messages)]
         const draftReader = tools.length > 0 && !native ? toolCallReader(tools) : undefined
-        const thinking = this.draft(session, draftInput, signal, step.thinking.budget, max, draftReader)
-        let opened = false
-        const closing = (): Array<AdapterYieldChunk> =>
-          opened
-            ? [
-                { type: EventType.REASONING_MESSAGE_END, messageId: reasoningId, model, timestamp: timestamp() },
-                { type: EventType.REASONING_END, messageId: reasoningId, model, timestamp: timestamp() }
-              ]
-            : []
-        let next: Awaited<ReturnType<typeof thinking.next>>
-        try {
-          while (!(next = await thinking.next()).done) {
-            if (!opened) {
-              opened = true
-              yield { type: EventType.REASONING_START, messageId: reasoningId, model, timestamp: timestamp() }
-              yield { type: EventType.REASONING_MESSAGE_START, messageId: reasoningId, role: "reasoning", model, timestamp: timestamp() }
-            }
-            yield { type: EventType.REASONING_MESSAGE_CONTENT, messageId: reasoningId, delta: next.value, model, timestamp: timestamp() }
-          }
-        } catch (error) {
-          yield* closing()
-          throw error
-        } finally {
-          // Left unread: the notes stop being written.
-          await thinking.return({ notes: "", pieces: 0, capped: false, calls: [] })
-        }
-        yield* closing()
-        draft = { input: draftInput, ...next.value }
+        const ended = yield* this.reasoned(this.draft(session, draftInput, signal, step.thinking.budget, max, draftReader))
+        draft = { input: draftInput, ...ended }
         const noted = draft.notes ? [...earlier, draft.notes] : earlier
         if (kept) kept.notes = noted
         input = withWorkingNotes(before, noted.join("\n\n"))
@@ -824,6 +837,64 @@ export class PromptApiTextAdapter extends BaseTextAdapter<
   }
 
   /**
+   * Structured output as events, for `chat({ outputSchema })`, streaming or not:
+   * the events chat() would make around `structuredOutput()` itself, with the
+   * working notes of a thinking answer as reasoning events before it, and with
+   * the error's code. chat() keeps a run error's code only from its RUN_ERROR
+   * event, and its own wrapper keeps only a parse failure's
+   * ("structured-output-parse-failed"), so without this "runaway" and "length"
+   * lost theirs.
+   */
+  async *structuredOutputStream(options: StructuredOutputOptions<PromptApiTextModelOptions>): AsyncIterable<AdapterYieldChunk> {
+    const { chatOptions } = options
+    const runId = chatOptions.runId ?? nextId("run")
+    const { threadId } = chatOptions
+    const messageId = nextId("msg")
+    const model = this.model
+    yield { type: EventType.RUN_STARTED, runId, threadId, model, timestamp: Date.now() }
+    let result: StructuredOutputResult<unknown>
+    try {
+      // With reasoning, the working notes come first, as reasoning events.
+      result = yield* this.answerStructured(options)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      const own = (error as { code?: unknown } | undefined)?.code
+      const parseFailed = error instanceof SyntaxError || (error instanceof Error && error.cause instanceof SyntaxError)
+      const code = typeof own === "string" ? own : parseFailed ? "structured-output-parse-failed" : undefined
+      yield {
+        type: EventType.RUN_ERROR,
+        runId,
+        threadId,
+        model,
+        timestamp: Date.now(),
+        message,
+        ...(code && { code }),
+        error: { message, ...(code && { code }) }
+      }
+      return
+    }
+    yield { type: EventType.TEXT_MESSAGE_START, messageId, role: "assistant", model, timestamp: Date.now() }
+    yield { type: EventType.TEXT_MESSAGE_CONTENT, messageId, delta: result.rawText, model, timestamp: Date.now() }
+    yield { type: EventType.TEXT_MESSAGE_END, messageId, model, timestamp: Date.now() }
+    yield {
+      type: EventType.CUSTOM,
+      name: "structured-output.complete",
+      value: { object: result.data, raw: result.rawText },
+      model,
+      timestamp: Date.now()
+    }
+    yield {
+      type: EventType.RUN_FINISHED,
+      runId,
+      threadId,
+      model: result.model ?? model,
+      timestamp: Date.now(),
+      finishReason: "stop",
+      ...(result.usage && { usage: result.usage })
+    }
+  }
+
+  /**
    * A JSON answer for `chat({ outputSchema })`: the thread's session
    * answers the conversation under the Prompt API's `responseConstraint`,
    * which holds the model to the schema as given (written into its input too,
@@ -832,21 +903,79 @@ export class PromptApiTextAdapter extends BaseTextAdapter<
   async structuredOutput(
     options: StructuredOutputOptions<PromptApiTextModelOptions>
   ): Promise<StructuredOutputResult<unknown>> {
+    // The notes of a thinking answer aren't streamed here: structuredOutputStream() has them.
+    const steps = this.answerStructured(options)
+    for (;;) {
+      const step = await steps.next()
+      if (step.done) return step.value
+    }
+  }
+
+  /**
+   * A structured answer's steps. Without reasoning, one prompt of the thread's
+   * session under the schema. With `reasoning: "high"`, working notes first,
+   * which come as reasoning events (see reasoning.ts): the thread's session
+   * reads the step's messages, a clone of it drafts the notes, and another
+   * clone answers under the schema with the notes in hand, as a reply's does.
+   */
+  private async *answerStructured(
+    options: StructuredOutputOptions<PromptApiTextModelOptions>
+  ): AsyncGenerator<AdapterYieldChunk, StructuredOutputResult<unknown>> {
     const { chatOptions, outputSchema } = options
     const signal = signalOf(chatOptions)
     let step: Awaited<ReturnType<typeof this.begin>> | undefined
     let failed = false
     try {
       step = await this.begin(chatOptions, signal)
-      const { session, kept, keys, input, goesOn } = step
+      const { session, kept, keys, goesOn } = step
       const held = session.contextUsage
+      const max = this.capOf(chatOptions)
       // The schema, and whether Chrome leaves it out of the input: a per-prompt
       // option, so it never carries over to another call of a kept session.
       const omit = chatOptions.modelOptions?.omitResponseConstraintInput ?? this.omitResponseConstraintInput
       const constraint: LanguageModelPromptOptions = { responseConstraint: outputSchema, ...(omit && { omitResponseConstraintInput: true }) }
-      // A runaway (see runaway.ts) is asked again once: Chrome drops a stopped turn, so the session is as it was.
-      let answer = await this.constrained(session, input, constraint, signal, this.capOf(chatOptions))
-      if (answer.stopped === "runaway") answer = await this.constrained(session, input, constraint, signal, this.capOf(chatOptions))
+      let draft: ({ input: LanguageModelInput } & Drafted) | undefined
+      let input: Array<LanguageModelMessage> = step.input
+      // What the session itself reads in this step, for its token counts.
+      let read: Array<LanguageModelMessage> = step.input
+      // The session the answer is asked of: the step's, or with reasoning a clone of it.
+      let answerer = session
+      // The instruction is about the user's message above it: an answer that follows anything else (a tool's
+      // results, after chat()'s agent loop) is asked for without notes.
+      const thinking = chatOptions.messages.at(-1)?.role === "user" ? step.thinking : undefined
+      if (thinking) {
+        // As a reply's thinking (see chatStream): the thread's session reads
+        // the step's messages once and holds neither the instruction nor the
+        // notes, and where the browser has no `append` the clones read the
+        // messages themselves.
+        const appends = typeof session.append === "function"
+        if (appends) {
+          if (step.input.length > 0) await session.append?.(step.input, signal ? { signal } : undefined)
+          if (kept) kept.seen = keys
+        }
+        const before = appends ? [] : step.input
+        const draftInput = [...before, answerInstruction()]
+        // No tool reader: a structured answer has no tools, so all the draft writes is notes.
+        const ended = yield* this.reasoned(this.draft(session, draftInput, signal, thinking.budget, max, undefined))
+        draft = { input: draftInput, ...ended }
+        // The cap covers the notes and the answer together: notes that reached it leave no answer.
+        if (draft.capped) {
+          throw Object.assign(new Error(`The working notes used up maxOutputTokens (${max}): none are left for the structured answer`), { code: "length" })
+        }
+        input = withWorkingNotes(before, draft.notes)
+        read = appends ? [...step.input, ...input] : input
+        answerer = await session.clone(signal ? { signal } : undefined)
+      }
+      const left = max === undefined ? undefined : max - (draft?.pieces ?? 0)
+      let answer: Awaited<ReturnType<typeof this.constrained>>
+      try {
+        // A runaway (see runaway.ts) is asked again once: Chrome drops a stopped turn, so the session is as it was.
+        answer = await this.constrained(answerer, input, constraint, signal, left)
+        if (answer.stopped === "runaway") answer = await this.constrained(answerer, input, constraint, signal, left)
+      } finally {
+        // The answer's clone ends with the answer.
+        if (answerer !== session) answerer.destroy()
+      }
       if (answer.stopped === "runaway") {
         throw Object.assign(
           new Error(`The browser's model wrote whitespace without end (more than ${RUNAWAY_WHITESPACE} characters of it outside strings), twice: the schema likely forbids what it wanted to write next`),
@@ -854,12 +983,13 @@ export class PromptApiTextAdapter extends BaseTextAdapter<
         )
       }
       if (answer.stopped === "length") {
-        throw Object.assign(new Error(`The structured answer was cut off at maxOutputTokens (${this.capOf(chatOptions)}) before its JSON was complete`), { code: "length" })
+        throw Object.assign(new Error(`The structured answer was cut off at maxOutputTokens (${max}) before its JSON was complete`), { code: "length" })
       }
       const rawText = answer.text
-      if (kept) kept.seen = [...keys, messageKey({ role: "assistant", content: rawText })]
+      // The answer is in the session now. Not a thinking step's, written by a clone: the next step sends that.
+      if (kept && !step.thinking) kept.seen = [...keys, messageKey({ role: "assistant", content: rawText })]
       const data = JSON.parse(rawText) as unknown
-      const usage = await this.usage(session, held, goesOn, input, rawText, constraint)
+      const usage = await this.usage(session, held, goesOn, read, rawText, constraint, draft)
       return { data, rawText, model: this.model, ...(usage && { usage }) }
     } catch (error) {
       failed = true

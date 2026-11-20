@@ -11,6 +11,10 @@
  * its reply. The next turn reads none of them, and no step reads an earlier
  * step's instruction.
  *
+ * A structured answer (`chat({ outputSchema })`) thinks first too: its notes
+ * are asked for by `answerInstruction`, and the answer, held to the schema, is
+ * asked for with them in hand as a reply is.
+ *
  * The labels ("Instructions:", "Notes:") and the instruction's words are the
  * afm and apfel adapters'. The order isn't: there the instruction is above the
  * user's message, in one prompt with it, and here it comes after the message,
@@ -51,6 +55,20 @@ const MESSAGE_INSTRUCTION =
   "The message above is from the user. Write notes for yourself, not to the user, before replying to it: what they're asking, and whether you can answer directly or need a tool. Don't call tools or write the reply yet."
 const AFTER_TOOL_INSTRUCTION =
   "Now write notes for yourself, not to the user, before replying to the user's latest message, what the tool results above tell you, and what to do next. Don't call tools or write the reply yet."
+
+/**
+ * The draft's instruction before a structured answer (`chat({ outputSchema })`),
+ * after the step's messages as `draftInstruction`'s is. A structured answer
+ * has no tools, so it asks how the answer is worked out and says nothing of
+ * tools: the afm adapter's ask for the same case, opened as this adapter's
+ * instructions are.
+ */
+export function answerInstruction(): LanguageModelMessage {
+  return { role: "user", content: `Instructions:\n${ANSWER_INSTRUCTION}` }
+}
+
+const ANSWER_INSTRUCTION =
+  "The message above is from the user. Write notes for yourself, not to the user, before replying to it: what they're asking, and how you'll work out the answer. Don't write the reply yet."
 
 /**
  * A turn's earlier notes, for a later step of it (one that brings a tool's

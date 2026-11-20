@@ -109,9 +109,11 @@ A turn's notes stay for the turn. A step that brings a tool's results reads the 
 - `budgetTokens` stops the notes after that many streamed pieces (a token each in Chrome 157), and the reply follows. A budget of 0 is no thinking. `maxOutputTokens` covers the notes and the reply together.
 - The notes' tokens are in the step's usage, as `completionTokensDetails.reasoningTokens`.
 
+A structured answer (`chat({ outputSchema, reasoning: "high" })`) thinks first too: a clone drafts the notes, streamed as reasoning, and another answers under the schema with the notes in hand, asked for as a reply is. Its instruction asks about the answer and says nothing of tools: "The message above is from the user. Write notes for yourself, not to the user, before replying to it: what they're asking, and how you'll work out the answer. Don't write the reply yet." `maxOutputTokens` covers the notes and the answer together, and notes that reach it fail with the code `length`.
+
 ## Structured output
 
-`chat({ outputSchema })` prompts the thread's session once under the Prompt API's `responseConstraint`, with the schema as given, which Chrome holds the reply to; the result is parsed as JSON. A schema Chrome can't enforce fails with Chrome's error.
+`chat({ outputSchema })` prompts the thread's session once under the Prompt API's `responseConstraint`, with the schema as given, which Chrome holds the reply to; the result is parsed as JSON. A schema Chrome can't enforce fails with Chrome's error. With `reasoning: "high"`, working notes are drafted first and the answer is two prompts (see Thinking).
 
 ### Runaway whitespace
 

@@ -7,7 +7,7 @@ import type { TextOptions } from "@tanstack/ai"
 import { promptApiText } from "./adapter.js"
 import type { PromptApiConfig } from "./adapter.js"
 import { PROMPT_API_MODEL_REASONING } from "./model-meta.js"
-import { draftInstruction, withWorkingNotes } from "./reasoning.js"
+import { answerInstruction, draftInstruction, withWorkingNotes } from "./reasoning.js"
 import { PromptApiVariant } from "./variant.js"
 
 type Chunk = { type: string; [key: string]: unknown }
@@ -1205,4 +1205,190 @@ test("chat() takes reasoning for the model and streams its notes", async () => {
   })) chunks.push(chunk as Chunk)
   assert.equal(reasoningIn(chunks), "Needs the weather.")
   assert.equal(textIn(chunks), "Hello there")
+})
+
+/** A structured answer as events, on `adapter`. */
+async function structuredStream(adapter: ReturnType<typeof promptApiText>, extra: Record<string, unknown> = {}) {
+  const chunks: Array<Chunk> = []
+  for await (const chunk of adapter.structuredOutputStream(structured(extra))) chunks.push(chunk as Chunk)
+  return chunks
+}
+/** A RUN_ERROR's code, on the event and in its `error`. */
+const errorCode = (chunk: Chunk | undefined) => [chunk?.code, (chunk?.error as { code?: string } | undefined)?.code]
+
+test("the instruction before a structured answer asks how the answer is worked out, and nothing about tools", () => {
+  assert.deepEqual(answerInstruction(), {
+    role: "user",
+    content:
+      "Instructions:\nThe message above is from the user. Write notes for yourself, not to the user, before replying to it: what they're asking, and how you'll work out the answer. Don't write the reply yet."
+  })
+})
+
+test("structured output with reasoning high: a clone drafts the notes, streamed as reasoning before the answer, and another answers under the schema with them", async () => {
+  control.drafts = [NOTES]
+  const adapter = promptApiText("text")
+  const chunks = await structuredStream(adapter, high)
+  assert.deepEqual(typesOf(chunks), [
+    "RUN_STARTED",
+    "REASONING_START",
+    "REASONING_MESSAGE_START",
+    "REASONING_MESSAGE_CONTENT",
+    "REASONING_MESSAGE_CONTENT",
+    "REASONING_MESSAGE_CONTENT",
+    "REASONING_MESSAGE_END",
+    "REASONING_END",
+    "TEXT_MESSAGE_START",
+    "TEXT_MESSAGE_CONTENT",
+    "TEXT_MESSAGE_END",
+    "CUSTOM",
+    "RUN_FINISHED"
+  ])
+  assert.deepEqual(chunks.filter((c) => c.type === "REASONING_MESSAGE_CONTENT").map((c) => c.delta), NOTES, "as they're written")
+  assert.equal(textIn(chunks), '{"city":"Tokyo"}')
+  const complete = chunks.find((c) => c.type === "CUSTOM")
+  assert.equal(complete?.name, "structured-output.complete")
+  assert.deepEqual(complete?.value, { object: { city: "Tokyo" }, raw: '{"city":"Tokyo"}' })
+  assert.equal(chunks.at(-1)?.finishReason, "stop")
+
+  assert.deepEqual(control.appends, [{ input: [asked], session: control.sessions[0] }], "the message is the thread's session's, read once")
+  const [draft, answer] = control.prompts
+  assert.equal(control.prompts.length, 2)
+  assert.equal(draft.session, control.clones[0], "the draft is a clone's")
+  assert.deepEqual(draft.input, [answerInstruction()], "the instruction alone: the clone holds the message")
+  assert.equal("responseConstraint" in draft.options, false, "the notes aren't held to the schema")
+  assert.equal(answer.session, control.clones[1], "the answer is another clone's")
+  assert.deepEqual(answer.input, withWorkingNotes([], "Needs the weather."))
+  assert.equal(answer.options.responseConstraint, schema)
+  assert.equal(control.destroyed, 2, "the two clones, not the thread's session")
+
+  // The notes are the answer's reasoning tokens; its prompt is the message, the notes and the draft's instruction.
+  const usage = usageOf(chunks.at(-1)) as ReturnType<typeof usageOf> & { completionTokensDetails?: { reasoningTokens?: number } }
+  const reasoning = measured("Needs the weather.") - measured("")
+  assert.deepEqual(usage?.completionTokensDetails, { reasoningTokens: reasoning })
+  assert.equal(usage?.completionTokens, reasoning + measured('{"city":"Tokyo"}') - measured(""))
+  assert.equal(usage?.promptTokens, 120 + measured([asked, notesMessage("Needs the weather.")]) + measured([answerInstruction()]))
+
+  // The answer was a clone's, so the thread's session doesn't hold it: the next step sends it.
+  const next = [{ role: "assistant", content: '{"city":"Tokyo"}' }, { role: "user", content: "And tomorrow?" }]
+  await step(adapter, [asked, ...next])
+  assert.equal(control.creates.length, 1, "the same session")
+  assert.equal(control.prompts[2].session, control.sessions[0])
+  assert.deepEqual(control.prompts[2].input, next)
+})
+
+test("structuredOutput() and chat() think first too; where the browser has no append, the clones read the step's messages themselves", async () => {
+  control.drafts = [NOTES]
+  const result = await promptApiText("text").structuredOutput(structured(high))
+  assert.deepEqual(result.data, { city: "Tokyo" })
+  assert.equal(control.prompts.length, 2, "the draft, then the answer")
+  assert.deepEqual(control.prompts[1].input, withWorkingNotes([], "Needs the weather."))
+  assert.equal(
+    (result.usage as { completionTokensDetails?: { reasoningTokens?: number } } | undefined)?.completionTokensDetails?.reasoningTokens,
+    measured("Needs the weather.") - measured("")
+  )
+
+  Object.assign(control, { prompts: [], drafts: [NOTES] })
+  const chunks: Array<Chunk> = []
+  for await (const chunk of chat({
+    adapter: promptApiText("text"),
+    threadId: "chat-structured-reasoning",
+    messages: [{ role: "user", content: "Weather in Paris?" }],
+    outputSchema: schema,
+    reasoning: "high",
+    stream: true
+  } as never) as unknown as AsyncIterable<Chunk>) chunks.push(chunk)
+  assert.equal(reasoningIn(chunks), "Needs the weather.")
+  const types = typesOf(chunks)
+  assert.ok(types.indexOf("REASONING_END") < types.indexOf("TEXT_MESSAGE_START"), "the notes come before the answer")
+  assert.deepEqual((chunks.find((c) => c.type === "CUSTOM" && c.name === "structured-output.complete")?.value as { object?: unknown }).object, { city: "Tokyo" })
+  assert.equal(control.prompts.length, 2)
+  assert.deepEqual(control.prompts[1].options.responseConstraint, schema)
+
+  const append = FakeSession.prototype.append
+  delete (FakeSession.prototype as { append?: unknown }).append
+  try {
+    Object.assign(control, { prompts: [], drafts: [NOTES] })
+    await promptApiText("text").structuredOutput(structured(high))
+    assert.deepEqual(control.prompts[0].input, [asked, answerInstruction()])
+    assert.deepEqual(control.prompts[1].input, [asked, notesMessage("Needs the weather.")])
+    assert.equal(control.prompts[1].options.responseConstraint, schema)
+  } finally {
+    FakeSession.prototype.append = append
+  }
+})
+
+test("structured output without reasoning, or with it off: one prompt of the thread's session under the schema, and no clone", async () => {
+  for (const extra of [{}, { reasoning: { level: "off", summary: true } }]) {
+    Object.assign(control, { prompts: [] })
+    const chunks = await structuredStream(promptApiText("text"), { ...extra, threadId: JSON.stringify(extra) })
+    assert.deepEqual(typesOf(chunks), ["RUN_STARTED", "TEXT_MESSAGE_START", "TEXT_MESSAGE_CONTENT", "TEXT_MESSAGE_END", "CUSTOM", "RUN_FINISHED"])
+    assert.equal(textIn(chunks), '{"city":"Tokyo"}')
+    assert.deepEqual(chunks.find((c) => c.type === "CUSTOM")?.value, { object: { city: "Tokyo" }, raw: '{"city":"Tokyo"}' })
+    assert.equal(control.prompts.length, 1)
+    assert.equal(control.prompts[0].session, control.sessions.at(-1), "the thread's own session")
+    assert.deepEqual(control.prompts[0].input, [asked])
+    assert.equal(control.prompts[0].options.responseConstraint, schema)
+    assert.equal(control.clones.length, 0)
+    assert.equal(control.appends.length, 0)
+    assert.equal(control.destroyed, 0, "the thread keeps its session")
+    const usage = usageOf(chunks.at(-1)) as ReturnType<typeof usageOf> & { completionTokensDetails?: unknown }
+    assert.equal(usage?.promptTokens, 120 + measured([asked]))
+    assert.equal(usage?.completionTokensDetails, undefined, "no reasoning tokens")
+  }
+})
+
+test("a structured answer's error keeps its code on RUN_ERROR, and through chat()", async () => {
+  const runaway = ['{"cards":[{"name":"a"}', ...Array.from({ length: 20 }, () => "    \n"), "never read"]
+  control.answers = [runaway, runaway]
+  const ran = await structuredStream(promptApiText("text"))
+  assert.deepEqual(typesOf(ran), ["RUN_STARTED", "RUN_ERROR"])
+  assert.deepEqual(errorCode(ran.at(-1)), ["runaway", "runaway"])
+  assert.match(String(ran.at(-1)?.message), /whitespace without end/)
+
+  // An answer that isn't JSON is TanStack's parse failure.
+  control.answer = "Tokyo"
+  const unparsed = await structuredStream(promptApiText("text"))
+  assert.deepEqual(errorCode(unparsed.at(-1)), ["structured-output-parse-failed", "structured-output-parse-failed"])
+  control.answer = '{"city":"Tokyo"}'
+
+  // The browser's own failure has no code of ours.
+  control.promptFailure = new DOMException("unsupported schema", "NotSupportedError")
+  const failed = await structuredStream(promptApiText("text"))
+  assert.equal(failed.at(-1)?.type, "RUN_ERROR")
+  assert.equal(failed.at(-1)?.message, "unsupported schema")
+  assert.deepEqual(errorCode(failed.at(-1)), [undefined, undefined])
+  control.promptFailure = undefined
+
+  control.answers = [runaway, runaway]
+  await assert.rejects(
+    chat({ adapter: promptApiText("text"), threadId: "chat-runaway", messages: [{ role: "user", content: "Largest city?" }], outputSchema: schema }),
+    (e: Error & { code?: string }) => e.code === "runaway" && /whitespace without end/.test(e.message)
+  )
+})
+
+test("maxOutputTokens covers the notes and the structured answer together; notes that reach it fail with code length", async () => {
+  // The notes' three pieces leave the answer two: its JSON is cut short.
+  control.drafts = [NOTES]
+  control.answers = [['{"city":', ' "Tok', 'yo"}']]
+  const cut = await structuredStream(promptApiText("text"), { ...high, modelOptions: { maxOutputTokens: 5 } })
+  assert.equal(reasoningIn(cut), "Needs the weather.")
+  assert.deepEqual(typesOf(cut).slice(-2), ["REASONING_END", "RUN_ERROR"])
+  assert.deepEqual(errorCode(cut.at(-1)), ["length", "length"])
+  assert.match(String(cut.at(-1)?.message), /cut off at maxOutputTokens \(5\)/)
+  assert.equal((control.prompts[1].options.signal as AbortSignal).aborted, true, "the answer was stopped at its second piece")
+
+  // Notes that reach the cap are cut there, and no answer is asked for.
+  Object.assign(control, { prompts: [], clones: [], drafts: [NOTES], answers: [] })
+  const capped = await structuredStream(promptApiText("text"), { ...high, threadId: "capped", modelOptions: { maxOutputTokens: 2 } })
+  assert.equal(reasoningIn(capped), "Needs the ")
+  assert.deepEqual(errorCode(capped.at(-1)), ["length", "length"])
+  assert.match(String(capped.at(-1)?.message), /working notes used up maxOutputTokens \(2\)/)
+  assert.equal(control.prompts.length, 1, "the draft's prompt only")
+  assert.equal(control.clones.length, 1, "no clone for an answer")
+
+  // With room for both, the budget ends the notes and the answer follows.
+  Object.assign(control, { prompts: [], drafts: [NOTES] })
+  const result = await promptApiText("text").structuredOutput(structured({ reasoning: { level: "high", summary: true, budgetTokens: 2 }, threadId: "budget" }))
+  assert.deepEqual(result.data, { city: "Tokyo" })
+  assert.deepEqual(control.prompts[1].input, withWorkingNotes([], "Needs the "))
 })
