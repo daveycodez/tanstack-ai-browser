@@ -105,6 +105,9 @@ function withDraftUsage(usage: TokenUsage | undefined, draft: TokenUsage | undef
 /** A request's end: finished, or failed. */
 type RunEnd = Extract<AdapterYieldChunk, { type: EventType.RUN_FINISHED | EventType.RUN_ERROR }>
 
+/** The run a draft's RUN_STARTED starts: its ids, which the step's later run events carry. */
+type Run = Pick<Extract<AdapterYieldChunk, { type: EventType.RUN_STARTED }>, "runId" | "threadId">
+
 /**
  * `modelOptions` for the two requests of a step with thinking: `budget` caps
  * the notes, and the caller's `max_tokens` covers the notes and the reply.
@@ -114,22 +117,32 @@ function capped<TOptions extends TextOptions>(options: TOptions, budget: number 
   const upTo = (max: number | undefined) => ({ ...options.modelOptions, ...(max !== undefined && { max_tokens: max }) })
   return {
     draft: upTo(budget === undefined ? limit : limit === undefined ? budget : Math.min(budget, limit)),
-    /** The reply's, after a draft of this usage. */
-    reply: (drafted: TokenUsage | undefined) => upTo(limit === undefined ? undefined : Math.max(1, limit - (drafted?.completionTokens ?? 0)))
+    /** The reply's, after a draft of this usage; undefined when the notes used up `max_tokens`, which leaves no tokens for a reply. */
+    reply: (drafted: TokenUsage | undefined) => {
+      if (limit === undefined) return upTo(undefined)
+      const left = limit - (drafted?.completionTokens ?? 0)
+      return left > 0 ? upTo(left) : undefined
+    }
   }
 }
 
 /**
  * A draft's request. Its text streams as reasoning, and it returns the notes
  * with the event the request ended with: the caller's to pass on or not, since
- * a draft's end isn't always the run's.
+ * a draft's end isn't always the run's. It returns the run its RUN_STARTED
+ * started too, which is the step's.
  */
-async function* draft<TOptions extends TextOptions>(step: Step<TOptions>, options: TOptions): AsyncGenerator<AdapterYieldChunk, { notes: string; end?: RunEnd }> {
+async function* draft<TOptions extends TextOptions>(step: Step<TOptions>, options: TOptions): AsyncGenerator<AdapterYieldChunk, { notes: string; end?: RunEnd; run?: Run }> {
   let notes = ""
   let reasoningId = ""
+  let run: Run | undefined
   for await (const chunk of step(options)) {
     const { model, timestamp } = chunk
     switch (chunk.type) {
+      case EventType.RUN_STARTED:
+        run = { runId: chunk.runId, threadId: chunk.threadId }
+        yield chunk
+        continue
       case EventType.TEXT_MESSAGE_START:
         reasoningId = `${chunk.messageId}-reasoning`
         yield { type: EventType.REASONING_START, messageId: reasoningId, model, timestamp }
@@ -145,26 +158,42 @@ async function* draft<TOptions extends TextOptions>(step: Step<TOptions>, option
         continue
       case EventType.RUN_FINISHED:
       case EventType.RUN_ERROR:
-        return { notes, end: chunk }
+        return { notes, end: chunk, run }
       default:
         yield chunk
     }
   }
-  return { notes }
+  return { notes, run }
 }
 
-/** A reply's events in the run its draft started: without its own RUN_STARTED, and with the draft's usage added to its own. */
-async function* afterDraft(reply: AsyncIterable<AdapterYieldChunk>, drafted: TokenUsage | undefined): AsyncIterable<AdapterYieldChunk> {
+/** A run event's ids in the draft's run: its run id, and its thread id where it has one. */
+const inRun = (chunk: RunEnd, run: Run) => ({ runId: run.runId, ...(chunk.threadId !== undefined && { threadId: run.threadId }) })
+
+/**
+ * A reply's events in the run its draft started: without its own RUN_STARTED,
+ * with the draft's run id on its RUN_FINISHED or RUN_ERROR, which end that
+ * run, and with the draft's usage added to its own. After a draft that
+ * started no run, the reply's run is the step's, as it is.
+ */
+async function* afterDraft(reply: AsyncIterable<AdapterYieldChunk>, drafted: TokenUsage | undefined, run: Run | undefined): AsyncIterable<AdapterYieldChunk> {
   for await (const chunk of reply) {
-    if (chunk.type === EventType.RUN_STARTED) continue
-    if (chunk.type === EventType.RUN_FINISHED) {
-      const usage = withDraftUsage(usageOf(chunk.usage), drafted)
-      yield { ...chunk, ...(usage && { usage }) }
+    if (chunk.type === EventType.RUN_STARTED) {
+      if (!run) yield chunk
+    } else if (chunk.type === EventType.RUN_FINISHED) {
+      yield withUsage({ ...chunk, ...(run && inRun(chunk, run)) }, withDraftUsage(usageOf(chunk.usage), drafted))
+    } else if (chunk.type === EventType.RUN_ERROR) {
+      yield { ...chunk, ...(run && inRun(chunk, run)) }
     } else {
       yield chunk
     }
   }
 }
+
+/** A run event with this usage, if there is one. */
+const withUsage = <TChunk extends RunEnd>(chunk: TChunk, usage: TokenUsage | undefined): TChunk => (usage ? { ...chunk, usage } : chunk)
+
+/** The usage of notes that are all a step has: the draft's, its output as reasoning tokens. */
+const notesUsage = (drafted: TokenUsage | undefined) => withDraftUsage(undefined, drafted)
 
 /**
  * A step with thinking: the draft's text streams as reasoning, then the reply
@@ -180,7 +209,9 @@ async function* afterDraft(reply: AsyncIterable<AdapterYieldChunk>, drafted: Tok
  * `chat()` sends with every step of a structured answer with tools): the
  * schema is the reply's, and notes held to it would be an answer.
  *
- * `budget` caps the notes; the caller's `max_tokens` covers notes and reply.
+ * `budget` caps the notes; the caller's `max_tokens` covers notes and reply,
+ * and notes that use it up end the step with finish reason "length", without
+ * a reply.
  *
  * `turns` holds the turn's notes from step to step: a step that brings a tool's
  * results reads the earlier steps' before its own, and a reply without a tool
@@ -203,7 +234,7 @@ export async function* thinkingStep<TOptions extends TextOptions>(
   }
   const max = capped(options, budget)
 
-  const { notes, end } = yield* draft(step, { ...options, outputSchema: undefined, messages: draftMessages(options.messages, earlier), modelOptions: max.draft })
+  const { notes, end, run } = yield* draft(step, { ...options, outputSchema: undefined, messages: draftMessages(options.messages, earlier), modelOptions: max.draft })
   const noted = notes.trim() ? [...earlier, notes.trim()] : earlier
   // The draft's end isn't the run's, unless it failed, called a tool or was stopped.
   if (end?.type === EventType.RUN_ERROR) {
@@ -217,32 +248,60 @@ export async function* thinkingStep<TOptions extends TextOptions>(
     return
   }
   const drafted = end && usageOf(end.usage)
+  const replying = max.reply(drafted)
+  // Notes that used up `max_tokens` leave no tokens for a reply: the step ends with them, cut off at the cap, and ends the turn.
+  if (!replying) {
+    if (thread !== undefined) turns.delete(thread)
+    if (end) yield withUsage({ ...end, finishReason: "length" }, notesUsage(drafted))
+    return
+  }
 
   hold(noted)
-  for await (const chunk of afterDraft(step({ ...options, messages: replyMessages(options.messages, noted.join("\n\n")), modelOptions: max.reply(drafted) }), drafted)) {
+  for await (const chunk of afterDraft(step({ ...options, messages: replyMessages(options.messages, noted.join("\n\n")), modelOptions: replying }), drafted, run)) {
     // A reply without a tool call ends the turn: its notes are no later turn's.
     if (chunk.type === EventType.RUN_FINISHED && chunk.finishReason !== "tool_calls" && thread !== undefined) turns.delete(thread)
     yield chunk
   }
 }
 
-/** A structured answer's notes: its request's options, with the notes in its messages, and the draft's usage; or the error the draft failed with. */
-type Noted<TOptions> = { options: TOptions; drafted: TokenUsage | undefined } | { failed: Extract<RunEnd, { type: EventType.RUN_ERROR }> }
+/** A structured answer's notes: its request's options, with the notes in its messages, the draft's usage and the run it started; or the error the notes end with. */
+type Noted<TOptions> = { options: TOptions; drafted: TokenUsage | undefined; run: Run | undefined } | { failed: Extract<RunEnd, { type: EventType.RUN_ERROR }> }
+
+/** Why a structured answer fails when its notes used up `max_tokens`. */
+const NO_TOKENS_LEFT = "The notes before the structured answer used up max_tokens, which leaves no tokens for the answer: raise max_tokens, or cap the notes with reasoning's budgetTokens."
 
 /**
  * The notes before a structured answer to a user's message. The draft is a
  * chat request without the answer's schema, which is the answer's alone, and
  * without tools, which the answer doesn't call; its text streams as
  * reasoning. The answer's messages are a reply's: the message again, with the
- * notes under it. `budget` and `max_tokens` cap the two requests as a step's.
+ * notes under it. `budget` and `max_tokens` cap the two requests as a step's,
+ * and notes that used up `max_tokens` fail the answer with a "length" error,
+ * in the draft's run.
  */
 async function* answerNotes<TOptions extends TextOptions>(step: Step<TOptions>, options: TOptions, budget: number | undefined): AsyncGenerator<AdapterYieldChunk, Noted<TOptions>> {
   const max = capped(options, budget)
   const drafting = draftMessages(options.messages, [], ANSWER_INSTRUCTION)
-  const { notes, end } = yield* draft(step, { ...options, tools: undefined, outputSchema: undefined, messages: drafting, modelOptions: max.draft })
+  const { notes, end, run } = yield* draft(step, { ...options, tools: undefined, outputSchema: undefined, messages: drafting, modelOptions: max.draft })
   if (end?.type === EventType.RUN_ERROR) return { failed: end }
   const drafted = end && usageOf(end.usage)
-  return { options: { ...options, messages: replyMessages(options.messages, notes.trim()), modelOptions: max.reply(drafted) }, drafted }
+  const answering = max.reply(drafted)
+  if (!answering) {
+    const usage = notesUsage(drafted)
+    return {
+      failed: {
+        type: EventType.RUN_ERROR,
+        ...(run && { runId: run.runId, ...(run.threadId !== undefined && { threadId: run.threadId }) }),
+        model: end?.model ?? options.model,
+        timestamp: Date.now(),
+        message: NO_TOKENS_LEFT,
+        code: "length",
+        error: { message: NO_TOKENS_LEFT, code: "length" },
+        ...(usage && { usage })
+      }
+    }
+  }
+  return { options: { ...options, messages: replyMessages(options.messages, notes.trim()), modelOptions: answering }, drafted, run }
 }
 
 /**
@@ -259,13 +318,13 @@ export async function* thinkingAnswer<TOptions extends TextOptions>(
 ): AsyncIterable<AdapterYieldChunk> {
   const noted = yield* answerNotes(step, options, budget)
   if ("failed" in noted) yield noted.failed
-  else yield* afterDraft(answer(noted.options), noted.drafted)
+  else yield* afterDraft(answer(noted.options), noted.drafted, noted.run)
 }
 
 /**
  * The same without events, for `structuredOutput()`: the notes aren't
- * streamed, the answer's usage has the draft's added, and a draft that fails
- * throws its error, with its code.
+ * streamed, the answer's usage has the draft's added, and notes that fail
+ * throw their error, with its code and its usage.
  */
 export async function thinkingAnswerResult<TOptions extends TextOptions, TResult extends { usage?: TokenUsage }>(
   step: Step<TOptions>,
@@ -277,7 +336,10 @@ export async function thinkingAnswerResult<TOptions extends TextOptions, TResult
   let next = await drafting.next()
   while (!next.done) next = await drafting.next()
   const noted = next.value
-  if ("failed" in noted) throw Object.assign(new Error(noted.failed.message), noted.failed.code !== undefined && { code: noted.failed.code })
+  if ("failed" in noted) {
+    const { message, code, usage } = noted.failed
+    throw Object.assign(new Error(message), code !== undefined && { code }, usage !== undefined && { usage })
+  }
   const result = await answer(noted.options)
   const usage = withDraftUsage(result.usage, noted.drafted)
   return { ...result, ...(usage && { usage }) }

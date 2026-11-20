@@ -1,7 +1,8 @@
 import assert from "node:assert/strict"
 import { afterEach, test } from "node:test"
 
-import { chat } from "@tanstack/ai"
+import { chat, getChunkRunId, getChunkThreadId, StreamProcessor } from "@tanstack/ai"
+import type { StreamChunk } from "@tanstack/ai"
 import { resolveDebugOption } from "@tanstack/ai/adapter-internals"
 
 import { apfelText } from "./adapter.js"
@@ -101,7 +102,18 @@ function serve(replies: Array<Array<object> | Response>) {
   }) as typeof fetch
   return bodies
 }
-type Chunk = { type: string; delta?: string; finishReason?: string; usage?: Record<string, unknown>; name?: string; value?: unknown; message?: string }
+type Chunk = {
+  type: string
+  delta?: string
+  finishReason?: string
+  usage?: Record<string, unknown>
+  name?: string
+  value?: unknown
+  message?: string
+  code?: string
+  runId?: string
+  threadId?: string
+}
 async function collect(stream: AsyncIterable<unknown>) {
   const chunks: Array<Chunk> = []
   for await (const c of stream) chunks.push(c as Chunk)
@@ -458,4 +470,145 @@ test("structured output with tools, reasoning high: a step's notes aren't held t
   assert.equal(bodies[1].response_format?.type, "json_schema")
   assert.equal(textOf(chunks, "REASONING_MESSAGE_CONTENT"), "Needs the weather.")
   assert.equal(textOf(chunks, "TEXT_MESSAGE_CONTENT"), '{"sky":"sunny"}')
+})
+
+/** A run event's run and thread ids: on the event, or in its `metadata.tanstack`, where chat() moves a RUN_ERROR's. */
+const ids = (c: Chunk) => [c.type, getChunkRunId(c as unknown as StreamChunk), getChunkThreadId(c as unknown as StreamChunk)]
+/** Whether the run events are one run's: each carries the run id (and the thread id, where it has one) of the RUN_STARTED. */
+function oneRun(chunks: Array<Chunk>, ends: Array<string>) {
+  const [started, ...rest] = chunks.filter((c) => c.type.startsWith("RUN_")).map(ids)
+  assert.deepEqual([started[0], ...rest.map(([type]) => type)], ["RUN_STARTED", ...ends])
+  assert.ok(started[1])
+  assert.deepEqual(
+    rest,
+    rest.map(([type, , thread]) => [type, started[1], thread === undefined ? undefined : started[2]])
+  )
+}
+/** chat()'s stream processor's state after the events: whether it's done, and the run's finish reason. */
+function processed(chunks: Array<Chunk>) {
+  const processor = new StreamProcessor()
+  for (const c of chunks) processor.processChunk(c as unknown as StreamChunk)
+  const { done, finishReason } = processor.getState()
+  return { done, finishReason }
+}
+/** The adapter's own chat request with thinking, as chat() makes it. */
+const options = (extra: object = {}) => ({
+  model: "apple-foundationmodel",
+  messages: [{ role: "user" as const, content: "Weather in Paris?" }],
+  threadId: "apfel-run",
+  logger: resolveDebugOption(false),
+  reasoning: { level: "high" as const, summary: false },
+  ...extra
+})
+
+test("reasoning high: the reply's run events are the draft's run, so chat()'s stream processor finishes it", async () => {
+  const adapter = apfelText({ baseURL: "http://apfel.test/v1" })
+  serve([NOTES, REPLY])
+  const chunks = await collect(chat({ adapter, threadId: "apfel-run", messages: [{ role: "user", content: "Weather in Paris?" }], tools: [weather], reasoning: "high" }))
+  oneRun(chunks, ["RUN_FINISHED"])
+  assert.equal(processed(chunks).done, true)
+
+  // A reply that fails ends the draft's run with its error.
+  serve([NOTES, busy()])
+  const failed = await collect(chat({ adapter, threadId: "apfel-run", messages: [{ role: "user", content: "Weather in Paris?" }], reasoning: "high", debug: false }))
+  oneRun(failed, ["RUN_ERROR"])
+  assert.match(typed(failed, "RUN_ERROR")[0].message ?? "", /The model is busy/)
+
+  // The adapter's own stream, the same.
+  serve([NOTES, REPLY])
+  oneRun(await collect(adapter.chatStream(options())), ["RUN_FINISHED"])
+  serve([NOTES, busy()])
+  oneRun(await collect(adapter.chatStream(options())), ["RUN_ERROR"])
+})
+
+test("structured output, reasoning high: the answer's run events are the draft's run, so chat()'s stream processor finishes it", async () => {
+  const adapter = apfelText({ baseURL: "http://apfel.test/v1" })
+  serve([NOTES, ANSWER])
+  const chunks = await collect(chat({ adapter, threadId: "apfel-run", messages: [{ role: "user", content: "Weather in Paris?" }], outputSchema: SKY, reasoning: "high", stream: true }))
+  oneRun(chunks, ["RUN_FINISHED"])
+  assert.equal(processed(chunks).done, true)
+
+  serve([NOTES, busy()])
+  const failed = await collect(
+    chat({ adapter, threadId: "apfel-run", messages: [{ role: "user", content: "Weather in Paris?" }], outputSchema: SKY, reasoning: "high", stream: true, debug: false })
+  )
+  oneRun(failed, ["RUN_ERROR"])
+
+  // The adapter's chat request held to the schema, and its own structured output stream.
+  serve([NOTES, ANSWER])
+  oneRun(await collect(adapter.chatStream(options({ outputSchema: SKY }))), ["RUN_FINISHED"])
+  serve([NOTES, busy()])
+  oneRun(await collect(adapter.chatStream(options({ outputSchema: SKY }))), ["RUN_ERROR"])
+  serve([NOTES, ANSWER])
+  oneRun(await collect(adapter.structuredOutputStream(structured("high"))), ["RUN_FINISHED"])
+  serve([NOTES, busy()])
+  oneRun(await collect(adapter.structuredOutputStream(structured("high"))), ["RUN_ERROR"])
+})
+
+test("reasoning high: notes that use up max_tokens leave no reply; the step finishes with length, and no second request is made", async () => {
+  const adapter = apfelText({ baseURL: "http://apfel.test/v1" })
+  const bodies = serve([NOTES, REPLY])
+  const chunks = await collect(chat({ adapter, threadId: "apfel-cap", messages: [{ role: "user", content: "Hi" }], reasoning: "high", modelOptions: { max_tokens: 5 } }))
+  assert.deepEqual(
+    bodies.map((b) => b.max_tokens),
+    [5]
+  )
+  assert.equal(textOf(chunks, "REASONING_MESSAGE_CONTENT"), "Needs the weather.")
+  assert.equal(typed(chunks, "TEXT_MESSAGE_CONTENT").length, 0)
+  oneRun(chunks, ["RUN_FINISHED"])
+  assert.deepEqual(processed(chunks), { done: true, finishReason: "length" })
+  const drafted = { promptTokens: 100, completionTokens: 5, totalTokens: 105, completionTokensDetails: { reasoningTokens: 5 } }
+  assert.deepEqual(typed(chunks, "RUN_FINISHED")[0].usage, drafted)
+
+  // The adapter's own stream, the same.
+  const own = serve([NOTES, REPLY])
+  const ended = typed(await collect(adapter.chatStream(options({ modelOptions: { max_tokens: 5 } }))), "RUN_FINISHED")
+  assert.equal(own.length, 1)
+  assert.deepEqual(
+    ended.map((c) => [c.finishReason, c.usage]),
+    [["length", drafted]]
+  )
+
+  // A token left is a reply of one.
+  const left = serve([NOTES, REPLY])
+  await collect(chat({ adapter, threadId: "apfel-cap", messages: [{ role: "user", content: "Hi" }], reasoning: "high", modelOptions: { max_tokens: 6 } }))
+  assert.deepEqual(
+    left.map((b) => b.max_tokens),
+    [6, 1]
+  )
+})
+
+test("structured output, reasoning high: notes that use up max_tokens leave no answer; it fails with a length error, and no second request is made", async () => {
+  const adapter = apfelText({ baseURL: "http://apfel.test/v1" })
+  const capped = { ...structured("high"), chatOptions: { ...structured("high").chatOptions, modelOptions: { max_tokens: 5 } } }
+  const drafted = { promptTokens: 100, completionTokens: 5, totalTokens: 105, completionTokensDetails: { reasoningTokens: 5 } }
+
+  let bodies = serve([NOTES, ANSWER])
+  const chunks = await collect(
+    chat({
+      adapter,
+      threadId: "apfel-cap",
+      messages: [{ role: "user", content: "Weather in Paris?" }],
+      outputSchema: SKY,
+      reasoning: "high",
+      modelOptions: { max_tokens: 5 },
+      stream: true,
+      debug: false
+    })
+  )
+  assert.equal(bodies.length, 1)
+  oneRun(chunks, ["RUN_ERROR"])
+  assert.equal(typed(chunks, "RUN_ERROR")[0].code, "length")
+
+  bodies = serve([NOTES, ANSWER])
+  const own = await collect(adapter.structuredOutputStream(capped))
+  assert.equal(bodies.length, 1)
+  oneRun(own, ["RUN_ERROR"])
+  assert.equal(typed(own, "RUN_ERROR")[0].code, "length")
+  assert.deepEqual(typed(own, "RUN_ERROR")[0].usage, drafted)
+
+  // Not streamed, the error is thrown, with its code and the notes' usage.
+  bodies = serve([NOTES, answered()])
+  await assert.rejects(adapter.structuredOutput(capped), { code: "length", usage: drafted })
+  assert.equal(bodies.length, 1)
 })
