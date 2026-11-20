@@ -1152,6 +1152,26 @@ button svg {
 .game-error button {
   margin-top: 10px;
 }
+.game-error button + button {
+  margin-left: 8px;
+}
+/* A failed turn's report: closed until asked for, and selectable. */
+.game-error-report {
+  margin-top: 10px;
+}
+.game-error-report summary {
+  cursor: pointer;
+}
+.game-error-report pre {
+  max-height: 240px;
+  margin: 8px 0 0;
+  overflow: auto;
+  white-space: pre-wrap;
+  font-size: 10px;
+  line-height: 1.5;
+  user-select: text;
+  -webkit-user-select: text;
+}
 .moves-panel {
   margin-top: 27px;
 }
