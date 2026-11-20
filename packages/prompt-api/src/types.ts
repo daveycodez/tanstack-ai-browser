@@ -113,6 +113,10 @@ export interface LanguageModelSession extends EventTarget {
     input: LanguageModelInput,
     options?: LanguageModelPromptOptions
   ): Promise<number>
+  /** A session of its own that holds what this one does. */
+  clone(options?: { signal?: AbortSignal }): Promise<LanguageModelSession>
+  /** Adds messages to what the session holds, without a reply. Not in every browser's Prompt API. */
+  append?(input: LanguageModelInput, options?: { signal?: AbortSignal }): Promise<void>
   destroy(): void
 }
 

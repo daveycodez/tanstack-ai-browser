@@ -16,7 +16,7 @@ if ((await adapter.availability()) !== "unavailable") {
 }
 ```
 
-The root has `promptApiText(config?)` (or `promptApiText("text", config?)`: the model is whichever the browser has, so naming it is optional), `PromptApiTextAdapter` and the types `PromptApiConfig`, `PromptApiTextModelOptions`, `Availability` and `DownloadProgressCallback`. It also has the catalog: `PROMPT_API_CHAT_MODELS` (one model, `"text"`: whichever the browser provides) and `PROMPT_API_MODEL_META`, with the types `PromptApiChatModel` and `PromptApiModelMeta`.
+The root has `promptApiText(config?)` (or `promptApiText("text", config?)`: the model is whichever the browser has, so naming it is optional), `PromptApiTextAdapter` and the types `PromptApiConfig`, `PromptApiTextModelOptions`, `Availability` and `DownloadProgressCallback`. It also has the catalog: `PROMPT_API_CHAT_MODELS` (one model, `"text"`: whichever the browser provides), `PROMPT_API_MODEL_META` and `PROMPT_API_MODEL_REASONING` (the model's reasoning levels, for `supportedReasoningLevels()`), with the types `PromptApiChatModel`, `PromptApiModelMeta` and `PromptApiModelReasoningByName`.
 
 The Prompt API is in desktop Chrome and Edge (tested in Chrome 156, where web pages have it without flags), on devices with enough memory, GPU and disk (Chrome asks for 22 GB free and either a GPU with more than 4 GB or 16 GB of RAM). It isn't in Web Workers, and a cross-origin iframe needs `allow="language-model"`.
 
@@ -30,7 +30,7 @@ The Prompt API is in desktop Chrome and Edge (tested in Chrome 156, where web pa
 - Token usage: the Prompt API reports none, so the adapter derives it from the session's own counts and sends it with a reply's end (`RUN_FINISHED`, and a structured answer's `usage`). The prompt's tokens are what the session held before the prompt plus the new messages as the session measures them (`measureContextUsage`); what a thread's kept session held is reported as cached, since it doesn't read it again. The reply's are its text measured the same way, less an empty message's count (the turn markers a session counts around any message), so a step that stops at a tool call is counted too. In Chrome 157 that count equals the number of pieces the reply streams in. Where the browser can't measure, no usage is sent.
 - `adapter.destroy()` closes every thread's session (see Sessions); the browser keeps the model.
 
-`languages` (`["en"]` by default) tells the model which languages to expect in and out; Chrome's model takes `en`, `es`, `ja`, `de` and `fr`. `modelOptions` takes what a session takes, with Chrome's names: `samplingMode` (`"most-predictable"` to `"most-creative"`; on web pages only in Chrome's Sampling Parameters origin trial), and `temperature` and `topK` (extensions only). The Prompt API has no output cap, nucleus sampling, penalties or stop sequences, so `modelOptions` has none. The model doesn't reason, so `chat()` offers no `reasoning` option for it, and a `reasoning` request is ignored.
+`languages` (`["en"]` by default) tells the model which languages to expect in and out; Chrome's model takes `en`, `es`, `ja`, `de` and `fr`. `modelOptions` takes what a session takes, with Chrome's names: `samplingMode` (`"most-predictable"` to `"most-creative"`; on web pages only in Chrome's Sampling Parameters origin trial), and `temperature` and `topK` (extensions only). The Prompt API has no output cap, nucleus sampling, penalties or stop sequences, so `modelOptions` has none. The model doesn't reason on its own; `chat({ reasoning: "high" })` has it draft working notes first (see Thinking).
 
 ## Sessions
 
@@ -70,6 +70,44 @@ The reply streams as text until a ```` ```tool_call ```` fence starts (```` ```t
 The call is emitted as written: `chat()` checks the tool's name and arguments, and reports a bad call back to the model as the tool's result. The step stopped at the call isn't in the thread's session (Chrome drops a stopped turn), so the next step sends the call along with its result.
 
 In later steps the model sees its earlier calls as JSON lines in a ```` ```tool_call ```` fence (`{"name", "arguments", "id"}`), and the results as a user message with a ```` ```tool_result ```` fence, one line per result: `{"name", "result", "error", "id"}`, where `result` is the tool's JSON output (or its text, or the error message) and `error` is a boolean. `toolChoice: "none"` leaves the tools out; the Prompt API can't force a tool, so `"required"` and a named tool work like `"auto"`.
+
+## Thinking
+
+The browser's model doesn't reason on its own. With `chat({ reasoning: "high" })` the adapter has it think first: each step drafts working notes, streamed as reasoning (the `REASONING_*` events), then replies with the notes in hand. It's off unless asked for. The levels are `"off"` and `"high"`, and any other level of thinking is taken as `"high"`.
+
+```ts
+chat({ adapter, threadId, messages, tools, reasoning: "high" })
+chat({ adapter, threadId, messages, tools, reasoning: { level: "high", budgetTokens: 200 } })
+```
+
+A step with thinking is two prompts, each to a clone of the thread's session, with the afm and apfel adapters' labels and words:
+
+1. The draft. After the step's messages, a user message asks for the notes:
+
+   ```
+   Instructions:
+   The message above is from the user. Write notes for yourself, not to the user, before replying to it: what they're asking, and whether you can answer directly or need a tool. Don't call tools or write the reply yet.
+   ```
+
+   After a tool's result the instruction is "Now write notes for yourself, not to the user, before replying to the user's latest message, what the tool results above tell you, and what to do next. Don't call tools or write the reply yet."
+
+2. The reply. A user message hands the notes back and asks for it:
+
+   ```
+   Notes:
+   <the notes>
+   Now reply.
+   ```
+
+The instruction comes after the user's message here, and above it in those adapters: the thread's session holds the message as a turn of its own, and Aion (Edge 159) answered worse with it only inside the two prompts ("Hi" got "Could you please ask your question", and a request for a web search got no search).
+
+The thread's session reads the step's messages once (`append()`), and holds neither the instruction nor the notes: what it has read stays cached from turn to turn, and a later turn doesn't read earlier notes. Where the browser has no `append()`, each clone reads the step's messages itself.
+
+A turn's notes stay for the turn. A step that brings a tool's results reads the notes of the turn's earlier steps, in a `Notes:` message after its own messages: its draft before the instruction, and its reply together with its own notes. No step reads an earlier step's instruction, which only ever went to a clone.
+
+- A tool call the model writes in its draft is the step's call: the notes end before it, and no reply is asked for. The step after the tool's result drafts again, about the result.
+- `budgetTokens` stops the notes after that many streamed pieces (a token each in Chrome 157), and the reply follows. A budget of 0 is no thinking. `maxOutputTokens` covers the notes and the reply together.
+- The notes' tokens are in the step's usage, as `completionTokensDetails.reasoningTokens`.
 
 ## Structured output
 

@@ -1,11 +1,13 @@
 import assert from "node:assert/strict"
 import { beforeEach, test } from "node:test"
 
-import { chat } from "@tanstack/ai"
+import { chat, supportedReasoningLevels } from "@tanstack/ai"
 import type { TextOptions } from "@tanstack/ai"
 
 import { promptApiText } from "./adapter.js"
 import type { PromptApiConfig } from "./adapter.js"
+import { PROMPT_API_MODEL_REASONING } from "./model-meta.js"
+import { draftInstruction, withWorkingNotes } from "./reasoning.js"
 import { PromptApiVariant } from "./variant.js"
 
 type Chunk = { type: string; [key: string]: unknown }
@@ -24,6 +26,8 @@ const control = {
   answer: '{"city":"Tokyo"}',
   /** Structured answers in pieces, one list per prompt, before `answer`. */
   answers: [] as Array<Array<string>>,
+  /** What a clone writes, in pieces, one list per prompt, before `pieces`: a step's working notes. */
+  drafts: [] as Array<Array<string | { type: string; value: unknown }>>,
   /** Thrown by create(), or by the prompt. */
   createFailure: undefined as unknown,
   promptFailure: undefined as unknown,
@@ -36,6 +40,10 @@ const control = {
   progress: [0, 1] as Array<number>,
   /** Sessions made, in order. */
   sessions: [] as Array<EventTarget>,
+  /** Sessions cloned from another, in order. */
+  clones: [] as Array<EventTarget>,
+  /** append()'s calls: the messages, and the session they were added to. */
+  appends: [] as Array<{ input: unknown; session: EventTarget }>,
   /** measureContextUsage()'s calls: the input and the options. */
   measures: [] as Array<{ input: unknown; options?: Record<string, unknown> }>
 }
@@ -49,6 +57,18 @@ class FakeSession extends EventTarget {
   readonly contextWindow = 9216
   destroy() {
     control.destroyed++
+  }
+  async clone(options: { signal?: AbortSignal } = {}) {
+    options.signal?.throwIfAborted()
+    const clone = new FakeSession()
+    // A clone isn't a session the page made.
+    control.sessions.pop()
+    control.clones.push(clone)
+    return clone
+  }
+  async append(input: unknown, options: { signal?: AbortSignal } = {}) {
+    options.signal?.throwIfAborted()
+    control.appends.push({ input, session: this })
   }
   async measureContextUsage(input: unknown, options?: Record<string, unknown>) {
     control.measures.push({ input, ...(options && { options }) })
@@ -64,8 +84,12 @@ class FakeSession extends EventTarget {
     control.prompts.push({ kind: "stream", input, options, session: this })
     const signal = options.signal as AbortSignal | undefined
     let index = 0
-    // Under a schema, the structured answer; else the reply's pieces.
-    const pieces = options.responseConstraint ? (control.answers.shift() ?? [control.answer]) : control.pieces
+    // Under a schema, the structured answer; asked for working notes, the draft's pieces; else the reply's.
+    const last = Array.isArray(input) ? (input.at(-1) as { content?: unknown } | undefined)?.content : input
+    const drafting = typeof last === "string" && last.startsWith("Instructions:\n")
+    const pieces = options.responseConstraint
+      ? (control.answers.shift() ?? [control.answer])
+      : ((drafting ? control.drafts.shift() : undefined) ?? control.pieces)
     return new ReadableStream<string | { type: string; value: unknown }>({
       pull(controller) {
         // An aborted signal first, as prompt() rejects: then the browser's own failure.
@@ -100,6 +124,7 @@ beforeEach(() => {
     pieces: ["Hello ", "there"],
     answer: '{"city":"Tokyo"}',
     answers: [],
+    drafts: [],
     createFailure: undefined,
     promptFailure: undefined,
     beforePiece: noop,
@@ -107,6 +132,8 @@ beforeEach(() => {
     destroyed: 0,
     progress: [0, 1],
     sessions: [],
+    clones: [],
+    appends: [],
     measures: []
   })
 })
@@ -851,4 +878,331 @@ test("the browser's own call stays the thread's history only as it was made: an 
     assert.equal(control.creates.length, 2, "a new session")
     assert.equal((control.prompts[2].input as Array<unknown>).length, 3, "the whole conversation")
   })
+})
+
+/** A step's working notes, in the pieces the draft's clone streams. */
+const NOTES = ["Needs ", "the ", "weather."]
+const high = { reasoning: { level: "high", summary: true } }
+const reasoningIn = (chunks: Array<Chunk>) =>
+  chunks.filter((c) => c.type === "REASONING_MESSAGE_CONTENT").map((c) => c.delta).join("")
+/** The draft's instruction for the conversation, and the notes as the reply's prompt gets them. */
+const instruction = (messages: Array<unknown>) => draftInstruction(messages as never)
+const notesMessage = (notes: string) => withWorkingNotes([], notes)[0]
+const asked = { role: "user", content: "Weather in Paris?" }
+
+test("the draft's instruction repeats nothing of the conversation, and asks about a tool's results after them; the notes go back as a message that asks for the reply", () => {
+  assert.deepEqual(instruction([asked]), {
+    role: "user",
+    content:
+      "Instructions:\nThe message above is from the user. Write notes for yourself, not to the user, before replying to it: what they're asking, and whether you can answer directly or need a tool. Don't call tools or write the reply yet."
+  })
+  assert.deepEqual(instruction([asked, { role: "assistant", content: "" }, { role: "tool", toolCallId: "c1", content: "20C" }]), {
+    role: "user",
+    content:
+      "Instructions:\nNow write notes for yourself, not to the user, before replying to the user's latest message, what the tool results above tell you, and what to do next. Don't call tools or write the reply yet."
+  })
+  assert.deepEqual(instruction([]), instruction([asked]), "the same for any conversation that doesn't end in a tool's result")
+  assert.deepEqual(notesMessage("Check it."), {
+    role: "user",
+    content: "Notes:\nCheck it.\nNow reply."
+  })
+  assert.deepEqual(withWorkingNotes([{ role: "user", content: "Hi" }], ""), [{ role: "user", content: "Hi" }, { role: "user", content: "Now reply." }], "without notes, just the ask")
+})
+
+test("reasoning high: the thread's session reads the message once, and a clone each drafts working notes and replies with them", async () => {
+  control.drafts = [NOTES]
+  const adapter = promptApiText("text")
+  const chunks = await step(adapter, [asked], high)
+  assert.deepEqual(typesOf(chunks), [
+    "RUN_STARTED",
+    "REASONING_START",
+    "REASONING_MESSAGE_START",
+    "REASONING_MESSAGE_CONTENT",
+    "REASONING_MESSAGE_CONTENT",
+    "REASONING_MESSAGE_CONTENT",
+    "REASONING_MESSAGE_END",
+    "REASONING_END",
+    "TEXT_MESSAGE_START",
+    "TEXT_MESSAGE_CONTENT",
+    "TEXT_MESSAGE_CONTENT",
+    "TEXT_MESSAGE_END",
+    "RUN_FINISHED"
+  ])
+  assert.deepEqual(chunks.filter((c) => c.type === "REASONING_MESSAGE_CONTENT").map((c) => c.delta), NOTES, "as they're written")
+  assert.equal(textIn(chunks), "Hello there")
+  const reasoningIds = new Set(chunks.filter((c) => c.type.startsWith("REASONING")).map((c) => c.messageId))
+  assert.equal(reasoningIds.size, 1)
+  assert.ok(!reasoningIds.has(chunks.find((c) => c.type === "TEXT_MESSAGE_START")?.messageId), "not the reply's message")
+
+  assert.deepEqual(control.appends, [{ input: [asked], session: control.sessions[0] }], "the message is the thread's session's, read once")
+  const [draft, reply] = control.prompts
+  assert.equal(control.prompts.length, 2)
+  assert.equal(draft.session, control.clones[0], "the draft is a clone's")
+  assert.deepEqual(draft.input, [instruction([asked])], "the instruction alone: the clone holds the message")
+  assert.equal("responseConstraint" in draft.options, false)
+  assert.equal(reply.session, control.clones[1], "the reply is another clone's")
+  assert.deepEqual(reply.input, [notesMessage("Needs the weather.")])
+  // The session is made as without reasoning: the system prompt has nothing about thinking.
+  assert.equal("initialPrompts" in control.creates[0], false)
+  assert.equal(control.destroyed, 2, "the two clones, not the thread's session")
+  assert.equal(await adapter.contextUsage("thread"), 120, "kept for the thread")
+})
+
+test("every step thinks on the thread's kept session, which reads only what's new; turning reasoning off goes on from it too", async () => {
+  const adapter = promptApiText("text")
+  control.drafts = [NOTES, ["Tomorrow now."]]
+  await step(adapter, [asked], high)
+  const second = [asked, { role: "assistant", content: "Hello there" }, { role: "user", content: "And tomorrow?" }]
+  const chunks = await step(adapter, second, high)
+  assert.equal(reasoningIn(chunks), "Tomorrow now.")
+  assert.equal(control.creates.length, 1, "one session for the thread")
+  // The first step's reply was a clone's: the session reads it now, with the new message.
+  assert.deepEqual(control.appends[1], { input: [{ role: "assistant", content: "Hello there" }, { role: "user", content: "And tomorrow?" }], session: control.sessions[0] })
+  assert.deepEqual(control.prompts[2].input, [instruction(second)])
+  assert.deepEqual(control.prompts[3].input, [notesMessage("Tomorrow now.")])
+  assert.deepEqual(control.prompts.map((p) => p.session), control.clones, "every prompt is a clone's")
+
+  await step(adapter, [...second, { role: "assistant", content: "Hello there" }, { role: "user", content: "Thanks" }])
+  assert.equal(control.creates.length, 1, "the same session without reasoning")
+  assert.equal(control.prompts[4].session, control.sessions[0])
+  assert.deepEqual(control.prompts[4].input, [{ role: "assistant", content: "Hello there" }, { role: "user", content: "Thanks" }], "what it hasn't read")
+})
+
+test("where the browser has no append, the clones read the step's messages themselves, and the next step sends them again", async () => {
+  const append = FakeSession.prototype.append
+  delete (FakeSession.prototype as { append?: unknown }).append
+  try {
+    const adapter = promptApiText("text")
+    control.drafts = [NOTES, ["Tomorrow now."]]
+    const chunks = await step(adapter, [asked], high)
+    assert.equal(reasoningIn(chunks), "Needs the weather.")
+    assert.equal(textIn(chunks), "Hello there")
+    assert.deepEqual(control.prompts[0].input, [asked, instruction([asked])])
+    assert.deepEqual(control.prompts[1].input, [asked, notesMessage("Needs the weather.")])
+    const second = [asked, { role: "assistant", content: "Hello there" }, { role: "user", content: "And tomorrow?" }]
+    await step(adapter, second, high)
+    assert.equal(control.creates.length, 1, "the same session, which still holds nothing of the conversation")
+    assert.equal((control.prompts[2].input as Array<unknown>).length, 4, "the whole conversation, then the instruction")
+  } finally {
+    FakeSession.prototype.append = append
+  }
+})
+
+test("reasoning off, or none: one prompt and no clone", async () => {
+  for (const extra of [{}, { reasoning: { level: "off", summary: true } }]) {
+    control.prompts = []
+    const chunks = await run({ ...extra, threadId: JSON.stringify(extra) })
+    assert.ok(!chunks.some((c) => c.type.startsWith("REASONING")))
+    assert.equal(control.prompts.length, 1)
+    assert.equal(control.clones.length, 0)
+    assert.equal(control.appends.length, 0)
+  }
+})
+
+test("a level the model doesn't have is the nearest it has: any thinking is high", async () => {
+  control.drafts = [NOTES]
+  assert.equal(reasoningIn(await run({ reasoning: { level: "low", summary: true } })), "Needs the weather.")
+  assert.deepEqual(supportedReasoningLevels(PROMPT_API_MODEL_REASONING.text), ["off", "high"])
+})
+
+test("notes, a tool call, then notes about its result, on the one session", async () => {
+  const adapter = promptApiText("text")
+  control.drafts = [["I need the weather tool."], ["It is 20 degrees."]]
+  control.pieces = ['```tool_call\n{"name": "get_weather", "arguments": {"city": "Paris"}}\n```']
+  const called = await step(adapter, [asked], { ...high, tools: [weather] })
+  assert.equal(reasoningIn(called), "I need the weather tool.")
+  assert.equal(called.at(-1)?.finishReason, "tool_calls")
+  assert.ok(typesOf(called).indexOf("REASONING_END") < typesOf(called).indexOf("TOOL_CALL_START"))
+
+  control.pieces = ["Sunny, 20 degrees."]
+  const conversation = [
+    asked,
+    { role: "assistant", content: "", toolCalls: [{ id: "c1", type: "function", function: { name: "get_weather", arguments: '{"city":"Paris"}' } }] },
+    { role: "tool", toolCallId: "c1", content: '{"temperature":20}' }
+  ]
+  const answered = await step(adapter, conversation, { ...high, tools: [weather] })
+  assert.equal(reasoningIn(answered), "It is 20 degrees.")
+  assert.equal(textIn(answered), "Sunny, 20 degrees.")
+  assert.equal(control.creates.length, 1, "the same session")
+  // The session reads the call and its result, the clone's of the step before; the draft is then asked about the result.
+  const added = control.appends[1].input as Array<{ role: string; content: string }>
+  assert.deepEqual(added.map((m) => m.role), ["assistant", "user"])
+  assert.match(added[0].content, /```tool_call/)
+  assert.match(added[1].content, /```tool_result/)
+  // The turn's earlier notes come with it, and no earlier instruction.
+  const draft = control.prompts[2].input as Array<{ role: string; content: string }>
+  assert.equal(draft.length, 2)
+  assert.deepEqual(draft[0], { role: "user", content: "Notes:\nI need the weather tool." })
+  assert.match(draft[1].content, /what the tool results above tell you, and what to do next\. Don't call tools/)
+  assert.doesNotMatch(draft[1].content, /what they're asking/)
+  // The reply reads both steps' notes.
+  assert.deepEqual(control.prompts[3].input, [notesMessage("I need the weather tool.\n\nIt is 20 degrees.")])
+  // Nothing the thread's own session read was notes or an instruction.
+  for (const { input } of control.appends) assert.doesNotMatch(JSON.stringify(input), /Notes:|Instructions:|write notes/)
+
+  // The next turn reads none of that turn's notes.
+  control.drafts = [["A new question."]]
+  control.pieces = ["Rain tomorrow."]
+  await step(adapter, [...conversation, { role: "assistant", content: "Sunny, 20 degrees." }, { role: "user", content: "And tomorrow?" }], { ...high, tools: [weather] })
+  const later = control.prompts[4].input as Array<{ role: string; content: string }>
+  assert.equal(later.length, 1, "the instruction alone")
+  assert.match(later[0].content, /what they're asking/)
+  assert.deepEqual(control.prompts[5].input, [notesMessage("A new question.")])
+})
+
+test("a tool call the draft writes is the step's call: the notes end before it, and no reply is asked for", async () => {
+  control.drafts = [["I should check ", "the weather.\n", '```tool_call\n{"name": "get_weather", "arguments": {"city": "Paris"}}\n```', " and more"]]
+  const chunks = await run({ ...high, tools: [weather] })
+  assert.equal(reasoningIn(chunks), "I should check the weather.\n")
+  assert.equal(textIn(chunks), "")
+  const types = typesOf(chunks)
+  assert.deepEqual(types.slice(types.indexOf("REASONING_END") + 1), ["TOOL_CALL_START", "TOOL_CALL_ARGS", "TOOL_CALL_END", "RUN_FINISHED"])
+  const call = chunks.find((c) => c.type === "TOOL_CALL_END")
+  assert.equal(call?.toolCallName, "get_weather")
+  assert.deepEqual(call?.input, { city: "Paris" })
+  assert.equal(chunks.at(-1)?.finishReason, "tool_calls")
+  assert.equal(control.prompts.length, 1, "the draft's prompt only")
+  assert.equal(control.clones.length, 1, "no clone for a reply")
+  // The notes are the reasoning tokens, the call is written too, and no reply prompt was read.
+  const usage = usageOf(chunks.at(-1)) as ReturnType<typeof usageOf> & { completionTokensDetails?: { reasoningTokens?: number } }
+  const reasoning = measured("I should check the weather.\n") - measured("")
+  assert.deepEqual(usage?.completionTokensDetails, { reasoningTokens: reasoning })
+  assert.equal(usage?.completionTokens, reasoning + measured(JSON.stringify({ name: "get_weather", arguments: { city: "Paris" } })) - measured(""))
+  assert.equal(usage?.promptTokens, 120 + measured([asked]) + measured([instruction([asked])]))
+})
+
+test("a call in a fence the draft leaves open is the step's too; a call to a tool the step doesn't offer is notes", async () => {
+  control.drafts = [["Checking. ", '```tool_call\n{"name": "get_weather", "arguments": {"city": "Paris"}}']]
+  const open = await run({ ...high, tools: [weather] })
+  assert.equal(reasoningIn(open), "Checking. ")
+  assert.equal(open.find((c) => c.type === "TOOL_CALL_END")?.toolCallName, "get_weather")
+  assert.equal(control.prompts.length, 1)
+
+  const other = '```tool_call\n{"name": "get_time", "arguments": {}}\n```'
+  Object.assign(control, { prompts: [], drafts: [["Checking. ", other]] })
+  const notes = await run({ ...high, threadId: "other", tools: [weather] })
+  assert.equal(reasoningIn(notes), "Checking. " + other)
+  assert.ok(!notes.some((c) => c.type === "TOOL_CALL_END"))
+  assert.equal(textIn(notes), "Hello there")
+  assert.equal(control.prompts.length, 2, "the reply follows")
+})
+
+test("with the browser's own tool use, a call the draft makes is the step's, with its id", async () => {
+  await withToolUse(async () => {
+    control.drafts = [["Let me check. ", { type: "tool-call", value: new FakeToolCall({ callId: "d1", name: "get_weather", arguments: { city: "Paris" } }) }]]
+    const chunks = await run({ ...high, tools: [weather] })
+    assert.equal(reasoningIn(chunks), "Let me check. ")
+    const call = chunks.find((c) => c.type === "TOOL_CALL_END")
+    assert.equal(call?.toolCallId, "d1")
+    assert.equal(call?.toolCallName, "get_weather")
+    assert.equal(chunks.at(-1)?.finishReason, "tool_calls")
+    assert.equal(control.prompts.length, 1, "no reply prompt")
+  })
+})
+
+test("maxOutputTokens covers the notes and the reply together", async () => {
+  // The notes' three pieces leave the reply two.
+  control.drafts = [NOTES]
+  control.pieces = Array.from({ length: 10 }, () => "word ")
+  const chunks = await run({ ...high, modelOptions: { maxOutputTokens: 5 } })
+  assert.equal(reasoningIn(chunks), "Needs the weather.")
+  assert.equal(chunks.filter((c) => c.type === "TEXT_MESSAGE_CONTENT").length, 2)
+  assert.equal(chunks.at(-1)?.finishReason, "length")
+
+  // Notes that reach the cap are cut there, and nothing is replied.
+  Object.assign(control, { prompts: [], clones: [], drafts: [NOTES] })
+  const cut = await run({ ...high, threadId: "cut", modelOptions: { maxOutputTokens: 2 } })
+  assert.equal(reasoningIn(cut), "Needs the ")
+  assert.equal(textIn(cut), "")
+  assert.equal(cut.at(-1)?.finishReason, "length")
+  assert.equal(control.prompts.length, 1, "no reply prompt")
+  assert.equal(control.clones.length, 1, "no clone for a reply")
+})
+
+test("budgetTokens stops the notes at that many streamed pieces, and the reply follows; a budget of none is no notes", async () => {
+  control.drafts = [NOTES]
+  const chunks = await run({ reasoning: { level: "high", summary: true, budgetTokens: 2 } })
+  assert.equal(reasoningIn(chunks), "Needs the ")
+  assert.equal(textIn(chunks), "Hello there")
+  assert.equal(chunks.at(-1)?.finishReason, "stop")
+  assert.deepEqual(control.prompts[1].input, [notesMessage("Needs the ")])
+
+  // The budget is the notes' alone: the output cap still covers both.
+  Object.assign(control, { prompts: [], drafts: [NOTES], pieces: Array.from({ length: 10 }, () => "word ") })
+  const both = await run({ reasoning: { level: "high", summary: true, budgetTokens: 2 }, threadId: "both", modelOptions: { maxOutputTokens: 5 } })
+  assert.equal(reasoningIn(both), "Needs the ")
+  assert.equal(both.filter((c) => c.type === "TEXT_MESSAGE_CONTENT").length, 3)
+  assert.equal(both.at(-1)?.finishReason, "length")
+
+  Object.assign(control, { prompts: [], clones: [], appends: [], pieces: ["Hello ", "there"] })
+  const none = await run({ reasoning: { level: "high", summary: true, budgetTokens: 0 } , threadId: "none" })
+  assert.ok(!none.some((c) => c.type.startsWith("REASONING")))
+  assert.equal(control.prompts.length, 1)
+  assert.equal(control.clones.length, 0)
+  assert.equal(control.appends.length, 0)
+})
+
+test("the notes' tokens are the reply's reasoning tokens; what the kept session held is cached on the next turn", async () => {
+  const adapter = promptApiText("text")
+  control.drafts = [NOTES, ["Tomorrow now."]]
+  type Usage = ReturnType<typeof usageOf> & { completionTokensDetails?: { reasoningTokens?: number } }
+  const first = usageOf((await step(adapter, [asked], high)).at(-1)) as Usage
+  const reasoning = measured("Needs the weather.") - measured("")
+  const reply = measured("Hello there") - measured("")
+  assert.deepEqual(first?.completionTokensDetails, { reasoningTokens: reasoning })
+  assert.equal(first?.completionTokens, reasoning + reply)
+  // What the new session held, the message it read, the reply's prompt (the notes) and the draft's (the instruction).
+  assert.equal(first?.promptTokens, 120 + measured([asked, notesMessage("Needs the weather.")]) + measured([instruction([asked])]))
+  assert.equal(first?.promptTokensDetails, undefined, "a new session read all it holds")
+
+  Object.assign(control.sessions[0], { contextUsage: 300 })
+  const second = [asked, { role: "assistant", content: "Hello there" }, { role: "user", content: "And tomorrow?" }]
+  const next = usageOf((await step(adapter, second, high)).at(-1)) as Usage
+  assert.deepEqual(next?.promptTokensDetails, { cachedTokens: 300 }, "what the thread's session held isn't read again")
+  assert.equal(next?.promptTokens, 300 + measured([...second.slice(1), notesMessage("Tomorrow now.")]) + measured([instruction(second)]))
+})
+
+test("an abort mid-draft ends the reasoning, then RUN_ERROR (code aborted): no reply, and the thread keeps its session", async () => {
+  const controller = new AbortController()
+  control.drafts = [NOTES]
+  control.beforePiece = (index) => {
+    if (index === 1) controller.abort(new Error("stop"))
+  }
+  const adapter = promptApiText("text")
+  const chunks = await step(adapter, [asked], { ...high, abortController: controller })
+  assert.deepEqual(typesOf(chunks), [
+    "RUN_STARTED",
+    "REASONING_START",
+    "REASONING_MESSAGE_START",
+    "REASONING_MESSAGE_CONTENT",
+    "REASONING_MESSAGE_END",
+    "REASONING_END",
+    "RUN_ERROR"
+  ])
+  assert.equal((chunks.at(-1)?.error as { code?: string } | undefined)?.code, "aborted")
+  assert.equal(control.prompts.length, 1, "no reply prompt")
+  assert.equal(control.destroyed, 1, "the draft's clone only")
+  assert.equal(await adapter.contextUsage("thread"), 120)
+})
+
+test("empty notes are no reasoning, and the reply is just asked for", async () => {
+  control.drafts = [[]]
+  const chunks = await run(high)
+  assert.ok(!chunks.some((c) => c.type.startsWith("REASONING")))
+  assert.deepEqual(control.prompts[1].input, [{ role: "user", content: "Now reply." }])
+  assert.equal(textIn(chunks), "Hello there")
+})
+
+test("chat() takes reasoning for the model and streams its notes", async () => {
+  control.drafts = [NOTES]
+  const chunks: Array<Chunk> = []
+  for await (const chunk of chat({
+    adapter: promptApiText("text"),
+    threadId: "chat-reasoning",
+    messages: [{ role: "user", content: "Weather in Paris?" }],
+    reasoning: { level: "high", budgetTokens: 64 },
+    stream: true
+  })) chunks.push(chunk as Chunk)
+  assert.equal(reasoningIn(chunks), "Needs the weather.")
+  assert.equal(textIn(chunks), "Hello there")
 })

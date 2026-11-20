@@ -12,17 +12,22 @@
  * where it has it (the session declares them; calls and results are
  * `tool-call` and `tool-response` content), else they go by prompt
  * (`tools.ts`). Structured output prompts the thread's session under the
- * Prompt API's own `responseConstraint`.
+ * Prompt API's own `responseConstraint`. With `reasoning: "high"`, a step
+ * drafts working notes before its reply (`reasoning.ts`), each on a clone of
+ * the thread's session.
  */
 import { buildBaseUsage, EventType, normalizeSystemPrompts } from "@tanstack/ai"
 import type { AdapterYieldChunk, ModelMessage, TextOptions, TokenUsage, Tool } from "@tanstack/ai"
+import { resolveReasoning } from "@tanstack/ai/adapter-internals"
 import { BaseTextAdapter } from "@tanstack/ai/adapters"
 import type { StructuredOutputOptions, StructuredOutputResult } from "@tanstack/ai/adapters"
 
 import { contentText, mediaIn, toLanguageModelMessages } from "./messages.js"
 import { baseOptions, createSession, DEFAULT_LANGUAGES, MEDIA_INPUTS, promptApiAvailability } from "./model.js"
 import type { Availability, MediaInput } from "./model.js"
-import type { PromptApiChatModel } from "./model-meta.js"
+import { PROMPT_API_MODEL_REASONING } from "./model-meta.js"
+import type { PromptApiChatModel, PromptApiModelReasoningByName } from "./model-meta.js"
+import { draftInstruction, earlierNotes, withWorkingNotes } from "./reasoning.js"
 import { RUNAWAY_WHITESPACE, tokenCap, whitespaceRun } from "./runaway.js"
 import { toolCallReader, toolSystemPrompt } from "./tools.js"
 import { PromptApiVariant } from "./variant.js"
@@ -31,6 +36,7 @@ import type {
   DownloadProgressCallback,
   LanguageModelContent,
   LanguageModelInput,
+  LanguageModelMessage,
   LanguageModelPromptOptions,
   LanguageModelSession,
   LanguageModelToolCall,
@@ -127,7 +133,14 @@ const KEPT_SESSIONS = 4
  * A thread's session (kept from the moment a step reserves it, while the
  * browser makes it), the settings it was made with, and the messages it holds.
  */
-type Kept = { session: Promise<LanguageModelSession>; settings: string; seen: Array<string>; busy: boolean }
+type Kept = {
+  session: Promise<LanguageModelSession>
+  settings: string
+  seen: Array<string>
+  busy: boolean
+  /** The working notes of the turn in progress, a step's each: its later steps read them (see reasoning.ts). */
+  notes?: Array<string>
+}
 
 /** Closes a session once it's made; one that failed to start has nothing to close. */
 const close = (session: Promise<LanguageModelSession>) => void session.then((s) => s.destroy(), () => undefined)
@@ -183,6 +196,18 @@ function sessionSettings(
   return { system, settings: JSON.stringify([system, declared, samplingMode, temperature, topK, mediaIn(options.messages)]) }
 }
 
+/**
+ * A step's thinking, for `reasoning: "high"` (any level of thinking is the
+ * model's one): its token budget, if it has one. Undefined for a step that
+ * doesn't think: reasoning off or none, or a budget of no tokens.
+ */
+function thinkingOf(options: TextOptions<PromptApiTextModelOptions>, model: PromptApiChatModel) {
+  const reasoning = resolveReasoning(options.reasoning, PROMPT_API_MODEL_REASONING[model])
+  if (reasoning?.level !== "high") return undefined
+  if (reasoning.budgetTokens !== undefined && reasoning.budgetTokens <= 0) return undefined
+  return { budget: reasoning.budgetTokens }
+}
+
 /** A piece of a reply as text: a string, or `text` content. */
 const pieceText = (piece: string | LanguageModelContent) =>
   typeof piece === "string" ? piece : piece.type === "text" ? String(piece.value) : ""
@@ -194,6 +219,12 @@ const goesOnFrom = (held: Kept, settings: string, keys: Array<string>) =>
 let ids = 0
 const nextId = (prefix: string) => `${prefix}_${Date.now().toString(36)}_${(ids++).toString(36)}`
 
+/** A tool call a step ends with. */
+type StepCall = { id: string; name: string; arguments: unknown }
+
+/** The browser's own call as a step's, with its id when it gives one. */
+const stepCall = (call: LanguageModelToolCall): StepCall => ({ id: call.callId || call.callID || nextId("call"), name: call.name, arguments: call.arguments })
+
 /** The caller's signal: the legacy `abortController` first, then `request`. */
 const signalOf = (options: TextOptions<PromptApiTextModelOptions>) =>
   options.abortController?.signal ?? (options.request as RequestInit | undefined)?.signal ?? undefined
@@ -203,7 +234,11 @@ export class PromptApiTextAdapter extends BaseTextAdapter<
   PromptApiChatModel,
   PromptApiTextModelOptions,
   readonly ["text", "image", "audio"],
-  MetadataByModality
+  MetadataByModality,
+  ReadonlyArray<string>,
+  unknown,
+  never,
+  PromptApiModelReasoningByName[PromptApiChatModel]
 > {
   override readonly kind = "text" as const
   readonly name = "prompt-api" as const
@@ -384,6 +419,7 @@ export class PromptApiTextAdapter extends BaseTextAdapter<
    */
   private async begin(options: TextOptions<PromptApiTextModelOptions>, signal: AbortSignal | undefined) {
     const key = options.promptCache?.key ?? options.threadId
+    const thinking = thinkingOf(options, this.model)
     const retain = options.promptCache?.retention !== "none"
     const tools = offeredTools(options)
     // The browser's own tool use where it has it, else tools by prompt.
@@ -406,7 +442,7 @@ export class PromptApiTextAdapter extends BaseTextAdapter<
     try {
       const session = await pending
       const input = await toLanguageModelMessages(options.messages, goesOn ? held.seen.length : 0, native)
-      return { key, session, kept, keys, input, tools, native: !!native, goesOn }
+      return { key, session, kept, keys, input, tools, native: !!native, goesOn, thinking }
     } catch (error) {
       // A session that goes on still holds the thread; a new one is dropped.
       this.end(key, pending, kept, !goesOn)
@@ -427,32 +463,41 @@ export class PromptApiTextAdapter extends BaseTextAdapter<
    * session measures it, and the reply measured the same way, less an empty
    * message's tokens (the turn markers the session counts around any
    * message). What a kept session held is cached: it isn't read again. A
-   * new session read what it holds (the system prompt) in this step.
-   * Nothing where the browser can't measure.
+   * new session read what it holds (the system prompt) in this step. A
+   * step's `draft` adds its own prompt (the step's messages and the draft's
+   * instruction, read by the session's clone) and the notes it wrote, which
+   * are also reported as the reply's reasoning tokens. Nothing where the
+   * browser can't measure.
    */
   private async usage(
     session: LanguageModelSession,
     held: number,
     goesOn: boolean,
-    input: LanguageModelInput,
+    // The reply's prompt; undefined when none was sent (the draft made the step's tool call).
+    input: LanguageModelInput | undefined,
     reply: string,
     // The prompt's own options: a schema Chrome writes into the input counts as input.
-    promptOptions?: LanguageModelPromptOptions
+    promptOptions?: LanguageModelPromptOptions,
+    draft?: { input: LanguageModelInput; notes: string }
   ): Promise<TokenUsage | undefined> {
     try {
-      const [read, written, markers] = await Promise.all([
-        session.measureContextUsage(input, promptOptions),
+      const [read, written, markers, draftRead, draftWritten] = await Promise.all([
+        input ? session.measureContextUsage(input, promptOptions) : 0,
         session.measureContextUsage(reply),
-        session.measureContextUsage("")
+        session.measureContextUsage(""),
+        draft ? session.measureContextUsage(draft.input) : 0,
+        draft ? session.measureContextUsage(draft.notes) : 0
       ])
-      const counts = [held, read, written, markers]
+      const counts = [held, read, written, markers, draftRead, draftWritten]
       if (!counts.every((count) => Number.isFinite(count))) return undefined
-      const promptTokens = held + read
-      const completionTokens = Math.max(0, written - markers)
+      const promptTokens = held + read + draftRead
+      const reasoningTokens = draft ? Math.max(0, draftWritten - markers) : 0
+      const completionTokens = Math.max(0, written - markers) + reasoningTokens
       return {
         ...buildBaseUsage({ promptTokens, completionTokens, totalTokens: promptTokens + completionTokens }),
         // What a kept session held, as TanStack reports cached tokens: left out for none (a new session read all of it).
-        ...(goesOn && held > 0 && { promptTokensDetails: { cachedTokens: held } })
+        ...(goesOn && held > 0 && { promptTokensDetails: { cachedTokens: held } }),
+        ...(draft && { completionTokensDetails: { reasoningTokens } })
       }
     } catch {
       return undefined
@@ -500,6 +545,73 @@ export class PromptApiTextAdapter extends BaseTextAdapter<
     return { text, ...(stopped && { stopped }) }
   }
 
+  /**
+   * A step's working notes, drafted before its reply (see reasoning.ts): a
+   * clone of the step's session reads `input` (the draft's instruction, after
+   * the step's messages where the session doesn't hold them yet) and writes
+   * the notes, so the step's session holds nothing of the draft. Yields the notes as they're written; returns them,
+   * the pieces they took (a token each, as `tokenCap` counts) and whether the
+   * output cap (`max`) stopped them. The thinking `budget` stops them too:
+   * the notes end where they are, and the reply follows.
+   *
+   * Asked not to, the model sometimes calls a tool in its draft all the same
+   * (Gemini Nano in Chrome 157: one draft in seven of a question that needs a
+   * search; with the call left in its notes, its reply then made up the
+   * tool's result). Such a call is the step's: the notes end before it, and
+   * `calls` has it (by prompt, read by `reader` as in a reply; or the
+   * browser's own).
+   */
+  private async *draft(
+    session: LanguageModelSession,
+    input: LanguageModelInput,
+    signal: AbortSignal | undefined,
+    budget: number | undefined,
+    max: number | undefined,
+    reader: ReturnType<typeof toolCallReader> | undefined
+  ): AsyncGenerator<string, { notes: string; pieces: number; capped: boolean; calls: Array<StepCall> }> {
+    const stop = new AbortController()
+    const generation = signal ? AbortSignal.any([signal, stop.signal]) : stop.signal
+    const clone = await session.clone(signal ? { signal } : undefined)
+    const cap = tokenCap(max)
+    const budgeted = tokenCap(budget)
+    const calls: Array<StepCall> = []
+    let notes = ""
+    let pieces = 0
+    let capped = false
+    try {
+      for await (const raw of clone.promptStreaming(input, { signal: generation })) {
+        pieces++
+        if (typeof raw !== "string" && raw.type === "tool-call") {
+          calls.push(stepCall(raw.value as LanguageModelToolCall))
+        } else {
+          const piece = pieceText(raw)
+          const shown = reader ? reader.push(piece) : piece
+          notes += shown
+          if (shown) yield shown
+        }
+        capped = cap.reached()
+        if (reader?.call || capped || budgeted.reached()) {
+          stop.abort()
+          break
+        }
+      }
+    } catch (error) {
+      if (!stop.signal.aborted || signal?.aborted) throw error
+    } finally {
+      // Also when the stream is left unread: the clone stops writing.
+      stop.abort()
+      clone.destroy()
+    }
+    if (reader) {
+      // What the reader held back: text, unless it's a call in a fence the draft left open.
+      const rest = reader.end()
+      notes += rest
+      if (rest) yield rest
+      if (reader.call) calls.push({ id: nextId("call"), ...reader.call })
+    }
+    return { notes, pieces, capped, calls }
+  }
+
   async *chatStream(options: TextOptions<PromptApiTextModelOptions>): AsyncIterable<AdapterYieldChunk> {
     const runId = options.runId ?? nextId("run")
     const { threadId } = options
@@ -522,7 +634,73 @@ export class PromptApiTextAdapter extends BaseTextAdapter<
     const stop = new AbortController()
     try {
       step = await this.begin(options, signal)
-      const { session, kept, keys, input, tools, native, goesOn } = step
+      const { session, kept, keys, tools, native, goesOn } = step
+      // What the session holds before this step's prompts.
+      const held = session.contextUsage
+      const max = this.capOf(options)
+      // With reasoning, the working notes first: streamed as reasoning, then
+      // the last message of the reply's prompt. A tool call the draft made is
+      // the step's, and nothing more is asked.
+      let draft: { input: LanguageModelInput; notes: string; pieces: number; capped: boolean; calls: Array<StepCall> } | undefined
+      let input: Array<LanguageModelMessage> = step.input
+      // What the session itself reads in this step, for its token counts.
+      let read: Array<LanguageModelMessage> | undefined = step.input
+      // The session the reply is asked of: the step's, or with reasoning a clone of it.
+      let replier = session
+      if (step.thinking) {
+        // The thread's session reads the step's messages once (`append`) and
+        // stays the thread's: the draft and the reply each go on from a clone
+        // of it, so it holds neither the instruction nor the notes, and the
+        // next turn goes on from what it holds. The reply isn't in it: the
+        // next step sends that. Where the browser has no `append`, the clones
+        // read the step's messages themselves, and the next step sends them again.
+        const appends = typeof session.append === "function"
+        if (appends) {
+          if (step.input.length > 0) await session.append?.(step.input, signal ? { signal } : undefined)
+          if (kept) kept.seen = keys
+        }
+        const before = appends ? [] : step.input
+        const reasoningId = nextId("reasoning")
+        // A step that brings a tool's results goes on a turn: it reads the notes of the turn's earlier steps,
+        // after its own messages. (Not their instructions: those were only ever a clone's.)
+        const earlier = options.messages.at(-1)?.role === "tool" ? (kept?.notes ?? []) : []
+        const draftInput = [...before, ...earlierNotes(earlier), draftInstruction(options.messages)]
+        const draftReader = tools.length > 0 && !native ? toolCallReader(tools) : undefined
+        const thinking = this.draft(session, draftInput, signal, step.thinking.budget, max, draftReader)
+        let opened = false
+        const closing = (): Array<AdapterYieldChunk> =>
+          opened
+            ? [
+                { type: EventType.REASONING_MESSAGE_END, messageId: reasoningId, model, timestamp: timestamp() },
+                { type: EventType.REASONING_END, messageId: reasoningId, model, timestamp: timestamp() }
+              ]
+            : []
+        let next: Awaited<ReturnType<typeof thinking.next>>
+        try {
+          while (!(next = await thinking.next()).done) {
+            if (!opened) {
+              opened = true
+              yield { type: EventType.REASONING_START, messageId: reasoningId, model, timestamp: timestamp() }
+              yield { type: EventType.REASONING_MESSAGE_START, messageId: reasoningId, role: "reasoning", model, timestamp: timestamp() }
+            }
+            yield { type: EventType.REASONING_MESSAGE_CONTENT, messageId: reasoningId, delta: next.value, model, timestamp: timestamp() }
+          }
+        } catch (error) {
+          yield* closing()
+          throw error
+        } finally {
+          // Left unread: the notes stop being written.
+          await thinking.return({ notes: "", pieces: 0, capped: false, calls: [] })
+        }
+        yield* closing()
+        draft = { input: draftInput, ...next.value }
+        const noted = draft.notes ? [...earlier, draft.notes] : earlier
+        if (kept) kept.notes = noted
+        input = withWorkingNotes(before, noted.join("\n\n"))
+        const replied = !draft.capped && draft.calls.length === 0
+        read = appends ? [...step.input, ...(replied ? input : [])] : replied ? input : undefined
+        if (replied) replier = await session.clone(signal ? { signal } : undefined)
+      }
       // Tools by prompt: calls are read out of the text. Without tools, or with
       // the browser's own tool use, the text is all text.
       const reader = tools.length > 0 && !native ? toolCallReader(tools) : undefined
@@ -536,13 +714,17 @@ export class PromptApiTextAdapter extends BaseTextAdapter<
         yield { type: EventType.TEXT_MESSAGE_CONTENT, messageId, delta, content: text, model, timestamp: timestamp() }
       }
       const generation = signal ? AbortSignal.any([signal, stop.signal]) : stop.signal
-      // What the session holds before this prompt, and all the model writes (a tool call's text too).
-      const held = session.contextUsage
+      // All the model writes in its reply (a tool call's text too).
       let written = ""
-      const cap = tokenCap(this.capOf(options))
-      let capped = false
+      // The cap covers the notes and the reply together: notes that reached it leave no reply.
+      const cap = tokenCap(max === undefined ? undefined : max - (draft?.pieces ?? 0))
+      let capped = !!draft?.capped
+      // The draft's own tool call ends the step: no reply is asked for.
+      const drafted = draft?.calls.length ? draft.calls : undefined
+      // Not text, but written all the same: counted as its JSON.
+      if (drafted) written = drafted.map((call) => JSON.stringify({ name: call.name, arguments: call.arguments })).join("")
       try {
-        for await (const raw of session.promptStreaming(input, { signal: generation })) {
+        for await (const raw of capped || drafted ? [] : replier.promptStreaming(input, { signal: generation })) {
           // A native call: the turn goes on to its end, so the session holds the call.
           if (typeof raw !== "string" && raw.type === "tool-call") {
             const call = raw.value as LanguageModelToolCall
@@ -566,21 +748,26 @@ export class PromptApiTextAdapter extends BaseTextAdapter<
         }
       } catch (error) {
         if (!stop.signal.aborted || signal?.aborted) throw error
+      } finally {
+        // The reply's clone ends with the reply.
+        if (replier !== session) replier.destroy()
       }
       if (reader) {
         yield* textEvents(reader.end())
         // Text after the call, in the piece that closed it, is shown too.
         yield* textEvents(reader.trailing)
       }
-      const calls = [
-        ...nativeCalls.map((call) => ({ id: call.callId || call.callID || nextId("call"), name: call.name, arguments: call.arguments })),
+      const calls: Array<StepCall> = drafted ?? [
+        ...nativeCalls.map(stepCall),
         ...(reader?.call ? [{ id: nextId("call"), ...reader.call }] : [])
       ]
       if (text) yield { type: EventType.TEXT_MESSAGE_END, messageId, model, timestamp: timestamp() }
+      // A reply without a call ends the turn: its notes are no later turn's.
+      if (kept && calls.length === 0) kept.notes = undefined
       // A finished reply is in the session now, a native call included. One
       // stopped at a call by prompt isn't: Chrome drops a stopped turn whole,
-      // so the next step sends it.
-      if (kept && !stop.signal.aborted) {
+      // so the next step sends it. Nor is a thinking step's, written by a clone.
+      if (kept && !stop.signal.aborted && !step.thinking) {
         const toolCalls = calls.map((call) => ({ id: call.id, type: "function" as const, function: { name: call.name, arguments: JSON.stringify(call.arguments) } }))
         kept.seen = [...keys, messageKey({ role: "assistant", content: text, ...(toolCalls.length && { toolCalls }) })]
       }
@@ -607,7 +794,7 @@ export class PromptApiTextAdapter extends BaseTextAdapter<
           timestamp: timestamp()
         }
       }
-      const usage = await this.usage(session, held, goesOn, input, written)
+      const usage = await this.usage(session, held, goesOn, read, written, undefined, draft)
       yield {
         type: EventType.RUN_FINISHED,
         runId,
