@@ -17,6 +17,19 @@
  */
 
 /**
+ * A prompt the framework took for an unsupported language, under a label in
+ * English: "Message:" on a line of its own, then the prompt. Before iOS/macOS
+ * 27 the framework decides a prompt's language from how it opens. A chess
+ * position that opened "BOARD NOW:" and then its piece lists ("King: e8",
+ * "Queens: d8", …) failed with `unsupportedLanguageOrLocale` every time on
+ * AFM 2 Core (an iPad on iOS 26), as did 2 of 40 other early positions; with
+ * any one of its first eight lines left out, or a line of English ahead of it,
+ * it was answered, and so were all three under this label. macOS 27 answered
+ * it as it was, 7 times in 7.
+ */
+export const underLabel = (prompt: string) => (prompt.startsWith("Message:\n") ? prompt : `Message:\n${prompt}`)
+
+/**
  * A value's outline, as a schema describes it: an object's properties, an
  * array's items, and a placeholder for each value ("…" for a string, 0 for a
  * number). It shows the model what to write, where the schema alone doesn't:

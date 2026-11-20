@@ -32,7 +32,7 @@ import type { AfmChatModel, AfmModelReasoningByName } from "./model-meta.js"
 import { Afm } from "./native.js"
 import type { AfmGuardrails, AfmNative, AfmSampling, NativeEvent, NativeMessage, NativeUsage, UnavailableReason } from "./native.js"
 import { ANSWER_INSTRUCTION, draftInstruction, draftPrompt, REPLY_PROMPT, thoughtsPrompt } from "./reasoning.js"
-import { answerIn, jsonAsk } from "./repair.js"
+import { answerIn, jsonAsk, underLabel } from "./repair.js"
 import { toNativeSchema } from "./schema.js"
 import * as SystemLanguageModel from "./system-language-model.js"
 
@@ -945,26 +945,66 @@ export class AfmTextAdapter extends BaseTextAdapter<
         whole = thoughtsPrompt(message, notes)
       }
 
-      const queue = await respond(prompt, left, toNativeSchema(outputSchema, "Answer"))
-      for (;;) {
-        const event = await queue.next(signal)
-        if (event.type === "done") {
-          const usage = draft ? thinkingUsageOf(draft, event.usage) : usageOf(event.usage)
-          // The answer as the framework held it to the schema (a SyntaxError, TanStack's parse failure, if it isn't JSON).
-          return { data: JSON.parse(event.text) as unknown, rawText: event.text, model, ...(usage && { usage }) }
-        }
-        if (event.type === "error") {
-          // An answer the guardrails refused is asked for once more as text, where they are the permissive ones (repair.ts).
-          if (event.code === "guardrailViolation" && this.guardrailsOf(chatOptions) === "permissiveContentTransformations") {
-            const repair = await this.repaired(chatOptions, earlier, whole, outputSchema, left, signal)
-            if (repair) {
-              const usage = draft ? thinkingUsageOf(draft, repair.usage) : usageOf(repair.usage)
-              return { data: repair.data, rawText: JSON.stringify(repair.data), model, ...(usage && { usage }) }
-            }
-          }
-          throw Object.assign(new Error(event.message), { code: event.code })
+      const schema = toNativeSchema(outputSchema, "Answer")
+      let ended = await ending(await respond(prompt, left, schema), signal)
+      // A prompt the framework took for an unsupported language is asked once more under a label in English,
+      // in a session of its own (repair.ts).
+      if (ended.type === "error" && ended.code === "unsupportedLanguageOrLocale" && whole && underLabel(whole) !== whole) {
+        whole = underLabel(whole)
+        ended = await this.reasked(chatOptions, earlier, whole, schema, left, signal)
+      }
+      if (ended.type === "done") {
+        const usage = draft ? thinkingUsageOf(draft, ended.usage) : usageOf(ended.usage)
+        // The answer as the framework held it to the schema (a SyntaxError, TanStack's parse failure, if it isn't JSON).
+        return { data: JSON.parse(ended.text) as unknown, rawText: ended.text, model, ...(usage && { usage }) }
+      }
+      // An answer the guardrails refused is asked for once more as text, where they are the permissive ones (repair.ts).
+      if (ended.code === "guardrailViolation" && this.guardrailsOf(chatOptions) === "permissiveContentTransformations") {
+        const repair = await this.repaired(chatOptions, earlier, whole, outputSchema, left, signal)
+        if (repair) {
+          const usage = draft ? thinkingUsageOf(draft, repair.usage) : usageOf(repair.usage)
+          return { data: repair.data, rawText: JSON.stringify(repair.data), model, ...(usage && { usage }) }
         }
       }
+      throw Object.assign(new Error(ended.message), { code: ended.code })
+    } finally {
+      this.close(thread)
+    }
+  }
+
+  /**
+   * The same structured answer asked of a session of its own (it holds the
+   * conversation, and nothing of the step that failed): how its response ends.
+   */
+  private async reasked(
+    chatOptions: TextOptions<AfmTextModelOptions>,
+    earlier: Array<NativeMessage>,
+    prompt: string,
+    schema: ReturnType<typeof toNativeSchema>,
+    tokens: number | undefined,
+    signal: AbortSignal | undefined
+  ): Promise<Ended> {
+    const thread = await this.open(chatOptions, [], "", earlier)
+    try {
+      const queue = new EventQueue()
+      thread.turn = 1
+      thread.queue = queue
+      this.queues.set(thread.sessionId, thread)
+      const { temperature } = chatOptions.modelOptions ?? {}
+      const include = chatOptions.modelOptions?.includeSchemaInPrompt ?? this.includeSchemaInPrompt
+      await this.native.respond({
+        sessionId: thread.sessionId,
+        turn: 1,
+        prompt,
+        schema,
+        options: {
+          ...(temperature !== undefined && { temperature }),
+          ...(tokens !== undefined && { maximumResponseTokens: tokens }),
+          ...(this.samplingOf(chatOptions) && { sampling: this.samplingOf(chatOptions) }),
+          ...(include === false && { includeSchemaInPrompt: false })
+        }
+      })
+      return await ending(queue, signal)
     } finally {
       this.close(thread)
     }
@@ -1020,6 +1060,17 @@ export class AfmTextAdapter extends BaseTextAdapter<
       }
     }
     return undefined
+  }
+}
+
+/** How a response ends: done, or with an error. */
+type Ended = Extract<NativeEvent, { type: "done" | "error" }>
+
+/** Reads a response to its end. */
+async function ending(queue: EventQueue, signal: AbortSignal | undefined): Promise<Ended> {
+  for (;;) {
+    const event = await queue.next(signal)
+    if (event.type === "done" || event.type === "error") return event
   }
 }
 

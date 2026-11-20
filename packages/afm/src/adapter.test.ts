@@ -1139,3 +1139,36 @@ test("text that doesn't fit the schema is asked for a second time, and an answer
   assert.deepEqual(answerIn(await structured(afmText({ native: wrapped, ...PERMISSIVE }))), { city: "Paris" })
   assert.equal(wrapped.named("respond").length, 2)
 })
+
+const NO_LANGUAGE: Array<Event> = [{ type: "error", code: "unsupportedLanguageOrLocale", message: "Unsupported language or locale" }]
+
+test("a structured answer's prompt the framework takes for an unsupported language is asked once more under a label in English", async () => {
+  const editing = new EditingNative()
+  editing.replies = [NO_LANGUAGE, ANSWER]
+  const chunks = await structured(afmText({ native: editing }))
+  assert.deepEqual(answerIn(chunks), { city: "Paris" })
+  const [first, again] = editing.named("respond") as Array<Respond & { schema?: unknown }>
+  assert.equal(first.prompt, "Weather in Paris?")
+  assert.equal(again.prompt, "Message:\nWeather in Paris?")
+  assert.ok(again.schema, "still held to the schema")
+  assert.notEqual(again.sessionId, first.sessionId, "in a session of its own")
+  assert.equal(editing.named("deleteSession").length, 2)
+
+  // Once only: a prompt that is in an unsupported language fails as it did.
+  const failing = new EditingNative()
+  failing.replies = [NO_LANGUAGE, NO_LANGUAGE]
+  const failed = (await structured(afmText({ native: failing }))).find((c) => c.type === "RUN_ERROR") as { code?: string }
+  assert.equal(failed.code, "unsupportedLanguageOrLocale")
+  assert.equal(failing.named("respond").length, 2)
+})
+
+test("an answer refused after the label is asked for as text under the label too", async () => {
+  const editing = new EditingNative()
+  editing.replies = [NO_LANGUAGE, REFUSED, [{ type: "done", text: '{"city":"Paris"}' }]]
+  const chunks = await structured(afmText({ native: editing, ...PERMISSIVE }))
+  assert.deepEqual(answerIn(chunks), { city: "Paris" })
+  const asks = editing.named("respond") as Array<Respond & { schema?: unknown }>
+  assert.deepEqual(asks.map((ask) => !!ask.schema), [true, true, false])
+  assert.equal(asks[2].prompt, `Message:\nWeather in Paris?\n\n${jsonAsk(CITY)}`)
+})
+
