@@ -46,6 +46,8 @@ What maps to what:
 | `promptCache: "none"`                             | `cache_prompt: false`                                                    |
 | `modelOptions`                                    | see below                                                                |
 
+An assistant message's thinking goes to webgllm as its `reasoning_content` (TanStack's adapter leaves it out of the request). The model's chat template says which of it the model reads: LFM3's and Qwen3.5's write back the turn in progress, so a tool call's thinking is there on the step with its result, and leave earlier turns' out.
+
 `modelOptions` are webgllm's own request fields, sent as given, as TanStack's adapters do with their provider's fields: OpenAI's names (`max_completion_tokens`, thinking included; `temperature`, `top_p`, `presence_penalty`, `frequency_penalty`, `stop`, `seed`, `parallel_tool_calls`, false allowing one tool call per reply) and llama.cpp's (`top_k`, `min_p`, `repetition_penalty`, `repeat_last_n`, `chat_template_kwargs`, `reasoning_budget_tokens`), plus webgllm's `repair_tool_calls` (true to check tool calls against their tools and generate bad ones again; off by default, as llama.cpp has no repair). Their type is webgllm's `ChatCompletionCreateParamsBase`, without the fields the adapter writes from `chat()`'s own options (messages, tools, the output schema, streaming, reasoning).
 
 ```ts

@@ -3,6 +3,17 @@
  * system prompt first, the model's tool calls in `tool_calls` (arguments as
  * a mapping), each tool result as a `tool` message, and a user message with
  * images as parts, each image an `{ type: "image" }` in its place.
+ *
+ * The model's thinking goes back to it for the turn in progress only: the
+ * steps after the last user message (a tool call, then its result) carry it
+ * as `reasoning_content`, which templates of thinking models write back as
+ * `<think>…</think>` (LFM3's and Qwen's read that field), so a step that
+ * brings a tool's result reads what the model thought before it called the
+ * tool. Earlier turns' thinking is left out: those templates drop it there
+ * themselves, and one that didn't would have the model read it again on every
+ * turn. Blocks the provider redacted never go back. The adapter passes the
+ * messages as TanStack replays them for this model, so another model's
+ * thinking arrives as its text, not as thinking.
  */
 import type { ModelMessage, Tool } from "@tanstack/ai"
 
@@ -49,14 +60,25 @@ export function toTemplateMessages(
   const out: Array<TemplateMessage> = system ? [{ role: "system", content: textContent(system) }] : []
   const images: Array<string> = []
   const toolNames = new Map<string, string>()
-  for (const m of messages) {
+  // The turn in progress: what comes after the last user message.
+  const lastUser = messages.map((m) => m.role).lastIndexOf("user")
+  for (const [index, m] of messages.entries()) {
     const content = contentText(m.content)
     if (m.role === "assistant") {
       const calls = m.toolCalls ?? []
       for (const call of calls) toolNames.set(call.id, call.function.name)
+      // A block the provider redacted holds data only that provider reads, not thinking.
+      const thinking =
+        index > lastUser
+          ? (m.thinking ?? [])
+              .filter((thought) => !thought.redacted)
+              .map((thought) => thought.content)
+              .join("")
+          : ""
       out.push({
         role: "assistant",
         content: textContent(content),
+        ...(thinking && { reasoning_content: thinking }),
         ...(calls.length > 0 && {
           tool_calls: calls.map((call) => ({
             id: call.id,

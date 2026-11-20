@@ -27,7 +27,7 @@ test("the compact prompt is the default and keeps every move, label, order, squa
   assert.equal(SHARED_PROMPT_VERSION, COMPACT_PROMPT_VERSION)
   const all = games()
   assert.ok(all.length > 20)
-  let before = 0, after = 0
+  let before = 0, after = 0, tacticalMaterial = 0
   for (const { id, game } of all) {
     const saved = structuredClone(game)
     const tactical = buildMoveAnalysis({ game, promptVersion: TACTICAL_PROMPT_VERSION })
@@ -45,7 +45,12 @@ test("the compact prompt is the default and keeps every move, label, order, squa
       assert.deepEqual(squares(choice.outcome), squares(card), `${id}: ${choice.id}`)
       assert.deepEqual(numbers(choice.outcome), numbers(card), `${id}: ${choice.id}`)
       assert.ok(choice.outcome.length <= card.length, `${id}: ${choice.id}`)
+      assert.doesNotMatch(choice.outcome, /material/i, `${id}: ${choice.id}`)
     }
+    // It says pieces, gains and losses, never "material": Apple's model refused a prompt with "safe material".
+    assert.doesNotMatch(compact.systemPrompt, /material/i, id)
+    assert.doesNotMatch(compact.prompt, /material/i, id)
+    tacticalMaterial += (`${tactical.systemPrompt}\n${tactical.prompt}`.match(/material/gi) ?? []).length
     assert.equal(compact.systemPrompt, systemPromptFor(game))
     assert.deepEqual(game, saved)
     before += tactical.prompt.length + tactical.systemPrompt.length
@@ -53,6 +58,8 @@ test("the compact prompt is the default and keeps every move, label, order, squa
   }
   // Fewer words, not fewer facts: at least a quarter shorter over the suite.
   assert.ok(after < before * 0.75, `${after} of ${before}`)
+  // The tactical wording does say it, so the suite exercises the rewording.
+  assert.ok(tacticalMaterial > 20, String(tacticalMaterial))
 })
 
 test("the compact system prompt keeps the tactical one's rules for either side", () => {
@@ -65,7 +72,7 @@ test("the compact system prompt keeps the tactical one's rules for either side",
       /independent outcomes after your action, not history/,
       /Opponent replies next/,
       /negative means your loss/,
-      /check alone cannot justify material loss/,
+      /check alone cannot justify losing a piece/,
       /Protection is not immunity/,
       /pawn 1, knight\/bishop 3, rook 5, queen 9/,
       /never add their nets/,

@@ -24,10 +24,13 @@
       "path": "../../packages/webgllm"
     },
     {
+      "path": "../../packages/prompt-api"
+    },
+    {
       "path": "../../packages/apfel"
     },
     {
-      "path": "../../packages/prompt-api"
+      "path": "../../packages/afm"
     }
   ]
 }

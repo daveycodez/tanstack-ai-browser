@@ -1,7 +1,9 @@
 import assert from "node:assert/strict"
 import { afterEach, test } from "node:test"
 
-import { chat } from "@tanstack/ai"
+import { chat, getChunkRunId, getChunkThreadId, StreamProcessor } from "@tanstack/ai"
+import type { StreamChunk } from "@tanstack/ai"
+import { resolveDebugOption } from "@tanstack/ai/adapter-internals"
 
 import { apfelText } from "./adapter.js"
 
@@ -78,4 +80,535 @@ test("Apple's model takes images, sent to apfel as image_url parts with a data U
     ["text", "image_url"]
   )
   assert.equal(content[1].image_url?.url, "data:image/png;base64,iVBORw0KGgo=")
+})
+
+/** A chunk with only the request's usage, as apfel ends a stream asked for it. */
+const usage = (prompt: number, completion: number) => ({
+  id: "c",
+  object: "chat.completion.chunk",
+  created: 0,
+  model: "apple-foundationmodel",
+  choices: [],
+  usage: { prompt_tokens: prompt, completion_tokens: completion, total_tokens: prompt + completion }
+})
+type Body = { messages: Array<{ role: string; content: unknown }>; tools?: Array<unknown>; max_tokens?: number; stream?: boolean; response_format?: { type: string } }
+/** apfel answering each request in turn with `replies`, a stream's chunks or a whole response; the requests' bodies. */
+function serve(replies: Array<Array<object> | Response>) {
+  const bodies: Array<Body> = []
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    bodies.push(JSON.parse(String(init?.body ?? (input as Request).body)))
+    const reply = replies[bodies.length - 1] ?? [chunk({ role: "assistant", content: "?" }), chunk({}, "stop")]
+    return reply instanceof Response ? reply : sse(reply)
+  }) as typeof fetch
+  return bodies
+}
+type Chunk = {
+  type: string
+  delta?: string
+  finishReason?: string
+  usage?: Record<string, unknown>
+  name?: string
+  value?: unknown
+  message?: string
+  code?: string
+  runId?: string
+  threadId?: string
+}
+async function collect(stream: AsyncIterable<unknown>) {
+  const chunks: Array<Chunk> = []
+  for await (const c of stream) chunks.push(c as Chunk)
+  return chunks
+}
+const typed = (chunks: Array<Chunk>, type: string) => chunks.filter((c) => c.type === type)
+const textOf = (chunks: Array<Chunk>, type: string) =>
+  typed(chunks, type)
+    .map((c) => c.delta)
+    .join("")
+const NOTES = [chunk({ role: "assistant", content: "Needs " }), chunk({ content: "the weather." }), chunk({}, "stop"), usage(100, 5)]
+const REPLY = [chunk({ role: "assistant", content: "Sunny." }), chunk({}, "stop"), usage(110, 3)]
+const weather = { name: "get_weather", description: "Weather for a city", inputSchema: { type: "object", properties: { city: { type: "string" } } } }
+/** The draft's last message at a user's message: the instruction above the message. */
+const DRAFT = (message: string) =>
+  `Instructions:\nWrite notes for yourself, not to the user, before replying to the user's message below: what they're asking, and whether you can answer directly or need a tool. Don't call tools or write the reply yet.\n\nMessage:\n${message}`
+const DRAFT_AFTER_TOOL =
+  "Instructions:\nNow write notes for yourself, not to the user, before replying to the user's latest message, what the tool results above tell you, and what to do next. Don't call tools or write the reply yet."
+
+test("reasoning high: a request drafts working notes, streamed as reasoning, and a second replies with them, in one run", async () => {
+  const bodies = serve([NOTES, REPLY])
+  const chunks = await collect(
+    chat({
+      adapter: apfelText({ baseURL: "http://apfel.test/v1" }),
+      threadId: "apfel-thinking",
+      messages: [{ role: "user", content: "Weather in Paris?" }],
+      tools: [weather],
+      reasoning: "high"
+    })
+  )
+  assert.equal(bodies.length, 2)
+  // The draft: the instruction above the message, in one message, with the step's tools so the notes can plan one.
+  assert.deepEqual(
+    bodies[0].messages.map((m) => [m.role, m.content]),
+    [["user", DRAFT("Weather in Paris?")]]
+  )
+  assert.equal(bodies[0].tools?.length, 1)
+  // The reply: the message, then the notes under it, in one message.
+  assert.deepEqual(
+    bodies[1].messages.map((m) => [m.role, m.content]),
+    [["user", "Message:\nWeather in Paris?\n\nNotes:\nNeeds the weather."]]
+  )
+  assert.equal(bodies[1].tools?.length, 1)
+  assert.equal(textOf(chunks, "REASONING_MESSAGE_CONTENT"), "Needs the weather.")
+  assert.equal(textOf(chunks, "TEXT_MESSAGE_CONTENT"), "Sunny.")
+  const marks = ["RUN_STARTED", "REASONING_START", "REASONING_MESSAGE_START", "REASONING_MESSAGE_END", "REASONING_END", "TEXT_MESSAGE_START", "TEXT_MESSAGE_END", "RUN_FINISHED"]
+  assert.deepEqual(
+    chunks.map((c) => c.type).filter((t) => marks.includes(t)),
+    marks
+  )
+  // Both requests' tokens; the notes' are the step's reasoning tokens.
+  const finished = typed(chunks, "RUN_FINISHED")[0]
+  assert.equal(finished.usage?.promptTokens, 210)
+  assert.equal(finished.usage?.completionTokens, 8)
+  assert.equal(finished.usage?.totalTokens, 218)
+  assert.deepEqual(finished.usage?.completionTokensDetails, { reasoningTokens: 5 })
+})
+
+test("reasoning off, or none: one request, as it was", async () => {
+  for (const reasoning of ["off", undefined] as const) {
+    const bodies = serve([REPLY])
+    const chunks = await collect(
+      chat({ adapter: apfelText({ baseURL: "http://apfel.test/v1" }), threadId: "apfel-off", messages: [{ role: "user", content: "Hi" }], ...(reasoning && { reasoning }) })
+    )
+    assert.equal(bodies.length, 1)
+    assert.deepEqual(bodies[0].messages, [{ role: "user", content: "Hi" }])
+    assert.equal(typed(chunks, "REASONING_MESSAGE_CONTENT").length, 0)
+    assert.equal(textOf(chunks, "TEXT_MESSAGE_CONTENT"), "Sunny.")
+  }
+})
+
+test("a tool call the draft makes is the step's call, and no reply is asked for; the next step's notes are about the tool's result", async () => {
+  const call = [
+    chunk({ role: "assistant", tool_calls: [{ index: 0, id: "call_1", type: "function", function: { name: "get_weather", arguments: '{"city":"Paris"}' } }] }),
+    chunk({}, "tool_calls"),
+    usage(100, 9)
+  ]
+  const bodies = serve([call, NOTES, REPLY])
+  const chunks = await collect(
+    chat({
+      adapter: apfelText({ baseURL: "http://apfel.test/v1" }),
+      threadId: "apfel-draft-call",
+      messages: [{ role: "user", content: "Weather in Paris?" }],
+      tools: [{ ...weather, execute: async () => ({ temperature: "20C" }) }],
+      reasoning: "high"
+    })
+  )
+  assert.equal(bodies.length, 3)
+  assert.equal(bodies[0].messages.at(-1)?.content, DRAFT("Weather in Paris?"))
+  // After the tool's result: a draft about it, then the reply.
+  assert.deepEqual(
+    bodies[1].messages.map((m) => m.role),
+    ["user", "assistant", "tool", "user"]
+  )
+  assert.equal(bodies[1].messages.at(-1)?.content, DRAFT_AFTER_TOOL)
+  assert.equal(bodies[2].messages.at(-1)?.content, "Notes:\nNeeds the weather.")
+  assert.equal(typed(chunks, "TOOL_CALL_START").length, 1)
+  assert.equal(textOf(chunks, "REASONING_MESSAGE_CONTENT"), "Needs the weather.")
+  assert.equal(textOf(chunks, "TEXT_MESSAGE_CONTENT"), "Sunny.")
+})
+
+test("a turn's notes stay for the turn: the step with a tool's results reads the earlier step's, and the next turn reads none", async () => {
+  const call = [
+    chunk({ role: "assistant", tool_calls: [{ index: 0, id: "call_1", type: "function", function: { name: "get_weather", arguments: '{"city":"Paris"}' } }] }),
+    chunk({}, "tool_calls"),
+    usage(120, 9)
+  ]
+  const second = [chunk({ role: "assistant", content: "It is 20C." }), chunk({}, "stop"), usage(140, 4)]
+  const bodies = serve([NOTES, call, second, REPLY, NOTES, REPLY])
+  const adapter = apfelText({ baseURL: "http://apfel.test/v1" })
+  const asking = { adapter, threadId: "apfel-turn", tools: [{ ...weather, execute: async () => ({ temperature: "20C" }) }], reasoning: "high" as const }
+  await collect(chat({ ...asking, messages: [{ role: "user", content: "Weather in Paris?" }] }))
+  const last = (body: Body, from: number) => body.messages.slice(from).map((m) => m.content)
+  // The message's step: notes, then a reply that calls the tool.
+  assert.deepEqual(last(bodies[0], -1), [DRAFT("Weather in Paris?")])
+  assert.deepEqual(last(bodies[1], -1), ["Message:\nWeather in Paris?\n\nNotes:\nNeeds the weather."])
+  // The result's step: the message as the user wrote it, the earlier notes, then the instruction about the result. No earlier instruction.
+  assert.equal(bodies[2].messages[0].content, "Weather in Paris?")
+  assert.deepEqual(last(bodies[2], -2), ["Notes:\nNeeds the weather.", DRAFT_AFTER_TOOL])
+  assert.equal(JSON.stringify(bodies[2].messages).includes("message below"), false)
+  // Its reply reads both steps' notes.
+  assert.deepEqual(last(bodies[3], -1), ["Notes:\nNeeds the weather.\n\nIt is 20C."])
+
+  // The next turn starts without them.
+  await collect(chat({ ...asking, messages: [{ role: "user", content: "Weather in Paris?" }, { role: "assistant", content: "Sunny." }, { role: "user", content: "And tomorrow?" }] }))
+  assert.deepEqual(last(bodies[4], -1), [DRAFT("And tomorrow?")])
+  assert.equal(JSON.stringify(bodies[4].messages).includes("It is 20C."), false)
+  assert.deepEqual(last(bodies[5], -1), ["Message:\nAnd tomorrow?\n\nNotes:\nNeeds the weather."])
+})
+
+test("budgetTokens caps the notes, and max_tokens covers the notes and the reply; a budget of none is no notes", async () => {
+  const ask = async (reasoning: { level: "high"; budgetTokens?: number }, max_tokens?: number) => {
+    const bodies = serve([NOTES, REPLY])
+    await collect(
+      chat({
+        adapter: apfelText({ baseURL: "http://apfel.test/v1" }),
+        threadId: "apfel-budget",
+        messages: [{ role: "user", content: "Hi" }],
+        reasoning,
+        ...(max_tokens !== undefined && { modelOptions: { max_tokens } })
+      })
+    )
+    return bodies.map((b) => b.max_tokens)
+  }
+  assert.deepEqual(await ask({ level: "high" }), [undefined, undefined])
+  assert.deepEqual(await ask({ level: "high", budgetTokens: 40 }), [40, undefined])
+  // The notes took 5 of the 64.
+  assert.deepEqual(await ask({ level: "high" }, 64), [64, 59])
+  assert.deepEqual(await ask({ level: "high", budgetTokens: 40 }, 64), [40, 59])
+  assert.deepEqual(await ask({ level: "high", budgetTokens: 100 }, 64), [64, 59])
+  assert.deepEqual(await ask({ level: "high", budgetTokens: 0 }), [undefined])
+})
+
+test("empty notes are no reasoning, and the reply is to the message as it is", async () => {
+  const bodies = serve([[chunk({}, "stop"), usage(100, 0)], REPLY])
+  const chunks = await collect(
+    chat({ adapter: apfelText({ baseURL: "http://apfel.test/v1" }), threadId: "apfel-empty", messages: [{ role: "user", content: "Hi" }], reasoning: "high" })
+  )
+  assert.deepEqual(bodies[1].messages, [{ role: "user", content: "Hi" }])
+  assert.equal(typed(chunks, "REASONING_START").length, 0)
+  assert.equal(textOf(chunks, "TEXT_MESSAGE_CONTENT"), "Sunny.")
+})
+
+const SKY = { type: "object", properties: { sky: { type: "string" } }, required: ["sky"] }
+const ANSWER = [chunk({ role: "assistant", content: '{"sky":' }), chunk({ content: '"sunny"}' }), chunk({}, "stop"), usage(110, 3)]
+/** A response as JSON: the answer to a request that isn't streamed, or an error. */
+const json = (body: object, status = 200) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } })
+const answered = () =>
+  json({
+    id: "c",
+    object: "chat.completion",
+    created: 0,
+    model: "apple-foundationmodel",
+    choices: [{ index: 0, message: { role: "assistant", content: '{"sky":"sunny"}' }, finish_reason: "stop" }],
+    usage: { prompt_tokens: 110, completion_tokens: 3, total_tokens: 113 }
+  })
+const busy = () => json({ error: { message: "The model is busy", type: "invalid_request_error", code: "model_busy" } }, 400)
+/** The draft's last message before a structured answer: the answer's instruction above the message. */
+const ANSWER_DRAFT = (message: string) =>
+  `Instructions:\nWrite notes for yourself, not to the user, before replying to the user's message below: what they're asking, and how you'll work out the answer. Don't write the reply yet.\n\nMessage:\n${message}`
+const WITH_NOTES = "Message:\nWeather in Paris?\n\nNotes:\nNeeds the weather."
+const contents = (body: Body) => body.messages.map((m) => [m.role, m.content])
+/** The adapter's own structured output call, as chat() makes it for an adapter that takes the schema in a request of its own. */
+const structured = (reasoning?: "high") => ({
+  chatOptions: {
+    model: "apple-foundationmodel",
+    messages: [{ role: "user" as const, content: "Weather in Paris?" }],
+    threadId: "apfel-structured",
+    logger: resolveDebugOption(false),
+    ...(reasoning && { reasoning: { level: reasoning, summary: false } })
+  },
+  outputSchema: SKY
+})
+
+test("structured output, reasoning high: a request without the schema or tools drafts the notes, streamed as reasoning, and a second answers to the schema with them, in one run", async () => {
+  const asking = {
+    adapter: apfelText({ baseURL: "http://apfel.test/v1" }),
+    threadId: "apfel-structured",
+    messages: [{ role: "user" as const, content: "Weather in Paris?" }],
+    outputSchema: SKY,
+    reasoning: "high" as const
+  }
+  const bodies = serve([NOTES, ANSWER])
+  const chunks = await collect(chat({ ...asking, stream: true }))
+  assert.equal(bodies.length, 2)
+  // The draft: a chat request with the answer's instruction above the message, and neither tools nor the schema.
+  assert.deepEqual(contents(bodies[0]), [["user", ANSWER_DRAFT("Weather in Paris?")]])
+  assert.equal("tools" in bodies[0], false)
+  assert.equal("response_format" in bodies[0], false)
+  // The answer: held to the schema, to the message with the notes under it.
+  assert.deepEqual(contents(bodies[1]), [["user", WITH_NOTES]])
+  assert.equal(bodies[1].response_format?.type, "json_schema")
+  assert.equal(textOf(chunks, "REASONING_MESSAGE_CONTENT"), "Needs the weather.")
+  assert.equal(textOf(chunks, "TEXT_MESSAGE_CONTENT"), '{"sky":"sunny"}')
+  const marks = ["RUN_STARTED", "REASONING_START", "REASONING_MESSAGE_START", "REASONING_MESSAGE_END", "REASONING_END", "TEXT_MESSAGE_START", "TEXT_MESSAGE_END", "RUN_FINISHED"]
+  assert.deepEqual(
+    chunks.map((c) => c.type).filter((t) => marks.includes(t)),
+    marks
+  )
+  const complete = chunks.find((c) => c.type === "CUSTOM" && c.name === "structured-output.complete")
+  assert.deepEqual((complete?.value as { object: unknown }).object, { sky: "sunny" })
+  // Both requests' tokens; the notes' are the answer's reasoning tokens.
+  const finished = typed(chunks, "RUN_FINISHED")[0]
+  assert.equal(finished.usage?.promptTokens, 210)
+  assert.equal(finished.usage?.completionTokens, 8)
+  assert.equal(finished.usage?.totalTokens, 218)
+  assert.deepEqual(finished.usage?.completionTokensDetails, { reasoningTokens: 5 })
+
+  // Not streamed, the same two requests.
+  const again = serve([NOTES, ANSWER])
+  assert.deepEqual(await chat({ ...asking, stream: false }), { sky: "sunny" })
+  assert.deepEqual(again.map(contents), [[["user", ANSWER_DRAFT("Weather in Paris?")]], [["user", WITH_NOTES]]])
+})
+
+test("structured output, reasoning high: the adapter's structuredOutputStream() and structuredOutput() draft the notes first too", async () => {
+  const adapter = apfelText({ baseURL: "http://apfel.test/v1" })
+  const bodies = serve([NOTES, ANSWER])
+  const chunks = await collect(adapter.structuredOutputStream(structured("high")))
+  assert.equal(bodies.length, 2)
+  assert.deepEqual(contents(bodies[0]), [["user", ANSWER_DRAFT("Weather in Paris?")]])
+  assert.equal("tools" in bodies[0], false)
+  assert.equal("response_format" in bodies[0], false)
+  assert.deepEqual(contents(bodies[1]), [["user", WITH_NOTES]])
+  assert.equal(bodies[1].response_format?.type, "json_schema")
+  // The notes as reasoning, then the answer's events, in one run.
+  assert.deepEqual(
+    chunks.map((c) => c.type),
+    [
+      "RUN_STARTED",
+      "REASONING_START",
+      "REASONING_MESSAGE_START",
+      "REASONING_MESSAGE_CONTENT",
+      "REASONING_MESSAGE_CONTENT",
+      "REASONING_MESSAGE_END",
+      "REASONING_END",
+      "TEXT_MESSAGE_START",
+      "TEXT_MESSAGE_CONTENT",
+      "TEXT_MESSAGE_CONTENT",
+      "TEXT_MESSAGE_END",
+      "CUSTOM",
+      "RUN_FINISHED"
+    ]
+  )
+  assert.equal(textOf(chunks, "REASONING_MESSAGE_CONTENT"), "Needs the weather.")
+  assert.deepEqual(typed(chunks, "CUSTOM")[0].value, { object: { sky: "sunny" }, raw: '{"sky":"sunny"}' })
+  const usage = { promptTokens: 210, completionTokens: 8, totalTokens: 218, completionTokensDetails: { reasoningTokens: 5 } }
+  assert.deepEqual(typed(chunks, "RUN_FINISHED")[0].usage, usage)
+
+  // Not streamed: the notes' request, then the answer's, which isn't streamed either.
+  const again = serve([NOTES, answered()])
+  const result = await adapter.structuredOutput(structured("high"))
+  assert.deepEqual(result.data, { sky: "sunny" })
+  assert.deepEqual(result.usage, usage)
+  assert.deepEqual(again.map(contents), [[["user", ANSWER_DRAFT("Weather in Paris?")]], [["user", WITH_NOTES]]])
+  assert.deepEqual(
+    again.map((b) => [b.stream, b.response_format?.type]),
+    [
+      [true, undefined],
+      [false, "json_schema"]
+    ]
+  )
+})
+
+test("structured output without reasoning: one request, as it was", async () => {
+  const adapter = apfelText({ baseURL: "http://apfel.test/v1" })
+  const asked = (bodies: Array<Body>) => bodies.map((b) => [contents(b), b.response_format?.type])
+  const once = [[[["user", "Weather in Paris?"]], "json_schema"]]
+
+  let bodies = serve([ANSWER])
+  const chunks = await collect(chat({ adapter, threadId: "apfel-structured", messages: [{ role: "user", content: "Weather in Paris?" }], outputSchema: SKY, stream: true }))
+  assert.deepEqual(asked(bodies), once)
+  assert.equal(typed(chunks, "REASONING_MESSAGE_CONTENT").length, 0)
+  assert.equal(textOf(chunks, "TEXT_MESSAGE_CONTENT"), '{"sky":"sunny"}')
+
+  bodies = serve([ANSWER])
+  const own = await collect(adapter.structuredOutputStream(structured()))
+  assert.deepEqual(asked(bodies), once)
+  assert.deepEqual(
+    own.map((c) => c.type),
+    ["RUN_STARTED", "TEXT_MESSAGE_START", "TEXT_MESSAGE_CONTENT", "TEXT_MESSAGE_CONTENT", "TEXT_MESSAGE_END", "CUSTOM", "RUN_FINISHED"]
+  )
+
+  bodies = serve([answered()])
+  assert.deepEqual((await adapter.structuredOutput(structured())).data, { sky: "sunny" })
+  assert.deepEqual(asked(bodies), once)
+})
+
+test("structured output, reasoning high: a notes request that fails ends the run with its error, and no answer is asked for", async () => {
+  const adapter = apfelText({ baseURL: "http://apfel.test/v1" })
+  const ended = (chunks: Array<Chunk>) => chunks.map((c) => c.type).filter((t) => t.startsWith("RUN_"))
+
+  let bodies = serve([busy(), ANSWER])
+  const chunks = await collect(
+    // Without chat()'s log of the error.
+    chat({ adapter, threadId: "apfel-structured", messages: [{ role: "user", content: "Weather in Paris?" }], outputSchema: SKY, reasoning: "high", stream: true, debug: false })
+  )
+  assert.equal(bodies.length, 1)
+  assert.deepEqual(ended(chunks), ["RUN_STARTED", "RUN_ERROR"])
+  assert.match(typed(chunks, "RUN_ERROR")[0].message ?? "", /The model is busy/)
+  assert.equal(typed(chunks, "TEXT_MESSAGE_CONTENT").length, 0)
+
+  bodies = serve([busy(), ANSWER])
+  const own = await collect(adapter.structuredOutputStream(structured("high")))
+  assert.equal(bodies.length, 1)
+  assert.deepEqual(ended(own), ["RUN_STARTED", "RUN_ERROR"])
+  assert.match(typed(own, "RUN_ERROR")[0].message ?? "", /The model is busy/)
+
+  // Not streamed, the error is thrown, with its code.
+  bodies = serve([busy(), answered()])
+  await assert.rejects(adapter.structuredOutput(structured("high")), { message: /The model is busy/, code: "model_busy" })
+  assert.equal(bodies.length, 1)
+})
+
+test("structured output with tools, reasoning high: a step's notes aren't held to the schema, and its reply is", async () => {
+  const bodies = serve([NOTES, ANSWER])
+  const chunks = await collect(
+    chat({
+      adapter: apfelText({ baseURL: "http://apfel.test/v1" }),
+      threadId: "apfel-structured-tools",
+      messages: [{ role: "user", content: "Weather in Paris?" }],
+      tools: [weather],
+      outputSchema: SKY,
+      reasoning: "high",
+      stream: true
+    })
+  )
+  assert.equal(bodies.length, 2)
+  // A step's draft, with its tools and its instruction, and without the schema.
+  assert.equal(bodies[0].messages.at(-1)?.content, DRAFT("Weather in Paris?"))
+  assert.equal(bodies[0].tools?.length, 1)
+  assert.equal("response_format" in bodies[0], false)
+  assert.equal(bodies[1].messages.at(-1)?.content, WITH_NOTES)
+  assert.equal(bodies[1].tools?.length, 1)
+  assert.equal(bodies[1].response_format?.type, "json_schema")
+  assert.equal(textOf(chunks, "REASONING_MESSAGE_CONTENT"), "Needs the weather.")
+  assert.equal(textOf(chunks, "TEXT_MESSAGE_CONTENT"), '{"sky":"sunny"}')
+})
+
+/** A run event's run and thread ids: on the event, or in its `metadata.tanstack`, where chat() moves a RUN_ERROR's. */
+const ids = (c: Chunk) => [c.type, getChunkRunId(c as unknown as StreamChunk), getChunkThreadId(c as unknown as StreamChunk)]
+/** Whether the run events are one run's: each carries the run id (and the thread id, where it has one) of the RUN_STARTED. */
+function oneRun(chunks: Array<Chunk>, ends: Array<string>) {
+  const [started, ...rest] = chunks.filter((c) => c.type.startsWith("RUN_")).map(ids)
+  assert.deepEqual([started[0], ...rest.map(([type]) => type)], ["RUN_STARTED", ...ends])
+  assert.ok(started[1])
+  assert.deepEqual(
+    rest,
+    rest.map(([type, , thread]) => [type, started[1], thread === undefined ? undefined : started[2]])
+  )
+}
+/** chat()'s stream processor's state after the events: whether it's done, and the run's finish reason. */
+function processed(chunks: Array<Chunk>) {
+  const processor = new StreamProcessor()
+  for (const c of chunks) processor.processChunk(c as unknown as StreamChunk)
+  const { done, finishReason } = processor.getState()
+  return { done, finishReason }
+}
+/** The adapter's own chat request with thinking, as chat() makes it. */
+const options = (extra: object = {}) => ({
+  model: "apple-foundationmodel",
+  messages: [{ role: "user" as const, content: "Weather in Paris?" }],
+  threadId: "apfel-run",
+  logger: resolveDebugOption(false),
+  reasoning: { level: "high" as const, summary: false },
+  ...extra
+})
+
+test("reasoning high: the reply's run events are the draft's run, so chat()'s stream processor finishes it", async () => {
+  const adapter = apfelText({ baseURL: "http://apfel.test/v1" })
+  serve([NOTES, REPLY])
+  const chunks = await collect(chat({ adapter, threadId: "apfel-run", messages: [{ role: "user", content: "Weather in Paris?" }], tools: [weather], reasoning: "high" }))
+  oneRun(chunks, ["RUN_FINISHED"])
+  assert.equal(processed(chunks).done, true)
+
+  // A reply that fails ends the draft's run with its error.
+  serve([NOTES, busy()])
+  const failed = await collect(chat({ adapter, threadId: "apfel-run", messages: [{ role: "user", content: "Weather in Paris?" }], reasoning: "high", debug: false }))
+  oneRun(failed, ["RUN_ERROR"])
+  assert.match(typed(failed, "RUN_ERROR")[0].message ?? "", /The model is busy/)
+
+  // The adapter's own stream, the same.
+  serve([NOTES, REPLY])
+  oneRun(await collect(adapter.chatStream(options())), ["RUN_FINISHED"])
+  serve([NOTES, busy()])
+  oneRun(await collect(adapter.chatStream(options())), ["RUN_ERROR"])
+})
+
+test("structured output, reasoning high: the answer's run events are the draft's run, so chat()'s stream processor finishes it", async () => {
+  const adapter = apfelText({ baseURL: "http://apfel.test/v1" })
+  serve([NOTES, ANSWER])
+  const chunks = await collect(chat({ adapter, threadId: "apfel-run", messages: [{ role: "user", content: "Weather in Paris?" }], outputSchema: SKY, reasoning: "high", stream: true }))
+  oneRun(chunks, ["RUN_FINISHED"])
+  assert.equal(processed(chunks).done, true)
+
+  serve([NOTES, busy()])
+  const failed = await collect(
+    chat({ adapter, threadId: "apfel-run", messages: [{ role: "user", content: "Weather in Paris?" }], outputSchema: SKY, reasoning: "high", stream: true, debug: false })
+  )
+  oneRun(failed, ["RUN_ERROR"])
+
+  // The adapter's chat request held to the schema, and its own structured output stream.
+  serve([NOTES, ANSWER])
+  oneRun(await collect(adapter.chatStream(options({ outputSchema: SKY }))), ["RUN_FINISHED"])
+  serve([NOTES, busy()])
+  oneRun(await collect(adapter.chatStream(options({ outputSchema: SKY }))), ["RUN_ERROR"])
+  serve([NOTES, ANSWER])
+  oneRun(await collect(adapter.structuredOutputStream(structured("high"))), ["RUN_FINISHED"])
+  serve([NOTES, busy()])
+  oneRun(await collect(adapter.structuredOutputStream(structured("high"))), ["RUN_ERROR"])
+})
+
+test("reasoning high: notes that use up max_tokens leave no reply; the step finishes with length, and no second request is made", async () => {
+  const adapter = apfelText({ baseURL: "http://apfel.test/v1" })
+  const bodies = serve([NOTES, REPLY])
+  const chunks = await collect(chat({ adapter, threadId: "apfel-cap", messages: [{ role: "user", content: "Hi" }], reasoning: "high", modelOptions: { max_tokens: 5 } }))
+  assert.deepEqual(
+    bodies.map((b) => b.max_tokens),
+    [5]
+  )
+  assert.equal(textOf(chunks, "REASONING_MESSAGE_CONTENT"), "Needs the weather.")
+  assert.equal(typed(chunks, "TEXT_MESSAGE_CONTENT").length, 0)
+  oneRun(chunks, ["RUN_FINISHED"])
+  assert.deepEqual(processed(chunks), { done: true, finishReason: "length" })
+  const drafted = { promptTokens: 100, completionTokens: 5, totalTokens: 105, completionTokensDetails: { reasoningTokens: 5 } }
+  assert.deepEqual(typed(chunks, "RUN_FINISHED")[0].usage, drafted)
+
+  // The adapter's own stream, the same.
+  const own = serve([NOTES, REPLY])
+  const ended = typed(await collect(adapter.chatStream(options({ modelOptions: { max_tokens: 5 } }))), "RUN_FINISHED")
+  assert.equal(own.length, 1)
+  assert.deepEqual(
+    ended.map((c) => [c.finishReason, c.usage]),
+    [["length", drafted]]
+  )
+
+  // A token left is a reply of one.
+  const left = serve([NOTES, REPLY])
+  await collect(chat({ adapter, threadId: "apfel-cap", messages: [{ role: "user", content: "Hi" }], reasoning: "high", modelOptions: { max_tokens: 6 } }))
+  assert.deepEqual(
+    left.map((b) => b.max_tokens),
+    [6, 1]
+  )
+})
+
+test("structured output, reasoning high: notes that use up max_tokens leave no answer; it fails with a length error, and no second request is made", async () => {
+  const adapter = apfelText({ baseURL: "http://apfel.test/v1" })
+  const capped = { ...structured("high"), chatOptions: { ...structured("high").chatOptions, modelOptions: { max_tokens: 5 } } }
+  const drafted = { promptTokens: 100, completionTokens: 5, totalTokens: 105, completionTokensDetails: { reasoningTokens: 5 } }
+
+  let bodies = serve([NOTES, ANSWER])
+  const chunks = await collect(
+    chat({
+      adapter,
+      threadId: "apfel-cap",
+      messages: [{ role: "user", content: "Weather in Paris?" }],
+      outputSchema: SKY,
+      reasoning: "high",
+      modelOptions: { max_tokens: 5 },
+      stream: true,
+      debug: false
+    })
+  )
+  assert.equal(bodies.length, 1)
+  oneRun(chunks, ["RUN_ERROR"])
+  assert.equal(typed(chunks, "RUN_ERROR")[0].code, "length")
+
+  bodies = serve([NOTES, ANSWER])
+  const own = await collect(adapter.structuredOutputStream(capped))
+  assert.equal(bodies.length, 1)
+  oneRun(own, ["RUN_ERROR"])
+  assert.equal(typed(own, "RUN_ERROR")[0].code, "length")
+  assert.deepEqual(typed(own, "RUN_ERROR")[0].usage, drafted)
+
+  // Not streamed, the error is thrown, with its code and the notes' usage.
+  bodies = serve([NOTES, answered()])
+  await assert.rejects(adapter.structuredOutput(capped), { code: "length", usage: drafted })
+  assert.equal(bodies.length, 1)
 })

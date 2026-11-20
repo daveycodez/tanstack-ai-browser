@@ -7,6 +7,32 @@ import type { SharedPromptInput } from "./shared-prompt-v98.ts"
  * and net. Only the wording changes, and what a card says twice is said once.
  */
 
+/**
+ * The tactical wording's "material", in plain words: pieces, and what a move
+ * gains or loses. Apple's model refused a position whose prompt said "prefer
+ * safe material" ("May contain unsafe content", 5 times in 5 on a Mac, and on
+ * an iPhone); the same prompt with "prefer keeping your pieces" was answered.
+ * Its safety check reads the whole prompt, so the word is out of all of it:
+ * the specific phrases first, then any left.
+ */
+const IN_PLAIN_WORDS: ReadonlyArray<readonly [RegExp, string]> = [
+  [/MATERIAL-SAFE/g, "PIECE-SAFE"],
+  [/preserve material/g, "keep your pieces"],
+  [/keep material/g, "keep your pieces"],
+  [/not a material score/g, "not a piece-value score"],
+  [/no material score/g, "no piece-value score"],
+  [/net material loss/g, "net loss"],
+  [/net material/g, "net"],
+  [/uncompensated material loss/g, "an uncompensated loss of pieces"],
+  [/loses? (you|Black|White) material/g, "costs $1 pieces"],
+  [/material loss/g, "a loss of pieces"],
+  [/material gains?/g, "a gain in pieces"],
+  [/material cost/g, "the cost in pieces"],
+  [/\bMaterial\b/g, "Pieces"],
+  [/\bmaterial\b/g, "pieces"]
+]
+const inPlainWords = (text: string) => IN_PLAIN_WORDS.reduce((result, [from, to]) => result.replace(from, to), text)
+
 /** One move's card (`label | move | outcomes`). */
 function compactCard(card: string): string {
   let text = card
@@ -35,13 +61,18 @@ function compactCard(card: string): string {
     const repeated = capture && new RegExp(`DANGER: \\w+ [a-h][1-8] takes \\w+ ${capture[1]}, net ${net}(?:;|$)`).test(text)
     return repeated ? "" : `; EXCHANGE ${net}: ${line}`
   })
-  return text
+  return inPlainWords(text)
 }
 
 /** A line of the prompt that isn't a card. */
 function compactLine(line: string): string | undefined {
   // (The system prompt says which fork a card shows.)
   if (line.startsWith("FORK PREVIEW: ")) return undefined
+  return inPlainWords(compactWording(line))
+}
+
+/** A line's tactical wording, shortened. */
+function compactWording(line: string): string {
   return line
     .replace(
       /^Turn: (you|opponent)\. Retained castling rights \(not current legality\): you (.+?); opponent (.+?)\. En-passant target: (\S+)\. Halfmove clock: (\d+); fullmove number: (\d+)\.$/,
@@ -72,10 +103,10 @@ export function compactSystemPromptFor(game: Pick<SharedPromptInput["game"], "hu
   if (!side) throw new Error("The tactical system prompt no longer names the side.")
   return [
     `You control the ${side} chess pieces. The board and state below are facts. All listed moves are legal and unranked.`,
-    "Take a listed CHECKMATE now. Otherwise prevent opponent mate/answer check, save or win a queen, then prefer safe material over castling/development. Avoid LOSE NEXT TURN moves (the opponent mates at once) whenever another move avoids it; material cannot make up for mate.",
+    "Take a listed CHECKMATE now. Otherwise prevent opponent mate/answer check, save or win a queen, then prefer keeping your pieces over castling/development. Avoid LOSE NEXT TURN moves (the opponent mates at once) whenever another move avoids it; a capture cannot make up for mate.",
     "Each option shows one move and its independent outcomes after your action, not history. Opponent replies next. CHECK attacks the opponent's king; it is not checkmate. SAN: x capture, + check, # mate. Values: pawn 1, knight/bishop 3, rook 5, queen 9.",
     "DANGER names an opponent piece that can take one of yours next turn. Net includes captures, promotions and recaptures, counted once; negative means your loss. RISK is a move's most negative net, from capture exchanges and checked quiet forks; it is not a whole-position evaluation. EXCHANGE and FORK lines are separate opponent branches: never add their nets. A FORK line is shown only when it loses more than the captures. Quiet moves are not searched, and an unresolved exchange certifies nothing.",
-    "Compare RISK before a small material gain. Forcing follow-ups can beat immediate captures; check alone cannot justify material loss. Protection is not immunity."
+    "Compare RISK before a small gain. Forcing follow-ups can beat immediate captures; check alone cannot justify losing a piece. Protection is not immunity."
   ].join("\n\n")
 }
 

@@ -74,6 +74,39 @@ function PromotionDialog({
   )
 }
 
+/**
+ * A failed turn's report (what the model was sent, and the error): a button
+ * that copies it, and the text itself, which can be selected where copying
+ * isn't allowed.
+ */
+function FailedPrompt({ report }: { report: string }) {
+  const [copied, setCopied] = useState(false)
+  useEffect(() => {
+    if (!copied) return
+    const timer = setTimeout(() => setCopied(false), 1500)
+    return () => clearTimeout(timer)
+  }, [copied])
+  return (
+    <>
+      <button
+        className="button button-secondary button-small"
+        onClick={() => {
+          void navigator.clipboard.writeText(report).then(
+            () => setCopied(true),
+            () => undefined
+          )
+        }}
+      >
+        {copied ? "Copied" : "Copy prompt"}
+      </button>
+      <details className="game-error-report">
+        <summary>What the opponent was sent</summary>
+        <pre>{report}</pre>
+      </details>
+    </>
+  )
+}
+
 function CapturedPieces({ game, by }: { game: Game; by: Side }) {
   const pieces = game.history.flatMap((move) =>
     move.side === by && move.captured ? [move.captured] : []
@@ -496,6 +529,7 @@ export function GameView({
                   >
                     Try again
                   </button>
+                  {!error && ai.report && <FailedPrompt report={ai.report} />}
                 </div>
               )}
             </section>

@@ -140,3 +140,13 @@ export function timeTools() {
     })
   ]
 }
+
+/**
+ * Today's date where the user is, as a line for the system prompt ("Today is
+ * Friday, November 20, 2026."). A model's own sense of now is its training's:
+ * without it, AFM 3 Core (an iPhone) searched for "the most recent" awards by
+ * a year two behind, and answered with that year's winner. The time of day
+ * still comes from the time tool.
+ */
+export const todayLine = (now: Date = new Date()) =>
+  `Today is ${now.toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric" })}.`

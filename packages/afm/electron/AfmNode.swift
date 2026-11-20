@@ -58,6 +58,9 @@ public func afm_call(_ method: UnsafePointer<CChar>, _ options: UnsafePointer<CC
             case "prewarm": try bridge().prewarm(object); reply = ["result": NSNull()]
             case "respond": try bridge().respond(object); reply = ["result": NSNull()]
             case "submitToolResult": try bridge().submitToolResult(object); reply = ["result": NSNull()]
+            case "trimTranscript": try bridge().trimTranscript(object); reply = ["result": NSNull()]
+            case "rewriteTurn": try bridge().rewriteTurn(object); reply = ["result": NSNull()]
+            case "finishToolCalls": try bridge().finishToolCalls(object); reply = ["result": NSNull()]
             case "cancel": try bridge().cancel(object); reply = ["result": NSNull()]
             case "deleteSession":
                 bridge().deleteSession(object["sessionId"] as? String ?? "")

@@ -1,9 +1,11 @@
 import { useEffect, useId, useRef, useState } from "react"
 import {
+  AFM_MODEL,
   opponentOption,
   resolveOpponent,
   LOCAL_OPPONENTS
 } from "../lib/opponents"
+import { useAfmAvailable } from "../lib/use-afm"
 import type { OpponentSettings } from "../lib/opponents"
 
 type OpponentPickerProps = {
@@ -24,10 +26,13 @@ export function OpponentPicker({
   const trigger = useRef<HTMLElement>(null)
   const id = useId()
   const selected = opponentOption(value.model)
-  const options =
-    promptApiAvailable || value.model === "prompt-api"
-      ? [opponentOption("prompt-api"), ...LOCAL_OPPONENTS]
-      : LOCAL_OPPONENTS
+  // Apple's model first, where the device has it; then the browser's own; then the rest, A to Z.
+  const afmAvailable = useAfmAvailable()
+  const options = [
+    ...(afmAvailable || value.model === AFM_MODEL ? [opponentOption(AFM_MODEL)] : []),
+    ...(promptApiAvailable || value.model === "prompt-api" ? [opponentOption("prompt-api")] : []),
+    ...LOCAL_OPPONENTS
+  ]
 
   useEffect(() => {
     if (!open) return
@@ -90,7 +95,8 @@ export function OpponentPicker({
           <legend className="opponent-sr-only">Opponent model</legend>
           {options.map((option) => {
             const unavailable =
-              option.id === "prompt-api" && !promptApiAvailable
+              (option.id === "prompt-api" && !promptApiAvailable) ||
+              (option.id === AFM_MODEL && !afmAvailable)
             return (
               <label
                 className={`opponent-option${value.model === option.id ? " opponent-option-selected" : ""}${unavailable ? " opponent-option-unavailable" : ""}`}

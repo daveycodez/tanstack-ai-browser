@@ -16,6 +16,12 @@ export type AiTurnState = {
   progress?: number
   downloading?: boolean
   message?: string
+  /**
+   * With an error: what the model was sent (its name, the system prompt, the
+   * prompt and the moves it could answer with) and the error, as JSON, to copy
+   * into a report. Left out when the turn failed before the model was asked.
+   */
+  report?: string
 }
 const IDLE: AiTurnState = { phase: "idle" }
 const ANALYZING: AiTurnState = { phase: "analyzing" }
@@ -66,11 +72,15 @@ export function useAiTurn(game: Game | undefined, busy: boolean) {
           previous.state.phase === state.phase &&
           previous.state.progress === state.progress &&
           previous.state.downloading === state.downloading &&
-          previous.state.message === state.message
+          previous.state.message === state.message &&
+          previous.state.report === state.report
         )
           return previous
         return { key, state }
       })
+
+    /** What the model was sent this turn, once the position is analyzed. */
+    let sent: { systemPrompt: string; prompt: string; moves: Array<string> } | undefined
 
     // Across tabs one turn runs at a time: until this one starts, say so.
     const waiting = setTimeout(() => setState({ phase: "waiting" }), WAITING_AFTER_MS)
@@ -145,7 +155,8 @@ export function useAiTurn(game: Game | undefined, busy: boolean) {
           }))
         },
         {
-          onInput: () => {
+          onInput: (input) => {
+            sent = { systemPrompt: input.systemPrompt, prompt: input.prompt, moves: input.choices.map((choice) => choice.label) }
             analyzed = true
             syncProgress()
           }
@@ -170,14 +181,20 @@ export function useAiTurn(game: Game | undefined, busy: boolean) {
         )
       : run()
     request.catch((error: unknown) => {
-      if (!controller.signal.aborted)
-        setState({
-          phase: "error",
-          message:
-            error instanceof Error
-              ? error.message
-              : "The opponent could not choose a move. Try again."
+      if (controller.signal.aborted) return
+      const message = error instanceof Error ? error.message : "The opponent could not choose a move. Try again."
+      const code = error instanceof Error ? (error as Error & { code?: unknown }).code : undefined
+      setState({
+        phase: "error",
+        message,
+        ...(sent && {
+          report: JSON.stringify(
+            { model: expectedOpponent.model, thinking: expectedOpponent.thinking, error: message, ...(typeof code === "string" && { code }), ...sent },
+            null,
+            2
+          )
         })
+      })
     })
     return () => {
       clearTimeout(waiting)

@@ -45,8 +45,7 @@ export function ModelLogo({ src }: { src: string }) {
  * A model picker for the prompt input's toolbar: a tertiary Button opening a
  * Popover with a single-selection ListBox, one section per provider. For a
  * model with reasoning effort levels, a "Reasoning" row under the list picks
- * one, and the button shows it after the model's name, as in webgllm's demo
- * (after assistant-ui's model selector).
+ * one, and the button shows it after the model's name, as in webgllm's demo.
  */
 export function ModelSelector({
   sections,

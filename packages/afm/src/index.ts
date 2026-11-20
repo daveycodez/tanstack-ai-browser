@@ -26,5 +26,5 @@ export type {
 } from "./native.js"
 export { toNativeSchema } from "./schema.js"
 export * as SystemLanguageModel from "./system-language-model.js"
-export { AFM_CHAT_MODELS, AFM_MODEL_META } from "./model-meta.js"
-export type { AfmChatModel, AfmModelMeta } from "./model-meta.js"
+export { AFM_CHAT_MODELS, AFM_MODEL_META, AFM_MODEL_REASONING } from "./model-meta.js"
+export type { AfmChatModel, AfmModelMeta, AfmModelReasoningByName } from "./model-meta.js"

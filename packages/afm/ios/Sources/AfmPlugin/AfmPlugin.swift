@@ -14,6 +14,9 @@ public class AfmPlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "prewarm", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "respond", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "submitToolResult", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "trimTranscript", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "rewriteTurn", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "finishToolCalls", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "cancel", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "deleteSession", returnType: CAPPluginReturnPromise)
     ]
@@ -57,6 +60,21 @@ public class AfmPlugin: CAPPlugin, CAPBridgedPlugin {
     @objc func submitToolResult(_ call: CAPPluginCall) {
         guard #available(iOS 26.0, *) else { return unsupported(call) }
         perform(call) { try self.afm.submitToolResult($0) }
+    }
+
+    @objc func trimTranscript(_ call: CAPPluginCall) {
+        guard #available(iOS 26.0, *) else { return unsupported(call) }
+        perform(call) { try self.afm.trimTranscript($0) }
+    }
+
+    @objc func rewriteTurn(_ call: CAPPluginCall) {
+        guard #available(iOS 26.0, *) else { return unsupported(call) }
+        perform(call) { try self.afm.rewriteTurn($0) }
+    }
+
+    @objc func finishToolCalls(_ call: CAPPluginCall) {
+        guard #available(iOS 26.0, *) else { return unsupported(call) }
+        perform(call) { try self.afm.finishToolCalls($0) }
     }
 
     @objc func cancel(_ call: CAPPluginCall) {

@@ -214,7 +214,7 @@ export function PromptInputSkeleton() {
  */
 function ChatModelSelector() {
   const model = useSelectedModel()
-  const effort = useEffort()
+  const effort = useEffort(model)
   const models = useModels()
   const backends = useBackends()
   const apfel = apfelStatus.use()
@@ -274,7 +274,7 @@ function ChatModelSelector() {
         efforts={efforts}
         effort={level}
         effortLabel={level && effortButtonLabel(model, level)}
-        onEffortChange={(id) => setEffort(id as ReasoningLevel)}
+        onEffortChange={(id) => setEffort(model, id as ReasoningLevel)}
         // WebLLM's models load when the picker first opens.
         onOpenChange={(isOpen) => {
           if (isOpen) void loadWebLlmModels()

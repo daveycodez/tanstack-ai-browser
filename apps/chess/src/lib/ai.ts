@@ -8,7 +8,8 @@ import type { LoadingStore } from "./model-status"
 import { moveOutputSchema } from "./move-output"
 import { analyzeMovePrompt } from "./analysis-worker"
 import type { Game } from "./chess"
-import { APFEL_MODEL, isWebGlOpponent, opponentOption, resolveOpponent } from "./opponents"
+import { AFM_MODEL, APFEL_MODEL, isWebGlOpponent, opponentOption, resolveOpponent } from "./opponents"
+import { afm } from "./use-afm"
 import type { OpponentSettings } from "./opponents"
 import type { WebGllmChatModel } from "@tanstack-ai-browser/webgllm"
 
@@ -125,7 +126,7 @@ function untilAborted(promise: Promise<void>, signal: AbortSignal): Promise<void
 /** The selected adapter's real download, cache, GPU upload, and failure status. */
 export function loadingStoreFor(settings?: OpponentSettings): LoadingStore {
   const { model } = resolveOpponent(settings)
-  if (model === APFEL_MODEL) return { get: () => ({ state: "ready" }), subscribe: () => () => undefined }
+  if (model === APFEL_MODEL || model === AFM_MODEL) return { get: () => ({ state: "ready" }), subscribe: () => () => undefined }
   return modelStatus(model)
 }
 
@@ -273,6 +274,8 @@ export async function chooseAiMove(
             adapter: apfelText(APFEL_MODEL),
             modelOptions: { max_tokens: 8192 }
           })
+        : opponent.model === AFM_MODEL
+        ? chat({ ...chatOptions, adapter: afm, reasoning })
         : opponent.model === "prompt-api"
         ? chat({ ...chatOptions, adapter: promptApiText() })
         : chat({

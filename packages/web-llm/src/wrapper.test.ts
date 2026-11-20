@@ -323,6 +323,58 @@ test("tools by prompt: none sent to WebLLM, listed in the system prompt; a fence
   assert.equal(control.interrupts, 1)
 })
 
+test("the model's thinking goes back for the turn in progress, as the <think> block it wrote, and not for earlier turns", async () => {
+  const tools = [{ name: "get_weather", description: "Weather", inputSchema: { type: "object", properties: { city: { type: "string" } } } }]
+  const { request } = await run(webLlmText(MODEL), {
+    tools,
+    messages: [
+      { role: "user", content: "Weather in Oslo?" },
+      { role: "assistant", content: "", toolCalls: [{ id: "c1", type: "function", function: { name: "get_weather", arguments: '{"city":"Oslo"}' } }], thinking: [{ content: "I should look it up." }] },
+      { role: "tool", toolCallId: "c1", content: '{"temp":3}' },
+      { role: "assistant", content: "3 degrees.", thinking: [{ content: "It is 3." }] },
+      { role: "user", content: "And tomorrow?" },
+      { role: "assistant", content: "", toolCalls: [{ id: "c2", type: "function", function: { name: "get_weather", arguments: '{"city":"Oslo"}' } }], thinking: [{ content: "Tomorrow needs " }, { content: "another lookup." }] },
+      { role: "tool", toolCallId: "c2", content: '{"temp":5}' }
+    ]
+  })
+  const messages = request.messages as Array<{ role: string; content: string }>
+  const assistants = messages.filter((m) => m.role === "assistant").map((m) => m.content)
+  assert.equal(assistants.length, 3)
+  // The earlier turn's: the call and the answer as they were, without their thinking.
+  assert.doesNotMatch(assistants[0], /<think>/)
+  assert.equal(assistants[1], "3 degrees.")
+  // The turn in progress: the thinking, then the call it led to.
+  assert.match(assistants[2], /^<think>Tomorrow needs another lookup\.<\/think>\n?```tool_call/)
+  // Without thinking on the messages, nothing is added.
+  const plain = await run(webLlmText(MODEL), { messages: [{ role: "user", content: "Hi" }, { role: "assistant", content: "Hello." }, { role: "user", content: "Bye" }] })
+  assert.doesNotMatch(JSON.stringify(plain.request.messages), /<think>/)
+})
+
+test("the turn's thinking goes back as TanStack replays it: another model's once, as its text, and no redacted block", async () => {
+  const tools = [{ name: "get_weather", description: "Weather", inputSchema: { type: "object", properties: { city: { type: "string" } } } }]
+  const call = (id: string) => [{ id, type: "function", function: { name: "get_weather", arguments: '{"city":"Oslo"}' } }]
+  const foreign = { tanstack: { source: { provider: "openai", api: "openai-completions", model: "gpt-4o" } } }
+  const { request } = await run(webLlmText(MODEL), {
+    tools,
+    messages: [
+      { role: "user", content: "Weather in Oslo?" },
+      // Another model's step: TanStack's adapter sends its thinking as text.
+      { role: "assistant", content: "", toolCalls: call("c1"), thinking: [{ content: "Another model's thought." }], metadata: foreign },
+      { role: "tool", toolCallId: "c1", content: '{"temp":3}' },
+      // This model's step, with a block the provider encrypted.
+      { role: "assistant", content: "", toolCalls: call("c2"), thinking: [{ content: "My thought." }, { content: "OPAQUE", signature: "sig", redacted: true }] },
+      { role: "tool", toolCallId: "c2", content: '{"temp":5}' }
+    ]
+  })
+  const messages = request.messages as Array<{ role: string; content: string }>
+  const assistants = messages.filter((m) => m.role === "assistant").map((m) => m.content)
+  assert.equal(assistants.length, 2)
+  assert.equal(JSON.stringify(messages).split("Another model's thought.").length - 1, 1, "another model's thought once")
+  assert.match(assistants[0], /^Another model's thought\.\n?```tool_call/)
+  assert.match(assistants[1], /^<think>My thought\.<\/think>\n?```tool_call/)
+  assert.doesNotMatch(JSON.stringify(messages), /OPAQUE/)
+})
+
 test("a fence the reply leaves open is the call if it holds a whole one", async () => {
   const tools = [{ name: "get_weather", description: "Weather", inputSchema: { type: "object", properties: { city: { type: "string" } } } }]
   control.chunks = [delta({ role: "assistant", content: '```tool_call\n{"name": "get_weather", "arguments": {"city": "Oslo"}}' }), delta({}, "stop")]

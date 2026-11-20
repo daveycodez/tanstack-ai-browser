@@ -1,6 +1,5 @@
 /**
- * Image and audio attachments, laid out as in assistant-ui's composer (MIT,
- * github.com/assistant-ui/assistant-ui): a paperclip button in the toolbar, a
+ * Image and audio attachments: a paperclip button in the toolbar, a
  * chip for each attachment above the text (thumbnail, file name and a remove
  * button), and a modal with the image (or a player, for audio) on click. A
  * sent message shows its attachments as the same chips.

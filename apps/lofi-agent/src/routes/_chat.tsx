@@ -76,7 +76,7 @@ const sidebarOpenSetting = setting("sidebarOpen", true)
 
 const isDesktop = () => window.matchMedia("(min-width: 768px)").matches
 
-/** App shell matching assistant-ui.com's demo: 240px sidebar, 48px header. */
+/** App shell: 240px sidebar, 48px header. */
 function Assistant() {
   const { sessionId } = useParams({ strict: false })
   const navigate = useNavigate()

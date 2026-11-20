@@ -3,6 +3,7 @@ import { useState } from "react"
 import { MenuView } from "../components/menu"
 import { ConfirmNewGame } from "../components/confirm-new-game"
 import { startNewGame, useCurrentGame } from "../lib/db"
+import { useAfmAvailable } from "../lib/use-afm"
 
 export const Route = createFileRoute("/")({ component: MenuPage })
 
@@ -12,6 +13,8 @@ function MenuPage() {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string>()
   const [confirm, setConfirm] = useState(false)
+  // Asked here, so a new game already knows whether the device has Apple's model.
+  useAfmAvailable()
 
   async function start() {
     setConfirm(false)

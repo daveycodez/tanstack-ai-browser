@@ -25,9 +25,13 @@ if (!["ios", "electron"].includes(kind) || !port) {
 
 const findPage = async () => {
   const pages = await fetch(`http://127.0.0.1:${port}/json`).then((r) => r.json(), () => [])
-  // The packaged app's page (capacitor://, app://), or a dev build's on the dev server.
-  const app = (url = "") => url.startsWith("capacitor://") || url.startsWith("app://") || url.startsWith("http://localhost:3000") || url.includes(".trycloudflare.com")
-  return pages.find((p) => p.type !== "service_worker" && app(p.url))
+  const candidates = pages.filter((p) => p.type !== "service_worker")
+  // The packaged app's page (capacitor://, app://) first. Else a dev build's, on the
+  // dev server or through a tunnel: by its title too, since a tunnel address can be
+  // any page's (a Safari tab's bench driver: the run would reload that tab instead).
+  const packaged = ({ url = "" }) => url.startsWith("capacitor://") || url.startsWith("app://")
+  const dev = ({ url = "", title = "" }) => url.startsWith("http://localhost:3000") || (url.includes(".trycloudflare.com") && /^lofi-agent/i.test(title))
+  return candidates.find(packaged) ?? candidates.find(dev)
 }
 
 const entry = fileURLToPath(new URL("./suite.ts", import.meta.url))

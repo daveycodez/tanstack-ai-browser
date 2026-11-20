@@ -17,6 +17,9 @@ const afm = {
   prewarm: call("prewarm"),
   respond: call("respond"),
   submitToolResult: call("submitToolResult"),
+  trimTranscript: call("trimTranscript"),
+  rewriteTurn: call("rewriteTurn"),
+  finishToolCalls: call("finishToolCalls"),
   cancel: call("cancel"),
   deleteSession: call("deleteSession"),
   addListener(_name, listener) {

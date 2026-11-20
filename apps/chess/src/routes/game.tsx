@@ -5,6 +5,7 @@ import { loadWithStatus } from "../lib/model-status"
 import { resolveOpponent } from "../lib/opponents"
 import type { OpponentSettings } from "../lib/opponents"
 import { usePromptApiAvailable } from "../lib/use-prompt-api"
+import { useAfmAvailable } from "../lib/use-afm"
 import { GameView } from "../components/game"
 import { ConfirmNewGame } from "../components/confirm-new-game"
 import { ThinkingDialog } from "../components/thinking-dialog"
@@ -31,6 +32,8 @@ function GamePage() {
   const [thinkingOpen, setThinkingOpen] = useState(false)
   const ai = useAiTurn(game, busy)
   const promptApiAvailable = usePromptApiAvailable()
+  // A game that hasn't chosen an opponent plays Apple's model once the device says it has it.
+  useAfmAvailable()
 
   async function changeOpponent(settings: OpponentSettings) {
     if (busy) return

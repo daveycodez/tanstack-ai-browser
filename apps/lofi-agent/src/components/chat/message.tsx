@@ -1,8 +1,7 @@
 /**
  * The `message` widget. A user message can be edited and sent again; an
  * assistant message shows its parts (thinking, tool calls, the answer)
- * through the kit's `Parts`, then its sources and actions. The layout
- * follows assistant-ui's thread (MIT, github.com/assistant-ui/assistant-ui).
+ * through the kit's `Parts`, then its sources and actions.
  */
 import ArrowDownToLine from "@gravity-ui/icons/ArrowDownToLine"
 import ArrowRotateRight from "@gravity-ui/icons/ArrowRotateRight"
@@ -244,6 +243,7 @@ function AssistantMessage({ message }: { message: UIMessage }) {
 
   const liveThinking =
     isWriting && last?.type === "thinking" ? last.content : undefined
+  const liveText = isWriting && last?.type === "text" ? last.content : undefined
   // Its thinking parts' text, read on every render (a streaming part grows
   // in place) and joined, so the context only changes when the text does.
   const thoughts = message.parts.flatMap((p) => (p.type === "thinking" ? [p.content] : [])).join(THOUGHT_BREAK)
@@ -253,10 +253,11 @@ function AssistantMessage({ message }: { message: UIMessage }) {
       isRunning,
       hasAnswer,
       liveThinking,
+      liveText,
       messageId: message.id,
       thinking: thoughts ? thoughts.split(THOUGHT_BREAK) : []
     }),
-    [sources, isRunning, hasAnswer, liveThinking, message.id, thoughts]
+    [sources, isRunning, hasAnswer, liveThinking, liveText, message.id, thoughts]
   )
 
   return (
