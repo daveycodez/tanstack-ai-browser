@@ -299,6 +299,15 @@ importers:
 
   apps/chess:
     dependencies:
+      '@capacitor/core':
+        specifier: ^8.6.2
+        version: 8.6.2
+      '@capacitor/ios':
+        specifier: ^8.6.2
+        version: 8.6.2(@capacitor/core@8.6.2)
+      '@tanstack-ai-browser/afm':
+        specifier: workspace:*
+        version: link:../../packages/afm
       '@tanstack-ai-browser/apfel':
         specifier: workspace:*
         version: link:../../packages/apfel
@@ -336,6 +345,9 @@ importers:
         specifier: ^4.6.7
         version: 4.6.7
     devDependencies:
+      '@capacitor/cli':
+        specifier: ^8.6.2
+        version: 8.6.2(supports-color@10.2.2)
       '@cloudflare/vite-plugin':
         specifier: ^1.69.1
         version: 1.69.1(@types/node@26.6.6)(vite@8.3.8(@types/node@26.6.6)(esbuild@0.28.2)(jiti@2.7.0)(yaml@2.9.0))(workerd@1.20261113.1)(wrangler@4.162.0(@types/node@26.6.6))

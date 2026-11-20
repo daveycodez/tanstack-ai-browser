@@ -2,7 +2,7 @@ import { browserModel } from "./browser-model.ts"
 import { WEBGLLM_MODEL_META, WEBGLLM_CHAT_MODELS } from "@tanstack-ai-browser/webgllm"
 import type { WebGllmChatModel } from "@tanstack-ai-browser/webgllm"
 
-export type OpponentModel = WebGllmChatModel | "prompt-api" | "apple-foundationmodel"
+export type OpponentModel = WebGllmChatModel | "prompt-api" | "apple-foundationmodel" | "afm"
 export type OpponentSettings = { model: OpponentModel; thinking: boolean }
 export type ThinkingSupport = "none" | "optional" | "required"
 export type OpponentOption = {
@@ -23,10 +23,26 @@ export const PROMPT_API_OPTION: OpponentOption = {
   thinking: "none"
 }
 export const APFEL_MODEL = "apple-foundationmodel" as const
+/** Apple's model on this device, through Apple's framework (the afm adapter): in the iOS app. */
+export const AFM_MODEL = "afm" as const
+export const AFM_OPTION: OpponentOption = {
+  id: AFM_MODEL,
+  label: "Apple Intelligence",
+  detail: "On this device",
+  thinking: "none"
+}
+/** Whether the device has Apple's model, and the name it gives ("AFM 3 Core"): set once the device answers (use-afm.ts). */
+let afm: { available: boolean; name?: string } = { available: false }
+export function setAfm(next: { available: boolean; name?: string }) {
+  afm = next
+}
+/** The opponent of a game that hasn't chosen one: Apple's model where the device has it. */
+export const defaultOpponent = (): OpponentSettings =>
+  afm.available ? { model: AFM_MODEL, thinking: false } : DEFAULT_OPPONENT
 export const DEV_OPPONENTS: OpponentOption[] = import.meta.env?.DEV === true
   ? [{ id: APFEL_MODEL, label: "Apple-FoundationModel", detail: "Apfel on this Mac", thinking: "none" }]
   : []
-export const usesEmulatedReasoning = (model: OpponentModel) => model === "prompt-api" || model === APFEL_MODEL
+export const usesEmulatedReasoning = (model: OpponentModel) => model === "prompt-api" || model === APFEL_MODEL || model === AFM_MODEL
 export const isWebGlOpponent = (model: OpponentModel): model is WebGllmChatModel => !usesEmulatedReasoning(model)
 
 export const WEBGL_OPPONENTS: OpponentOption[] = WEBGLLM_CHAT_MODELS.map<OpponentOption>((id) => {
@@ -49,6 +65,7 @@ export const LOCAL_OPPONENTS = [...DEV_OPPONENTS, ...WEBGL_OPPONENTS]
 export function opponentOption(model: OpponentModel): OpponentOption {
   const development = DEV_OPPONENTS.find(option => option.id === model)
   if (development) return development
+  if (model === AFM_MODEL) return { ...AFM_OPTION, label: afm.name ?? AFM_OPTION.label }
   return model === "prompt-api"
     ? {
         ...PROMPT_API_OPTION,
@@ -67,10 +84,11 @@ export function opponentOption(model: OpponentModel): OpponentOption {
 export function resolveOpponent(saved?: OpponentSettings): OpponentSettings {
   const model =
     saved?.model === "prompt-api" ||
+    saved?.model === AFM_MODEL ||
     DEV_OPPONENTS.some(option => option.id === saved?.model) ||
     WEBGL_OPPONENTS.some((option) => option.id === saved?.model)
-      ? (saved?.model ?? DEFAULT_OPPONENT.model)
-      : DEFAULT_OPPONENT.model
+      ? (saved?.model ?? defaultOpponent().model)
+      : defaultOpponent().model
   const support = opponentOption(model).thinking
   return {
     model,

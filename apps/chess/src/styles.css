@@ -1,4 +1,8 @@
 :root {
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-right: env(safe-area-inset-right, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-left: env(safe-area-inset-left, 0px);
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   color: var(--ink);
   background: var(--background);
@@ -241,9 +245,23 @@
 * {
   box-sizing: border-box;
 }
+/* In the iOS app the page runs to the screen's edges (viewport-fit=cover): the
+   content keeps clear of the status bar, the home indicator and the notch. In
+   a browser the insets are zero. */
 body {
   margin: 0;
   min-width: 320px;
+  padding: var(--safe-top) var(--safe-right) var(--safe-bottom) var(--safe-left);
+}
+/* The status bar's strip stays the page's own color as the page scrolls under
+   it, above the menus (z-index 20) and below dialogs (the top layer). */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0 0 auto;
+  height: var(--safe-top);
+  background: var(--background);
+  z-index: 30;
 }
 button,
 input,
@@ -1959,7 +1977,7 @@ dialog::backdrop {
   }
   .game-main {
     grid-template-columns:
-      minmax(0, min(660px, max(320px, calc(100dvh - 304px))))
+      minmax(0, min(660px, max(320px, calc(100dvh - var(--safe-top) - var(--safe-bottom) - 304px))))
       minmax(260px, 340px);
     justify-content: center;
     gap: 36px;
@@ -2015,7 +2033,7 @@ dialog::backdrop {
     margin-top: 22px;
   }
   .ledger-scroll {
-    height: clamp(170px, calc(100dvh - 490px), 260px);
+    height: clamp(170px, calc(100dvh - var(--safe-top) - var(--safe-bottom) - 490px), 260px);
   }
 }
 .turn-panel-compact {
