@@ -53,6 +53,9 @@
     },
     {
       "path": "../../packages/litert-lm"
+    },
+    {
+      "path": "../../packages/onnx"
     }
   ]
 }

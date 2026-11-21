@@ -1,15 +1,19 @@
 /**
  * The Settings modal: the system prompt for every model (the default, or the
  * user's own, with a button to put the default back), the built-in
- * weather and location tools, and deleting every session.
+ * weather and location tools, the image tool's model, and deleting every
+ * session.
  */
 import TrashBin from "@gravity-ui/icons/TrashBin"
 import {
   AlertDialog,
   Button,
   Description,
+  Header,
   Label,
+  ListBox,
   Modal,
+  Select,
   Switch,
   TextArea,
   TextField
@@ -22,6 +26,8 @@ import { DEFAULT_SYSTEM_PROMPT, systemPromptSetting } from "#/lib/settings"
 import { locationToolSetting } from "#/lib/location"
 import { timeToolsSetting } from "#/lib/time"
 import { weatherToolSetting } from "#/lib/weather"
+import { IMAGE_MODELS, imageModelEntry, imageModelSetting, NO_IMAGE_MODEL } from "#/lib/image"
+import type { ImageModelChoice } from "#/lib/image"
 import { deleteAllThreads } from "#/lib/threads"
 
 export function SettingsModal({
@@ -69,6 +75,8 @@ function SettingsForm({
   const [timeTools, setTimeTools] = useState(timeToolsSetting.get)
   const [locationTool, setLocationTool] = useState(locationToolSetting.get)
   const [weatherTool, setWeatherTool] = useState(weatherToolSetting.get)
+  const [imageModel, setImageModel] = useState(imageModelSetting.get)
+  const picked = imageModelEntry(imageModel)
   return (
     <>
       <Modal.CloseTrigger />
@@ -144,6 +152,43 @@ function SettingsForm({
             </Switch.Control>
           </Switch.Content>
         </Switch>
+        <Select
+          variant="secondary"
+          value={imageModel}
+          onChange={(value) => {
+            if (typeof value === "string") setImageModel(value as ImageModelChoice)
+          }}
+        >
+          <Label>Image model</Label>
+          <Select.Trigger>
+            <Select.Value />
+            <Select.Indicator />
+          </Select.Trigger>
+          <Description>
+            Lets models draw pixel-art images, on this device.{" "}
+            {picked &&
+              `${picked.name} on ${picked.provider}. Downloads ${picked.download} the first time. ${picked.license}: not for commercial use.`}
+          </Description>
+          <Select.Popover>
+            <ListBox>
+              <ListBox.Item id={NO_IMAGE_MODEL} textValue="None">
+                None
+                <ListBox.ItemIndicator />
+              </ListBox.Item>
+              {[...new Set(IMAGE_MODELS.map((model) => model.provider))].map((provider) => (
+                <ListBox.Section key={provider}>
+                  <Header>{provider}</Header>
+                  {IMAGE_MODELS.filter((model) => model.provider === provider).map((model) => (
+                    <ListBox.Item key={model.id} id={model.id} textValue={`${model.name} (${model.provider})`}>
+                      {model.name}
+                      <ListBox.ItemIndicator />
+                    </ListBox.Item>
+                  ))}
+                </ListBox.Section>
+              ))}
+            </ListBox>
+          </Select.Popover>
+        </Select>
         <DeleteAllSessions onDeleted={onAllDeleted} />
       </Modal.Body>
       <Modal.Footer>
@@ -156,6 +201,7 @@ function SettingsForm({
             timeToolsSetting.set(timeTools)
             locationToolSetting.set(locationTool)
             weatherToolSetting.set(weatherTool)
+            imageModelSetting.set(imageModel)
             onDone()
           }}
         >

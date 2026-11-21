@@ -40,6 +40,7 @@
     "@tanstack-ai-browser/apfel": "workspace:*",
     "@tanstack-ai-browser/litert-lm": "workspace:*",
     "@tanstack-ai-browser/mlkit": "workspace:*",
+    "@tanstack-ai-browser/onnx": "workspace:*",
     "@tanstack-ai-browser/prompt-api": "workspace:*",
     "@tanstack-ai-browser/transformers-js": "workspace:*",
     "@tanstack-ai-browser/web-llm": "workspace:*",
