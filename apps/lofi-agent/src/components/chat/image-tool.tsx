@@ -1,9 +1,8 @@
 /**
  * The built-in image tool's widget (lib/image.ts): the drawn images in a
  * row, in place of the usual tool row, scaled up with their pixels kept
- * sharp, then the model's message, as plain text in the reply's style. A
- * line while it draws (with the model's download, the first time), and a
- * short line if it fails or stops.
+ * sharp. A line while it draws (with the model's download, the first
+ * time), and a short line if it fails or stops.
  */
 import { Spinner, Typography } from "@heroui/react"
 import type { ToolProps } from "@tanstack/ai-react/ui"
@@ -18,31 +17,22 @@ export function ImageTool({ part, result }: ToolProps<typeof chatOptions>) {
   const { isRunning } = useContext(ReplyContext)
   const download = imageDownload.use()
   const model = pickedImageModel()
-  const input = (part.input ?? {}) as { prompt?: unknown; message?: unknown }
+  const input = (part.input ?? {}) as { prompt?: unknown }
   const prompt = typeof input.prompt === "string" ? input.prompt : undefined
-  const message = typeof input.message === "string" ? input.message.trim() : ""
   const images = imagesOf(part.output ?? result?.content)
   if (images.length > 0) {
     return (
-      <div className="flex flex-col gap-3">
-        <div role="group" aria-label={prompt ? `Images of ${prompt}` : "Images"} className="flex flex-wrap gap-2">
-          {images.map((src, i) => (
-            <img
-              key={i}
-              src={src}
-              alt={prompt ?? "Generated image"}
-              width={16}
-              height={16}
-              className="size-32 rounded-md bg-surface-secondary [image-rendering:pixelated]"
-            />
-          ))}
-        </div>
-        {/* Plain text, not markdown: the message can't hold an image or link. */}
-        {message && (
-          <div className="prose prose-sm max-w-none wrap-break-word">
-            <p>{message}</p>
-          </div>
-        )}
+      <div role="group" aria-label={prompt ? `Images of ${prompt}` : "Images"} className="flex flex-wrap gap-2">
+        {images.map((src, i) => (
+          <img
+            key={i}
+            src={src}
+            alt={prompt ?? "Generated image"}
+            width={16}
+            height={16}
+            className="size-32 rounded-md bg-surface-secondary [image-rendering:pixelated]"
+          />
+        ))}
       </div>
     )
   }
