@@ -15,11 +15,10 @@ import { locationToolDefinition, locationToolSetting } from "#/lib/location"
 import { timeTools, timeToolsSetting } from "#/lib/time"
 import { todayLine } from "#/lib/time-server"
 import { weatherTool, weatherToolSetting } from "#/lib/weather"
-import { IMAGE_TOOL, imageToolFor, pickedImageModel } from "#/lib/image"
+import { imageToolFor, pickedImageModel } from "#/lib/image"
 import { recordGeneration, startReply } from "./generation-stats"
 import { replyStatsMiddleware } from "./call-stats"
 import { toolResultCapMiddleware } from "./tool-result-cap"
-import { endsTurnAfter } from "./ends-turn"
 import { ABORTED, untilAborted } from "./abortable"
 import {
   confirmDownload,
@@ -149,14 +148,11 @@ async function* reply(
     interrupts: [confirmDownload],
     // The download confirmation, then each call's usage and its timings
     // measured from the stream, to the stats line, for this reply only; and
-    // a cap on each tool result, so it fits the model's context. A turn
-    // that only drew an image ends the reply: the image is the answer, and
-    // the model, never writing after it, can't add a made-up image or link.
+    // a cap on each tool result, so it fits the model's context.
     middleware: [
       confirmDownloadMiddleware(download),
       replyStatsMiddleware(recordGeneration),
-      toolResultCapMiddleware(),
-      endsTurnAfter(IMAGE_TOOL)
+      toolResultCapMiddleware()
     ],
     abortController
   })
