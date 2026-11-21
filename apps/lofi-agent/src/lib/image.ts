@@ -119,9 +119,14 @@ const adapterFor = (entry: ImageModelEntry) => {
  */
 const swapQueue = oneAtATime()
 
-/** The result's line for the model. */
+/**
+ * The result's line for the model: the image is in front of the person, and
+ * its part is a short sentence. Told what not to do instead, or nothing,
+ * LFM3 adds an image of its own (a made-up link or file name) after "Here's
+ * your …:" in 1 reply in 12 to every reply.
+ */
 const resultLine = (prompt: string) =>
-  `The image of "${prompt}" is already shown to the person. Don't add an image or link to it.`
+  `The person can see the image of "${prompt}" now. Reply with a short sentence.`
 
 const imageToolDefinition = toolDefinition({
   name: IMAGE_TOOL,
