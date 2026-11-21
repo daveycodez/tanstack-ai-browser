@@ -14,16 +14,30 @@ export type StorageEnvironment = {
 export const MODEL_CACHE = "tanstack-ai-browser-onnx"
 
 const environment = (): StorageEnvironment | undefined =>
-  typeof caches === "undefined" ? undefined : { caches, fetch: (input, init) => fetch(input, init) }
+  typeof caches === "undefined"
+    ? undefined
+    : { caches, fetch: (input, init) => fetch(input, init) }
 
-const coded = (message: string, code: string, cause?: unknown) => Object.assign(new Error(message, { cause }), { code })
+const coded = (message: string, code: string, cause?: unknown) =>
+  Object.assign(new Error(message, { cause }), { code })
 
-/** Whether every one of these files is stored. */
-export async function allStored(urls: ReadonlyArray<string>, env = environment()): Promise<boolean> {
+/**
+ * Whether every one of these files is stored. Cache Storage this page can't
+ * open (a SecurityError in some private windows) counts as nothing stored,
+ * so loads go on to download without caching (fileBytes).
+ */
+export async function allStored(
+  urls: ReadonlyArray<string>,
+  env = environment()
+): Promise<boolean> {
   if (!env) return false
-  const cache = await env.caches.open(MODEL_CACHE)
-  for (const url of urls) if (!(await cache.match(url))) return false
-  return true
+  try {
+    const cache = await env.caches.open(MODEL_CACHE)
+    for (const url of urls) if (!(await cache.match(url))) return false
+    return true
+  } catch {
+    return false
+  }
 }
 
 /**
@@ -37,13 +51,21 @@ export async function fileBytes(
   options: { onBytes?: (bytes: number) => void; signal?: AbortSignal } = {},
   env = environment()
 ): Promise<ArrayBuffer> {
-  const cache = env ? await env.caches.open(MODEL_CACHE).catch(() => undefined) : undefined
+  const cache = env
+    ? await env.caches.open(MODEL_CACHE).catch(() => undefined)
+    : undefined
   const hit = await cache?.match(url)
   if (hit) return hit.arrayBuffer()
   const { onBytes, signal } = options
-  const response = await (env?.fetch ?? fetch)(url, signal ? { signal } : undefined)
+  const response = await (env?.fetch ?? fetch)(
+    url,
+    signal ? { signal } : undefined
+  )
   if (!response.ok || !response.body) {
-    throw coded(`${url} didn't download (HTTP ${response.status})`, "download-failed")
+    throw coded(
+      `${url} didn't download (HTTP ${response.status})`,
+      "download-failed"
+    )
   }
   let loaded = 0
   const counted = response.body.pipeThrough(
@@ -60,9 +82,12 @@ export async function fileBytes(
     await cache.put(url, new Response(counted))
   } catch (error) {
     if (signal?.aborted) throw signal.reason ?? error
-    const full = error instanceof DOMException && error.name === "QuotaExceededError"
+    const full =
+      error instanceof DOMException && error.name === "QuotaExceededError"
     throw coded(
-      full ? "There's no room to store the model on this device" : `${url} couldn't be stored (${error instanceof Error ? error.message : String(error)})`,
+      full
+        ? "There's no room to store the model on this device"
+        : `${url} couldn't be stored (${error instanceof Error ? error.message : String(error)})`,
       full ? "storage-full" : "download-failed",
       error
     )
@@ -73,9 +98,13 @@ export async function fileBytes(
 }
 
 /** Removes these files from the cache. Returns whether any was stored. */
-export async function removeFiles(urls: ReadonlyArray<string>, env = environment()): Promise<boolean> {
+export async function removeFiles(
+  urls: ReadonlyArray<string>,
+  env = environment()
+): Promise<boolean> {
   if (!env) return false
-  const cache = await env.caches.open(MODEL_CACHE)
+  const cache = await env.caches.open(MODEL_CACHE).catch(() => undefined)
+  if (!cache) return false
   let removed = false
   for (const url of urls) removed = (await cache.delete(url)) || removed
   return removed

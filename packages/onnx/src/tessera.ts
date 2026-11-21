@@ -66,15 +66,21 @@ export function seededRandom(seed: number) {
  * padded with the end token to TEXT_LEN, or cut to it with the end token
  * kept last.
  */
-export function fixedLengthIds(ids: ReadonlyArray<number>, endToken: number): Array<number> {
-  const kept = ids.length > TEXT_LEN ? [...ids.slice(0, TEXT_LEN - 1), endToken] : [...ids]
+export function fixedLengthIds(
+  ids: ReadonlyArray<number>,
+  endToken: number
+): Array<number> {
+  const kept =
+    ids.length > TEXT_LEN ? [...ids.slice(0, TEXT_LEN - 1), endToken] : [...ids]
   while (kept.length < TEXT_LEN) kept.push(endToken)
   return kept
 }
 
 /** Blank pixels left after step `step` of `steps` (cosine schedule; none after the last). */
 export function blankAfter(step: number, steps: number) {
-  return step === steps - 1 ? 0 : Math.floor(PIXELS * Math.cos((Math.PI / 2) * ((step + 1) / steps)))
+  return step === steps - 1
+    ? 0
+    : Math.floor(PIXELS * Math.cos((Math.PI / 2) * ((step + 1) / steps)))
 }
 
 /**
@@ -97,10 +103,19 @@ export function commitOrder(
       const row = Math.floor(i / GRID)
       const col = i % GRID
       let best = -Infinity
-      for (let r = Math.max(row - 1, 0); r <= Math.min(row + 1, GRID - 1); r++) {
-        for (let c = Math.max(col - 1, 0); c <= Math.min(col + 1, GRID - 1); c++) {
+      for (
+        let r = Math.max(row - 1, 0);
+        r <= Math.min(row + 1, GRID - 1);
+        r++
+      ) {
+        for (
+          let c = Math.max(col - 1, 0);
+          c <= Math.min(col + 1, GRID - 1);
+          c++
+        ) {
           const j = r * GRID + c
-          if (blank[j] && confidence[j] < certainty) best = Math.max(best, score[j])
+          if (blank[j] && confidence[j] < certainty)
+            best = Math.max(best, score[j])
         }
       }
       ahead = score[i] >= best
@@ -112,10 +127,16 @@ export function commitOrder(
 }
 
 /** The prompt's text states, for the denoiser. */
-async function encodeText(sessions: TesseraSessions, ids: ReadonlyArray<number>) {
+async function encodeText(
+  sessions: TesseraSessions,
+  ids: ReadonlyArray<number>
+) {
   const { Tensor, textEncoder } = sessions
   const out = await textEncoder.run({
-    input_ids: new Tensor("int64", BigInt64Array.from(ids, BigInt), [1, TEXT_LEN])
+    input_ids: new Tensor("int64", BigInt64Array.from(ids, BigInt), [
+      1,
+      TEXT_LEN
+    ])
   })
   return {
     states: out.last_hidden_state.data as Float32Array,
@@ -149,11 +170,19 @@ export async function drawSprites(
   const fixed = {
     text_states: new Tensor("float32", textStates, [rows, TEXT_LEN, TEXT_DIM]),
     text_pooled: new Tensor("float32", textPooled, [rows, TEXT_DIM]),
-    drop_text: new Tensor("bool", Uint8Array.from({ length: rows }, (_, r) => (r >= count ? 1 : 0)), [rows])
+    drop_text: new Tensor(
+      "bool",
+      Uint8Array.from({ length: rows }, (_, r) => (r >= count ? 1 : 0)),
+      [rows]
+    )
   }
 
-  const tokens = Array.from({ length: count }, () => new Int32Array(PIXELS).fill(MASK))
-  const blank = Array.from({ length: count }, () => new Uint8Array(PIXELS).fill(1))
+  const tokens = Array.from({ length: count }, () =>
+    new Int32Array(PIXELS).fill(MASK)
+  )
+  const blank = Array.from({ length: count }, () =>
+    new Uint8Array(PIXELS).fill(1)
+  )
   const selfCond = new Float32Array(rows * PIXELS * PALETTE)
   const probs = new Float32Array(PIXELS * PALETTE)
   const picked = new Int32Array(PIXELS)
@@ -193,8 +222,12 @@ export async function drawSprites(
         let max = -Infinity
         for (let k = 0; k < PALETTE; k++) {
           const without = logits[withoutText + row + k]
-          const guided = without + guidanceScale * (logits[withText + row + k] - without)
-          if (!Number.isFinite(guided)) throw new Error("The model returned a non-finite value: this device's GPU may not run it correctly")
+          const guided =
+            without + guidanceScale * (logits[withText + row + k] - without)
+          if (!Number.isFinite(guided))
+            throw new Error(
+              "The model returned a non-finite value: this device's GPU may not run it correctly"
+            )
           probs[row + k] = guided
           if (guided > max) max = guided
         }
@@ -220,14 +253,22 @@ export async function drawSprites(
 
       let blanks = 0
       for (let i = 0; i < PIXELS; i++) blanks += blank[b][i]
-      const commits = Math.min(Math.max(blanks - blankAfter(step, steps), 1), blanks)
+      const commits = Math.min(
+        Math.max(blanks - blankAfter(step, steps), 1),
+        blanks
+      )
 
       // Confidence with fading Gumbel noise.
       for (let i = 0; i < PIXELS; i++) {
         const u = Math.min(Math.max(random(), 1e-10), 1 - 1e-10)
-        score[i] = Math.log(Math.max(confidence[i], 1e-12)) + choiceTemperature * (1 - progress) * -Math.log(-Math.log(u))
+        score[i] =
+          Math.log(Math.max(confidence[i], 1e-12)) +
+          choiceTemperature * (1 - progress) * -Math.log(-Math.log(u))
       }
-      for (const i of commitOrder(blank[b], confidence, score, certainty).slice(0, commits)) {
+      for (const i of commitOrder(blank[b], confidence, score, certainty).slice(
+        0,
+        commits
+      )) {
         tokens[b][i] = picked[i]
         blank[b][i] = 0
       }
@@ -236,13 +277,19 @@ export async function drawSprites(
       selfCond.set(probs, withText)
       selfCond.set(probs, withoutText)
     }
+    // Every pixel painted (the schedule can get there before the last step): no pass is left to run.
+    if (blank.every((sprite) => !sprite.includes(1))) break
   }
   return tokens
 }
 
 /** A sprite's RGBA pixels, from its tokens and the palette (`palette_rgba`). */
-export function spritePixels(tokens: Int32Array, palette: ReadonlyArray<ReadonlyArray<number>>): Uint8Array {
+export function spritePixels(
+  tokens: Int32Array,
+  palette: ReadonlyArray<ReadonlyArray<number>>
+): Uint8Array {
   const rgba = new Uint8Array(PIXELS * 4)
-  for (let i = 0; i < PIXELS; i++) rgba.set(palette[tokens[i]] ?? [0, 0, 0, 0], i * 4)
+  for (let i = 0; i < PIXELS; i++)
+    rgba.set(palette[tokens[i]] ?? [0, 0, 0, 0], i * 4)
   return rgba
 }

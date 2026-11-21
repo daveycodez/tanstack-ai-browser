@@ -11,7 +11,10 @@ import { generateImage, toolDefinition } from "@tanstack/ai"
 import type { ContentPart } from "@tanstack/ai"
 import { ONNX_MODEL_META, onnxImage } from "@tanstack-ai-browser/onnx"
 import type { OnnxImageModel } from "@tanstack-ai-browser/onnx"
-import { webgllmImage, WEBGLLM_IMAGE_MODEL_META } from "@tanstack-ai-browser/webgllm"
+import {
+  webgllmImage,
+  WEBGLLM_IMAGE_MODEL_META
+} from "@tanstack-ai-browser/webgllm"
 import type { WebGllmImageModel } from "@tanstack-ai-browser/webgllm"
 
 import { whileUnloaded } from "#/chat/models"
@@ -35,7 +38,11 @@ const megabytes = (bytes: number) => `${Math.round(bytes / 1e6)} MB`
  * (WebGPU, else WebGL 2), ONNX on ONNX Runtime (WebGPU, else the CPU).
  */
 export const IMAGE_MODELS = [
-  ...(["cfahlgren1/tessera-small-onnx"] as const satisfies ReadonlyArray<OnnxImageModel>).map((repo) => ({
+  ...(
+    [
+      "cfahlgren1/tessera-small-onnx"
+    ] as const satisfies ReadonlyArray<OnnxImageModel>
+  ).map((repo) => ({
     id: `onnx:${repo}` as const,
     provider: "ONNX",
     name: repoName(repo),
@@ -43,11 +50,20 @@ export const IMAGE_MODELS = [
     license: ONNX_MODEL_META[repo].license,
     adapter: () => onnxImage(repo, { onDownloadProgress })
   })),
-  ...(["cfahlgren1/tessera-small-onnx"] as const satisfies ReadonlyArray<WebGllmImageModel>).map((repo) => ({
+  ...(
+    [
+      "cfahlgren1/tessera-small-onnx"
+    ] as const satisfies ReadonlyArray<WebGllmImageModel>
+  ).map((repo) => ({
     id: `webgllm:${repo}` as const,
     provider: "WebGLLM",
     name: repoName(repo),
-    download: megabytes(Object.values(WEBGLLM_IMAGE_MODEL_META[repo].files).reduce((sum, file) => sum + file.bytes, 0)),
+    download: megabytes(
+      Object.values(WEBGLLM_IMAGE_MODEL_META[repo].files).reduce(
+        (sum, file) => sum + file.bytes,
+        0
+      )
+    ),
     license: WEBGLLM_IMAGE_MODEL_META[repo].license,
     adapter: () => webgllmImage(repo, { onDownloadProgress })
   }))
@@ -61,13 +77,18 @@ export const NO_IMAGE_MODEL = "none"
 export type ImageModelChoice = ImageModelEntry["id"] | typeof NO_IMAGE_MODEL
 
 /** The image model the tool draws with, or none (the tool is off): WebGLLM's Tessera until the user picks. */
-export const imageModelSetting = setting("imageModel", "webgllm:cfahlgren1/tessera-small-onnx" as ImageModelChoice)
+export const imageModelSetting = setting(
+  "imageModel",
+  "webgllm:cfahlgren1/tessera-small-onnx" as ImageModelChoice
+)
 
 /** An image model's entry, by its id. */
-export const imageModelEntry = (id: string): ImageModelEntry | undefined => IMAGE_MODELS.find((m) => m.id === id)
+export const imageModelEntry = (id: string): ImageModelEntry | undefined =>
+  IMAGE_MODELS.find((m) => m.id === id)
 
 /** The picked image model, if there is one (a saved id no longer offered is none). */
-export const pickedImageModel = (): ImageModelEntry | undefined => imageModelEntry(imageModelSetting.get())
+export const pickedImageModel = (): ImageModelEntry | undefined =>
+  imageModelEntry(imageModelSetting.get())
 
 /** The image model's download while it loads, 0 to 1 (undefined when it isn't downloading), for the tool's widget. */
 export const imageDownload = createStore<number | undefined>(undefined)
@@ -86,12 +107,29 @@ const adapterFor = (entry: ImageModelEntry) => {
   return adapter
 }
 
+let swaps: Promise<unknown> = Promise.resolve()
+/**
+ * Runs one image call's whole swap (unload the chat model, draw, unload the
+ * image model, load the chat model again) after the one before has ended.
+ * TanStack AI runs a reply's tool calls in parallel, and two image calls
+ * share the image adapter: without this, the first to finish would unload
+ * the image model (ending the other's drawing) and reload the chat model
+ * while the other still drew.
+ */
+export function oneAtATime<T>(swap: () => Promise<T>): Promise<T> {
+  const run = swaps.then(swap)
+  swaps = run.catch(() => undefined)
+  return run
+}
+
 /** The result's line for the model. */
-const resultLine = (prompt: string) => `The image of "${prompt}" is already shown to the person. Don't add an image or link to it.`
+const resultLine = (prompt: string) =>
+  `The image of "${prompt}" is already shown to the person. Don't add an image or link to it.`
 
 const imageToolDefinition = toolDefinition({
   name: IMAGE_TOOL,
-  description: "Draws a pixel-art image from a short description and shows it to the person.",
+  description:
+    "Draws a pixel-art image from a short description and shows it to the person.",
   inputSchema: {
     type: "object",
     properties: {
@@ -108,47 +146,77 @@ const imageToolDefinition = toolDefinition({
  * for the rest of the reply (chat/models.ts's `whileUnloaded`).
  */
 export const imageToolFor = (chatModel: ModelId) =>
-  imageToolDefinition.server(async (args, context): Promise<Array<ContentPart>> => {
-    const prompt = typeof (args as { prompt?: unknown }).prompt === "string" ? (args as { prompt: string }).prompt.trim() : ""
-    if (!prompt) throw new Error("A prompt is needed.")
-    const model = pickedImageModel()
-    if (!model) throw new Error("No image model is picked in Settings.")
-    const signal = context?.abortSignal
-    const adapter = adapterFor(model)
-    const result = await whileUnloaded(
-      chatModel,
-      async () => {
-        try {
-          return await generateImage({
-            adapter: adapter as ReturnType<typeof onnxImage>,
-            prompt,
-            numberOfImages: IMAGES_PER_CALL,
-            threadId: crypto.randomUUID(),
-            ...(signal && { abortSignal: signal })
-          })
-        } finally {
-          imageDownload.set(undefined)
-          await adapter.destroy()
-        }
-      },
-      signal
-    )
-    return [
-      { type: "text", content: resultLine(prompt) },
-      ...result.images.flatMap((image): Array<ContentPart> =>
-        image.b64Json ? [{ type: "image", source: { type: "data", value: image.b64Json, mimeType: "image/png" } }] : []
+  imageToolDefinition.server(
+    async (args, context): Promise<Array<ContentPart>> => {
+      const prompt =
+        typeof (args as { prompt?: unknown }).prompt === "string"
+          ? (args as { prompt: string }).prompt.trim()
+          : ""
+      if (!prompt) throw new Error("A prompt is needed.")
+      const model = pickedImageModel()
+      if (!model) throw new Error("No image model is picked in Settings.")
+      const signal = context?.abortSignal
+      const adapter = adapterFor(model)
+      const result = await oneAtATime(() =>
+        whileUnloaded(
+          chatModel,
+          async () => {
+            try {
+              return await generateImage({
+                adapter: adapter as ReturnType<typeof onnxImage>,
+                prompt,
+                numberOfImages: IMAGES_PER_CALL,
+                threadId: crypto.randomUUID(),
+                ...(signal && { abortSignal: signal })
+              })
+            } finally {
+              imageDownload.set(undefined)
+              await adapter.destroy()
+            }
+          },
+          signal
+        )
       )
-    ]
-  })
+      return [
+        { type: "text", content: resultLine(prompt) },
+        ...result.images.flatMap((image): Array<ContentPart> =>
+          image.b64Json
+            ? [
+                {
+                  type: "image",
+                  source: {
+                    type: "data",
+                    value: image.b64Json,
+                    mimeType: "image/png"
+                  }
+                }
+              ]
+            : []
+        )
+      ]
+    }
+  )
 
 /** A tool result's images as data URLs, if it has any. */
 export function imagesOf(value: unknown): Array<string> {
   if (!Array.isArray(value)) return []
   return value.flatMap((part: unknown) => {
-    const source = (part as { type?: unknown; source?: { type?: unknown; value?: unknown; mimeType?: unknown } }).type === "image"
-      ? (part as { source?: { type?: unknown; value?: unknown; mimeType?: unknown } }).source
-      : undefined
+    const source =
+      (
+        part as {
+          type?: unknown
+          source?: { type?: unknown; value?: unknown; mimeType?: unknown }
+        }
+      ).type === "image"
+        ? (
+            part as {
+              source?: { type?: unknown; value?: unknown; mimeType?: unknown }
+            }
+          ).source
+        : undefined
     if (source?.type !== "data" || typeof source.value !== "string") return []
-    return [`data:${typeof source.mimeType === "string" ? source.mimeType : "image/png"};base64,${source.value}`]
+    return [
+      `data:${typeof source.mimeType === "string" ? source.mimeType : "image/png"};base64,${source.value}`
+    ]
   })
 }
