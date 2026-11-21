@@ -121,12 +121,13 @@ const swapQueue = oneAtATime()
 
 /**
  * The result's line for the model: the image is in front of the person, and
- * its part is a short sentence. Told what not to do instead, or nothing,
- * LFM3 adds an image of its own (a made-up link or file name) after "Here's
- * your …:" in 1 reply in 12 to every reply.
+ * its part is a sentence about it. Told what not to do instead, asked for "a
+ * short sentence", or told nothing, LFM3 adds an image of its own (a made-up
+ * link or file name) after "Here's your …:" in 1 reply in 10 to every reply;
+ * asked for a sentence about it, in none of 30.
  */
 const resultLine = (prompt: string) =>
-  `The person can see the image of "${prompt}" now. Reply with a short sentence.`
+  `The person can see the image of "${prompt}" now. Reply with a sentence about it.`
 
 const imageToolDefinition = toolDefinition({
   name: IMAGE_TOOL,
