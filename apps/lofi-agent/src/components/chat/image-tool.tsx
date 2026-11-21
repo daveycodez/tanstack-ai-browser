@@ -41,14 +41,16 @@ export function ImageTool({ part, result }: ToolProps<typeof chatOptions>) {
   if (status === "error") {
     return (
       <Typography type="body-xs" className="text-danger">
-        Couldn&apos;t draw{prompt ? ` ${prompt}` : " the images"}. {errorOf(part, result)}
+        Couldn&apos;t draw{prompt ? ` ${prompt}` : " the image"}. {errorOf(part, result)}
       </Typography>
     )
   }
+  // No result and no reply running: stopped, or the page was ended mid-drawing (iOS ends
+  // a tab past its memory limit, and the chat comes back with the call but no result).
   if (status === "stopped") {
     return (
       <Typography type="body-xs" color="muted">
-        Drawing stopped.
+        Drawing didn&apos;t finish.
       </Typography>
     )
   }
