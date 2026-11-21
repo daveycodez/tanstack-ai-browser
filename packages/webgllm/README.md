@@ -112,6 +112,32 @@ A failure is a `RUN_ERROR`, as in a chat. Aborting stops the generation and ends
 
 Models with a vision encoder read images: Qwen3.5 2B (its ONNX build since webgllm 0.2.3, its GGUF build with its projector since 0.3.3), and Liquid's vision models, LFM3-VL 2B and LFM2.5-VL 3B, 1.6B and 450M, each in Liquid's GGUF and ONNX builds (webgllm 0.3.3 and later). The adapter's `inputModalities` is `["text", "image"]` for them, from the catalog's `supports.input`; `undefined` for a model the catalog doesn't list. Send image parts in a user message, as data (base64) or URLs: they go to webgllm as OpenAI's `image_url`, with `detail` (`auto` by default) setting how many pixels it reads. webgllm loads the vision encoder only for a request with an image and frees it after, so text chats cost nothing more. An image to a model without one throws webgllm's `unsupported-parameter` error.
 
+## Image generation
+
+`webgllmImage` is an image adapter for `generateImage()`: Tessera-small (16×16 pixel-art sprites from text) on webgllm's own engines, through `webgllm.images.generate` (webgllm 0.3.11 and later). It runs on WebGPU where the GPU passes the model's self-test, else WebGL 2, in the same `WebGLLM` as the text adapters, so text and image models share its memory budget.
+
+```ts
+import { generateImage } from "@tanstack/ai"
+import { webgllmImage } from "@tanstack-ai-browser/webgllm"
+
+const result = await generateImage({
+  adapter: webgllmImage("cfahlgren1/tessera-small-onnx"),
+  prompt: "cat wearing sunglasses",
+  numberOfImages: 1,
+  threadId
+})
+// result.images[0].b64Json: a 16×16 PNG; scale it up with `image-rendering: pixelated`
+```
+
+- `numberOfImages`: 1 to 8, drawn together in one batch.
+- `size`: the model's own `"16x16"`, or a whole multiple of it, such as `"128x128"`, with each pixel repeated.
+- `prompt`: text. Image parts are refused.
+- `modelOptions`: webgllm's `seed`, `steps` (16 by default) and `guidance_scale` (3).
+- **Loading:** `availability()` is `"unavailable"` where the engine can't run, `"available"` once the model is loaded, and `"downloadable"` otherwise. `create({ onDownloadProgress? })` loads it ahead of time, and `destroy()` unloads it, freeing its memory at once.
+- **Catalog:** `WEBGLLM_IMAGE_MODELS` lists the models and `WEBGLLM_IMAGE_MODEL_META` their files and license.
+
+Tessera-small is by Jagrat Patel (TheJagStudio), CC BY-NC 4.0: no commercial use of the model or its images. Its text encoder, CLIP ViT-B/32, is OpenAI's (MIT).
+
 ## Models and loading
 
 The root has the catalog too, webgllm's own re-exported under the adapter's names: `WEBGLLM_CHAT_MODELS` (webgllm's `WEBGL_TEXT_MODELS`) lists the models webgllm runs and `WEBGLLM_MODEL_META` (its `WEBGL_MODEL_META`) has each one's files, capabilities and sampling. `WEBGLLM_MODEL_REASONING` has each model's reasoning levels in TanStack's shape, for `supportedReasoningLevels()`. Their types are `WebGllmChatModel`, `WebGllmModelMeta` and `WebGllmModelReasoningByName`. LFM3 thinks by default and Qwen3.5 doesn't; `chat({ reasoning })` switches it.

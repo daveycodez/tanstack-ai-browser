@@ -64,7 +64,7 @@ const workerEngines = new WeakMap<Worker, { engine: Engine; webgpu: WebGllmBacke
  * An adapter's engine: its own worker's (shared by every adapter given that
  * worker, which must agree on `webgpu`), else the page's for its backend.
  */
-function engineFor(worker: Worker | undefined, webgpu: WebGllmBackend = "auto"): Engine {
+export function engineFor(worker: Worker | undefined, webgpu: WebGllmBackend = "auto"): Engine {
   if (!worker) {
     let engine = pageEngines.get(webgpu)
     if (!engine) pageEngines.set(webgpu, (engine = createEngine(undefined, webgpu)))
@@ -86,10 +86,10 @@ export const speed = { predict: predictSpeed }
 
 let supported: boolean | undefined
 /** Whether the engine runs here, checked once: webgllm's check makes a WebGL context. */
-const engineRuns = () => (supported ??= WebGLLM.isSupported())
+export const engineRuns = () => (supported ??= WebGLLM.isSupported())
 
 /** The download's share of webgllm's load progress (downloading is its first 90%). */
-const downloadShare = ({ progress, loadedBytes, totalBytes }: LoadProgress) =>
+export const downloadShare = ({ progress, loadedBytes, totalBytes }: LoadProgress) =>
   totalBytes ? Math.min((loadedBytes ?? 0) / totalBytes, 1) : Math.min(progress / 0.9, 1)
 
 /**
