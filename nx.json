@@ -41,6 +41,7 @@
       "litert-lm",
       "mediapipe",
       "mlkit",
+      "onnx",
       "prompt-api",
       "transformers-js",
       "web-llm",
@@ -55,7 +56,7 @@
       "conventionalCommits": true,
       "adjustSemverBumpsForZeroMajorVersion": true,
       "fallbackCurrentVersionResolver": "disk",
-      "preVersionCommand": "pnpm nx run-many -t build -p afm apfel litert-lm mediapipe mlkit prompt-api transformers-js web-llm webgllm wllama"
+      "preVersionCommand": "pnpm nx run-many -t build -p afm apfel litert-lm mediapipe mlkit onnx prompt-api transformers-js web-llm webgllm wllama"
     },
     "changelog": {
       "automaticFromRef": true,

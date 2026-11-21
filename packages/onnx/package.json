@@ -1,0 +1,65 @@
+{
+  "name": "@tanstack-ai-browser/onnx",
+  "version": "0.3.2",
+  "description": "TanStack AI image adapter for ONNX models in the browser, on ONNX Runtime Web (WebGPU, or WebAssembly): Tessera-small pixel-art sprites",
+  "license": "MIT",
+  "author": "daveycodez",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/daveycodez/tanstack-ai-browser.git",
+    "directory": "packages/onnx"
+  },
+  "homepage": "https://github.com/daveycodez/tanstack-ai-browser/tree/main/packages/onnx#readme",
+  "bugs": "https://github.com/daveycodez/tanstack-ai-browser/issues",
+  "keywords": [
+    "tanstack-ai",
+    "tanstack",
+    "ai",
+    "image-generation",
+    "onnx",
+    "onnxruntime-web",
+    "webgpu",
+    "webassembly",
+    "browser",
+    "local-ai",
+    "pixel-art"
+  ],
+  "type": "module",
+  "sideEffects": false,
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    "./package.json": "./package.json",
+    ".": {
+      "@tanstack-ai-browser/source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "src",
+    "dist",
+    "!**/*.tsbuildinfo"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "nx": {
+    "name": "onnx"
+  },
+  "scripts": {
+    "test": "node --import @swc-node/register/esm-register --test \"src/**/*.test.ts\""
+  },
+  "peerDependencies": {
+    "@tanstack/ai": "^1.4.0"
+  },
+  "devDependencies": {
+    "@tanstack/ai": "1.4.0"
+  },
+  "dependencies": {
+    "@huggingface/tokenizers": "0.2.0",
+    "onnxruntime-web": "1.31.1"
+  }
+}
