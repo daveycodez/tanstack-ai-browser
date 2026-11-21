@@ -5,7 +5,8 @@
  * (webgllm's or the `onnx` package's), in the chat model's place (it
  * unloads meanwhile). Its result is a line for the model and the images,
  * which only the chat shows (the adapters pass a tool result's text to the
- * model, not its images).
+ * model, not its images). A model turn that only drew ends the reply: the
+ * image is the answer (chat/ends-turn.ts).
  */
 import { generateImage, toolDefinition } from "@tanstack/ai"
 import type { ContentPart } from "@tanstack/ai"
@@ -139,8 +140,9 @@ const imageToolDefinition = toolDefinition({
 /**
  * The image tool for a run answered by `chatModel`. The chat model and the
  * image model never sit in memory together: the chat model unloads, the
- * image model loads and draws, then unloads, and the chat model loads again
- * for the rest of the reply (chat/models.ts's `whileUnloaded`).
+ * image model loads and draws, then unloads, and the chat model loads again,
+ * for the next message or for the rest of a reply that called other tools
+ * too (chat/models.ts's `whileUnloaded`).
  */
 export const imageToolFor = (chatModel: ModelId) =>
   imageToolDefinition.server(
