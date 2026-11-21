@@ -19,6 +19,7 @@ import type { WebGllmImageModel } from "@tanstack-ai-browser/webgllm"
 
 import { whileUnloaded } from "#/chat/models"
 import type { ModelId } from "#/chat/models"
+import { oneAtATime } from "#/lib/one-at-a-time"
 import { setting } from "#/lib/settings"
 import { createStore } from "#/lib/store"
 
@@ -107,20 +108,16 @@ const adapterFor = (entry: ImageModelEntry) => {
   return adapter
 }
 
-let swaps: Promise<unknown> = Promise.resolve()
 /**
  * Runs one image call's whole swap (unload the chat model, draw, unload the
  * image model, load the chat model again) after the one before has ended.
  * TanStack AI runs a reply's tool calls in parallel, and two image calls
  * share the image adapter: without this, the first to finish would unload
  * the image model (ending the other's drawing) and reload the chat model
- * while the other still drew.
+ * while the other still drew. A call stopped while it waits never starts
+ * its swap, so it can't unload the chat model the one before restored.
  */
-export function oneAtATime<T>(swap: () => Promise<T>): Promise<T> {
-  const run = swaps.then(swap)
-  swaps = run.catch(() => undefined)
-  return run
-}
+const swapQueue = oneAtATime()
 
 /** The result's line for the model. */
 const resultLine = (prompt: string) =>
@@ -157,25 +154,27 @@ export const imageToolFor = (chatModel: ModelId) =>
       if (!model) throw new Error("No image model is picked in Settings.")
       const signal = context?.abortSignal
       const adapter = adapterFor(model)
-      const result = await oneAtATime(() =>
-        whileUnloaded(
-          chatModel,
-          async () => {
-            try {
-              return await generateImage({
-                adapter: adapter as ReturnType<typeof onnxImage>,
-                prompt,
-                numberOfImages: IMAGES_PER_CALL,
-                threadId: crypto.randomUUID(),
-                ...(signal && { abortSignal: signal })
-              })
-            } finally {
-              imageDownload.set(undefined)
-              await adapter.destroy()
-            }
-          },
-          signal
-        )
+      const result = await swapQueue(
+        () =>
+          whileUnloaded(
+            chatModel,
+            async () => {
+              try {
+                return await generateImage({
+                  adapter: adapter as ReturnType<typeof onnxImage>,
+                  prompt,
+                  numberOfImages: IMAGES_PER_CALL,
+                  threadId: crypto.randomUUID(),
+                  ...(signal && { abortSignal: signal })
+                })
+              } finally {
+                imageDownload.set(undefined)
+                await adapter.destroy()
+              }
+            },
+            signal
+          ),
+        signal
       )
       return [
         { type: "text", content: resultLine(prompt) },
