@@ -879,6 +879,25 @@ export async function prepareModel(
   }
 }
 
+/**
+ * Runs `run` with `id`'s model unloaded, then loads it again (`prepareModel`),
+ * so two models never sit in memory together: the image tool draws in the
+ * chat model's place (lib/image.ts). An iPhone tab holds LFM3 or the image
+ * model, not both. A model that doesn't load in the page (Apple's) stays.
+ */
+export async function whileUnloaded<T>(id: ModelId, run: () => Promise<T>, signal?: AbortSignal): Promise<T> {
+  const { status, adapter } = modelInfo(id)
+  if (!status || !("destroy" in adapter)) return run()
+  await adapter.destroy()
+  status.set({ state: "idle" })
+  try {
+    return await run()
+  } finally {
+    const failed = await prepareModel(id, signal)
+    if (failed) console.error(failed)
+  }
+}
+
 /** How many models already on the device a download confirmation offers. */
 const ON_DEVICE_OFFERED = 3
 
