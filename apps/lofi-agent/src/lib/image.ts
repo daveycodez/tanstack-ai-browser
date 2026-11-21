@@ -5,7 +5,11 @@
  * (webgllm's or the `onnx` package's), in the chat model's place (it
  * unloads meanwhile). Its result is a line for the model and the images,
  * which only the chat shows (the adapters pass a tool result's text to the
- * model, not its images).
+ * model, not its images). The model says something with the image: the
+ * call's `message`, which the chat shows with it as plain text. A model turn
+ * that only drew ends the reply (chat/ends-turn.ts), so the model never
+ * writes after the image, where it would add one of its own (a made-up
+ * link or file name) in about 1 reply in 10, whatever the result says.
  */
 import { generateImage, toolDefinition } from "@tanstack/ai"
 import type { ContentPart } from "@tanstack/ai"
@@ -119,15 +123,9 @@ const adapterFor = (entry: ImageModelEntry) => {
  */
 const swapQueue = oneAtATime()
 
-/**
- * The result's line for the model: the image is in front of the person, and
- * its part is a sentence about it. Told what not to do instead, asked for "a
- * short sentence", or told nothing, LFM3 adds an image of its own (a made-up
- * link or file name) after "Here's your …:" in 1 reply in 10 to every reply;
- * asked for a sentence about it, in none of 30.
- */
+/** The result's line for the model, which it reads in later turns. */
 const resultLine = (prompt: string) =>
-  `The person can see the image of "${prompt}" now. Reply with a sentence about it.`
+  `The image of "${prompt}" is already shown to the person. Don't add an image or link to it.`
 
 const imageToolDefinition = toolDefinition({
   name: IMAGE_TOOL,
@@ -136,17 +134,22 @@ const imageToolDefinition = toolDefinition({
   inputSchema: {
     type: "object",
     properties: {
-      prompt: { type: "string", description: "What to draw, in a few words." }
+      prompt: { type: "string", description: "What to draw, in a few words." },
+      message: {
+        type: "string",
+        description: "A sentence to say to the person with the image."
+      }
     },
-    required: ["prompt"]
+    required: ["prompt", "message"]
   }
 })
 
 /**
  * The image tool for a run answered by `chatModel`. The chat model and the
  * image model never sit in memory together: the chat model unloads, the
- * image model loads and draws, then unloads, and the chat model loads again
- * for the rest of the reply (chat/models.ts's `whileUnloaded`).
+ * image model loads and draws, then unloads, and the chat model loads again,
+ * for the next message or for the rest of a reply that called other tools
+ * too (chat/models.ts's `whileUnloaded`).
  */
 export const imageToolFor = (chatModel: ModelId) =>
   imageToolDefinition.server(
