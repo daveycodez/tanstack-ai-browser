@@ -270,7 +270,9 @@ function AssistantMessage({ message }: { message: UIMessage }) {
         <SourceList sources={sources.all} />
       )}
       {shownError && <ErrorAlert error={shownError} />}
-      {!isWriting && (text || shownError) && (
+      {/* Any finished reply can be deleted, one of only tool calls too (an
+          image reply ends at its image, its sentence in the call). */}
+      {!isWriting && (hasAnswer || shownError) && (
         <ReplyActions
           text={text}
           canRegenerate={isLast && !isRunning}
@@ -425,7 +427,7 @@ function ReplyActions({
           <ArrowRotateRight />
         </Action>
       )}
-      {text && (
+      {(text || onDelete) && (
         <Dropdown>
           <Action label="More">
             <Ellipsis />
@@ -437,14 +439,18 @@ function ReplyActions({
                 if (key === "delete") onDelete?.()
               }}
             >
-              <Dropdown.Item id="export" textValue="Export as Markdown">
-                <ArrowDownToLine className="size-4" />
-                <Label>Export as Markdown</Label>
-              </Dropdown.Item>
-              <Dropdown.Item id="delete" textValue="Delete" variant="danger">
-                <TrashBin className="size-4 text-danger" />
-                <Label>Delete</Label>
-              </Dropdown.Item>
+              {text ? (
+                <Dropdown.Item id="export" textValue="Export as Markdown">
+                  <ArrowDownToLine className="size-4" />
+                  <Label>Export as Markdown</Label>
+                </Dropdown.Item>
+              ) : null}
+              {onDelete ? (
+                <Dropdown.Item id="delete" textValue="Delete" variant="danger">
+                  <TrashBin className="size-4 text-danger" />
+                  <Label>Delete</Label>
+                </Dropdown.Item>
+              ) : null}
             </Dropdown.Menu>
           </Dropdown.Popover>
         </Dropdown>
