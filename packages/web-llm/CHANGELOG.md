@@ -1,3 +1,13 @@
+## 0.3.3 (2026-11-22)
+
+### 🚀 Features
+
+- **onnx:** a TanStack AI image adapter for ONNX Runtime Web, with Tessera-small pixel-art sprites ([ac285cd](https://github.com/daveycodez/tanstack-ai-browser/commit/ac285cd))
+
+### ❤️ Thank You
+
+- daveycodez
+
 ## 0.3.2 (2026-11-20)
 
 ### 🚀 Features

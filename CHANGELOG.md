@@ -1,3 +1,27 @@
+## 0.3.3 (2026-11-22)
+
+### 🚀 Features
+
+- **lofi-agent:** a generate_image tool that draws in the chat model's place, with the image model in Settings ([bf23d87](https://github.com/daveycodez/tanstack-ai-browser/commit/bf23d87))
+- **onnx:** a TanStack AI image adapter for ONNX Runtime Web, with Tessera-small pixel-art sprites ([ac285cd](https://github.com/daveycodez/tanstack-ai-browser/commit/ac285cd))
+- **webgllm:** an image adapter for webgllm's Tessera-small, on webgllm 0.3.11 ([8e356e4](https://github.com/daveycodez/tanstack-ai-browser/commit/8e356e4))
+
+### 🩹 Fixes
+
+- **lofi-agent:** an image tool call that never got its result says the drawing didn't finish, not that it was stopped ([8f8e11b](https://github.com/daveycodez/tanstack-ai-browser/commit/8f8e11b))
+- **lofi-agent:** an image call stopped while it waits never starts its swap ([2237fea](https://github.com/daveycodez/tanstack-ai-browser/commit/2237fea))
+- **lofi-agent:** a turn that only drew an image ends the reply ([8644ee2](https://github.com/daveycodez/tanstack-ai-browser/commit/8644ee2))
+- **lofi-agent:** the model says its piece with the image, and adds no image of its own ([5688825](https://github.com/daveycodez/tanstack-ai-browser/commit/5688825))
+- **lofi-agent:** the image tool's result asks for a short sentence ([d354d6e](https://github.com/daveycodez/tanstack-ai-browser/commit/d354d6e))
+- **lofi-agent:** the image tool's result asks for a sentence about the image ([318eae2](https://github.com/daveycodez/tanstack-ai-browser/commit/318eae2))
+- **lofi-agent:** the model's message goes on the image tool call ([f41d062](https://github.com/daveycodez/tanstack-ai-browser/commit/f41d062))
+- **lofi-agent:** a reply of only tool calls keeps its actions, Delete among them ([d00f0ab](https://github.com/daveycodez/tanstack-ai-browser/commit/d00f0ab))
+- **onnx,webgllm,lofi-agent:** one image swap at a time, queued ONNX sessions, checked sampler options ([5f04e02](https://github.com/daveycodez/tanstack-ai-browser/commit/5f04e02))
+
+### ❤️ Thank You
+
+- daveycodez
+
 ## 0.3.2 (2026-11-20)
 
 ### 🚀 Features

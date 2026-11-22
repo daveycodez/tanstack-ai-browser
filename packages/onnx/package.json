@@ -1,6 +1,6 @@
 {
   "name": "@tanstack-ai-browser/onnx",
-  "version": "0.3.2",
+  "version": "0.3.3",
   "description": "TanStack AI image adapter for ONNX models in the browser, on ONNX Runtime Web (WebGPU, or WebAssembly): Tessera-small pixel-art sprites",
   "license": "MIT",
   "author": "daveycodez",
