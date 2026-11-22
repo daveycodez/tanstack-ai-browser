@@ -23,6 +23,7 @@ import { useSyncExternalStore } from "react"
 
 import type { ReplyStats } from "#/chat/reply-stats"
 import type { ModelId } from "#/chat/models"
+import type { ImageModelChoice } from "#/lib/image"
 
 export type Thread = {
   id: string
@@ -53,6 +54,8 @@ export type Settings = {
   locationTool: boolean
   /** Whether models get the built-in weather tool (lib/weather.ts). */
   weatherTool: boolean
+  /** The image model the built-in image tool draws with, or "none" for no tool (lib/image.ts). */
+  imageModel: ImageModelChoice
 }
 
 export type SettingKey = keyof Settings

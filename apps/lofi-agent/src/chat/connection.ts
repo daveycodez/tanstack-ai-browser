@@ -15,9 +15,11 @@ import { locationToolDefinition, locationToolSetting } from "#/lib/location"
 import { timeTools, timeToolsSetting } from "#/lib/time"
 import { todayLine } from "#/lib/time-server"
 import { weatherTool, weatherToolSetting } from "#/lib/weather"
+import { IMAGE_TOOL, imageToolFor, pickedImageModel } from "#/lib/image"
 import { recordGeneration, startReply } from "./generation-stats"
 import { replyStatsMiddleware } from "./call-stats"
 import { toolResultCapMiddleware } from "./tool-result-cap"
+import { endsTurnAfter } from "./ends-turn"
 import { ABORTED, untilAborted } from "./abortable"
 import {
   confirmDownload,
@@ -123,14 +125,16 @@ async function* reply(
     // none). The built-in ones, unless turned off in Settings: current time,
     // location, then weather. The location tool is a client tool, only its
     // definition here, so the run pauses for useChat to run its browser part
-    // (components/chat/thread.tsx). Then the MCP servers' tools, Exa's web
+    // (components/chat/thread.tsx). The image tool, once an image model is
+    // picked in Settings (lib/image.ts). Then the MCP servers' tools, Exa's web
     // search first: the clients stay open between runs; a server that fails
     // to list its tools is left out.
     ...(modelInfo(model).callsTools && {
       tools: [
         ...(timeToolsSetting.get() ? timeTools() : []),
         ...(locationToolSetting.get() ? [locationToolDefinition] : []),
-        ...(weatherToolSetting.get() ? [weatherTool] : [])
+        ...(weatherToolSetting.get() ? [weatherTool] : []),
+        ...(pickedImageModel() ? [imageToolFor(model)] : [])
       ],
       mcp: {
         clients: getMcpClients(),
@@ -145,11 +149,14 @@ async function* reply(
     interrupts: [confirmDownload],
     // The download confirmation, then each call's usage and its timings
     // measured from the stream, to the stats line, for this reply only; and
-    // a cap on each tool result, so it fits the model's context.
+    // a cap on each tool result, so it fits the model's context. A turn
+    // that only drew an image ends the reply: the model says its piece in the
+    // call (lib/image.ts), and never writes after the image to add its own.
     middleware: [
       confirmDownloadMiddleware(download),
       replyStatsMiddleware(recordGeneration),
-      toolResultCapMiddleware()
+      toolResultCapMiddleware(),
+      endsTurnAfter(IMAGE_TOOL)
     ],
     abortController
   })

@@ -6,6 +6,7 @@ import type { AdapterYieldChunk, TextOptions, TokenUsage } from "@tanstack/ai"
 import { BaseTextAdapter } from "@tanstack/ai/adapters"
 
 import { replyStatsMiddleware } from "./call-stats.ts"
+import { endsTurnAfter } from "./ends-turn.ts"
 import { replyStatsOf } from "./reply-stats.ts"
 import type { GenerationStats } from "./reply-stats.ts"
 
@@ -67,7 +68,10 @@ class FakeAdapter extends BaseTextAdapter<"fake", Record<string, never>, ["text"
 }
 
 /** One reply through `chat()`, and what it recorded, by call. */
-async function reply(adapter: FakeAdapter, options: { tools?: Array<ReturnType<typeof clock>> } = {}) {
+async function reply(
+  adapter: FakeAdapter,
+  options: { tools?: Array<ReturnType<typeof clock>>; endsAfter?: string } = {}
+) {
   const recorded = new Map<string, GenerationStats>()
   const stream = chat({
     adapter,
@@ -79,7 +83,8 @@ async function reply(adapter: FakeAdapter, options: { tools?: Array<ReturnType<t
       replyStatsMiddleware((threadId, key, stats) => {
         assert.equal(threadId, "thread")
         recorded.set(key, stats)
-      })
+      }),
+      ...(options.endsAfter ? [endsTurnAfter(options.endsAfter)] : [])
     ]
   })
   for await (const _ of stream) void _
@@ -147,4 +152,14 @@ test("a step that calls a client tool keeps its token counts when the reply paus
   assert.equal(stats.inputTokens, 20)
   assert.equal(stats.outputTokens, 5)
   assert.ok(recordedValue(stats.firstTokenMs) > 0)
+})
+
+test("a reply that ends at a tool's results keeps that step's token counts", async () => {
+  const usage = { promptTokens: 20, completionTokens: 5, totalTokens: 25 }
+  const recorded = await reply(new FakeAdapter(usage, "clock"), { tools: [clock()], endsAfter: "clock" })
+  assert.deepEqual([...recorded.keys()], ["run:0"])
+  const stats = recorded.get("run:0")
+  assert.ok(stats)
+  assert.equal(stats.inputTokens, 20)
+  assert.equal(stats.outputTokens, 5)
 })

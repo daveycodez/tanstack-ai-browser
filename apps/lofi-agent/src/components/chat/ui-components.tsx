@@ -23,6 +23,8 @@ import { TextPart } from "./text-part"
 import { ThinkingPart } from "./thinking-part"
 import { WeatherTool } from "./weather-tool"
 import { LocationTool } from "./location-tool"
+import { ImageTool } from "./image-tool"
+import { IMAGE_TOOL } from "#/lib/image"
 import { LOCATION_TOOL } from "#/lib/location"
 import { WEATHER_TOOL } from "#/lib/weather"
 
@@ -34,11 +36,13 @@ import { WEATHER_TOOL } from "#/lib/weather"
  */
 /**
  * The built-in tools that show their own widget (a weather card, the
- * location): each call stands on its own, never in an "N tool calls" box.
+ * location, drawn images): each call stands on its own, never in an
+ * "N tool calls" box.
  */
 export const WIDGET_TOOLS = {
   [WEATHER_TOOL]: WeatherTool,
-  [LOCATION_TOOL]: LocationTool
+  [LOCATION_TOOL]: LocationTool,
+  [IMAGE_TOOL]: ImageTool
 }
 
 export const ChatUI = createChatUI(chatOptions, {

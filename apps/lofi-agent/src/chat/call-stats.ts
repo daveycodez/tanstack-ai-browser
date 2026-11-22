@@ -58,6 +58,8 @@ export type RecordGeneration = (threadId: string, key: string, stats: Generation
  */
 export function replyStatsMiddleware(record: RecordGeneration): ChatMiddleware {
   const clocks = new Map<string, CallClock>()
+  /** The calls whose own RUN_FINISHED has come. */
+  const finished = new Set<string>()
   const keyOf = (ctx: { runId: string; iteration: number }) => `${ctx.runId}:${ctx.iteration}`
   return {
     name: "reply-stats",
@@ -71,10 +73,13 @@ export function replyStatsMiddleware(record: RecordGeneration): ChatMiddleware {
       const clock = clocks.get(key)
       if (!clock) return
       if (chunk.type === "RUN_FINISHED") {
-        // A reply that pauses for a client tool (the location tool) or an
-        // approval finishes again after the call's own end and its usage:
-        // that pause ends no model call, and would replace the call's counts.
-        if (chunk.outcome?.type === "interrupt") return
+        // Only the call's own end. A reply that pauses for a client tool
+        // (the location tool) or an approval, or that ends at a tool's
+        // results (chat/ends-turn.ts), finishes again after the call's end
+        // and its usage: that finish ends no model call, and would replace
+        // the call's counts.
+        if (finished.has(key)) return
+        finished.add(key)
         record(ctx.threadId, key, statsFromUsage(undefined, clock))
         return
       }
