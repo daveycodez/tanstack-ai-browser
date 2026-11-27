@@ -1,6 +1,6 @@
 {
   "name": "@tanstack-ai-browser/mlkit",
-  "version": "0.3.3",
+  "version": "0.3.4",
   "description": "TanStack AI adapter for Gemini Nano on Android, through ML Kit's GenAI Prompt API (Android's AICore), with its native tool calling: a Capacitor plugin for Android",
   "license": "MIT",
   "author": "daveycodez",

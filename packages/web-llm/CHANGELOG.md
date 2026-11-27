@@ -1,3 +1,13 @@
+## 0.3.4 (2026-11-27)
+
+### 🩹 Fixes
+
+- **lofi-agent:** a model shows Loading… once its download ends, not Downloading… 100% ([7a5f6a5](https://github.com/daveycodez/tanstack-ai-browser/commit/7a5f6a5))
+
+### ❤️ Thank You
+
+- daveycodez
+
 ## 0.3.3 (2026-11-22)
 
 ### 🚀 Features
