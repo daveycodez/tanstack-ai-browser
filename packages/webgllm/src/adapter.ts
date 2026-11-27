@@ -95,7 +95,8 @@ export const downloadShare = ({ progress, loadedBytes, totalBytes }: LoadProgres
 /**
  * Loads `model` in `engine` for `contextLength`; webgllm returns at once when
  * it's loaded for it, and shares a load between its callers. Reports the
- * download's progress, 0 to 1, then 1 once it's ready.
+ * download's progress, 0 to 1 (1 as soon as its files are stored and the
+ * model goes into the GPU), then 1 again once it's ready.
  */
 async function loadIn(
   engine: Engine,
@@ -104,11 +105,18 @@ async function loadIn(
   signal: AbortSignal | null | undefined,
   report: DownloadProgressCallback
 ) {
+  let downloaded = false
   await engine.webgllm.loadModel(model, {
     ...(contextLength !== undefined && { contextLength }),
     ...(signal && { signal }),
     onProgress: (progress) => {
-      if (progress.phase === "download" && !progress.cached) report(downloadShare(progress))
+      if (progress.cached) return
+      if (progress.phase === "download") report(downloadShare(progress))
+      // Downloaded: the rest of the load (the GPU's) has a progress of its own.
+      else if (!downloaded) {
+        downloaded = true
+        report(1)
+      }
     }
   })
   report(1)

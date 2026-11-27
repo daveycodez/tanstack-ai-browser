@@ -145,6 +145,11 @@ function statusStore() {
   const status = createStore<ModelStatus>({ state: "idle" })
   const onDownloadProgress = (progress: number) => {
     if (progress < 1) status.set({ state: "loading", progress, downloading: true })
+    else {
+      // Downloaded: the load goes on ("Loading…") until `prepareModel` says it's ready.
+      const current = status.get()
+      if (current.state === "loading") status.set({ ...current, progress: 1 })
+    }
   }
   return { status, onDownloadProgress }
 }

@@ -48,6 +48,15 @@ test("create loads for the adapter's context length; progress (the download's sh
   assert.deepEqual(theirs, [0.5, 1, 1])
 })
 
+test("progress reaches 1 once the download ends and the GPU's part of the load starts, not only at ready", async () => {
+  const seen: Array<number> = []
+  const load = (progress: number) => ({ model: MODEL, phase: "load", progress, cached: false }) as LoadProgress
+  // The download's last bytes short of its total, then the load's own progress (webgllm's 0.9 to 1).
+  fake.progress = [download(60), download(99), load(0.9), load(0.95), load(1)]
+  await webgllmText(MODEL, { onDownloadProgress: (p) => seen.push(p) }).create()
+  assert.deepEqual(seen, [0.6, 0.99, 1, 1])
+})
+
 test("create rejects when the load fails or its signal aborts, and is safe to leave unawaited", async () => {
   fake.loadError = new Error("No room for the model.")
   await assert.rejects(webgllmText(MODEL).create(), /No room/)
