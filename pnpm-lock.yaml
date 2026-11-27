@@ -738,8 +738,8 @@ importers:
         specifier: ^1.0.4
         version: 1.0.4(@tanstack/ai@1.4.0(zod@4.6.7))(undici@7.30.2)(ws@8.23.0)(zod@4.6.7)
       webgllm:
-        specifier: ^0.3.11
-        version: 0.3.11
+        specifier: ^0.3.13
+        version: 0.3.13
     devDependencies:
       '@huggingface/transformers':
         specifier: 4.3.2
@@ -1754,10 +1754,6 @@ packages:
     resolution: {integrity: sha512-WerQwDRChQsauO1vr3gXIOnbM9R4gvuCXg1mVt4NDirfejprZHSG7iQQJ8eCfKl3p5rRNC3BwX6W3xcEf/5ibw==}
     peerDependencies:
       tailwindcss: '>=4.0.0'
-
-  '@huggingface/jinja@0.5.11':
-    resolution: {integrity: sha512-YzEzwM5oQf4r0vs7ifWQ+yuVR1YkAHrjERQ+a8WRsStHHp4NRBg+NesjiFc+X2AFUpRvvrIeHDS1xFy9jY/IjQ==}
-    engines: {node: '>=18'}
 
   '@huggingface/jinja@0.5.13':
     resolution: {integrity: sha512-jM17MqFily1iyT/1LD3r5w8/CZiyapVB0+7vOw48PfVtzyKsXStmHE4jVTyDAD05Tqv3un1xrS9ILUU1ugQAYQ==}
@@ -6422,8 +6418,8 @@ packages:
   webcrypto-core@1.9.2:
     resolution: {integrity: sha512-gsXecm82UQNlTBURJGuqOWy1Ww08S3kZUcr3aOJS02Pk0xLtkfeUAVC0u0xhgdonFme80edSJUIJyuvL/7250Q==}
 
-  webgllm@0.3.11:
-    resolution: {integrity: sha512-L0/KZ1ykGZ2d5Ry4YiKU2x9Ak4Bv3S6u6cKDVXJS/gtLHAmef/VXNVCzi6w2aNoHvjpoHE+zJBlsIQyOqG4ghA==}
+  webgllm@0.3.13:
+    resolution: {integrity: sha512-vSTgCavjuR9q7vNrIbOW/F8U6n4QxXHLc2ilmy/9z1NORYpPQME9ocsg/W0LgUrw/k7RS3RDuOAaYUQwxSG2ag==}
 
   webpack-virtual-modules@0.6.2:
     resolution: {integrity: sha512-66/V2i5hQanC51vBQKPH4aI8NMAcBW59FVBs+rC7eGHupMyfn34q7rZIE+ETlJ+XTevqfUhVVBgSUNSW2flEUQ==}
@@ -7777,8 +7773,6 @@ snapshots:
       tw-animate-css: 1.4.0
     transitivePeerDependencies:
       - tailwind-merge
-
-  '@huggingface/jinja@0.5.11': {}
 
   '@huggingface/jinja@0.5.13': {}
 
@@ -12805,9 +12799,9 @@ snapshots:
       asn1js: 3.1.0
       tslib: 2.9.1
 
-  webgllm@0.3.11:
+  webgllm@0.3.13:
     dependencies:
-      '@huggingface/jinja': 0.5.11
+      '@huggingface/jinja': 0.5.13
       '@huggingface/tokenizers': 0.2.0
       llguidance: 0.2.1
 
